@@ -20,7 +20,7 @@ import { _resetTreeHighlightsCacheForTests } from '../hooks/useTreeHighlights';
 import type { Chat, ChatDetail, Highlight, Paper } from '../types';
 
 vi.mock('../api', () => ({
-  TreeHasPdfError: class TreeHasPdfError extends Error {},
+  TreeHasSourceError: class TreeHasSourceError extends Error {},
   api: {
     getTree: vi.fn(),
     getSettings: vi.fn(),
@@ -37,6 +37,7 @@ vi.mock('../api', () => ({
     // Kontext-Banner (Variante 3a): wird für jeden Branch-Chat gerufen.
     getAncestors: vi.fn().mockResolvedValue([]),
     getTreePaper: vi.fn(),
+    getTreeVideo: vi.fn().mockResolvedValue(null),
     uploadPaper: vi.fn(),
     createChat: vi.fn(),
     deleteChat: vi.fn(),
@@ -171,7 +172,9 @@ describe('App — Highlight-Flows (Slices 04–06)', () => {
     await waitFor(() =>
       expect(screen.getByText(/maps states to actions/)).toBeInTheDocument(),
     );
-    expect(api.explainWord).toHaveBeenCalledWith('inverse dynamics model', expect.any(String));
+    // Dritter Parameter = chatId des aktiven Chats (KV-Prefix-Sharing,
+    // 2026-07-25): explain nutzt den Gesprächs-Cache, statt ihn zu verdrängen.
+    expect(api.explainWord).toHaveBeenCalledWith('inverse dynamics model', expect.any(String), 'c1');
   });
 
   it('Swatch-Klick persistiert das Highlight; zweiter Klick färbt um statt zu duplizieren (Slice 04)', async () => {

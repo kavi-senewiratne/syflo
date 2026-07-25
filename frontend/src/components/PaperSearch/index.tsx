@@ -19,10 +19,11 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  BookOpen, X, Search, Loader2, Download, ExternalLink, Lock, Info,
+  BookOpen, X, Search, Loader2, Download, ExternalLink, Lock,
 } from 'lucide-react';
 import { api } from '../../api';
 import { allCandidatesBlocked } from './blockedHosts';
+import { useStrings } from '../../strings';
 import type { SearchResult } from '../../types';
 
 type Availability = 'open' | 'manual' | 'paywalled';
@@ -40,6 +41,8 @@ interface Props {
 }
 
 export function PaperSearchModal({ onClose, onImport }: Props) {
+  // UI-Texte in der App language — re-rendert beim Sprachwechsel mit.
+  const S = useStrings().paperSearch;
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchResult[] | null>(null);
   const [searching, setSearching] = useState(false);
@@ -71,11 +74,12 @@ export function PaperSearchModal({ onClose, onImport }: Props) {
       setRateLimited(resp.rate_limited);
     } catch (e) {
       setResults([]);
-      setError(e instanceof Error ? e.message : 'Search failed');
+      setError(e instanceof Error ? e.message : S.searchFailed);
     } finally {
       setSearching(false);
     }
-  }, []);
+    // S ist pro Sprache eine stabile Referenz — der Callback bleibt aktuell.
+  }, [S]);
 
   // Debounced search — fires 400 ms after the user stops typing, from 3
   // chars upward (same thresholds as Syflo's home search).
@@ -107,7 +111,7 @@ export function PaperSearchModal({ onClose, onImport }: Props) {
     try {
       await onImport(r);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Import failed');
+      setError(e instanceof Error ? e.message : S.importFailed);
     } finally {
       setImportingId(null);
     }
@@ -130,18 +134,18 @@ export function PaperSearchModal({ onClose, onImport }: Props) {
         <div className="flex items-center justify-between px-5 pt-4">
           <h3 id="paper-search-title" className="flex items-center gap-2 text-[15px] font-semibold text-gray-900">
             <BookOpen size={17} className="text-blue-500" />
-            Add a research paper
+            {S.title}
           </h3>
           <button
             onClick={onClose}
-            aria-label="Close"
+            aria-label={S.close}
             className="p-1.5 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
           >
             <X size={16} />
           </button>
         </div>
         <p className="text-[12.5px] text-gray-500 px-5 pt-1">
-          The imported PDF is attached to this chat.
+          {S.subtitle}
         </p>
 
         {/* Search row */}
@@ -154,7 +158,7 @@ export function PaperSearchModal({ onClose, onImport }: Props) {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') searchNow(); }}
-              placeholder="Search by title, author or topic…"
+              placeholder={S.placeholder}
               className="flex-1 min-w-0 text-sm text-gray-900 outline-none placeholder:text-gray-400"
               data-testid="paper-search-input"
             />
@@ -166,7 +170,7 @@ export function PaperSearchModal({ onClose, onImport }: Props) {
             data-testid="paper-search-submit"
           >
             {searching && <Loader2 size={13} className="animate-spin" />}
-            Search
+            {S.search}
           </button>
         </div>
 
@@ -179,16 +183,20 @@ export function PaperSearchModal({ onClose, onImport }: Props) {
           )}
           {rateLimited && (
             <div className="mx-2 mb-2 text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2" data-testid="paper-search-rate-limited">
-              Search services are rate-limiting us. Wait a moment, then try again.
+              {S.rateLimited}
             </div>
           )}
-          {searching && results === null && (
+          {/* Status auch, wenn die vorherige Suche leer war — eine noch
+              sichtbare Trefferliste bleibt dagegen ruhig stehen (L4). */}
+          {searching && (results === null || results.length === 0) && (
             <p className="text-[13px] text-gray-400 text-center py-6" data-testid="paper-search-status">
-              Searching arXiv and OpenAlex…
+              {S.searching}
             </p>
           )}
-          {results !== null && results.length === 0 && !rateLimited && !error && (
-            <p className="text-[13px] text-gray-400 text-center py-6">No results.</p>
+          {/* !searching: "No results." beschreibt nur die AKTUELLE Suche —
+              nie als abgestandener Rest über einer laufenden (Bug 2026-07-24). */}
+          {!searching && results !== null && results.length === 0 && !rateLimited && !error && (
+            <p className="text-[13px] text-gray-400 text-center py-6">{S.noResults}</p>
           )}
           {results !== null && results.length > 0 && (
             <ul className="divide-y divide-gray-100">
@@ -208,12 +216,12 @@ export function PaperSearchModal({ onClose, onImport }: Props) {
                         {r.authors.slice(0, 3).join(', ')}
                         {r.authors.length > 3 ? ' et al.' : ''}
                         {r.year ? ` · ${r.year}` : ''}
-                        {` · ${r.citations.toLocaleString()} cites`}
+                        {S.cites(r.citations.toLocaleString())}
                       </p>
                       {availability === 'open' ? (
                         <span className="mt-1 inline-flex items-center gap-1 text-[10.5px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-md px-1.5 py-px">
                           <Download size={9} />
-                          Open access
+                          {S.openAccess}
                         </span>
                       ) : availability === 'manual' ? (
                         <span
@@ -221,7 +229,7 @@ export function PaperSearchModal({ onClose, onImport }: Props) {
                           className="mt-1 inline-flex items-center gap-1 text-[10.5px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-1.5 py-px"
                         >
                           <Download size={9} />
-                          Manual download
+                          {S.manualDownload}
                         </span>
                       ) : (
                         <span
@@ -229,7 +237,7 @@ export function PaperSearchModal({ onClose, onImport }: Props) {
                           className="mt-1 inline-flex items-center gap-1 text-[10.5px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-1.5 py-px"
                         >
                           <Lock size={9} />
-                          Paywalled
+                          {S.paywalled}
                         </span>
                       )}
                     </div>
@@ -242,7 +250,7 @@ export function PaperSearchModal({ onClose, onImport }: Props) {
                           className="inline-flex items-center gap-1.5 text-[12px] font-medium text-white bg-blue-500 hover:bg-blue-600 px-3 py-1.5 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                         >
                           {importing ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
-                          {importing ? 'Importing…' : 'Import'}
+                          {importing ? S.importing : S.importButton}
                         </button>
                       ) : availability === 'manual' ? (
                         <>
@@ -254,10 +262,10 @@ export function PaperSearchModal({ onClose, onImport }: Props) {
                             className="inline-flex items-center gap-1.5 text-[12px] font-medium text-gray-700 border border-gray-200 hover:bg-gray-50 px-3 py-1.5 rounded-lg transition-colors"
                           >
                             <ExternalLink size={12} />
-                            Open source page
+                            {S.openSourcePage}
                           </a>
                           <span className="text-[10px] text-gray-400 text-right max-w-[180px] leading-snug">
-                            host blocks direct download — upload the PDF after saving it
+                            {S.manualHint}
                           </span>
                         </>
                       ) : doiHref ? (
@@ -269,10 +277,10 @@ export function PaperSearchModal({ onClose, onImport }: Props) {
                           className="inline-flex items-center gap-1.5 text-[12px] font-medium text-gray-700 border border-gray-200 hover:bg-gray-50 px-3 py-1.5 rounded-lg transition-colors"
                         >
                           <ExternalLink size={12} />
-                          View publisher
+                          {S.viewPublisher}
                         </a>
                       ) : (
-                        <span className="text-[12px] text-gray-400 px-2">no PDF</span>
+                        <span className="text-[12px] text-gray-400 px-2">{S.noPdf}</span>
                       )}
                     </div>
                   </li>
@@ -280,12 +288,6 @@ export function PaperSearchModal({ onClose, onImport }: Props) {
               })}
             </ul>
           )}
-        </div>
-
-        {/* Footer */}
-        <div className="flex items-center gap-1.5 px-5 py-2.5 border-t border-gray-100 text-[11px] text-gray-400">
-          <Info size={11} className="shrink-0" />
-          Sources: OpenAlex + arXiv, merged and deduplicated · Semantic Scholar as fallback
         </div>
       </div>
     </div>

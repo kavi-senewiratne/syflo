@@ -19,6 +19,7 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { CornerDownRight, MessageSquare, Home } from 'lucide-react';
+import { useStrings } from '../../strings';
 import type { Chat } from '../../types';
 
 // Returns the half-width/half-height of a node. Falls back to the
@@ -145,6 +146,8 @@ interface ChatNodeData {
 const TITLE_CLAMP_LINES = 3;
 
 function ChatNodeView({ data }: NodeProps) {
+  // UI-Texte in der App language — re-rendert beim Sprachwechsel mit.
+  const S = useStrings().mindMap;
   const { title, parentWord, preview, messageCount, isRoot, isActive } =
     data as unknown as ChatNodeData;
   const [hovered, setHovered] = useState(false);
@@ -210,7 +213,7 @@ function ChatNodeView({ data }: NodeProps) {
       {isRoot && (
         <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider opacity-90 font-semibold mb-2">
           <Home size={12} />
-          <span>Main Topic</span>
+          <span>{S.mainTopic}</span>
         </div>
       )}
 
@@ -421,6 +424,8 @@ function loadSavedPositions(rootId: string | undefined): Record<string, { x: num
 }
 
 export function MindMap({ chats, activeChatId, onSelect }: Props) {
+  // UI-Texte in der App language — re-rendert beim Sprachwechsel mit.
+  const S = useStrings().mindMap;
   // Only show the tree of the currently active chat's root.
   const activeTree = useMemo(() => {
     const root = findRoot(chats, activeChatId);
@@ -464,7 +469,7 @@ export function MindMap({ chats, activeChatId, onSelect }: Props) {
   if (chats.length === 0) {
     return (
       <div className="w-full h-full flex items-center justify-center text-gray-400 text-sm">
-        No chats yet
+        {S.noChats}
       </div>
     );
   }

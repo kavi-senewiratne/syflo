@@ -11,6 +11,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { AlertTriangle, Check, ChevronDown, ChevronRight, Lightbulb } from 'lucide-react';
+import { useStrings } from '../../strings';
 import type { OllamaModelInfo } from '../../types';
 
 export interface ModelPickerProps {
@@ -31,6 +32,8 @@ export interface ModelPickerProps {
 }
 
 export function ModelPicker({ activeModel, models, recommendedModel, onSelectModel, think, onToggleThink, onOpenSettings, disabled, gpuWarning }: ModelPickerProps) {
+  // UI-Texte in der App language — re-rendert beim Sprachwechsel mit.
+  const S = useStrings().modelPicker;
   const [open, setOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const pillRef = useRef<HTMLButtonElement>(null);
@@ -54,8 +57,8 @@ export function ModelPicker({ activeModel, models, recommendedModel, onSelectMod
     Boolean(recommendedModel) && !models.some(m => m.name === recommendedModel);
 
   const hintFor = (m: OllamaModelInfo): string => {
-    if (m.name === recommendedModel) return 'Recommended for this Mac';
-    return m.parameter_size ? `${m.parameter_size} · installed` : 'Installed';
+    if (m.name === recommendedModel) return S.recommended;
+    return m.parameter_size ? S.installedWithSize(m.parameter_size) : S.installed;
   };
 
   return (
@@ -73,7 +76,7 @@ export function ModelPicker({ activeModel, models, recommendedModel, onSelectMod
         disabled={disabled}
         aria-haspopup="menu"
         aria-expanded={open}
-        title={`Switch model (${activeModel})`}
+        title={S.switchModel(activeModel)}
         data-testid="model-pill"
         className="h-9 max-w-[11rem] @max-[23rem]:max-w-[8rem] px-3 inline-flex items-center gap-1.5 rounded-full border border-gray-200 bg-gray-50 text-[12.5px] font-medium text-gray-500 hover:text-gray-800 transition-colors disabled:opacity-50"
       >
@@ -127,9 +130,9 @@ export function ModelPicker({ activeModel, models, recommendedModel, onSelectMod
             >
               <span className="flex-1 min-w-0">
                 <span className="block font-medium text-gray-800 text-[13px]">
-                  {recommendedModel} is recommended for this Mac
+                  {S.recommendHint(recommendedModel!)}
                 </span>
-                <span className="block text-[11.5px] text-gray-500">Download it in Settings</span>
+                <span className="block text-[11.5px] text-gray-500">{S.downloadInSettings}</span>
               </span>
               <ChevronRight size={14} className="shrink-0 mt-0.5 text-gray-400" />
             </button>
@@ -146,9 +149,9 @@ export function ModelPicker({ activeModel, models, recommendedModel, onSelectMod
                 className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-left font-medium text-gray-800 hover:bg-gray-50 transition-colors"
               >
                 <Lightbulb size={14} className="text-gray-500 shrink-0" />
-                Thinking
+                {S.thinking}
                 <span className="ml-auto text-gray-500 font-normal text-[12.5px]">
-                  {think ? 'On' : 'Off'}
+                  {think ? S.on : S.off}
                 </span>
               </button>
             </>
@@ -173,14 +176,14 @@ export function ModelPicker({ activeModel, models, recommendedModel, onSelectMod
             data-testid="manage-models-row"
             className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-left font-medium text-gray-800 hover:bg-gray-50 transition-colors"
           >
-            Manage models
+            {S.manageModels}
             <ChevronRight size={14} className="ml-auto text-gray-400" />
           </button>
 
           {/* Provider-Status — zog aus der Sidebar-Fußzeile hierher um. */}
           <div className="flex items-center gap-1.5 px-2.5 pt-1.5 pb-0.5 text-[11px] text-gray-500">
             <span className={`w-1.5 h-1.5 rounded-full ${models.length > 0 ? 'bg-green-500' : 'bg-gray-300'}`} />
-            {models.length > 0 ? 'Ollama · running locally' : 'Ollama not reachable'}
+            {models.length > 0 ? S.ollamaRunning : S.ollamaNotReachable}
           </div>
         </div>
       )}

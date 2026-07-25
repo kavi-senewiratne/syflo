@@ -13,9 +13,11 @@
  */
 
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { X, Loader2, Eye, EyeOff, Check, ExternalLink, Info, RefreshCw, Palette, Cpu, Download, Trash2, MonitorCog, ScrollText } from 'lucide-react';
+import { X, Loader2, Eye, EyeOff, Check, ExternalLink, Info, RefreshCw, Palette, Cpu, Download, Trash2, MonitorCog, ScrollText, Languages, Mic } from 'lucide-react';
 import { api } from '../../api';
 import { THEMES, applyTheme, getStoredTheme, type ThemeId } from '../../theme';
+import { APP_LANGUAGES, setAppLanguage, useAppLanguage } from '../../appLanguage';
+import { useStrings } from '../../strings';
 import type { LLMProvider, OllamaModelInfo, Settings, SystemRecommendation } from '../../types';
 
 function formatSize(bytes?: number): string {
@@ -24,7 +26,7 @@ function formatSize(bytes?: number): string {
   return gb >= 1 ? `${gb.toFixed(1)} GB` : `${(bytes / 1024 ** 2).toFixed(0)} MB`;
 }
 
-export type SettingsTab = 'appearance' | 'model' | 'instructions';
+export type SettingsTab = 'appearance' | 'model' | 'language' | 'instructions';
 
 // Deckel der Custom instructions — muss mit MAX_CUSTOM_INSTRUCTIONS_CHARS im
 // Backend (routes/settings.js) übereinstimmen.
@@ -101,6 +103,11 @@ export function SettingsModal({ open, onClose, onSaved, initialTab = 'appearance
     setTheme(id);
   };
 
+  // App language (CONTEXT.md, Grill 2026-07-24) — wie das Theme rein lokal
+  // und sofort wirksam; der Hook re-rendert das Modal beim Wechsel mit.
+  const appLanguage = useAppLanguage();
+  const S = useStrings().settings;
+
   const loadOllamaModels = () => {
     setOllamaModelsLoading(true);
     api.getOllamaModels()
@@ -132,7 +139,7 @@ export function SettingsModal({ open, onClose, onSaved, initialTab = 'appearance
       loadOllamaModels();
       onLibraryChanged?.();
     } catch (err) {
-      setLibraryError(err instanceof Error ? err.message : 'Download failed');
+      setLibraryError(err instanceof Error ? err.message : S.model.downloadFailed);
     } finally {
       setPulling(null);
     }
@@ -145,7 +152,7 @@ export function SettingsModal({ open, onClose, onSaved, initialTab = 'appearance
       loadOllamaModels();
       onLibraryChanged?.();
     } catch (err) {
-      setLibraryError(err instanceof Error ? err.message : 'Failed to remove model');
+      setLibraryError(err instanceof Error ? err.message : S.model.removeFailed);
     }
   };
 
@@ -243,7 +250,7 @@ export function SettingsModal({ open, onClose, onSaved, initialTab = 'appearance
       setTimeout(() => setSavedFlash(false), 1500);
       onSaved?.(result);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save settings');
+      setError(err instanceof Error ? err.message : S.errors.saveFailed);
     } finally {
       setSaving(false);
     }
@@ -262,7 +269,7 @@ export function SettingsModal({ open, onClose, onSaved, initialTab = 'appearance
       setTimeout(() => setSavedFlash(false), 1500);
       onSaved?.(result);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save instructions');
+      setError(err instanceof Error ? err.message : S.errors.saveInstructionsFailed);
     } finally {
       setSaving(false);
     }
@@ -277,16 +284,17 @@ export function SettingsModal({ open, onClose, onSaved, initialTab = 'appearance
       setKeyInput('');
       onSaved?.(result);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to remove API key');
+      setError(err instanceof Error ? err.message : S.errors.removeKeyFailed);
     } finally {
       setSaving(false);
     }
   };
 
   const tabs: { id: SettingsTab; label: string; icon: typeof Palette }[] = [
-    { id: 'appearance', label: 'Appearance', icon: Palette },
-    { id: 'model', label: 'Model', icon: Cpu },
-    { id: 'instructions', label: 'Instructions', icon: ScrollText },
+    { id: 'appearance', label: S.tabs.appearance, icon: Palette },
+    { id: 'model', label: S.tabs.model, icon: Cpu },
+    { id: 'language', label: S.tabs.language, icon: Languages },
+    { id: 'instructions', label: S.tabs.instructions, icon: ScrollText },
   ];
 
   return (
@@ -300,10 +308,10 @@ export function SettingsModal({ open, onClose, onSaved, initialTab = 'appearance
       >
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-          <h3 className="text-base font-semibold text-gray-900">Settings</h3>
+          <h3 className="text-base font-semibold text-gray-900">{S.title}</h3>
           <button
             onClick={onClose}
-            aria-label="Close"
+            aria-label={S.close}
             className="p-1 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
           >
             <X size={16} />
@@ -315,7 +323,11 @@ export function SettingsModal({ open, onClose, onSaved, initialTab = 'appearance
             längere Tab-Inhalte scrollen intern. Auf kleinen Fenstern deckelt
             max-h; das Mockup gibt min. 356px fürs Tab-Raster vor. */}
         <div className="flex items-stretch h-[480px] max-h-[calc(100vh-10rem)]" data-testid="settings-body">
-          <nav className="w-40 shrink-0 border-r border-gray-100 bg-gray-50/50 p-2 space-y-1" aria-label="Settings sections">
+          {/* Auto-Breite statt festem w-40: "Erscheinungsbild" (DE) läuft sonst
+              in den breiten Theme-Fonts über (Matrix-Mono: 168px Textbedarf) —
+              Nutzerreport 2026-07-24, alle Themes betroffen. min/max begrenzen,
+              truncate am Label fängt den Rest ab. */}
+          <nav className="shrink-0 min-w-40 max-w-56 border-r border-gray-100 bg-gray-50/50 p-2 space-y-1" aria-label="Settings sections">
             {tabs.map(t => {
               const isActive = tab === t.id;
               const Icon = t.icon;
@@ -331,12 +343,12 @@ export function SettingsModal({ open, onClose, onSaved, initialTab = 'appearance
                   }`}
                 >
                   <Icon size={14} className="shrink-0" />
-                  {t.label}
+                  <span className="min-w-0 truncate" title={t.label}>{t.label}</span>
                   {/* Grüner Punkt am Model-Tab: hier lebt das aktive Modell */}
                   {t.id === 'model' && original && (
                     <span
                       className="ml-auto w-1.5 h-1.5 rounded-full bg-green-500 shrink-0"
-                      title="Active model configuration"
+                      title={S.activeModelDot}
                     />
                   )}
                 </button>
@@ -348,7 +360,7 @@ export function SettingsModal({ open, onClose, onSaved, initialTab = 'appearance
             {loading ? (
               <div className="flex items-center gap-2 text-gray-400 text-sm py-6 justify-center">
                 <Loader2 size={14} className="animate-spin" />
-                <span>Loading settings…</span>
+                <span>{S.loading}</span>
               </div>
             ) : (
               <>
@@ -356,10 +368,10 @@ export function SettingsModal({ open, onClose, onSaved, initialTab = 'appearance
                   /* Theme-Auswahl — wirkt sofort, kein "Activate" nötig */
                   <div>
                     <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-2">
-                      Theme
+                      {S.appearance.theme}
                     </label>
                     <div className="flex flex-wrap gap-1.5">
-                      {THEMES.map(t => {
+                      {THEMES.filter(t => !t.hidden).map(t => {
                         const isSelected = theme === t.id;
                         return (
                           <button
@@ -388,9 +400,72 @@ export function SettingsModal({ open, onClose, onSaved, initialTab = 'appearance
                       })}
                     </div>
                     <p className="mt-2 text-[11px] text-gray-500 leading-relaxed">
-                      Themes apply instantly — no activation needed.
+                      {S.appearance.note}
                     </p>
                   </div>
+                ) : tab === 'language' ? (
+                  /* App language (mockup-settings-reorg.html, Variante A · State 5):
+                     wirkt sofort wie Themes — kein Activate. Labels stehen immer in
+                     ihrer eigenen Sprache (nie übersetzen), damit man aus einer
+                     versehentlich gewählten Sprache zurückfindet. */
+                  <>
+                    <div>
+                      <label className="flex items-center gap-2 text-xs font-semibold text-gray-700 uppercase tracking-wider mb-2">
+                        <Languages size={13} className="text-gray-400 shrink-0" />
+                        {S.language.appLanguage}
+                      </label>
+                      <div className="grid grid-cols-2 gap-2">
+                        {APP_LANGUAGES.map(l => {
+                          const isSelected = appLanguage === l.id;
+                          return (
+                            <button
+                              key={l.id}
+                              onClick={() => setAppLanguage(l.id)}
+                              aria-pressed={isSelected}
+                              className={`px-3 py-2.5 rounded-lg text-sm font-medium transition-colors text-left flex items-center justify-between ${
+                                isSelected
+                                  ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-200'
+                                  : 'bg-gray-50 text-gray-700 hover:bg-gray-100'
+                              }`}
+                            >
+                              {l.label}
+                              {isSelected && <Check size={12} className="shrink-0" />}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <p className="mt-2 text-[11px] text-gray-500 leading-relaxed">
+                        {S.language.note}
+                      </p>
+                    </div>
+
+                    <div>
+                      <div className="flex items-center gap-2 text-xs font-semibold text-gray-700 uppercase tracking-wider mb-2">
+                        <Info size={13} className="text-gray-400 shrink-0" />
+                        {S.language.howTitle}
+                      </div>
+                      <p className="text-[11px] text-gray-500 leading-relaxed">
+                        {S.language.howNote}
+                      </p>
+                    </div>
+
+                    {/* Diktat: bewusst read-only — Auto-Detect ist per ADR-0004
+                        festgelegt, hier gibt es nichts zu konfigurieren. */}
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2 text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                          <Mic size={13} className="text-gray-400 shrink-0" />
+                          {S.language.dictation}
+                        </div>
+                        <span className="text-[11px] font-medium text-gray-600 bg-gray-100 rounded-full px-2 py-0.5">
+                          {S.language.dictationBadge}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-gray-500 leading-relaxed">
+                        {S.language.dictationNote}
+                      </p>
+                    </div>
+                  </>
                 ) : tab === 'instructions' ? (
                   /* Custom instructions (mockup-settings-reorg.html, Variante A ·
                      State 4): Freitext + An/Aus-Switch, Save unten im Footer. */
@@ -401,14 +476,14 @@ export function SettingsModal({ open, onClose, onSaved, initialTab = 'appearance
                         className="flex items-center gap-2 text-xs font-semibold text-gray-700 uppercase tracking-wider"
                       >
                         <ScrollText size={13} className="text-gray-400 shrink-0" />
-                        Custom instructions
+                        {S.instructions.label}
                       </label>
                       <button
                         type="button"
                         role="switch"
                         aria-checked={instructionsEnabled}
-                        aria-label="Apply custom instructions"
-                        title={instructionsEnabled ? 'Applied to every chat reply' : 'Turned off — the text stays saved'}
+                        aria-label={S.instructions.switchAria}
+                        title={instructionsEnabled ? S.instructions.switchOnTitle : S.instructions.switchOffTitle}
                         onClick={() => setInstructionsEnabled(v => !v)}
                         className={`relative w-[30px] h-[18px] rounded-full transition-colors shrink-0 ${
                           instructionsEnabled ? 'bg-blue-600' : 'bg-gray-300'
@@ -427,24 +502,21 @@ export function SettingsModal({ open, onClose, onSaved, initialTab = 'appearance
                       onChange={e => setInstructions(e.target.value)}
                       maxLength={MAX_INSTRUCTIONS_CHARS}
                       rows={5}
-                      placeholder="e.g. After every answer, correct the German in my message and list new vocabulary with articles."
+                      placeholder={S.instructions.placeholder}
                       className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm leading-relaxed focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100 transition resize-y"
                     />
                     <div className="mt-1 text-[11px] text-gray-400 text-right font-mono">
                       {instructions.length} / {MAX_INSTRUCTIONS_CHARS}
                     </div>
                     <p className="mt-1.5 text-[11px] text-gray-500 leading-relaxed">
-                      Sent with every chat reply in all chat trees; your instructions take
-                      precedence over the built-in style rules. Explain, chat titles and
-                      summaries are not affected. The switch turns them off without deleting
-                      the text.
+                      {S.instructions.note}
                     </p>
                   </div>
                 ) : (
                   <>
                     {/* Schritt 1: Provider */}
                     <div>
-                      <div className="mb-2"><StepLabel n={1}>Provider</StepLabel></div>
+                      <div className="mb-2"><StepLabel n={1}>{S.model.stepProvider}</StepLabel></div>
                       <div className="grid grid-cols-2 gap-2">
                         {(['ollama', 'openai'] as LLMProvider[]).map(p => {
                           const isSelected = provider === p;
@@ -453,8 +525,8 @@ export function SettingsModal({ open, onClose, onSaved, initialTab = 'appearance
                           // gerade ausgewählten Form-Wert unterscheiden, solange
                           // der User noch nicht "Activate" geklickt hat.
                           const isCurrentlyActive = original?.llm_provider === p;
-                          const label = p === 'ollama' ? 'Ollama (local)' : 'OpenAI (Cloud)';
-                          const costHint = p === 'ollama' ? 'Free' : 'Pay per use';
+                          const label = p === 'ollama' ? S.model.ollamaLabel : S.model.openaiLabel;
+                          const costHint = p === 'ollama' ? S.model.costFree : S.model.costPaid;
                           // Beide Kosten-Badges in derselben neutralen Grau-Variante,
                           // damit nichts "schreit" — der Text trägt die Info.
                           const costClass = 'text-gray-600 bg-gray-100';
@@ -471,10 +543,10 @@ export function SettingsModal({ open, onClose, onSaved, initialTab = 'appearance
                               {isCurrentlyActive && (
                                 <span
                                   className="absolute top-1.5 right-1.5 inline-flex items-center gap-0.5 text-[9px] font-semibold uppercase tracking-wider text-green-700"
-                                  title="Currently in use"
+                                  title={S.model.activeTitle}
                                 >
                                   <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
-                                  Active
+                                  {S.model.activeBadge}
                                 </span>
                               )}
                               <div>{label}</div>
@@ -491,7 +563,7 @@ export function SettingsModal({ open, onClose, onSaved, initialTab = 'appearance
                     {provider === 'openai' ? (
                       <>
                         <div>
-                          <div className="mb-2"><StepLabel n={2}>Model</StepLabel></div>
+                          <div className="mb-2"><StepLabel n={2}>{S.model.stepModel}</StepLabel></div>
                           <select
                             value={openaiModel}
                             onChange={e => setOpenaiModel(e.target.value)}
@@ -506,11 +578,11 @@ export function SettingsModal({ open, onClose, onSaved, initialTab = 'appearance
                         {/* Schritt 3: API-Key — nur für OpenAI */}
                         <div>
                           <div className="mb-2"><StepLabel n={3}>
-                            API Key
+                            {S.model.stepApiKey}
                             {keySet && (
                               <span className="inline-flex items-center gap-1 text-[10px] text-green-700 bg-green-50 px-1.5 py-0.5 rounded normal-case tracking-normal">
                                 <Check size={10} />
-                                saved
+                                {S.model.keySaved}
                               </span>
                             )}
                           </StepLabel></div>
@@ -520,13 +592,13 @@ export function SettingsModal({ open, onClose, onSaved, initialTab = 'appearance
                                 type={showKey ? 'text' : 'password'}
                                 value={keyInput}
                                 onChange={e => setKeyInput(e.target.value)}
-                                placeholder={keySet ? '••••••••••  (overwrite)' : 'sk-…'}
+                                placeholder={keySet ? S.model.keyPlaceholderSet : S.model.keyPlaceholderEmpty}
                                 className="w-full px-3 py-2 pr-9 rounded-lg border border-gray-200 text-sm font-mono focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100 transition"
                               />
                               <button
                                 type="button"
                                 onClick={() => setShowKey(s => !s)}
-                                aria-label={showKey ? 'Hide API key' : 'Show API key'}
+                                aria-label={showKey ? S.model.keyHide : S.model.keyShow}
                                 className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-1"
                               >
                                 {showKey ? <EyeOff size={14} /> : <Eye size={14} />}
@@ -538,12 +610,12 @@ export function SettingsModal({ open, onClose, onSaved, initialTab = 'appearance
                                 disabled={saving}
                                 className="px-3 py-2 rounded-lg text-sm font-medium text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50"
                               >
-                                Remove
+                                {S.model.keyRemove}
                               </button>
                             )}
                           </div>
                           <p className="mt-1.5 text-[11px] text-gray-500 leading-relaxed">
-                            The key is stored only in the local backend and is never sent back to the frontend.
+                            {S.model.keyNote}
                           </p>
                         </div>
 
@@ -555,10 +627,9 @@ export function SettingsModal({ open, onClose, onSaved, initialTab = 'appearance
                             <div className="flex items-start gap-2">
                               <Info size={14} className="text-blue-600 mt-0.5 shrink-0" />
                               <div className="text-xs text-gray-700">
-                                <p className="font-semibold text-gray-900 mb-1">Don't have an API key yet?</p>
+                                <p className="font-semibold text-gray-900 mb-1">{S.model.guideTitle}</p>
                                 <p className="leading-relaxed">
-                                  You'll need a free OpenAI account and a $5 starter balance.
-                                  Creating the key takes about a minute.
+                                  {S.model.guideBody}
                                 </p>
                               </div>
                             </div>
@@ -569,20 +640,20 @@ export function SettingsModal({ open, onClose, onSaved, initialTab = 'appearance
                               rel="noopener noreferrer"
                               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 transition-colors"
                             >
-                              Get your API key
+                              {S.model.guideCta}
                               <ExternalLink size={11} />
                             </a>
 
                             <div className="border-t border-blue-100 pt-2.5 text-[11px] text-gray-600 leading-relaxed">
-                              <p className="font-semibold text-gray-800 mb-1.5">What $5 gets you</p>
+                              <p className="font-semibold text-gray-800 mb-1.5">{S.model.guideWhat}</p>
                               <div className="space-y-1">
                                 <div className="flex items-baseline justify-between">
                                   <span className="text-gray-700">gpt-4o-mini</span>
-                                  <span className="font-semibold text-gray-900">~10,000 messages</span>
+                                  <span className="font-semibold text-gray-900">{S.model.guideMiniMessages}</span>
                                 </div>
                                 <div className="flex items-baseline justify-between">
                                   <span className="text-gray-700">gpt-4o</span>
-                                  <span className="font-semibold text-gray-900">~500 messages</span>
+                                  <span className="font-semibold text-gray-900">{S.model.guide4oMessages}</span>
                                 </div>
                               </div>
                               <a
@@ -591,7 +662,7 @@ export function SettingsModal({ open, onClose, onSaved, initialTab = 'appearance
                                 rel="noopener noreferrer"
                                 className="mt-2 inline-flex items-center gap-1 text-blue-700 hover:underline"
                               >
-                                Full pricing
+                                {S.model.guidePricing}
                                 <ExternalLink size={10} />
                               </a>
                             </div>
@@ -606,13 +677,13 @@ export function SettingsModal({ open, onClose, onSaved, initialTab = 'appearance
                             nur ein passives "Active"-Abzeichen. */}
                         <div>
                           <div className="flex items-center justify-between mb-2">
-                            <StepLabel n={2}>Models</StepLabel>
+                            <StepLabel n={2}>{S.model.stepModels}</StepLabel>
                             <button
                               type="button"
                               onClick={loadOllamaModels}
                               disabled={ollamaModelsLoading}
-                              title="Refresh model list"
-                              aria-label="Refresh model list"
+                              title={S.model.refreshList}
+                              aria-label={S.model.refreshList}
                               className="p-1 rounded text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors disabled:opacity-40"
                             >
                               <RefreshCw size={12} className={ollamaModelsLoading ? 'animate-spin' : ''} />
@@ -626,7 +697,7 @@ export function SettingsModal({ open, onClose, onSaved, initialTab = 'appearance
                             >
                               <MonitorCog size={14} className="text-blue-600 shrink-0" />
                               <span>
-                                This machine: {recommendation.totalMemGb} GB memory — recommended:{' '}
+                                {S.model.machineBanner(recommendation.totalMemGb)}{' '}
                                 <span className="font-semibold font-mono">{recommendation.recommendedModel}</span>
                               </span>
                             </div>
@@ -646,11 +717,11 @@ export function SettingsModal({ open, onClose, onSaved, initialTab = 'appearance
                                     <div className="text-sm font-mono font-medium text-gray-900 truncate">{row.name}</div>
                                     <div className="text-[11px] text-gray-500">
                                       {row.name === recommendation?.recommendedModel
-                                        ? 'Recommended for this machine'
+                                        ? S.model.rowRecommended
                                         : row.installed
-                                          ? [row.parameter_size, row.size ? formatSize(row.size) : null].filter(Boolean).join(' · ') || 'Installed'
-                                          : 'Not installed'}
-                                      {row.canThink ? ' · can think' : ''}
+                                          ? [row.parameter_size, row.size ? formatSize(row.size) : null].filter(Boolean).join(' · ') || S.model.rowInstalled
+                                          : S.model.rowNotInstalled}
+                                      {row.canThink ? S.model.rowCanThink : ''}
                                     </div>
                                     {isPulling && (
                                       <div className="mt-1.5 h-1 rounded-full bg-gray-100 overflow-hidden" data-testid="pull-progress">
@@ -663,7 +734,7 @@ export function SettingsModal({ open, onClose, onSaved, initialTab = 'appearance
                                   </div>
                                   {isActive && (
                                     <span className="shrink-0 inline-flex items-center gap-1 text-[11px] font-semibold text-blue-700 bg-blue-50 rounded-full px-2 py-0.5">
-                                      Active
+                                      {S.model.activeBadge}
                                     </span>
                                   )}
                                   {!row.installed && !isPulling && (
@@ -674,14 +745,14 @@ export function SettingsModal({ open, onClose, onSaved, initialTab = 'appearance
                                       className="shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 transition-colors disabled:opacity-40"
                                     >
                                       <Download size={12} />
-                                      Download
+                                      {S.model.download}
                                     </button>
                                   )}
                                   {row.installed && !isActive && (
                                     <button
                                       onClick={() => handleRemove(row.name)}
-                                      title="Remove model"
-                                      aria-label={`Remove ${row.name}`}
+                                      title={S.model.removeModelTitle}
+                                      aria-label={S.model.removeModelAria(row.name)}
                                       className="shrink-0 p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
                                     >
                                       <Trash2 size={14} />
@@ -692,7 +763,7 @@ export function SettingsModal({ open, onClose, onSaved, initialTab = 'appearance
                             })}
                             {libraryRows.length === 0 && (
                               <p className="text-[11px] text-amber-700 leading-relaxed">
-                                Ollama isn't reachable at localhost:11434 — start it to manage your local models.
+                                {S.model.ollamaUnreachable}
                               </p>
                             )}
                           </div>
@@ -701,15 +772,14 @@ export function SettingsModal({ open, onClose, onSaved, initialTab = 'appearance
                             <p className="mt-2 text-[11px] text-red-600">{libraryError}</p>
                           )}
                           <p className="mt-2 text-[11px] text-gray-500 leading-relaxed">
-                            The active model is switched from the chat composer. Models run on
-                            your machine — nothing leaves your computer.{' '}
+                            {S.model.libraryNote}{' '}
                             <a
                               href="https://ollama.com/download"
                               target="_blank"
                               rel="noopener noreferrer"
                               className="text-green-700 font-medium hover:underline inline-flex items-center gap-0.5"
                             >
-                              Install Ollama
+                              {S.model.installOllama}
                               <ExternalLink size={10} />
                             </a>
                           </p>
@@ -737,20 +807,20 @@ export function SettingsModal({ open, onClose, onSaved, initialTab = 'appearance
               {savedFlash ? (
                 <span className="text-green-700 flex items-center gap-1 font-medium">
                   <Check size={12} />
-                  Activated
+                  {S.footer.activated}
                 </span>
               ) : needsKey ? (
                 <span className="text-amber-700 font-medium">
-                  Add an API key to activate OpenAI
+                  {S.footer.needsKey}
                 </span>
               ) : dirty ? (
                 <span className="text-amber-700 font-medium">
-                  Click Activate to apply your selection
+                  {S.footer.clickActivate}
                 </span>
               ) : original ? (
                 <span className="text-gray-500 flex items-center gap-1">
                   <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
-                  Current selection is active
+                  {S.footer.selectionActive}
                 </span>
               ) : null}
             </div>
@@ -760,20 +830,20 @@ export function SettingsModal({ open, onClose, onSaved, initialTab = 'appearance
               {savedFlash ? (
                 <span className="text-green-700 flex items-center gap-1 font-medium">
                   <Check size={12} />
-                  Saved
+                  {S.footer.saved}
                 </span>
               ) : instructionsDirty ? (
                 <span className="text-amber-700 font-medium">
-                  Click Save to apply your changes
+                  {S.footer.clickSave}
                 </span>
               ) : original ? (
                 instructionsEnabled ? (
                   <span className="text-gray-500 flex items-center gap-1">
                     <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
-                    Applied to every chat reply
+                    {S.footer.instructionsOn}
                   </span>
                 ) : (
-                  <span className="text-gray-500">Instructions are off</span>
+                  <span className="text-gray-500">{S.footer.instructionsOff}</span>
                 )
               ) : null}
             </div>
@@ -783,16 +853,16 @@ export function SettingsModal({ open, onClose, onSaved, initialTab = 'appearance
             disabled={saving}
             className="px-4 py-2 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-100 transition-colors disabled:opacity-50"
           >
-            Close
+            {S.close}
           </button>
           {tab === 'instructions' && (
             <button
               onClick={handleSaveInstructions}
               disabled={saving || loading || !instructionsDirty}
-              title={instructionsDirty ? 'Save and apply these instructions' : 'No changes to save'}
+              title={instructionsDirty ? S.footer.saveTitleDirty : S.footer.saveTitleClean}
               className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              {saving ? 'Saving…' : 'Save'}
+              {saving ? S.footer.saving : S.footer.save}
             </button>
           )}
           {tab === 'model' && (
@@ -801,14 +871,14 @@ export function SettingsModal({ open, onClose, onSaved, initialTab = 'appearance
               disabled={saving || loading || !canActivate}
               title={
                 needsKey
-                  ? 'Enter an OpenAI API key first'
+                  ? S.footer.activateTitleNeedsKey
                   : !dirty && !saving
-                    ? 'No changes to activate'
-                    : 'Apply and activate this configuration'
+                    ? S.footer.activateTitleClean
+                    : S.footer.activateTitleDirty
               }
               className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              {saving ? 'Activating…' : 'Activate'}
+              {saving ? S.footer.activating : S.footer.activate}
             </button>
           )}
         </div>

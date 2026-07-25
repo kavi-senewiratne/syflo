@@ -10,19 +10,114 @@
  * chunk so the UI can update in real time — exactly like ChatGPT's typing effect.
  */
 
-import type { Chat, ChatAncestor, ChatDetail, CreateHighlightPayload, CreateMessageHighlightPayload, Highlight, HighlightColor, HighlightLabels, LocalAttachment, Message, MessageHighlight, OllamaModelInfo, Paper, PaperSearchResponse, PullProgress, Settings, SettingsUpdate, SystemRecommendation, ToolEvent, TreeHighlight, WarmupResult } from '../types';
+import type { Chat, ChatAncestor, ChatDetail, CreateHighlightPayload, CreateMessageHighlightPayload, Highlight, HighlightColor, HighlightLabels, LocalAttachment, Message, MessageHighlight, OllamaModelInfo, Paper, PaperSearchResponse, PullProgress, Settings, SettingsUpdate, SystemRecommendation, ToolEvent, TreeHighlight, Video, VideoSearchResult, WarmupResult } from '../types';
+import { getAppLanguage } from '../appLanguage';
 
 const BASE = '/api';
 
-// Fehler beim Paper-Upload in einen Tree, der schon ein PDF hat (ADR-0002).
-// Trägt die Root-Chat-ID, damit die UI den Neuer-Tree-Dialog anbieten kann.
-export class TreeHasPdfError extends Error {
+// Fehler beim Anhängen einer Quelle an einen Tree, der schon eine hat —
+// ADR-0005 generalisiert ADR-0002: eine Quelle pro Baum (PDF ODER YouTube
+// transcript). Trägt die Root-Chat-ID für den Neuer-Tree-Dialog.
+export class TreeHasSourceError extends Error {
   rootChatId: string | null;
   constructor(rootChatId: string | null) {
-    super('tree-has-pdf');
-    this.name = 'TreeHasPdfError';
+    super('tree-has-source');
+    this.name = 'TreeHasSourceError';
     this.rootChatId = rootChatId;
   }
+}
+
+// Fehler eines Antwort-Streams, bei dem das Backend die Frage und einen
+// '*Failed*'-Marker bereits persistiert hat. Die UI ersetzt damit ihre
+// optimistischen Blasen durch die persistierten Nachrichten (Fehlerzeile
+// mit Retry-Button), statt sie stumm zu entfernen.
+export class StreamFailedError extends Error {
+  userMessage?: Message;
+  assistantMessage?: Message;
+  constructor(message: string, userMessage?: Message, assistantMessage?: Message) {
+    super(message);
+    this.name = 'StreamFailedError';
+    this.userMessage = userMessage;
+    this.assistantMessage = assistantMessage;
+  }
+}
+
+// Callbacks eines Antwort-Streams (Senden UND Regenerate teilen sich den
+// SSE-Leser). onQueued/onStarted spiegeln die Backend-Warteschlange:
+// FIFO über alle Chats, weil Ollama nur einen Slot hat.
+interface StreamCallbacks {
+  onDelta: (delta: string) => void;
+  onToolEvent?: (evt: ToolEvent) => void;
+  onThinking?: () => void;
+  onReasoning?: (delta: string) => void;
+  // Der Job wartet: `ahead` Anfragen laufen/warten vor ihm.
+  onQueued?: (ahead: number) => void;
+  // Der Job ist an der Reihe; die User-Nachricht ist jetzt persistiert —
+  // die UI ersetzt damit ihre optimistische Frage (echter Zeitstempel).
+  onStarted?: (userMessage: Message) => void;
+  // Prefill-ETA des Backends in Sekunden — die UI zeigt einen Countdown-
+  // Balken im ThinkingIndicator (design/mockup-prefill-progress.html §01).
+  onPrefill?: (seconds: number) => void;
+}
+
+// Liest die SSE-Antwort eines Nachrichten-Endpoints inkrementell und
+// verteilt die Events auf die Callbacks. Läuft bis zum done-Event.
+async function readMessageStream(
+  res: Response,
+  cb: StreamCallbacks,
+): Promise<{ userMessage: Message; assistantMessage: Message }> {
+  const reader = res.body!.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    // Decode the binary chunk and append it to a buffer, because a single
+    // network packet may contain partial SSE lines.
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+
+    // Keep the last (possibly incomplete) line in the buffer for next iteration.
+    buffer = lines.pop() || '';
+
+    // Process each complete SSE line.
+    for (const line of lines) {
+      if (!line.startsWith('data: ')) continue;
+      const data = JSON.parse(line.slice(6));
+      if (data.error) throw new StreamFailedError(data.error, data.userMessage, data.assistantMessage);
+
+      // Warteschlangen-Position — der Job wartet noch auf den Ollama-Slot.
+      if (data.queued && cb.onQueued) cb.onQueued(data.queued.ahead);
+
+      // Der Job läuft jetzt; die User-Nachricht ist persistiert.
+      if (data.started && cb.onStarted) cb.onStarted(data.userMessage);
+
+      // Prefill-Schätzung — wie lange das Modell die Quelle wohl noch liest.
+      if (data.prefill && cb.onPrefill) cb.onPrefill(data.prefill.seconds);
+
+      // A text delta — pass it to the callback so the UI can append it.
+      if (data.delta) cb.onDelta(data.delta);
+
+      // Das Modell hat seine Denk-Phase begonnen (nur bei think=true) —
+      // die UI zeigt dafür die Tipp-/Zitat-Rotation unter den Punkten.
+      if (data.thinking && cb.onThinking) cb.onThinking();
+
+      // Ein Gedanken-Chunk der laufenden Denk-Phase — streamt live ins
+      // einklappbare Thinking-Panel.
+      if (data.reasoning && cb.onReasoning) cb.onReasoning(data.reasoning);
+
+      // A tool event — the model called a tool (e.g. web_search). The UI
+      // uses this for the "Searching…" indicator and the sources list.
+      if (data.tool && cb.onToolEvent) cb.onToolEvent(data.tool as ToolEvent);
+
+      // The final event — streaming is complete, return the persisted messages.
+      if (data.done) return { userMessage: data.userMessage, assistantMessage: data.assistantMessage };
+    }
+  }
+
+  throw new Error('Stream ended without completion');
 }
 
 export const api = {
@@ -77,8 +172,9 @@ export const api = {
     // onThinking: einmaliges Status-Signal, sobald das Modell denkt.
     // onReasoning: jeder Gedanken-Chunk live — fürs einklappbare
     // Thinking-Panel über der Antwort. signal: bricht den Stream ab
-    // (Stop-Button); der bereits gestreamte Teil wird vom Backend gespeichert.
-    opts?: { think?: boolean; onThinking?: () => void; onReasoning?: (delta: string) => void; signal?: AbortSignal },
+    // (Stop-Button). onQueued/onStarted: Warteschlangen-Status des Backends
+    // (FIFO — Ollama hat einen Slot).
+    opts?: { think?: boolean; onThinking?: () => void; onReasoning?: (delta: string) => void; onQueued?: (ahead: number) => void; onStarted?: (userMessage: Message) => void; signal?: AbortSignal },
   ): Promise<{ userMessage: Message; assistantMessage: Message }> {
     let res: Response;
     if (attachments.length > 0) {
@@ -103,54 +199,49 @@ export const api = {
 
     if (!res.ok) throw new Error('Failed to send message');
 
-    // Read the SSE response body incrementally.
-    const reader = res.body!.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
+    // Read the SSE response body incrementally (shared reader).
+    return readMessageStream(res, {
+      onDelta,
+      onToolEvent,
+      onThinking: opts?.onThinking,
+      onReasoning: opts?.onReasoning,
+      onQueued: opts?.onQueued,
+      onStarted: opts?.onStarted,
+    });
+  },
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      // Decode the binary chunk and append it to a buffer, because a single
-      // network packet may contain partial SSE lines.
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-
-      // Keep the last (possibly incomplete) line in the buffer for next iteration.
-      buffer = lines.pop() || '';
-
-      // Process each complete SSE line.
-      for (const line of lines) {
-        if (!line.startsWith('data: ')) continue;
-        const data = JSON.parse(line.slice(6));
-        if (data.error) throw new Error(data.error);
-
-        // A text delta — pass it to the callback so the UI can append it.
-        if (data.delta) onDelta(data.delta);
-
-        // Das Modell hat seine Denk-Phase begonnen (nur bei think=true) —
-        // die UI zeigt dafür die Tipp-/Zitat-Rotation unter den Punkten.
-        if (data.thinking && opts?.onThinking) opts.onThinking();
-
-        // Ein Gedanken-Chunk der laufenden Denk-Phase — streamt live ins
-        // einklappbare Thinking-Panel.
-        if (data.reasoning && opts?.onReasoning) opts.onReasoning(data.reasoning);
-
-        // A tool event — the model called a tool (e.g. web_search). The UI
-        // uses this for the "Searching…" indicator and the sources list.
-        if (data.tool && onToolEvent) onToolEvent(data.tool as ToolEvent);
-
-        // The final event — streaming is complete, return the persisted messages.
-        if (data.done) return { userMessage: data.userMessage, assistantMessage: data.assistantMessage };
-      }
+  // Retry-Button der Fehlerzeile: erzeugt die Antwort auf die LETZTE
+  // User-Frage des Chats neu, ohne die Frage zu duplizieren (das Backend
+  // entfernt dabei den persistierten '*Failed*'-Marker). Gleiches
+  // SSE-Protokoll wie sendMessageStream — inklusive Warteschlange.
+  async regenerateMessage(
+    chatId: string,
+    onDelta: (delta: string) => void,
+    onToolEvent?: (evt: ToolEvent) => void,
+    opts?: { think?: boolean; onThinking?: () => void; onReasoning?: (delta: string) => void; onQueued?: (ahead: number) => void; onStarted?: (userMessage: Message) => void; signal?: AbortSignal },
+  ): Promise<{ userMessage: Message; assistantMessage: Message }> {
+    const res = await fetch(`${BASE}/chats/${chatId}/messages/regenerate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ think: opts?.think }),
+      signal: opts?.signal,
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error || 'Failed to regenerate message');
     }
-
-    throw new Error('Stream ended without completion');
+    return readMessageStream(res, {
+      onDelta,
+      onToolEvent,
+      onThinking: opts?.onThinking,
+      onReasoning: opts?.onReasoning,
+      onQueued: opts?.onQueued,
+      onStarted: opts?.onStarted,
+    });
   },
 
   // Lädt ein PDF hoch und bindet es an den Chat tree von chatId (ans Root).
-  // Wirft TreeHasPdfError, wenn der Tree schon ein PDF hat (ADR-0002).
+  // Wirft TreeHasSourceError, wenn der Tree schon eine Quelle hat (ADR-0005).
   async uploadPaper(chatId: string, file: File): Promise<Paper> {
     const fd = new FormData();
     fd.append('chat_id', chatId);
@@ -158,7 +249,7 @@ export const api = {
     const res = await fetch(`${BASE}/papers`, { method: 'POST', body: fd });
     if (res.status === 409) {
       const body = await res.json().catch(() => ({}));
-      throw new TreeHasPdfError(body.root_chat_id ?? null);
+      throw new TreeHasSourceError(body.root_chat_id ?? null);
     }
     if (!res.ok) throw new Error('Failed to upload PDF');
     return res.json();
@@ -181,7 +272,7 @@ export const api = {
   },
 
   // Importiert ein Paper per URL und bindet es an den Tree von chatId.
-  // Wirft TreeHasPdfError bei 409 (ADR-0002) — gleiche Semantik wie uploadPaper.
+  // Wirft TreeHasSourceError bei 409 (ADR-0002/0005) — gleiche Semantik wie uploadPaper.
   async importPaperFromUrl(
     chatId: string,
     url: string,
@@ -195,7 +286,7 @@ export const api = {
     });
     if (res.status === 409) {
       const body = await res.json().catch(() => ({}));
-      throw new TreeHasPdfError(body.root_chat_id ?? null);
+      throw new TreeHasSourceError(body.root_chat_id ?? null);
     }
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
@@ -204,6 +295,48 @@ export const api = {
       throw new Error(body.message || body.error || 'Failed to import paper');
     }
     return res.json();
+  },
+
+  // ─── YouTube transcript (ADR-0005) ─────────────────────────────────────────
+
+  // Video-Suche fürs "YouTube Transcript"-Modal (lokale SearXNG-Instanz).
+  async searchYouTube(q: string): Promise<VideoSearchResult[]> {
+    const res = await fetch(`${BASE}/youtube/search?q=${encodeURIComponent(q)}`);
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error || 'Video search failed');
+    }
+    const body = await res.json();
+    return body.results ?? [];
+  },
+
+  // Holt das Transkript des Videos und bindet es als Quelle an den Tree von
+  // chatId. Wirft TreeHasSourceError bei 409 (eine Quelle pro Baum) und
+  // reicht sonst die Backend-Meldung durch (z. B. no-transcript).
+  async importYouTubeVideo(chatId: string, youtubeId: string): Promise<Video> {
+    const res = await fetch(`${BASE}/youtube/import`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId, youtube_id: youtubeId }),
+    });
+    if (res.status === 409) {
+      const body = await res.json().catch(() => ({}));
+      throw new TreeHasSourceError(body.root_chat_id ?? null);
+    }
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.message || body.error || 'Failed to import video');
+    }
+    return res.json();
+  },
+
+  // Das an den Tree dieses Chats gebundene Video inkl. Transkript (oder
+  // null) — stellt Quellen-Banner und Transkript-Drawer nach Reload wieder her.
+  async getTreeVideo(chatId: string): Promise<Video | null> {
+    const res = await fetch(`${BASE}/youtube/for-chat/${chatId}`);
+    if (!res.ok) throw new Error('Failed to fetch tree video');
+    const body = await res.json();
+    return body.video ?? null;
   },
 
   // ─── Highlights + Labels (Syflo-Port, Slices 04–06) ───────────────────────
@@ -323,11 +456,17 @@ export const api = {
   },
 
   // Fetches a short explanation for a word, used by the floating popup.
-  async explainWord(word: string, context: string): Promise<{ explanation: string }> {
+  // Explain erklärt in der Sprache des Lesers (App language, Grill
+  // 2026-07-24) — nicht in der Sprache des Wortes.
+  // chatId (optional, 2026-07-25): Damit hängt das Backend die Frage an den
+  // Gesprächskontext an (KV-Prefix-Sharing) — die Erklärung trifft Ollamas
+  // Cache, statt den einzigen KV-Slot mit einem Standalone-Prompt zu
+  // verdrängen (danach kostete die nächste echte Frage ~60 s Prefill).
+  async explainWord(word: string, context: string, chatId?: string): Promise<{ explanation: string }> {
     const res = await fetch(`${BASE}/explain`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ word, context }),
+      body: JSON.stringify({ word, context, language: getAppLanguage(), ...(chatId ? { chatId } : {}) }),
     });
     if (!res.ok) throw new Error('Failed to explain word');
     return res.json();

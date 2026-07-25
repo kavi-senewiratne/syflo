@@ -20,6 +20,8 @@ import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
 import { normalizeMathDelimiters } from './MessageBubble';
+import { gfmTableComponents } from './markdownTables';
+import { useStrings } from '../../strings';
 import type { ChatAncestor } from '../../types';
 
 interface Props {
@@ -33,7 +35,11 @@ interface Props {
 function SummaryMarkdown({ text, className }: { text: string; className?: string }) {
   return (
     <div className={className ?? 'text-[12px] leading-relaxed text-gray-600 [&_p+p]:mt-1.5'}>
-      <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm, remarkMath]}
+        rehypePlugins={[rehypeKatex]}
+        components={gfmTableComponents}
+      >
         {normalizeMathDelimiters(text)}
       </ReactMarkdown>
     </div>
@@ -41,6 +47,7 @@ function SummaryMarkdown({ text, className }: { text: string; className?: string
 }
 
 function AncestorCard({ ancestor, isParent }: { ancestor: ChatAncestor; isParent: boolean }) {
+  const S = useStrings().inheritedContext;
   const [literalOpen, setLiteralOpen] = useState(false);
   const { display, summary } = ancestor;
 
@@ -54,7 +61,7 @@ function AncestorCard({ ancestor, isParent }: { ancestor: ChatAncestor; isParent
         <span className="text-[12px] font-semibold text-gray-900 truncate">{ancestor.title}</span>
         {isParent && (
           <span className="shrink-0 text-[9.5px] font-semibold uppercase tracking-wider text-gray-400 bg-gray-50 border border-gray-200 rounded px-1.5 py-px">
-            inherited word-for-word
+            {S.inheritedWordForWord}
           </span>
         )}
         <span className="ml-auto shrink-0 text-[10px] font-semibold text-blue-700 bg-blue-50 border border-blue-100 rounded-full px-2 py-px">
@@ -86,7 +93,7 @@ function AncestorCard({ ancestor, isParent }: { ancestor: ChatAncestor; isParent
                 className="mt-1.5 inline-flex items-center gap-1 text-[10.5px] font-medium text-blue-700 hover:text-blue-900"
               >
                 <ChevronDown size={11} className={`transition-transform ${literalOpen ? 'rotate-180' : ''}`} />
-                {literalOpen ? 'Hide the literal text' : 'Show the literal text the AI receives'}
+                {literalOpen ? S.hideLiteral : S.showLiteral}
               </button>
               {literalOpen && (
                 <div className="mt-1.5 border-t border-dashed border-gray-200 pt-1.5" data-testid={`inherited-card-${ancestor.id}-literal`}>
@@ -100,9 +107,7 @@ function AncestorCard({ ancestor, isParent }: { ancestor: ChatAncestor; isParent
         <SummaryMarkdown text={summary} />
       ) : (
         <p className="text-[12px] leading-relaxed text-gray-500">
-          {isParent
-            ? 'The full conversation travels along word-for-word.'
-            : 'No summary yet — it is generated when you send the first message.'}
+          {isParent ? S.parentFullText : S.noSummaryYet}
         </p>
       )}
     </div>
@@ -110,6 +115,8 @@ function AncestorCard({ ancestor, isParent }: { ancestor: ChatAncestor; isParent
 }
 
 export function InheritedContextBanner({ ancestors }: Props) {
+  // UI-Texte in der App language — re-rendert beim Sprachwechsel mit.
+  const S = useStrings().inheritedContext;
   const [open, setOpen] = useState(false);
   if (ancestors.length === 0) return null;
 
@@ -124,10 +131,10 @@ export function InheritedContextBanner({ ancestors }: Props) {
       >
         <GitBranch size={13} className="text-blue-700 shrink-0" />
         <span className="truncate">
-          Carries background from {ancestors.length} earlier {ancestors.length === 1 ? 'chat' : 'chats'}
+          {S.carries(ancestors.length)}
         </span>
         <span className="ml-auto shrink-0 inline-flex items-center gap-1 font-semibold text-blue-700">
-          {open ? 'Hide' : 'Show what the AI knows'}
+          {open ? S.hide : S.show}
           {open ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
         </span>
       </button>
@@ -146,7 +153,7 @@ export function InheritedContextBanner({ ancestors }: Props) {
           ))}
           <div className="flex items-center gap-1.5 pt-1 text-[10.5px] text-gray-500">
             <Send size={11} className="text-gray-400 shrink-0" />
-            Sent to the AI with every message in this chat.
+            {S.sentWithEvery}
           </div>
         </div>
       )}

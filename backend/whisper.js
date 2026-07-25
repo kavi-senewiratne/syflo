@@ -34,6 +34,22 @@ const DEFAULT_IDLE_MS = 10 * 60 * 1000;
 /** Modell (oder Binary) fehlt — der Aufrufer soll eine 503 mit Anleitung geben. */
 class WhisperSetupError extends Error {}
 
+// Whisper "transkribiert" Stille und Nicht-Sprache als Marker aus seinen
+// Trainings-Untertiteln: [BLANK_AUDIO], [Musik], (soft music), ♪ … Solche
+// rein beschreibenden Einschübe sind kein Diktat — sie fliegen raus. Bleibt
+// nichts übrig, bekommt das Frontend einen leeren Text und hängt nichts ans
+// Eingabefeld an.
+const NON_SPEECH_MARKERS = /\[[^\]]*\]|\([^)]*\)|♪+/g;
+
+// whisper-server trennt Segmente außerdem mit \n — für das Composer-Feld
+// soll das Diktat ein Fließtext-Block sein.
+function cleanTranscript(raw) {
+  return (raw || '')
+    .replace(NON_SPEECH_MARKERS, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function createWhisperManager({
   buildCommand = (port) => [
     DEFAULT_BIN,
@@ -144,7 +160,7 @@ function createWhisperManager({
         throw new Error(`whisper-server answered ${res.status}: ${detail.slice(0, 200)}`);
       }
       const json = await res.json();
-      return (json.text || '').trim();
+      return cleanTranscript(json.text);
     } finally {
       armIdleTimer();
     }
@@ -170,4 +186,4 @@ function createWhisperManager({
   return { transcribe, isRunning, shutdown };
 }
 
-module.exports = { createWhisperManager, WhisperSetupError };
+module.exports = { createWhisperManager, WhisperSetupError, cleanTranscript };

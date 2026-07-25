@@ -156,4 +156,31 @@ describe('PaperSearchModal (Slice 07)', () => {
     fireEvent.click(screen.getByLabelText('Close'));
     expect(onClose).toHaveBeenCalledTimes(2);
   });
+
+  // Bug-Report 2026-07-24: "Keine Treffer." blieb aus der vorherigen Suche
+  // stehen, während die neue Suche lief — ein abgestandener Leerzustand.
+  it('blendet "No results." aus, solange eine neue Suche läuft', async () => {
+    vi.mocked(api.searchPapers).mockResolvedValue({ results: [], rate_limited: false });
+    render(<PaperSearchModal onClose={vi.fn()} onImport={vi.fn()} />);
+    fireEvent.change(screen.getByTestId('paper-search-input'), { target: { value: 'attention' } });
+    fireEvent.click(screen.getByTestId('paper-search-submit'));
+    await screen.findByText('No results.');
+
+    // Zweite Suche bleibt absichtlich hängen (pending Promise).
+    let resolveSearch!: (v: { results: SearchResult[]; rate_limited: boolean }) => void;
+    vi.mocked(api.searchPapers).mockReturnValue(
+      new Promise(r => { resolveSearch = r; }) as ReturnType<typeof api.searchPapers>,
+    );
+    fireEvent.click(screen.getByTestId('paper-search-submit'));
+
+    // Kein abgestandenes "No results." — stattdessen der Suchstatus.
+    await waitFor(() => expect(screen.queryByText('No results.')).not.toBeInTheDocument());
+    expect(screen.getByTestId('paper-search-status')).toBeInTheDocument();
+
+    // Erst ein wirklich leeres Ergebnis bringt den Text zurück — hier kommt
+    // stattdessen ein Treffer, also erscheint die Liste.
+    resolveSearch({ results: [openResult], rate_limited: false });
+    await screen.findByText('Attention Is All You Need');
+    expect(screen.queryByText('No results.')).not.toBeInTheDocument();
+  });
 });

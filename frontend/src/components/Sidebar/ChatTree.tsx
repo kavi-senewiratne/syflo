@@ -13,7 +13,8 @@
  */
 
 import { useState, useEffect, useRef } from 'react';
-import { ChevronRight, ChevronDown, FileText } from 'lucide-react';
+import { ChevronRight, ChevronDown, Clock, FileText, TvMinimalPlay } from 'lucide-react';
+import { useStrings } from '../../strings';
 import type { Chat } from '../../types';
 
 interface Props {
@@ -27,16 +28,20 @@ interface Props {
   // Chats, in denen gerade eine Antwort im Hintergrund generiert wird —
   // ihre Zeilen zeigen die kleinen animierten Punkte.
   streamingChatIds?: Set<string>;
+  // Chats, deren Fragen noch in der Backend-Warteschlange stehen (FIFO,
+  // ein Ollama-Slot) — ihre Zeilen zeigen die kleine Uhr statt der Punkte.
+  queuedChatIds?: Set<string>;
 }
 
 // Drei hüpfende Mini-Punkte (kompakte Variante der Chat-Ladepunkte) — zeigt
 // in der Sidebar an, dass dieser Chat gerade eine Antwort generiert.
 export function StreamingDots() {
+  const S = useStrings().sidebar;
   return (
     <span
       className="syflo-typing syflo-typing-sm shrink-0"
       role="status"
-      aria-label="Response in progress"
+      aria-label={S.responseInProgress}
       data-testid="sidebar-streaming-dots"
     >
       <span className="syflo-typing-dot" />
@@ -46,7 +51,24 @@ export function StreamingDots() {
   );
 }
 
-function TreeNode({ chat, activeChatId, renamingId, onSelect, onContextMenu, onRenameSubmit, onRenameCancel, streamingChatIds }: {
+// Kleine Uhr — die Frage dieses Chats wartet noch in der Warteschlange auf
+// den Ollama-Slot (Gegenstück zu StreamingDots fürs Generieren).
+export function QueuedClock() {
+  const S = useStrings().sidebar;
+  return (
+    <span
+      className="shrink-0 text-gray-400"
+      role="status"
+      aria-label={S.queuedInQueue}
+      title={S.queuedInQueue}
+      data-testid="sidebar-queued-clock"
+    >
+      <Clock size={12} />
+    </span>
+  );
+}
+
+function TreeNode({ chat, activeChatId, renamingId, onSelect, onContextMenu, onRenameSubmit, onRenameCancel, streamingChatIds, queuedChatIds }: {
   chat: Chat;
   activeChatId: string | null;
   renamingId: string | null;
@@ -55,6 +77,7 @@ function TreeNode({ chat, activeChatId, renamingId, onSelect, onContextMenu, onR
   onRenameSubmit: (id: string, title: string) => void;
   onRenameCancel: () => void;
   streamingChatIds?: Set<string>;
+  queuedChatIds?: Set<string>;
 }) {
   const [expanded, setExpanded] = useState(true);
   const hasChildren = chat.children && chat.children.length > 0;
@@ -97,21 +120,43 @@ function TreeNode({ chat, activeChatId, renamingId, onSelect, onContextMenu, onR
             onCancel={onRenameCancel}
           />
         ) : (
-          <span className="flex-1 truncate text-[13px]">{chat.title}</span>
+          // leading-[18px] statt line-height:normal (≈18,56px bei 13px Schrift):
+          // sonst ist die Zeilenhöhe nicht ganzzahlig (32,5625px) und die
+          // 1-px-Baumlinien darunter rutschen pro Zeile auf andere Subpixel —
+          // manche Linien wirkten dadurch dicker (Nutzer-Screenshot 2026-07-23).
+          <span className="flex-1 truncate text-[13px] leading-[18px]">{chat.title}</span>
         )}
 
-        {/* Laufende Hintergrund-Antwort in diesem Chat */}
+        {/* Laufende Hintergrund-Antwort (Punkte) oder wartende Frage (Uhr) */}
         {!isRenaming && streamingChatIds?.has(chat.id) && <StreamingDots />}
+        {!isRenaming && !streamingChatIds?.has(chat.id) && queuedChatIds?.has(chat.id) && <QueuedClock />}
 
         {/* PDF tag on the root of a tree with a bound paper
-            (design/mockup-pdf-layout.html, ADR-0002) */}
+            (design/mockup-pdf-layout.html, ADR-0002).
+            leading-[14px] auf den Chips: ohne feste Zeilenhöhe war der
+            10-px-Text 14,28 px hoch → Chip 18,28 px → Root-Zeile krumm →
+            alle Baumlinien darunter auf Subpixeln; je nach Rundung wirkten
+            tiefere Linien dicker (Nutzer-Screenshot 2026-07-24). Gleiche
+            Fehlerklasse wie leading-[18px] beim Titel oben. */}
         {!isRenaming && chat.paper_id && (
           <span
-            className="ml-auto shrink-0 inline-flex items-center gap-[3px] text-[10px] font-semibold tracking-wide text-gray-500 bg-gray-50 border border-gray-200 rounded-[5px] px-1.5 py-px"
+            className="ml-auto shrink-0 inline-flex items-center gap-[3px] text-[10px] leading-[14px] font-semibold tracking-wide text-gray-500 bg-gray-50 border border-gray-200 rounded-[5px] px-1.5 py-px"
             data-testid="tree-pdf-tag"
           >
             <FileText size={9} />
             PDF
+          </span>
+        )}
+
+        {/* YT tag on the root of a tree with a bound YouTube transcript
+            (design/mockup-youtube-transcript.html, ADR-0005) */}
+        {!isRenaming && chat.video_id && (
+          <span
+            className="ml-auto shrink-0 inline-flex items-center gap-[3px] text-[10px] leading-[14px] font-semibold tracking-wide text-gray-500 bg-gray-50 border border-gray-200 rounded-[5px] px-1.5 py-px"
+            data-testid="tree-yt-tag"
+          >
+            <TvMinimalPlay size={9} />
+            YT
           </span>
         )}
       </div>
@@ -147,6 +192,7 @@ function TreeNode({ chat, activeChatId, renamingId, onSelect, onContextMenu, onR
                   onRenameSubmit={onRenameSubmit}
                   onRenameCancel={onRenameCancel}
                   streamingChatIds={streamingChatIds}
+                  queuedChatIds={queuedChatIds}
                 />
               </div>
             );
@@ -194,7 +240,7 @@ export function RenameInput({ initial, onSubmit, onCancel }: {
   );
 }
 
-export function ChatTree({ chats, activeChatId, renamingId, onSelect, onContextMenu, onRenameSubmit, onRenameCancel, streamingChatIds }: Props) {
+export function ChatTree({ chats, activeChatId, renamingId, onSelect, onContextMenu, onRenameSubmit, onRenameCancel, streamingChatIds, queuedChatIds }: Props) {
   return (
     <div>
       {chats.map(chat => (
@@ -208,6 +254,7 @@ export function ChatTree({ chats, activeChatId, renamingId, onSelect, onContextM
           onRenameSubmit={onRenameSubmit}
           onRenameCancel={onRenameCancel}
           streamingChatIds={streamingChatIds}
+          queuedChatIds={queuedChatIds}
         />
       ))}
     </div>

@@ -225,7 +225,7 @@ describe('POST /api/papers/from-url', () => {
     expect(fs.existsSync(paperRow.pdf_path)).toBe(true);
   });
 
-  it('antwortet 409 tree-has-pdf, ohne einen Download zu starten (ADR-0002)', async () => {
+  it('antwortet 409 tree-has-source, ohne einen Download zu starten (ADR-0002/0005)', async () => {
     db.prepare(
       "INSERT INTO papers (id, uploaded_at, pdf_path, status) VALUES ('p-existing', '2026-07-12T00:00:00.000Z', '/dev/null', 'ready')",
     ).run();
@@ -236,7 +236,7 @@ describe('POST /api/papers/from-url', () => {
       .send({ url: 'https://arxiv.org/pdf/1.pdf', chat_id: chatId });
 
     expect(res.status).toBe(409);
-    expect(res.body.error).toBe('tree-has-pdf');
+    expect(res.body.error).toBe('tree-has-source');
     expect(res.body.root_chat_id).toBe(chatId);
     expect(mockUrlFetchFn).not.toHaveBeenCalled();
   });

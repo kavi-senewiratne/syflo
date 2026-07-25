@@ -11,11 +11,60 @@ mkdir -p "$LOG_DIR"
 
 cd "$SYFLO_DIR"
 
+# Beim Doppelklick-Start (Finder/launchd, z. B. Syflo.app auf dem Schreibtisch)
+# erbt das Skript KEIN Shell-Profil — der PATH ist nur /usr/bin:/bin:…:
+# weder Homebrew (ollama, docker, whisper-server) noch nvm (node, npm) sind
+# auffindbar. Deshalb beide hier explizit in den PATH holen, statt sich auf
+# die .zshrc zu verlassen. nvm.sh wird bewusst NICHT gesourct (verträgt sich
+# schlecht mit set -e) — die neueste installierte Node-Version reicht.
+for p in /opt/homebrew/bin /usr/local/bin; do
+  [[ -d "$p" && ":$PATH:" != *":$p:"* ]] && PATH="$p:$PATH"
+done
+if ! command -v npm >/dev/null 2>&1; then
+  node_bin=$(ls -d "$HOME/.nvm/versions/node"/v*/bin 2>/dev/null | sort -V | tail -1)
+  [[ -n "$node_bin" ]] && PATH="$node_bin:$PATH"
+fi
+export PATH
+if ! command -v npm >/dev/null 2>&1; then
+  echo "FEHLER: npm nicht gefunden (weder im PATH noch unter ~/.nvm)"
+  exit 1
+fi
+
 # Ein Wert für alle: Ollama nutzt ihn als Kontextfenster, das Backend leitet
 # daraus sein Zeichen-Budget für den System-Kontext ab (ancestor-context.js).
 # Exportiert, damit BEIDE Prozesse denselben Wert sehen — ein Backend-Budget
 # über dem Ollama-Fenster hieße stilles Context-Shifting und toten KV-Cache.
-export OLLAMA_CONTEXT_LENGTH=16384
+#
+# 32768 statt 16384 (2026-07-24): das Backend-Budget wächst automatisch mit
+# auf ~97k Zeichen, wodurch die meisten Papers (z. B. Bengio 2003: 15,2k
+# Tokens) wieder in den schnellen Volltext-Modus fallen statt in Retrieval —
+# Folgefragen ~2 s statt ~14 s, unabhängig vom Thema. Auf dem 24-GB-Mac
+# verifiziert: qwen3.5:9b bleibt mit 32k-Fenster zu 100 % auf der GPU
+# (9,7 GB, Decode unverändert ~28 tok/s). Retrieval bleibt Netz für Monster.
+export OLLAMA_CONTEXT_LENGTH=32768
+
+# FlashAttention: mathematisch identisches Ergebnis, aber kachelweise
+# berechnet — schnelleres Prefill und weniger Speicher.
+export OLLAMA_FLASH_ATTENTION=1
+
+# Modelle nie aus Idle entladen (Ollama-Default: 5 min). Ein Unload wirft
+# den kompletten KV-Cache weg — die nächste Frage zahlt den vollen
+# Paper-Prefill (~60 s, gemessen 2026-07-25). Das Backend pinnt zwar nach
+# jeder Antwort 1 h nach (messages.js), -1 schützt aber auch alle Pfade
+# ohne Re-Pinning (z. B. nach reinen explain-/Embedding-Aufrufen).
+export OLLAMA_KEEP_ALIVE=-1
+
+# Latenz-Analyse (perf-log.js): auskommentiert lassen — nur zum Messen
+# einschalten. Dann schreibt das Backend pro Antwort eine JSON-Zeile mit
+# reinen Metriken (Modus, Cache, Tokens, Zeiten; NIE Gesprächsinhalte) nach
+# logs/perf.jsonl, auswertbar mit jq. Die [perf]-Zeile im backend.log läuft
+# ohnehin immer. Datei jederzeit löschbar.
+# export SYFLO_PERF_LOG=1
+
+# KEIN OLLAMA_KV_CACHE_TYPE=q8_0: qwen3.5 ist ein Hybrid-Attention-Modell,
+# und mit quantisiertem KV-Cache fällt der Runner auf Metal still auf
+# 100 % CPU zurück (gemessen 2026-07-24: 33/33 GPU-Schichten → 0). Erst
+# wieder erwägen, wenn die Modell-Leiter auf klassische Attention wechselt.
 
 # Kein OLLAMA_NUM_PARALLEL: Ollama erzwingt bei Vision-Modellen (unsere
 # ganze Leiter) Parallel:1 — es gibt genau EINEN KV-Cache-Slot. Deshalb
@@ -46,7 +95,9 @@ cleanup() {
   kill_tree "$FRONTEND_PID"
   kill_tree "$OLLAMA_PID"
   # Sicherheitsnetz: alles, was noch auf unseren Ports lauscht, beenden
-  for port in 3001 5173 5174 5175 5176 5177 5178; do
+  # 8891 = whisper-server (Diktat, ADR-0004) — wird vom Backend lazy
+  # gestartet und hängt als dessen Kind normalerweise mit an kill_tree.
+  for port in 3001 5173 5174 5175 5176 5177 5178 8891; do
     leftover=$(lsof -t -iTCP:$port -sTCP:LISTEN 2>/dev/null || true)
     [[ -n "$leftover" ]] && kill -TERM $leftover 2>/dev/null || true
   done
@@ -113,17 +164,10 @@ wait_for() {
 }
 
 # 1. Ollama
-if curl -s http://localhost:11434/api/tags >/dev/null 2>&1; then
-  echo "Ollama läuft bereits"
-else
-  if ! command -v ollama >/dev/null 2>&1; then
-    echo "FEHLER: 'ollama' ist nicht installiert (brew install ollama)"
-    exit 1
-  fi
-  echo "Starte Ollama..."
-  # Kontextfenster statt der 4096-Default: der Chat bekommt den Volltext des
-  # angehängten Papers in den System-Prompt — mit 4096 würde Ollama den
-  # Paper-Text stillschweigend abschneiden. Wert: export oben im Skript.
+# Kontextfenster statt der 4096-Default: der Chat bekommt den Volltext des
+# angehängten Papers in den System-Prompt — mit 4096 würde Ollama den
+# Paper-Text stillschweigend abschneiden. Wert: export oben im Skript.
+start_ollama() {
   ollama serve >"$LOG_DIR/ollama.log" 2>&1 &
   OLLAMA_PID=$!
   if wait_for http://localhost:11434/api/tags 20; then
@@ -131,6 +175,48 @@ else
   else
     echo "Ollama antwortet nicht (siehe $LOG_DIR/ollama.log)"
   fi
+}
+if curl -s http://localhost:11434/api/tags >/dev/null 2>&1; then
+  # Ein bereits laufender Daemon hat unsere Exports NICHT geerbt — fremd
+  # gestartet (brew services, altes Terminal) liefe er mit 4096er-Fenster,
+  # während das Backend mit ~97k Zeichen plant: stilles Context-Shifting,
+  # toter KV-Cache, abgeschnittene Papers (Falle entdeckt 2026-07-24).
+  # Deshalb die Env des Daemons prüfen (ps -wwE) und notfalls neu starten.
+  running_pid=$(pgrep -f "ollama serve" | head -1 || true)
+  running_env=$(ps -wwE -p "${running_pid:-0}" -o command= 2>/dev/null || true)
+  if [[ "$running_env" == *"OLLAMA_CONTEXT_LENGTH=$OLLAMA_CONTEXT_LENGTH"* ]]; then
+    echo "Ollama läuft bereits (Kontextfenster $OLLAMA_CONTEXT_LENGTH ok)"
+  else
+    echo "Ollama läuft ohne unser Kontextfenster — starte neu..."
+    # Ein brew-Service würde den Daemon nach kill sofort mit alter Env
+    # wiederbeleben — den Service deshalb zuerst stoppen (best effort).
+    if launchctl list 2>/dev/null | grep -qi ollama; then
+      brew services stop ollama >/dev/null 2>&1 || true
+    fi
+    { [[ -n "$running_pid" ]] && kill -TERM "$running_pid" 2>/dev/null; } || true
+    for i in $(seq 1 20); do
+      curl -s http://localhost:11434/api/tags >/dev/null 2>&1 || break
+      sleep 0.5
+    done
+    start_ollama
+  fi
+else
+  if ! command -v ollama >/dev/null 2>&1; then
+    echo "FEHLER: 'ollama' ist nicht installiert (brew install ollama)"
+    exit 1
+  fi
+  echo "Starte Ollama..."
+  start_ollama
+fi
+
+# 1.4 Embedding-Modell für den Retrieval-Modus langer Papers (retrieval.js):
+# winzig (~300 MB), lädt im Hintergrund. Fehlt es zur Laufzeit, degradiert
+# das Backend still auf die alte Volltext-Kürzung — nichts bricht.
+if curl -s http://localhost:11434/api/tags 2>/dev/null | grep -q 'nomic-embed-text'; then
+  : # schon vorhanden
+else
+  echo "Lade Embedding-Modell nomic-embed-text (Hintergrund)..."
+  ollama pull nomic-embed-text >"$LOG_DIR/embed-pull.log" 2>&1 &
 fi
 
 # 1.5 SearXNG (Web-Suche im Chat) — best effort: ohne laufenden Container
@@ -175,8 +261,6 @@ echo "Starte Frontend (Port 5173)..."
 FRONTEND_PID=$!
 if wait_for http://localhost:5173 30; then
   echo "Frontend bereit"
-  echo "Öffne Browser..."
-  open http://localhost:5173
 else
   echo "Frontend antwortet nicht (siehe $LOG_DIR/frontend.log)"
 fi
@@ -188,7 +272,27 @@ echo "   Backend:  http://localhost:3001"
 echo "   Ollama:   http://localhost:11434"
 echo "   Logs:     $LOG_DIR"
 echo ""
-echo "Drücke Ctrl+C zum Beenden."
 
-# Auf Beenden warten
-wait
+# 4. Syflo-Fenster (Electron-Dev-Hülle, lädt den Vite-Server auf :5173).
+# Läuft im Vordergrund: Fenster schließen — oder Ctrl+C hier — fährt über
+# cleanup alles herunter. Ohne installiertes Electron: Browser wie früher.
+if [[ -d "$SYFLO_DIR/electron/node_modules/electron" ]]; then
+  echo "Öffne Syflo-Fenster... (Fenster schließen oder Ctrl+C beendet alles)"
+  # Über LaunchServices (open) statt direkt gespawnt: so ist Electron.app
+  # selbst der für macOS-Berechtigungen „verantwortliche Prozess" und nutzt
+  # seine eigene Mikrofon-Freigabe (com.github.Electron, Eintrag „Electron"
+  # in den Systemeinstellungen). Direkt gestartet erbte die ganze Kette die
+  # Identität des Desktop-Launchers (local.syflo.launcher) — dessen
+  # Mikrofonzugriff verweigerte macOS OHNE Prompt, und das Diktat nahm
+  # exakte Stille auf (Diagnose 2026-07-24). -W wartet bis zum Schließen
+  # des Fensters, damit cleanup danach alles herunterfährt.
+  # electron.log entfällt dabei (open kann stdout nicht umleiten).
+  open -n -W "$SYFLO_DIR/electron/node_modules/electron/dist/Electron.app" \
+    --args "$SYFLO_DIR/electron" || true
+  cleanup
+else
+  echo "Electron fehlt (cd electron && npm install) — öffne Browser..."
+  open http://localhost:5173
+  echo "Drücke Ctrl+C zum Beenden."
+  wait
+fi

@@ -31,6 +31,17 @@ describe('Sidebar', () => {
     expect(screen.getByText('Second Chat')).toBeInTheDocument();
   });
 
+  it('zeigt den YT-Tag an Bäumen mit YouTube transcript (ADR-0005)', () => {
+    const withVideo: Chat[] = [
+      { ...mockChats[0], video_id: 'v1' },
+      mockChats[1],
+    ];
+    render(<Sidebar {...defaultProps} chats={withVideo} />);
+    expect(screen.getByTestId('root-list-yt-tag')).toHaveTextContent('YT');
+    // Der zweite Baum hat keine Quelle — kein Tag.
+    expect(screen.getAllByTestId('root-list-yt-tag')).toHaveLength(1);
+  });
+
   it('has no "Active model" box in the footer — the composer pill owns that', () => {
     // mockup-model-picker.html, Sektion 01: nur noch das Zahnrad im Footer.
     render(<Sidebar {...defaultProps} />);

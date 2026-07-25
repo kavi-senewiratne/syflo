@@ -3,10 +3,11 @@
  *
  * Minimal papers routes, ported from Syflo without the Marker parsing
  * pipeline (PRD non-goal): a paper is just a stored PDF bound to a chat
- * tree. ADR-0002: one PDF per chat tree — the tree's ROOT chat carries
- * paper_id; uploading from any branch binds to the root, and a second
- * upload into the same tree is rejected with 'tree-has-pdf' so the
- * frontend can prompt for a new tree.
+ * tree. ADR-0002 (generalized by ADR-0005 to one SOURCE per tree): the
+ * tree's ROOT chat carries paper_id; uploading from any branch binds to the
+ * root, and attaching into a tree that already has a source (PDF or YouTube
+ * transcript) is rejected with 'tree-has-source' so the frontend can prompt
+ * for a new tree.
  */
 const express = require('express');
 const multer = require('multer');
@@ -16,6 +17,7 @@ const { randomUUID } = require('crypto');
 const defaultOpenAlex = require('../openalex');
 const defaultArxiv = require('../arxiv');
 const defaultSemanticScholar = require('../semantic-scholar');
+const { prepareSourceInBackground } = require('../retrieval');
 
 // ─── URL-Import-Helfer (1:1 aus Syflo routes/papers.js) ─────────────────────
 
@@ -171,6 +173,26 @@ module.exports = (db, uploadsDir, options = {}) => {
   const arxivSearchFn = options.arxivSearchFn || defaultArxiv.searchPapers;
   const ssSearchFn = options.searchFn || defaultSemanticScholar.searchPapers;
   const urlFetchFn = options.urlFetchFn || fetch;
+  // Retrieval-Vorbereitung (ADR-0006), injectable for tests.
+  const extractPdfTextFn = options.extractPdfTextFn || require('../pdf-text').extractPdfText;
+  const embedTextsFn = options.embedTextsFn;
+
+  // Direkt nach dem Import: Text extrahieren + cachen und lange Papers im
+  // Hintergrund chunken/einbetten — die erste Frage wartet auf nichts davon.
+  function preparePaperInBackground(row) {
+    prepareSourceInBackground(db, {
+      sourceType: 'paper',
+      sourceId: row.id,
+      embedFn: embedTextsFn,
+      loadText: async () => {
+        const text = await extractPdfTextFn(row.pdf_path);
+        if (text && text.trim()) {
+          db.prepare('UPDATE papers SET extracted_text = ? WHERE id = ?').run(text, row.id);
+        }
+        return text;
+      },
+    });
+  }
 
   const upload = multer({
     storage: multer.diskStorage({
@@ -240,9 +262,11 @@ module.exports = (db, uploadsDir, options = {}) => {
       discardUpload();
       return res.status(404).json({ error: 'Chat not found' });
     }
-    if (root.paper_id) {
+    // ADR-0005 generalisiert ADR-0002: ein Baum hat höchstens EINE Quelle —
+    // PDF oder YouTube transcript.
+    if (root.paper_id || root.video_id) {
       discardUpload();
-      return res.status(409).json({ error: 'tree-has-pdf', root_chat_id: root.id });
+      return res.status(409).json({ error: 'tree-has-source', root_chat_id: root.id });
     }
 
     const row = {
@@ -256,6 +280,7 @@ module.exports = (db, uploadsDir, options = {}) => {
     insertPaper.run(row);
     bindPaperToChat.run(row.id, root.id);
     renameChatToPaper.run(row.title, root.id);
+    preparePaperInBackground(row);
     return res.status(201).json(formatPaper(row));
   });
 
@@ -325,8 +350,8 @@ module.exports = (db, uploadsDir, options = {}) => {
     }
     const root = resolveRoot(chatId);
     if (!root) return res.status(404).json({ error: 'Chat not found' });
-    if (root.paper_id) {
-      return res.status(409).json({ error: 'tree-has-pdf', root_chat_id: root.id });
+    if (root.paper_id || root.video_id) {
+      return res.status(409).json({ error: 'tree-has-source', root_chat_id: root.id });
     }
 
     const normalizedUrl = normalizeUrl(url.trim());
@@ -467,6 +492,7 @@ module.exports = (db, uploadsDir, options = {}) => {
     });
     tx();
 
+    preparePaperInBackground(row);
     return res.status(201).json(formatPaper(row));
   });
 

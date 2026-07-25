@@ -1,5 +1,6 @@
 import { Image as ImageIcon, FileText, File as FileIcon, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { useStrings } from '../../strings';
 
 interface Props {
   alias: string;
@@ -18,6 +19,8 @@ function iconFor(mimetype: string) {
 }
 
 export function AttachmentChip({ alias, filename, mimetype, previewUrl, onRemove, onRename, compact }: Props) {
+  // UI-Texte in der App language — re-rendert beim Sprachwechsel mit.
+  const S = useStrings().attachmentChip;
   const Icon = iconFor(mimetype);
   const isImage = mimetype.startsWith('image/');
   const editable = Boolean(onRename);
@@ -121,7 +124,7 @@ export function AttachmentChip({ alias, filename, mimetype, previewUrl, onRemove
             onBlur={commit}
             onKeyDown={handleKeyDown}
             className="w-full font-medium text-[11px] text-blue-700 bg-white border border-blue-200 rounded px-1 outline-none focus:border-blue-400"
-            aria-label="Rename alias"
+            aria-label={S.renameAlias}
             data-testid="attachment-alias-input"
           />
         ) : (
@@ -129,7 +132,7 @@ export function AttachmentChip({ alias, filename, mimetype, previewUrl, onRemove
             type="button"
             onClick={editable ? () => setEditing(true) : undefined}
             className={`block w-full text-left font-semibold text-[11px] text-white truncate ${editable ? 'cursor-text hover:underline' : 'cursor-default'}`}
-            title={editable ? `${alias} — click to rename` : alias}
+            title={editable ? S.clickToRename(alias) : alias}
             tabIndex={editable ? 0 : -1}
             data-testid="attachment-alias"
           >
@@ -143,8 +146,8 @@ export function AttachmentChip({ alias, filename, mimetype, previewUrl, onRemove
         <button
           onClick={onRemove}
           className="absolute top-1 right-1 w-5 h-5 flex items-center justify-center rounded-full bg-black/50 text-white hover:bg-black/70 transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
-          title="Remove"
-          aria-label="Remove"
+          title={S.remove}
+          aria-label={S.remove}
         >
           <X size={12} />
         </button>

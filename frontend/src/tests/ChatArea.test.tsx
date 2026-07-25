@@ -1,5 +1,5 @@
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createRef } from 'react';
 import { ChatArea, type ChatAreaHandle } from '../components/ChatArea';
 import type { ChatDetail } from '../types';
@@ -457,6 +457,172 @@ describe('ChatArea', () => {
 
       fireEvent.keyDown(textarea, { key: 'Escape' });
       expect(screen.queryByTestId('mention-item-@foto1')).not.toBeInTheDocument();
+    });
+  });
+
+  // Leertaste-Halten IM Eingabefeld = Diktat (kurzer Tipp bleibt ein
+  // Leerzeichen) + Enter sendet auch ohne fokussiertes Eingabefeld.
+  describe('Leertaste-Diktat im Eingabefeld & globales Enter', () => {
+    let getUserMedia: ReturnType<typeof vi.fn>;
+    let fetchMock: ReturnType<typeof vi.fn>;
+
+    // Gleiches Fake-Recorder-Muster wie in useVoiceInput.test.ts.
+    const recorderFactory = () => ({
+      start: vi.fn(async () => {}),
+      stop: vi.fn(async () => ({
+        samples: new Float32Array([0.1, 0.2, 0.3]),
+        sampleRate: 16000,
+      })),
+    });
+
+    beforeEach(() => {
+      vi.useFakeTimers();
+      const fakeTrack = { stop: vi.fn() };
+      getUserMedia = vi.fn(async () => ({ getTracks: () => [fakeTrack] }));
+      Object.defineProperty(navigator, 'mediaDevices', {
+        configurable: true,
+        value: { getUserMedia },
+      });
+      fetchMock = vi.fn(async () => ({ ok: true, json: async () => ({ text: 'hallo welt' }) }));
+      vi.stubGlobal('fetch', fetchMock);
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+      delete (navigator as any).mediaDevices;
+    });
+
+    const renderWithVoice = () =>
+      render(
+        <ChatArea
+          chat={mockChat}
+          loading={false}
+          {...defaultProps}
+          voiceRecorderFactory={recorderFactory as any}
+        />
+      );
+
+    it('startet das Diktat, wenn die Leertaste im Eingabefeld gehalten wird', async () => {
+      renderWithVoice();
+      const textarea = screen.getByTestId('chat-textarea');
+      textarea.focus();
+
+      fireEvent.keyDown(textarea, { key: ' ', code: 'Space' });
+      await act(async () => { await vi.advanceTimersByTimeAsync(350); });
+
+      expect(getUserMedia).toHaveBeenCalled();
+      expect(screen.getByTestId('voice-waveform-row')).toBeInTheDocument();
+
+      fireEvent.keyUp(textarea, { key: ' ', code: 'Space' });
+      await act(async () => { await vi.advanceTimersByTimeAsync(10); });
+      expect(screen.queryByTestId('voice-waveform-row')).not.toBeInTheDocument();
+    });
+
+    it('ein kurzer Leertasten-Tipp startet KEIN Diktat', async () => {
+      renderWithVoice();
+      const textarea = screen.getByTestId('chat-textarea');
+      textarea.focus();
+
+      fireEvent.keyDown(textarea, { key: ' ', code: 'Space' });
+      await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+      fireEvent.keyUp(textarea, { key: ' ', code: 'Space' });
+      await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+
+      expect(getUserMedia).not.toHaveBeenCalled();
+    });
+
+    it('Enter während der Transkription sendet, sobald das Transkript da ist', async () => {
+      let resolveFetch!: (v: unknown) => void;
+      fetchMock.mockImplementation(() => new Promise(r => { resolveFetch = r; }));
+      renderWithVoice();
+      const textarea = screen.getByTestId('chat-textarea');
+      textarea.focus();
+
+      // Halten → Diktat, Loslassen → Transkription läuft (fetch hängt noch)
+      fireEvent.keyDown(textarea, { key: ' ', code: 'Space' });
+      await act(async () => { await vi.advanceTimersByTimeAsync(350); });
+      fireEvent.keyUp(textarea, { key: ' ', code: 'Space' });
+      await act(async () => { await vi.advanceTimersByTimeAsync(10); });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      // Enter jetzt = Senden vormerken, noch nichts abschicken
+      fireEvent.keyDown(textarea, { key: 'Enter' });
+      expect(defaultProps.onSendMessage).not.toHaveBeenCalled();
+
+      await act(async () => {
+        resolveFetch({ ok: true, json: async () => ({ text: 'hallo welt' }) });
+        await vi.advanceTimersByTimeAsync(10);
+      });
+      expect(defaultProps.onSendMessage).toHaveBeenCalledWith('hallo welt', []);
+    });
+
+    it('Enter sendet auch, wenn das Eingabefeld nicht fokussiert ist', async () => {
+      renderWithVoice();
+      const textarea = screen.getByTestId('chat-textarea') as HTMLTextAreaElement;
+      fireEvent.change(textarea, { target: { value: 'Hallo!' } });
+      textarea.blur();
+
+      fireEvent.keyDown(document.body, { key: 'Enter' });
+      await act(async () => { await vi.advanceTimersByTimeAsync(10); });
+      expect(defaultProps.onSendMessage).toHaveBeenCalledWith('Hallo!', []);
+    });
+
+    it('Enter auf einem fokussierten Button sendet NICHT (nativer Klick gewinnt)', async () => {
+      renderWithVoice();
+      const textarea = screen.getByTestId('chat-textarea') as HTMLTextAreaElement;
+      fireEvent.change(textarea, { target: { value: 'Hallo!' } });
+
+      const button = screen.getByTestId('attach-plus-button');
+      button.focus();
+      fireEvent.keyDown(button, { key: 'Enter' });
+
+      expect(defaultProps.onSendMessage).not.toHaveBeenCalled();
+    });
+  });
+
+  // ─── YouTube Transcript (ADR-0005) ────────────────────────────────────────
+
+  describe('YouTube Transcript im Plus-Menü', () => {
+    it('zeigt den Menüpunkt nur mit onOpenYouTubeSearch und öffnet das Modal darüber', () => {
+      const onOpenYouTubeSearch = vi.fn();
+      render(
+        <ChatArea
+          chat={mockChat}
+          loading={false}
+          {...defaultProps}
+          onOpenYouTubeSearch={onOpenYouTubeSearch}
+        />,
+      );
+
+      fireEvent.click(screen.getByTestId('attach-plus-button'));
+      const item = screen.getByTestId('attach-menu-youtube-transcript');
+      expect(item).toHaveTextContent('YouTube Transcript');
+
+      fireEvent.click(item);
+      expect(onOpenYouTubeSearch).toHaveBeenCalled();
+      // Menü schließt nach der Auswahl.
+      expect(screen.queryByTestId('attach-menu')).not.toBeInTheDocument();
+    });
+
+    it('versteckt den Menüpunkt ohne onOpenYouTubeSearch', () => {
+      render(<ChatArea chat={mockChat} loading={false} {...defaultProps} />);
+      fireEvent.click(screen.getByTestId('attach-plus-button'));
+      expect(screen.queryByTestId('attach-menu-youtube-transcript')).not.toBeInTheDocument();
+    });
+
+    it('rendert Quellen-Banner und Transkript-Drawer über die Slot-Props', () => {
+      render(
+        <ChatArea
+          chat={mockChat}
+          loading={false}
+          {...defaultProps}
+          videoBanner={<div data-testid="video-banner-slot" />}
+          transcriptDrawer={<div data-testid="transcript-drawer-slot" />}
+        />,
+      );
+      expect(screen.getByTestId('video-banner-slot')).toBeInTheDocument();
+      expect(screen.getByTestId('transcript-drawer-slot')).toBeInTheDocument();
     });
   });
 });

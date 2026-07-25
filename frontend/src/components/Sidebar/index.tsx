@@ -15,9 +15,10 @@
  */
 
 import { useState, useEffect, useRef } from 'react';
-import { SquarePen, GitBranch, ArrowLeft, Pencil, Trash2, FileText, PanelLeftClose, PanelLeftOpen, Settings as SettingsIcon } from 'lucide-react';
-import { ChatTree, RenameInput, StreamingDots } from './ChatTree';
+import { SquarePen, GitBranch, ArrowLeft, Pencil, Trash2, FileText, PanelLeftClose, PanelLeftOpen, Settings as SettingsIcon, TvMinimalPlay } from 'lucide-react';
+import { ChatTree, QueuedClock, RenameInput, StreamingDots } from './ChatTree';
 import { groupChatsByDate } from './groupChatsByDate';
+import { useStrings } from '../../strings';
 import { Logo } from '../Logo';
 import type { SettingsTab } from '../SettingsModal';
 import type { Chat } from '../../types';
@@ -61,6 +62,9 @@ interface Props {
   // Chats mit laufender Hintergrund-Antwort — ihre Zeilen (bzw. in der
   // Root-Liste der Baum, der sie enthält) zeigen die animierten Punkte.
   streamingChatIds?: Set<string>;
+  // Chats, deren Fragen in der Backend-Warteschlange warten — kleine Uhr
+  // statt der Punkte (FIFO über alle Chats, ein Ollama-Slot).
+  queuedChatIds?: Set<string>;
 }
 
 // Streamt dieser Chat oder irgendein Nachfahre? (Root-Liste zeigt nur Roots.)
@@ -70,7 +74,9 @@ function subtreeStreams(chat: Chat, ids?: Set<string>): boolean {
   return (chat.children ?? []).some(c => subtreeStreams(c, ids));
 }
 
-export function Sidebar({ chats, activeChatId, onSelect, onNewChat, onDelete, onRename, viewMode, onToggleView, onOpenSettings, collapsed, onToggleCollapsed, streamingChatIds }: Props) {
+export function Sidebar({ chats, activeChatId, onSelect, onNewChat, onDelete, onRename, viewMode, onToggleView, onOpenSettings, collapsed, onToggleCollapsed, streamingChatIds, queuedChatIds }: Props) {
+  // UI-Texte in der App language — re-rendert beim Sprachwechsel mit.
+  const S = useStrings().sidebar;
   const [expandedRootId, setExpandedRootId] = useState<string | null>(null);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
@@ -134,7 +140,7 @@ export function Sidebar({ chats, activeChatId, onSelect, onNewChat, onDelete, on
       await onDelete(pendingDeleteId);
       setPendingDeleteId(null);
     } catch (err) {
-      setDeleteError(err instanceof Error ? err.message : 'Could not delete the chat. Is the backend running?');
+      setDeleteError(err instanceof Error ? err.message : S.deleteFailed);
     } finally {
       setDeleting(false);
     }
@@ -153,14 +159,14 @@ export function Sidebar({ chats, activeChatId, onSelect, onNewChat, onDelete, on
       <div className="syflo-sidebar w-12 bg-white border-r border-gray-200 flex flex-col items-center py-5 shrink-0">
         <button
           onClick={onToggleCollapsed}
-          title="Expand sidebar"
+          title={S.expand}
           className="p-2 rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-100 transition-colors"
         >
           <PanelLeftOpen size={18} />
         </button>
         <button
           onClick={onNewChat}
-          title="New Chat"
+          title={S.newChat}
           className="mt-2 p-2 rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-100 transition-colors"
         >
           <SquarePen size={16} />
@@ -169,8 +175,8 @@ export function Sidebar({ chats, activeChatId, onSelect, onNewChat, onDelete, on
             expanded sidebar's bottom-left gear */}
         <button
           onClick={() => openSettings('appearance')}
-          title="Settings"
-          aria-label="Open settings"
+          title={S.settings}
+          aria-label={S.openSettings}
           className="mt-auto p-2 rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-100 transition-colors"
         >
           <SettingsIcon size={16} />
@@ -188,7 +194,7 @@ export function Sidebar({ chats, activeChatId, onSelect, onNewChat, onDelete, on
           {/* Collapse the sidebar to a slim rail */}
           <button
             onClick={onToggleCollapsed}
-            title="Collapse sidebar"
+            title={S.collapse}
             className="p-2 rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-100 transition-colors"
           >
             <PanelLeftClose size={16} />
@@ -198,7 +204,7 @@ export function Sidebar({ chats, activeChatId, onSelect, onNewChat, onDelete, on
           {activeChatId && (
             <button
               onClick={onToggleView}
-              title={viewMode === 'chat' ? 'Switch to Mind Map' : 'Switch to Chat'}
+              title={viewMode === 'chat' ? S.switchToMindMap : S.switchToChat}
               className={`p-2 rounded-lg transition-colors ${
                 viewMode === 'mindmap'
                   ? 'text-blue-600 bg-blue-50'
@@ -212,7 +218,7 @@ export function Sidebar({ chats, activeChatId, onSelect, onNewChat, onDelete, on
           {/* New chat button */}
           <button
             onClick={onNewChat}
-            title="New Chat"
+            title={S.newChat}
             className="p-2 rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-100 transition-colors"
           >
             <SquarePen size={16} />
@@ -240,14 +246,14 @@ export function Sidebar({ chats, activeChatId, onSelect, onNewChat, onDelete, on
             className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100"
           >
             <Pencil size={13} />
-            Rename
+            {S.rename}
           </button>
           <button
             onClick={() => { requestDelete(contextMenu.chatId); setContextMenu(null); }}
             className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100"
           >
             <Trash2 size={13} />
-            Delete
+            {S.delete}
           </button>
           </div>
         </>
@@ -264,9 +270,9 @@ export function Sidebar({ chats, activeChatId, onSelect, onNewChat, onDelete, on
             onClick={e => e.stopPropagation()}
           >
             <div className="px-6 pt-6 pb-2">
-              <h3 className="text-base font-semibold text-gray-900 mb-1.5">Delete chat?</h3>
+              <h3 className="text-base font-semibold text-gray-900 mb-1.5">{S.deleteChatTitle}</h3>
               <p className="text-sm text-gray-500 leading-relaxed">
-                "{pendingDeleteChat.title}" and all its branched chats will be permanently removed.
+                {S.deleteChatBody(pendingDeleteChat.title)}
               </p>
               {deleteError && (
                 <p className="mt-3 text-sm text-red-600 bg-red-50 px-3 py-2 rounded-md border border-red-100">
@@ -280,14 +286,14 @@ export function Sidebar({ chats, activeChatId, onSelect, onNewChat, onDelete, on
                 disabled={deleting}
                 className="px-4 py-2 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-100 transition-colors disabled:opacity-50"
               >
-                Cancel
+                {S.cancel}
               </button>
               <button
                 onClick={confirmDelete}
                 disabled={deleting}
                 className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-red-600 hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {deleting ? 'Deleting…' : deleteError ? 'Retry' : 'Delete'}
+                {deleting ? S.deleting : deleteError ? S.retry : S.delete}
               </button>
             </div>
           </div>
@@ -297,7 +303,7 @@ export function Sidebar({ chats, activeChatId, onSelect, onNewChat, onDelete, on
       {/* Scrollable chat list */}
       <div className="flex-1 overflow-y-auto px-2 pb-6 pt-2">
         {chats.length === 0 ? (
-          <p className="text-xs text-gray-400 text-center mt-8 px-4">No chats yet</p>
+          <p className="text-xs text-gray-400 text-center mt-8 px-4">{S.noChats}</p>
         ) : expandedRoot ? (
           // Expanded view: back button + single root with all children
           <>
@@ -306,7 +312,7 @@ export function Sidebar({ chats, activeChatId, onSelect, onNewChat, onDelete, on
               className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-900 px-2.5 py-1.5 mb-2 rounded-md hover:bg-gray-100 transition-colors w-full"
             >
               <ArrowLeft size={13} />
-              All chats
+              {S.allChats}
             </button>
             <ChatTree
               chats={[expandedRoot]}
@@ -317,6 +323,7 @@ export function Sidebar({ chats, activeChatId, onSelect, onNewChat, onDelete, on
               onRenameSubmit={handleRenameSubmit}
               onRenameCancel={() => setRenamingId(null)}
               streamingChatIds={streamingChatIds}
+              queuedChatIds={queuedChatIds}
             />
           </>
         ) : (
@@ -330,7 +337,7 @@ export function Sidebar({ chats, activeChatId, onSelect, onNewChat, onDelete, on
                 }`}
                 data-testid="chat-group-label"
               >
-                {group.label}
+                {S.groups[group.label]}
               </p>
               <div className="space-y-0.5">
                 {group.chats.map(chat => {
@@ -361,17 +368,30 @@ export function Sidebar({ chats, activeChatId, onSelect, onNewChat, onDelete, on
                       ) : (
                         <span className="flex-1 truncate text-[13px]">{chat.title}</span>
                       )}
-                      {/* Laufende Antwort in diesem Baum (Root oder Kind) */}
+                      {/* Laufende Antwort (Punkte) oder wartende Frage (Uhr)
+                          in diesem Baum (Root oder Kind) */}
                       {!isRenaming && subtreeStreams(chat, streamingChatIds) && <StreamingDots />}
+                      {!isRenaming && !subtreeStreams(chat, streamingChatIds) && subtreeStreams(chat, queuedChatIds) && <QueuedClock />}
                       {/* PDF tag on trees with a bound paper — same badge as on
                           the tree's root node (design/mockup-pdf-layout.html) */}
                       {!isRenaming && chat.paper_id && (
                         <span
-                          className="ml-auto shrink-0 inline-flex items-center gap-[3px] text-[10px] font-semibold tracking-wide text-gray-500 bg-gray-50 border border-gray-200 rounded-[5px] px-1.5 py-px"
+                          className="ml-auto shrink-0 inline-flex items-center gap-[3px] text-[10px] leading-[14px] font-semibold tracking-wide text-gray-500 bg-gray-50 border border-gray-200 rounded-[5px] px-1.5 py-px"
                           data-testid="root-list-pdf-tag"
                         >
                           <FileText size={9} />
                           PDF
+                        </span>
+                      )}
+                      {/* YT tag on trees with a bound YouTube transcript
+                          (ADR-0005) — same badge style as the PDF tag. */}
+                      {!isRenaming && chat.video_id && (
+                        <span
+                          className="ml-auto shrink-0 inline-flex items-center gap-[3px] text-[10px] leading-[14px] font-semibold tracking-wide text-gray-500 bg-gray-50 border border-gray-200 rounded-[5px] px-1.5 py-px"
+                          data-testid="root-list-yt-tag"
+                        >
+                          <TvMinimalPlay size={9} />
+                          YT
                         </span>
                       )}
                     </div>
@@ -389,12 +409,12 @@ export function Sidebar({ chats, activeChatId, onSelect, onNewChat, onDelete, on
       <div className="border-t border-gray-100 px-3 py-3">
         <button
           onClick={() => openSettings('appearance')}
-          title="Settings"
-          aria-label="Open settings"
+          title={S.settings}
+          aria-label={S.openSettings}
           className="flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs font-medium text-gray-500 hover:text-gray-900 hover:bg-gray-100 transition-colors"
         >
           <SettingsIcon size={15} />
-          Settings
+          {S.settings}
         </button>
       </div>
     </div>

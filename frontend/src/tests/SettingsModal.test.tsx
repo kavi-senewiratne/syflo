@@ -32,6 +32,7 @@ const ollamaSettings: Settings = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  localStorage.clear();
   vi.mocked(api.getSettings).mockResolvedValue(ollamaSettings);
   vi.mocked(api.getOllamaModels).mockResolvedValue([]);
 });
@@ -48,7 +49,10 @@ describe('SettingsModal – two-tab layout', () => {
     await renderOpen();
 
     expect(screen.getByRole('button', { name: /appearance/i })).toBeInTheDocument();
-    expect(screen.getByText('Basic')).toBeInTheDocument();
+    expect(screen.getByText('Mushroom Kingdom')).toBeInTheDocument();
+    // "Basic" (professional) ist versteckt, nicht entfernt (Nutzerwunsch
+    // 2026-07-23): Theme bleibt gültig, taucht im Picker aber nicht auf.
+    expect(screen.queryByText('Basic')).not.toBeInTheDocument();
     // Kein Activate und kein Status-Hinweis auf dem Appearance-Tab
     expect(screen.queryByRole('button', { name: /activate/i })).not.toBeInTheDocument();
     expect(screen.queryByText(/current selection is active/i)).not.toBeInTheDocument();
@@ -218,5 +222,96 @@ describe('SettingsModal – custom instructions (Instructions tab)', () => {
     expect(
       screen.getByRole('textbox', { name: /custom instructions/i })
     ).toHaveAttribute('maxlength', '2000');
+  });
+});
+
+// ─── App language (Grill 2026-07-24, Mockup Variante A · State 5) ────────────
+// Vierter Tab "Language": Segmented-Auswahl English/Deutsch (Labels immer in
+// der eigenen Sprache), wirkt sofort wie Themes (kein Activate), plus
+// Read-only-Zeile fürs Diktat (Auto-Detect, ADR-0004).
+
+describe('SettingsModal – App language (Language tab)', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  async function openLanguageTab() {
+    render(<SettingsModal open={true} onClose={vi.fn()} />);
+    // Sprachrobust: das Modal kann je nach gespeicherter App language schon
+    // deutsch rendern (Theme → Farbschema, Language → Sprache).
+    await screen.findByText(/^(Theme|Farbschema)$/);
+    fireEvent.click(screen.getByRole('button', { name: /^(Language|Sprache)$/ }));
+  }
+
+  it('offers English and Deutsch, each labeled in its own language, with no Activate', async () => {
+    await openLanguageTab();
+
+    expect(screen.getByRole('button', { name: 'English' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Deutsch' })).toBeInTheDocument();
+    // Wie Themes: sofortige Wirkung, kein Activate/Save auf diesem Tab.
+    expect(screen.queryByRole('button', { name: /activate/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^save$/i })).not.toBeInTheDocument();
+  });
+
+  it('applies a choice instantly by persisting it to localStorage', async () => {
+    await openLanguageTab();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Deutsch' }));
+
+    expect(localStorage.getItem('syflo.appLanguage')).toBe('de');
+  });
+
+  it('marks the stored language as selected', async () => {
+    localStorage.setItem('syflo.appLanguage', 'de');
+    await openLanguageTab();
+
+    expect(screen.getByRole('button', { name: 'Deutsch' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'English' })).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('shows dictation as a read-only automatic row', async () => {
+    await openLanguageTab();
+
+    expect(screen.getByText('Dictation')).toBeInTheDocument();
+    expect(screen.getByText('Automatic · German + English')).toBeInTheDocument();
+    // Read-only: keine Auswahl, kein Switch fürs Diktat (ADR-0004).
+    expect(screen.queryByRole('switch')).not.toBeInTheDocument();
+  });
+});
+
+// ─── Deutsche UI (strings.ts, Grill 2026-07-24) ──────────────────────────────
+// Mit App language = Deutsch rendert das ganze Modal-Chrome deutsch; die
+// Sprach-Labels selbst ("English"/"Deutsch") bleiben in der eigenen Sprache.
+
+describe('SettingsModal – German App language', () => {
+  it('renders the modal chrome in German when the App language is German', async () => {
+    localStorage.setItem('syflo.appLanguage', 'de');
+    render(<SettingsModal open={true} onClose={vi.fn()} />);
+    await screen.findByText('Farbschema');
+
+    expect(screen.getByText('Einstellungen')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /erscheinungsbild/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Sprache' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /anweisungen/i })).toBeInTheDocument();
+    // X-Knopf (aria) und Footer-Knopf heißen beide "Schließen".
+    expect(screen.getAllByRole('button', { name: /schließen/i })).toHaveLength(2);
+
+    // Die Sprach-Optionen bleiben immer in ihrer eigenen Sprache.
+    fireEvent.click(screen.getByRole('button', { name: 'Sprache' }));
+    expect(screen.getByRole('button', { name: 'English' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Deutsch' })).toBeInTheDocument();
+  });
+
+  it('re-renders instantly from English to German when Deutsch is picked', async () => {
+    render(<SettingsModal open={true} onClose={vi.fn()} />);
+    await screen.findByText('Theme');
+    fireEvent.click(screen.getByRole('button', { name: /language/i }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Deutsch' }));
+
+    // Sofortige Wirkung: das Chrome springt ohne Neuladen auf Deutsch um.
+    expect(screen.getByText('Einstellungen')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Sprache' })).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: /schließen/i }).length).toBeGreaterThan(0);
   });
 });

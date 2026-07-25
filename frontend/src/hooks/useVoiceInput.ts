@@ -1,50 +1,58 @@
 /**
  * hooks/useVoiceInput.ts
  *
- * Wrapper um die Web Speech API (Spracherkennung) mit ChatGPT-ähnlichem
- * Klick-Toggle-Verhalten:
+ * Diktierfunktion mit ChatGPT-ähnlichem Klick-Toggle-Verhalten, seit
+ * ADR-0004 auf lokalem Whisper statt der Web Speech API:
  *   - startListening() startet, stopListening() stoppt
- *   - während der Aufnahme wird das Transkript intern gepuffert; erst beim
- *     Stoppen wird es als ein Block per onTranscript an das Eingabefeld
- *     übergeben (kein "live tippen" mehr)
- *   - parallel zur Spracherkennung läuft ein AnalyserNode auf dem Mikrofon-
- *     Stream, damit `volume` (0..1) für eine echte Lautstärken-Wellen-
- *     Visualisierung verwendet werden kann
+ *   - während der Aufnahme werden die PCM-Samples gepuffert; erst beim
+ *     Stoppen wird EIN WAV (16 kHz mono) an POST /api/transcribe geschickt
+ *     und der erkannte Text als ein Block per onTranscript übergeben.
+ *     Whisper erkennt Deutsch/Englisch selbst (language=auto im Backend),
+ *     gemischte Sätze eingeschlossen.
+ *   - isTranscribing überbrückt die Zeit zwischen Stopp und Server-Antwort
+ *   - parallel läuft ein AnalyserNode auf demselben Mikrofon-Stream, damit
+ *     `volume` (0..1) die Lautstärken-Wellen-Visualisierung speist
  *   - Spacebar als Push-to-Talk: greift NUR, wenn aktuell KEIN Text-
- *     Eingabefeld fokussiert ist — sonst tippt die Leertaste normal
+ *     Eingabefeld fokussiert ist — sonst tippt die Leertaste normal.
+ *     Im Chat-Composer unterscheidet ChatArea zusätzlich Tipp vs. Halten
+ *     (SPACE_HOLD_MS), damit Halten auch MIT fokussiertem Eingabefeld
+ *     diktiert; der globale keyup-Handler hier stoppt beide Varianten.
+ *
+ * recorderFactory ist injizierbar (Tests: Fake statt AudioWorklet) —
+ * gleiches Muster wie options.system/options.messages im Backend.
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { createWorkletRecorder, type PcmRecorder } from '../audio/recorder';
+import { encodeWav16kMono } from '../audio/wav';
 
 interface UseVoiceInputOptions {
   onTranscript: (text: string) => void;
   enabled?: boolean;
+  /** Nur für Tests: ersetzt den AudioWorklet-Recorder durch einen Fake. */
+  recorderFactory?: (stream: MediaStream, ctx: AudioContext | null) => PcmRecorder;
 }
 
-export function useVoiceInput({ onTranscript, enabled = true }: UseVoiceInputOptions) {
+export function useVoiceInput({
+  onTranscript,
+  enabled = true,
+  recorderFactory,
+}: UseVoiceInputOptions) {
   const [isListening, setIsListening] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
   // Aktuelle Mikrofon-Lautstärke 0..1, wird ~60×/s aktualisiert.
   const [volume, setVolume] = useState(0);
   const [supported, setSupported] = useState(false);
 
-  const recognitionRef = useRef<any>(null);
   const listeningRef = useRef(false);
+  const recorderRef = useRef<PcmRecorder | null>(null);
 
-  // Sammelt alle bereits "finalisierten" Stücke — wachsen monoton während der
-  // Aufnahme.
-  const finalsRef = useRef('');
-  // Speichert das aktuell unfertige (interim) Stück — wird bei jedem onresult
-  // überschrieben. Wenn der User stoppt, bevor der Browser das Stück
-  // finalisieren konnte, retten wir es trotzdem.
-  const interimRef = useRef('');
-
-  // Aktuelle onTranscript-Callback-Referenz, damit stopListening die neueste
-  // Version des Callbacks aufruft, ohne dass startListening/stopListening
-  // ständig neue Identitäten bekommen.
+  // Aktuelle Callback-/Factory-Referenzen, damit start/stop stabile
+  // Identitäten behalten und trotzdem die neueste Version aufrufen.
   const onTranscriptRef = useRef(onTranscript);
-  useEffect(() => {
-    onTranscriptRef.current = onTranscript;
-  }, [onTranscript]);
+  useEffect(() => { onTranscriptRef.current = onTranscript; }, [onTranscript]);
+  const recorderFactoryRef = useRef(recorderFactory);
+  useEffect(() => { recorderFactoryRef.current = recorderFactory; }, [recorderFactory]);
 
   // Web-Audio-Ressourcen für Lautstärken-Erkennung.
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -52,76 +60,8 @@ export function useVoiceInput({ onTranscript, enabled = true }: UseVoiceInputOpt
   const streamRef = useRef<MediaStream | null>(null);
   const rafRef = useRef<number | null>(null);
 
-  // Ref auf teardownAudio, damit der recognition.onerror-Handler — der einmalig
-  // im useEffect unten registriert wird — auch nach späteren Renderings die
-  // aktuelle Funktion erreicht.
-  const teardownAudioRef = useRef<() => void>(() => {});
-
   useEffect(() => {
-    const SpeechRecognitionAPI =
-      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognitionAPI) return;
-
-    setSupported(true);
-    const recognition: any = new SpeechRecognitionAPI();
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    recognition.lang = navigator.language || 'de-DE';
-
-    recognition.onresult = (event: any) => {
-      let interim = '';
-      let final = '';
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        if (event.results[i].isFinal) {
-          final += event.results[i][0].transcript;
-        } else {
-          interim += event.results[i][0].transcript;
-        }
-      }
-      if (final) {
-        const trimmed = final.trim();
-        finalsRef.current = finalsRef.current
-          ? finalsRef.current + ' ' + trimmed
-          : trimmed;
-      }
-      // Aktuelles interim-Stück merken (überschreibt das vorherige).
-      interimRef.current = interim.trim();
-    };
-
-    // onend feuert, wenn der Browser die Aufnahme beendet — entweder weil
-    // continuous-Modus bei Stille auto-stoppt (dann neu starten), oder weil
-    // der User stop() aufgerufen hat (dann das gesammelte Transkript an das
-    // Eingabefeld übergeben).
-    recognition.onend = () => {
-      if (listeningRef.current) {
-        try { recognition.start(); } catch (e) { console.error('[useVoiceInput] restart failed', e); }
-        return;
-      }
-      const combined = [finalsRef.current, interimRef.current]
-        .filter(Boolean)
-        .join(' ')
-        .trim();
-      finalsRef.current = '';
-      interimRef.current = '';
-      if (combined) onTranscriptRef.current(combined);
-    };
-
-    recognition.onerror = (event: any) => {
-      console.error('[useVoiceInput] error:', event?.error, event);
-      // Endgültige Fehler → State zurücksetzen, damit der User aus dem
-      // "rotes Mic"-Zustand rauskommt.
-      const fatal = ['not-allowed', 'service-not-allowed', 'audio-capture'];
-      if (fatal.includes(event?.error)) {
-        listeningRef.current = false;
-        setIsListening(false);
-        teardownAudioRef.current?.();
-      }
-    };
-
-    recognitionRef.current = recognition;
-    return () => {
-      try { recognition.abort(); } catch (_) {}
-    };
+    setSupported(!!navigator.mediaDevices?.getUserMedia);
   }, []);
 
   const teardownAudio = useCallback(() => {
@@ -134,38 +74,19 @@ export function useVoiceInput({ onTranscript, enabled = true }: UseVoiceInputOpt
       streamRef.current = null;
     }
     if (audioContextRef.current) {
-      try { audioContextRef.current.close(); } catch (_) {}
+      try { audioContextRef.current.close(); } catch { /* schon zu */ }
       audioContextRef.current = null;
     }
     analyserRef.current = null;
     setVolume(0);
   }, []);
-  teardownAudioRef.current = teardownAudio;
 
-  const setupAudioAnalyser = useCallback(async () => {
-    if (!navigator.mediaDevices?.getUserMedia) return;
-    // AudioContext muss bereits SYNCHRON im Klick-Handler erstellt worden
-    // sein (siehe startListening), damit er nicht im suspended-Zustand
-    // hängt. Hier nur noch verwenden.
+  // Lautstärke-Analyser auf dem bereits geöffneten Stream — rein visuell,
+  // Fehler hier dürfen die Aufnahme nie verhindern.
+  const setupAudioAnalyser = useCallback((stream: MediaStream) => {
     const ctx = audioContextRef.current;
     if (!ctx) return;
-
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      if (!listeningRef.current) {
-        stream.getTracks().forEach(t => t.stop());
-        return;
-      }
-      streamRef.current = stream;
-
-      // Falls der Browser den Context trotz User-Gesture suspended startet,
-      // hier nochmal versuchen.
-      if (ctx.state === 'suspended') {
-        try { await ctx.resume(); } catch (e) {
-          console.error('[useVoiceInput] AudioContext.resume failed', e);
-        }
-      }
-
       const source = ctx.createMediaStreamSource(stream);
       const analyser = ctx.createAnalyser();
       analyser.fftSize = 512;
@@ -177,8 +98,6 @@ export function useVoiceInput({ onTranscript, enabled = true }: UseVoiceInputOpt
       const dataArray = new Uint8Array(analyser.frequencyBinCount);
       const speechBins = Math.max(8, Math.floor(dataArray.length * 0.25));
       // Exponentielles Glätten: aktueller Wert mischt sich mit dem letzten.
-      // Höheres alpha → folgt der Stimme schneller, niedriger → träger und
-      // ruhiger. 0.25 ist ein guter Kompromiss aus Reaktivität und Ruhe.
       let smoothed = 0;
       const alpha = 0.25;
       const tick = () => {
@@ -194,34 +113,25 @@ export function useVoiceInput({ onTranscript, enabled = true }: UseVoiceInputOpt
       };
       rafRef.current = requestAnimationFrame(tick);
     } catch (e) {
-      // Häufige Ursache: getUserMedia verweigert oder Browser blockiert
-      // parallelen Mikro-Zugriff (SpeechRecognition belegt Mikro bereits).
-      // Wir loggen, damit der User die Ursache in der Konsole sieht.
       console.error('[useVoiceInput] audio analyser setup failed', e);
     }
   }, []);
 
   const startListening = useCallback(() => {
-    if (!recognitionRef.current) return;
     if (listeningRef.current) return;
+    if (!navigator.mediaDevices?.getUserMedia) return;
     listeningRef.current = true;
     setIsListening(true);
-    finalsRef.current = '';
-    interimRef.current = '';
 
     // KRITISCH: AudioContext synchron im User-Gesture-Stack erstellen.
-    // Wenn man wartet, bis `getUserMedia` async aufgelöst ist, gilt der
-    // Klick nicht mehr als User-Gesture und der Context startet "suspended".
-    // Dann liefert der AnalyserNode durchgehend Stille, egal wie laut man
-    // spricht.
+    // Nach dem async getUserMedia gilt der Klick nicht mehr als Gesture und
+    // der Context startet "suspended" — der Analyser liefert dann nur Stille.
     const AudioCtx: typeof AudioContext | undefined =
       (window as any).AudioContext || (window as any).webkitAudioContext;
     if (AudioCtx && !audioContextRef.current) {
       try {
         const ctx = new AudioCtx();
         audioContextRef.current = ctx;
-        // resume() hier ebenfalls SYNCHRON anstoßen — wir warten nicht auf
-        // das Promise, der Aufruf reicht, um den running-Zustand zu erzwingen.
         if (ctx.state === 'suspended') {
           ctx.resume().catch(e => console.error('[useVoiceInput] resume failed', e));
         }
@@ -230,29 +140,77 @@ export function useVoiceInput({ onTranscript, enabled = true }: UseVoiceInputOpt
       }
     }
 
-    setupAudioAnalyser().finally(() => {
-      if (!listeningRef.current) return;
+    (async () => {
       try {
-        recognitionRef.current.start();
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        if (!listeningRef.current) {
+          stream.getTracks().forEach(t => t.stop());
+          return;
+        }
+        streamRef.current = stream;
+        setupAudioAnalyser(stream);
+
+        const factory = recorderFactoryRef.current
+          ?? ((s: MediaStream, ctx: AudioContext | null) => {
+            if (!ctx) throw new Error('AudioContext unavailable');
+            return createWorkletRecorder(s, ctx);
+          });
+        const recorder = factory(stream, audioContextRef.current);
+        await recorder.start();
+        if (!listeningRef.current) {
+          // Nutzer hat schon wieder gestoppt, bevor der Worklet geladen war.
+          await recorder.stop().catch(() => {});
+          return;
+        }
+        recorderRef.current = recorder;
       } catch (e) {
         console.error('[useVoiceInput] start failed', e);
+        listeningRef.current = false;
+        setIsListening(false);
+        teardownAudio();
       }
-    });
-  }, [setupAudioAnalyser]);
+    })();
+  }, [setupAudioAnalyser, teardownAudio]);
 
   const stopListening = useCallback(() => {
-    if (!recognitionRef.current) return;
     if (!listeningRef.current) return;
     listeningRef.current = false;
     setIsListening(false);
-    try {
-      recognitionRef.current.stop();
-    } catch (e) {
-      console.error('[useVoiceInput] stop failed', e);
-    }
-    teardownAudio();
-    // Das gesammelte Transkript wird im onend-Handler an onTranscript
-    // übergeben — vorher können noch finale Stücke vom Browser nachkommen.
+
+    const recorder = recorderRef.current;
+    recorderRef.current = null;
+
+    (async () => {
+      try {
+        // Erst die Samples einsammeln, DANN den AudioContext schließen —
+        // andersherum verliert der Worklet seine letzten Blöcke.
+        const recording = recorder ? await recorder.stop() : null;
+        teardownAudio();
+        if (!recording || recording.samples.length === 0) return;
+
+        const wav = encodeWav16kMono(recording.samples, recording.sampleRate);
+        setIsTranscribing(true);
+        try {
+          const res = await fetch('/api/transcribe', {
+            method: 'POST',
+            headers: { 'Content-Type': 'audio/wav' },
+            body: wav,
+          });
+          if (!res.ok) {
+            const detail = await res.json().catch(() => ({} as { error?: string }));
+            throw new Error(detail.error || `transcribe answered ${res.status}`);
+          }
+          const { text } = await res.json();
+          const trimmed = (text || '').trim();
+          if (trimmed) onTranscriptRef.current(trimmed);
+        } finally {
+          setIsTranscribing(false);
+        }
+      } catch (e) {
+        console.error('[useVoiceInput] transcription failed', e);
+        teardownAudio();
+      }
+    })();
   }, [teardownAudio]);
 
   // Spacebar-Shortcut: nur, wenn KEIN Text-Eingabefeld fokussiert ist —
@@ -283,5 +241,5 @@ export function useVoiceInput({ onTranscript, enabled = true }: UseVoiceInputOpt
     };
   }, [enabled, startListening, stopListening]);
 
-  return { isListening, volume, supported, startListening, stopListening };
+  return { isListening, isTranscribing, volume, supported, startListening, stopListening };
 }

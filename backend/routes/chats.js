@@ -56,6 +56,11 @@ module.exports = (db) => {
         roots.push(map[c.id]);
       }
     });
+    // Sidebar zeigt neueste Bäume oben (2026-07-24). Nur die Roots drehen —
+    // die children bleiben aufsteigend (ORDER BY oben), sie speisen die
+    // Baumlinien in Erstellungs-Reihenfolge. String-Vergleich reicht:
+    // created_at ist "YYYY-MM-DD HH:MM:SS" und sortiert lexikografisch.
+    roots.sort((a, b) => b.created_at.localeCompare(a.created_at));
     res.json(roots);
   });
 

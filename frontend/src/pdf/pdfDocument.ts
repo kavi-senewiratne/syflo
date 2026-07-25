@@ -7,8 +7,14 @@
  * place that touches pdfjs-dist.
  */
 
-import * as pdfjsLib from 'pdfjs-dist';
-import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+// LEGACY-Build statt dem modernen: pdf.js ≥ 6.1 setzt brandneue JS-APIs
+// voraus (Map.getOrInsertComputed, Uint8Array.toHex — TC39-Proposals), die
+// die Chromium-Version der Electron-Hülle noch nicht kennt. Der PDF-Upload
+// scheiterte dort mit "this._requestsByChunk.getOrInsertComputed is not a
+// function" (Nutzer-Report 2026-07-23). Der Legacy-Build bringt seine
+// eigenen Polyfills mit — im Haupt-Bundle UND im Worker.
+import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
+import workerUrl from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?url';
 // pdf.js text-layer CSS — required so the absolute-positioned text spans line
 // up with the rendered canvas. Without this import, selecting text produces
 // a highlight rectangle that's visually offset from the actual words.

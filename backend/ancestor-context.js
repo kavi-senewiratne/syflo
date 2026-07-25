@@ -223,30 +223,37 @@ function renderAncestorText({ chain, summaries, parentTranscript }) {
 
 /**
  * Opfer-Reihenfolge, wenn der Gesamtkontext das Budget sprengt:
- * zuerst den Papiertext kürzen (notfalls ganz streichen), dann
- * Vorfahren-Summaries von der Wurzel her (älteste zuerst) fallen lassen.
- * Das wörtliche Eltern-Transkript wird nie angetastet — die unmittelbare
- * Gesprächsnähe ist beim Vertiefen das Wertvollste.
+ * zuerst Vorfahren-Summaries von der Wurzel her (älteste zuerst) fallen
+ * lassen, erst dann den Quelltext kürzen (Anfang behalten), notfalls ganz
+ * streichen. Das wörtliche Eltern-Transkript wird nie angetastet — die
+ * unmittelbare Gesprächsnähe ist beim Vertiefen das Wertvollste.
+ *
+ * Reihenfolge gedreht am 2026-07-25 (vorher: Quelle zuerst): Die Quelle ist
+ * der teuerste Prompt-Teil und im ganzen Baum byte-identisch geteilt — jede
+ * Kürzung im Kind macht den KV-Cache des Eltern-Prefills wertlos (gemessen:
+ * voller Re-Prefill ~60 s). Summaries sind klein und stehen ohnehin HINTER
+ * der Quelle im Prompt; sie zu opfern erhält den gemeinsamen Präfix.
  */
 function applyContextBudget({ paperText, summaries, parentTranscript }, maxTotalChars) {
   const parentLen = parentTranscript ? parentTranscript.length : 0;
   let trimmedSummaries = [...summaries];
   let trimmedPaper = paperText;
 
+  const paperLen = () => (trimmedPaper ? trimmedPaper.length : 0);
   const summariesLen = () => trimmedSummaries.reduce((n, s) => n + s.summary.length, 0);
 
-  // 1. Papier auf den Rest-Platz kürzen (Anfang behalten — dort stehen
-  //    Titel/Abstract), notfalls ganz streichen.
+  // 1. Summaries älteste zuerst opfern, bis alles zusammen passt.
+  while (trimmedSummaries.length > 0 && paperLen() + parentLen + summariesLen() > maxTotalChars) {
+    trimmedSummaries.shift();
+  }
+
+  // 2. Reicht das nicht: Quelle auf den Rest-Platz kürzen (Anfang behalten —
+  //    dort stehen Titel/Abstract), notfalls ganz streichen.
   if (trimmedPaper) {
     const room = maxTotalChars - parentLen - summariesLen();
     if (trimmedPaper.length > room) {
       trimmedPaper = room > 0 ? trimmedPaper.slice(0, room) : null;
     }
-  }
-
-  // 2. Reicht das nicht: Summaries älteste zuerst opfern.
-  while (trimmedSummaries.length > 0 && parentLen + summariesLen() > maxTotalChars) {
-    trimmedSummaries.shift();
   }
 
   return { paperText: trimmedPaper, summaries: trimmedSummaries, parentTranscript };

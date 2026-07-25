@@ -11,7 +11,7 @@ const request = require('supertest');
 const path = require('path');
 const { createApp } = require('../server');
 const { createDb } = require('../database');
-const { createWhisperManager } = require('../whisper');
+const { createWhisperManager, cleanTranscript } = require('../whisper');
 
 const TEST_DB_PATH = path.join(__dirname, 'transcribe_test.db');
 const fs = require('fs');
@@ -135,6 +135,21 @@ describe('POST /api/transcribe', () => {
     expect(res.body.text).toContain(`bytes=${wav.length}`);
   });
 
+  it('collapses whisper segment line breaks into single spaces', async () => {
+    // whisper-server trennt Segmente mit \n — im Composer soll das Diktat
+    // aber als EIN Fließtext-Block landen.
+    manager = makeManager();
+    app = createApp(db, { transcribe: { manager } });
+
+    const res = await request(app)
+      .post('/api/transcribe')
+      .set('Content-Type', 'audio/wav')
+      .send(tinyWav());
+
+    expect(res.body.text).not.toMatch(/\n/);
+    expect(res.body.text).toMatch(/fake transcript language=/);
+  });
+
   it('rejects an empty body with 400', async () => {
     manager = makeManager();
     app = createApp(db, { transcribe: { manager } });
@@ -145,5 +160,27 @@ describe('POST /api/transcribe', () => {
       .send();
 
     expect(res.status).toBe(400);
+  });
+});
+
+// Whisper gibt bei Stille/Nicht-Sprache Marker aus den Trainings-Untertiteln
+// zurück ([BLANK_AUDIO], [Musik], (soft music), ♪) — die dürfen nie als
+// "Diktat" im Eingabefeld landen.
+describe('cleanTranscript – Nicht-Sprach-Marker', () => {
+  it('turns a silence-only transcript into an empty string', () => {
+    expect(cleanTranscript('[BLANK_AUDIO]')).toBe('');
+    expect(cleanTranscript(' [BLANK_AUDIO] \n [BLANK_AUDIO] ')).toBe('');
+    expect(cleanTranscript('(leise Musik)')).toBe('');
+    expect(cleanTranscript('♪♪♪')).toBe('');
+    expect(cleanTranscript(null)).toBe('');
+  });
+
+  it('strips markers but keeps the actual speech around them', () => {
+    expect(cleanTranscript('[BLANK_AUDIO] Hallo Welt (soft music)')).toBe('Hallo Welt');
+    expect(cleanTranscript('Guten [Musik] Morgen')).toBe('Guten Morgen');
+  });
+
+  it('collapses whitespace/segment breaks and passes normal text through', () => {
+    expect(cleanTranscript(' fake transcript\n language=auto ')).toBe('fake transcript language=auto');
   });
 });

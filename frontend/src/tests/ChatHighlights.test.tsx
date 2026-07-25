@@ -33,11 +33,11 @@ vi.mock('../pdf/pdfDocument', () => ({
 }));
 
 vi.mock('../api', () => ({
-  TreeHasPdfError: class TreeHasPdfError extends Error {
+  TreeHasSourceError: class TreeHasSourceError extends Error {
     rootChatId: string | null;
     constructor(rootChatId: string | null) {
-      super('tree-has-pdf');
-      this.name = 'TreeHasPdfError';
+      super('tree-has-source');
+      this.name = 'TreeHasSourceError';
       this.rootChatId = rootChatId;
     }
   },
@@ -56,6 +56,7 @@ vi.mock('../api', () => ({
     getChat: vi.fn(),
     getAncestors: vi.fn(),
     getTreePaper: vi.fn(),
+    getTreeVideo: vi.fn().mockResolvedValue(null),
     uploadPaper: vi.fn(),
     createChat: vi.fn(),
     deleteChat: vi.fn(),

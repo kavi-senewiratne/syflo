@@ -34,12 +34,7 @@ npm-debug.log*
 # Test coverage
 coverage/
 
-# Tauri (Rust) build artifacts — `target/` is multi-GB and platform-specific.
-# The lockfile + source under src-tauri/ stays in the repo.
-src-tauri/target/
-src-tauri/gen/
-
-# Tauri bundled resources — synced from backend/ before each build.
-# Source of truth lives in backend/. Re-create with `npm run sync-backend`.
-src-tauri/resources/backend/
-src-tauri/resources/node/
+# Electron bundled resources — synced from backend/ before each build.
+# Source of truth lives in backend/. Re-created by
+# scripts/sync-electron-resources.sh (electron build scripts run it).
+electron/resources/

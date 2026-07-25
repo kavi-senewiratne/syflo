@@ -1,51 +1,69 @@
 /**
  * useVoiceInput.test.ts
  *
- * Tests for useVoiceInput:
- * - Spacebar PTT only fires when NO text input is focused (Option A).
- * - Transcript is buffered during recording and emitted only on stop.
+ * Tests für useVoiceInput nach dem Whisper-Umbau (ADR-0004):
+ * - Spacebar-PTT greift nur, wenn KEIN Text-Eingabefeld fokussiert ist.
+ * - Audio wird während der Aufnahme gepuffert; erst beim Stoppen wird EIN
+ *   WAV an POST /api/transcribe geschickt und der Servertext einmalig an
+ *   onTranscript übergeben.
+ * - isTranscribing überbrückt die Zeit zwischen Stopp und Server-Antwort.
+ *
+ * Der Recorder (AudioWorklet, browser-only) wird über recorderFactory
+ * injiziert — gleiches Muster wie options.system/options.messages im Backend.
  */
 
 import { renderHook, act } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { useVoiceInput } from '../hooks/useVoiceInput';
 
-let mockRecognition: {
-  continuous: boolean;
-  interimResults: boolean;
-  lang: string;
+let fakeRecorder: {
+  started: boolean;
+  samples: Float32Array;
+  sampleRate: number;
   start: ReturnType<typeof vi.fn>;
   stop: ReturnType<typeof vi.fn>;
-  abort: ReturnType<typeof vi.fn>;
-  onresult: any;
-  onend: any;
 };
+let getUserMedia: ReturnType<typeof vi.fn>;
+let fetchMock: ReturnType<typeof vi.fn>;
+
+function makeFakeRecorder() {
+  fakeRecorder = {
+    started: false,
+    samples: new Float32Array([0.1, 0.2, 0.3]),
+    sampleRate: 16000,
+    start: vi.fn(async () => { fakeRecorder.started = true; }),
+    stop: vi.fn(async () => ({
+      samples: fakeRecorder.samples,
+      sampleRate: fakeRecorder.sampleRate,
+    })),
+  };
+  return fakeRecorder;
+}
+
+const recorderFactory = () => makeFakeRecorder();
+
+function jsonResponse(text: string) {
+  return { ok: true, json: async () => ({ text }) };
+}
 
 beforeEach(() => {
-  // Use a class so `new SpeechRecognitionAPI()` works correctly
-  class MockSpeechRecognition {
-    continuous = false;
-    interimResults = false;
-    lang = '';
-    start = vi.fn();
-    stop = vi.fn();
-    abort = vi.fn();
-    onresult: any = null;
-    onend: any = null;
-    constructor() {
-      // Capture the instance so tests can assert on it
-      mockRecognition = this as any;
-    }
-  }
-  (window as any).SpeechRecognition = MockSpeechRecognition;
-  (window as any).webkitSpeechRecognition = undefined;
+  const fakeTrack = { stop: vi.fn() };
+  getUserMedia = vi.fn(async () => ({ getTracks: () => [fakeTrack] }));
+  Object.defineProperty(navigator, 'mediaDevices', {
+    configurable: true,
+    value: { getUserMedia },
+  });
+  fetchMock = vi.fn(async () => jsonResponse(' hallo welt '));
+  vi.stubGlobal('fetch', fetchMock);
 });
 
 afterEach(() => {
-  delete (window as any).SpeechRecognition;
-  delete (window as any).webkitSpeechRecognition;
+  vi.unstubAllGlobals();
+  delete (navigator as any).mediaDevices;
   vi.restoreAllMocks();
 });
+
+const flush = () => new Promise(resolve => setTimeout(resolve, 0));
 
 function pressSpace(repeat = false) {
   document.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space', bubbles: true, repeat }));
@@ -55,183 +73,164 @@ function releaseSpace() {
   document.dispatchEvent(new KeyboardEvent('keyup', { code: 'Space', bubbles: true }));
 }
 
-// startListening setzt Audio-Analyser zuerst auf (async), und ruft erst danach
-// recognition.start() auf. In Tests muss man eine Microtask-Tick abwarten,
-// damit dieser Schritt ausgeführt wird.
-const flush = () => new Promise(resolve => setTimeout(resolve, 0));
-
 describe('useVoiceInput – spacebar shortcut', () => {
-  it('starts listening when spacebar is pressed with no focused element', async () => {
+  it('starts recording when spacebar is pressed with no focused element', async () => {
     const onTranscript = vi.fn();
-    const { result } = renderHook(() => useVoiceInput({ onTranscript }));
+    const { result } = renderHook(() => useVoiceInput({ onTranscript, recorderFactory }));
 
     act(() => { pressSpace(); });
     await act(async () => { await flush(); });
 
     expect(result.current.isListening).toBe(true);
-    expect(mockRecognition.start).toHaveBeenCalledTimes(1);
+    expect(fakeRecorder.started).toBe(true);
   });
 
-  it('stops listening when spacebar is released', async () => {
+  it('stops recording when spacebar is released', async () => {
     const onTranscript = vi.fn();
-    const { result } = renderHook(() => useVoiceInput({ onTranscript }));
+    const { result } = renderHook(() => useVoiceInput({ onTranscript, recorderFactory }));
 
     act(() => { pressSpace(); });
     await act(async () => { await flush(); });
     act(() => { releaseSpace(); });
+    await act(async () => { await flush(); });
 
     expect(result.current.isListening).toBe(false);
-    expect(mockRecognition.stop).toHaveBeenCalledTimes(1);
+    expect(fakeRecorder.stop).toHaveBeenCalledTimes(1);
   });
 
-  it('does NOT start listening when an empty textarea is focused', () => {
-    // Option A: Spacebar-PTT greift nur, wenn KEIN Text-Eingabefeld fokussiert ist —
-    // egal ob es leer oder voll ist. Sonst würde die Leertaste mitten im Tippen
-    // die Aufnahme starten.
+  it('does NOT start recording when a textarea is focused', async () => {
     const onTranscript = vi.fn();
-    const { result } = renderHook(() => useVoiceInput({ onTranscript }));
+    const { result } = renderHook(() => useVoiceInput({ onTranscript, recorderFactory }));
 
     const textarea = document.createElement('textarea');
-    textarea.value = '';
     document.body.appendChild(textarea);
     textarea.focus();
 
     act(() => { pressSpace(); });
+    await act(async () => { await flush(); });
 
     expect(result.current.isListening).toBe(false);
-    expect(mockRecognition.start).not.toHaveBeenCalled();
+    expect(getUserMedia).not.toHaveBeenCalled();
 
     document.body.removeChild(textarea);
   });
 
-  it('does NOT start listening when textarea with content is focused', () => {
+  it('does NOT start recording on a key-repeat event (held key)', async () => {
     const onTranscript = vi.fn();
-    const { result } = renderHook(() => useVoiceInput({ onTranscript }));
+    const { result } = renderHook(() => useVoiceInput({ onTranscript, recorderFactory }));
 
-    const textarea = document.createElement('textarea');
-    textarea.value = 'some text already typed';
-    document.body.appendChild(textarea);
-    textarea.focus();
-
-    act(() => { pressSpace(); });
+    act(() => { pressSpace(true); });
+    await act(async () => { await flush(); });
 
     expect(result.current.isListening).toBe(false);
-    expect(mockRecognition.start).not.toHaveBeenCalled();
-
-    document.body.removeChild(textarea);
+    expect(getUserMedia).not.toHaveBeenCalled();
   });
 
-  it('does NOT start listening on a key-repeat event (held key)', () => {
+  it('does not start when enabled is false', async () => {
     const onTranscript = vi.fn();
-    const { result } = renderHook(() => useVoiceInput({ onTranscript }));
-
-    act(() => { pressSpace(true); }); // repeat = true
-
-    expect(result.current.isListening).toBe(false);
-    expect(mockRecognition.start).not.toHaveBeenCalled();
-  });
-
-  it('does not start when enabled is false', () => {
-    const onTranscript = vi.fn();
-    const { result } = renderHook(() => useVoiceInput({ onTranscript, enabled: false }));
+    const { result } = renderHook(() =>
+      useVoiceInput({ onTranscript, enabled: false, recorderFactory }));
 
     act(() => { pressSpace(); });
+    await act(async () => { await flush(); });
 
     expect(result.current.isListening).toBe(false);
-    expect(mockRecognition.start).not.toHaveBeenCalled();
+    expect(getUserMedia).not.toHaveBeenCalled();
   });
 });
 
-describe('useVoiceInput – Transkript wird gepuffert und erst nach onend übergeben', () => {
-  // Hilfsfunktionen, um ein finalisiertes / vorläufiges Result-Event zu bauen.
-  const finalResult = (text: string) => ({
-    resultIndex: 0,
-    results: [
-      Object.assign([{ transcript: text }], { isFinal: true }),
-    ],
-  });
-  const interimResult = (text: string) => ({
-    resultIndex: 0,
-    results: [
-      Object.assign([{ transcript: text }], { isFinal: false }),
-    ],
-  });
-
-  it('emittiert während der Aufnahme NICHTS, sondern erst wenn der Browser onend feuert', () => {
+describe('useVoiceInput – Diktat wird beim Stoppen transkribiert', () => {
+  it('sends ONE WAV to /api/transcribe on stop and emits the server text once', async () => {
     const onTranscript = vi.fn();
-    const { result } = renderHook(() => useVoiceInput({ onTranscript }));
+    const { result } = renderHook(() => useVoiceInput({ onTranscript, recorderFactory }));
 
-    act(() => { result.current.startListening(); });
+    await act(async () => { result.current.startListening(); await flush(); });
+    expect(onTranscript).not.toHaveBeenCalled(); // während der Aufnahme: nichts
 
-    act(() => { mockRecognition.onresult(finalResult('hallo')); });
-    act(() => { mockRecognition.onresult(finalResult('welt')); });
-    expect(onTranscript).not.toHaveBeenCalled();
+    await act(async () => { result.current.stopListening(); await flush(); });
 
-    // stop() allein liefert noch nichts — Browser kann noch finale Stücke
-    // hinterherschicken.
-    act(() => { result.current.stopListening(); });
-    expect(onTranscript).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('/api/transcribe');
+    expect(init.method).toBe('POST');
+    expect(init.headers['Content-Type']).toBe('audio/wav');
+    expect(init.body).toBeInstanceOf(ArrayBuffer);
 
-    // Erst onend → kombinierter Text kommt einmalig durch.
-    act(() => { mockRecognition.onend(); });
     expect(onTranscript).toHaveBeenCalledTimes(1);
+    expect(onTranscript).toHaveBeenCalledWith('hallo welt'); // getrimmt
+  });
+
+  it('does not call the server when no audio was captured', async () => {
+    const onTranscript = vi.fn();
+    const { result } = renderHook(() => useVoiceInput({ onTranscript, recorderFactory }));
+
+    await act(async () => { result.current.startListening(); await flush(); });
+    fakeRecorder.samples = new Float32Array(0);
+    await act(async () => { result.current.stopListening(); await flush(); });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(onTranscript).not.toHaveBeenCalled();
+  });
+
+  it('does not emit when the server returns empty text', async () => {
+    const onTranscript = vi.fn();
+    fetchMock.mockResolvedValueOnce(jsonResponse('  '));
+    const { result } = renderHook(() => useVoiceInput({ onTranscript, recorderFactory }));
+
+    await act(async () => { result.current.startListening(); await flush(); });
+    await act(async () => { result.current.stopListening(); await flush(); });
+
+    expect(onTranscript).not.toHaveBeenCalled();
+  });
+
+  it('exposes isTranscribing while the server call is pending', async () => {
+    const onTranscript = vi.fn();
+    let resolveFetch: (v: unknown) => void;
+    fetchMock.mockImplementationOnce(() => new Promise(r => { resolveFetch = r; }));
+    const { result } = renderHook(() => useVoiceInput({ onTranscript, recorderFactory }));
+
+    await act(async () => { result.current.startListening(); await flush(); });
+    expect(result.current.isTranscribing).toBe(false);
+
+    await act(async () => { result.current.stopListening(); await flush(); });
+    expect(result.current.isTranscribing).toBe(true);
+
+    await act(async () => { resolveFetch!(jsonResponse('fertig')); await flush(); });
+    expect(result.current.isTranscribing).toBe(false);
+    expect(onTranscript).toHaveBeenCalledWith('fertig');
+  });
+
+  it('recovers when the transcription request fails', async () => {
+    const onTranscript = vi.fn();
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    fetchMock.mockRejectedValueOnce(new Error('backend down'));
+    const { result } = renderHook(() => useVoiceInput({ onTranscript, recorderFactory }));
+
+    await act(async () => { result.current.startListening(); await flush(); });
+    await act(async () => { result.current.stopListening(); await flush(); });
+
+    expect(onTranscript).not.toHaveBeenCalled();
+    expect(result.current.isTranscribing).toBe(false);
+    expect(errorSpy).toHaveBeenCalled();
+
+    // Nächstes Diktat funktioniert wieder
+    await act(async () => { result.current.startListening(); await flush(); });
+    await act(async () => { result.current.stopListening(); await flush(); });
     expect(onTranscript).toHaveBeenCalledWith('hallo welt');
   });
 
-  it('rettet auch das letzte interim-Stück, wenn der Browser nichts finalisiert hat', () => {
+  it('toggle: a second recording produces a second transcript', async () => {
     const onTranscript = vi.fn();
-    const { result } = renderHook(() => useVoiceInput({ onTranscript }));
+    const { result } = renderHook(() => useVoiceInput({ onTranscript, recorderFactory }));
 
-    act(() => { result.current.startListening(); });
-    // Nur interim, keine finalen Resultate
-    act(() => { mockRecognition.onresult(interimResult('kurze frage')); });
-    act(() => { result.current.stopListening(); });
-    act(() => { mockRecognition.onend(); });
+    await act(async () => { result.current.startListening(); await flush(); });
+    await act(async () => { result.current.stopListening(); await flush(); });
 
-    expect(onTranscript).toHaveBeenCalledWith('kurze frage');
-  });
+    fetchMock.mockResolvedValueOnce(jsonResponse('zweiter text'));
+    await act(async () => { result.current.startListening(); await flush(); });
+    await act(async () => { result.current.stopListening(); await flush(); });
 
-  it('ruft onTranscript NICHT auf, wenn nichts gesprochen wurde', () => {
-    const onTranscript = vi.fn();
-    const { result } = renderHook(() => useVoiceInput({ onTranscript }));
-
-    act(() => { result.current.startListening(); });
-    act(() => { result.current.stopListening(); });
-    act(() => { mockRecognition.onend(); });
-
-    expect(onTranscript).not.toHaveBeenCalled();
-  });
-
-  it('Toggle: zweites startListening nach stopListening startet eine neue Aufnahme', () => {
-    const onTranscript = vi.fn();
-    const { result } = renderHook(() => useVoiceInput({ onTranscript }));
-
-    act(() => { result.current.startListening(); });
-    act(() => { mockRecognition.onresult(finalResult('eins')); });
-    act(() => { result.current.stopListening(); });
-    act(() => { mockRecognition.onend(); });
-    expect(onTranscript).toHaveBeenLastCalledWith('eins');
-
-    act(() => { result.current.startListening(); });
-    act(() => { mockRecognition.onresult(finalResult('zwei')); });
-    act(() => { result.current.stopListening(); });
-    act(() => { mockRecognition.onend(); });
-    expect(onTranscript).toHaveBeenLastCalledWith('zwei');
     expect(onTranscript).toHaveBeenCalledTimes(2);
-  });
-
-  it('startet automatisch neu, wenn der Browser bei Stille onend feuert während wir noch hören', async () => {
-    const onTranscript = vi.fn();
-    const { result } = renderHook(() => useVoiceInput({ onTranscript }));
-
-    act(() => { result.current.startListening(); });
-    await act(async () => { await flush(); });
-    expect(mockRecognition.start).toHaveBeenCalledTimes(1);
-
-    // Browser auto-stoppt bei Stille
-    act(() => { mockRecognition.onend(); });
-    expect(mockRecognition.start).toHaveBeenCalledTimes(2);
-    expect(result.current.isListening).toBe(true);
-    expect(onTranscript).not.toHaveBeenCalled();
+    expect(onTranscript).toHaveBeenLastCalledWith('zweiter text');
   });
 });

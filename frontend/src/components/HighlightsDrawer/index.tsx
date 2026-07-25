@@ -22,6 +22,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { FileText, Highlighter, MessageSquare, X } from 'lucide-react';
 import { useTreeHighlights } from '../../hooks/useTreeHighlights';
 import { useLabels } from '../../hooks/useLabels';
+import { useStrings } from '../../strings';
 import { HIGHLIGHT_COLORS } from '../../types';
 import type { HighlightColor, TreeHighlight } from '../../types';
 
@@ -57,13 +58,16 @@ interface Props {
   variant?: 'overlay' | 'panel';
 }
 
-function formatDay(iso: string): string {
+// Locale folgt der App language ('de-DE' bei Deutsch, sonst 'en-US').
+function formatDay(iso: string, locale: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '';
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return d.toLocaleDateString(locale, { month: 'short', day: 'numeric' });
 }
 
 export function HighlightsDrawer({ chatId, onClose, onJump, onItemContextMenu, variant = 'overlay' }: Props) {
+  // UI-Texte in der App language — re-rendert beim Sprachwechsel mit.
+  const S = useStrings().highlightsDrawer;
   const { items, loading } = useTreeHighlights(chatId);
   const { labels } = useLabels();
   // Leere Auswahl = "All". Ein Set statt Einzelwert wegen Mehrfachauswahl
@@ -111,11 +115,11 @@ export function HighlightsDrawer({ chatId, onClose, onJump, onItemContextMenu, v
         <div className="mb-3 flex items-center justify-between">
           <h2 className="flex items-center gap-2 text-[13px] font-semibold text-gray-900">
             <Highlighter size={15} className="text-gray-400" />
-            Highlights
+            {S.title}
           </h2>
           <button
             type="button"
-            aria-label="Close highlights"
+            aria-label={S.close}
             onClick={onClose}
             className="flex h-7 w-7 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700"
           >
@@ -133,7 +137,7 @@ export function HighlightsDrawer({ chatId, onClose, onJump, onItemContextMenu, v
                 : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
             }`}
           >
-            All <span className={selected.size === 0 ? 'text-white/70' : 'text-gray-400'}>{items.length}</span>
+            {S.all} <span className={selected.size === 0 ? 'text-white/70' : 'text-gray-400'}>{items.length}</span>
           </button>
           {HIGHLIGHT_COLORS.map((color) => {
             const active = selected.has(color);
@@ -162,7 +166,7 @@ export function HighlightsDrawer({ chatId, onClose, onJump, onItemContextMenu, v
           <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
             <Highlighter size={22} className="text-gray-300" />
             <p className="text-[13px] leading-relaxed text-gray-400">
-              No highlights yet — select text and right-click to highlight.
+              {S.empty}
             </p>
           </div>
         )}
@@ -187,8 +191,8 @@ export function HighlightsDrawer({ chatId, onClose, onJump, onItemContextMenu, v
                 <span className="line-clamp-2 block text-xs leading-normal text-gray-700">{item.text}</span>
                 <span className="mt-1.5 flex items-center gap-1.5 text-[10.5px] font-medium text-gray-400">
                   {item.kind === 'pdf' ? <FileText size={10} /> : <MessageSquare size={10} />}
-                  {item.kind === 'pdf' ? `PDF · p. ${item.pageNumber}` : `Chat · ${item.chatTitle}`}
-                  <span className="ml-auto font-normal">{formatDay(item.createdAt)}</span>
+                  {item.kind === 'pdf' ? S.pdfSource(item.pageNumber) : S.chatSource(item.chatTitle)}
+                  <span className="ml-auto font-normal">{formatDay(item.createdAt, S.dateLocale)}</span>
                 </span>
               </button>
             ))}

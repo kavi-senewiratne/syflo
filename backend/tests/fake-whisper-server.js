@@ -25,7 +25,9 @@ const server = http.createServer((req, res) => {
       const language = (body.match(/name="language"\r\n\r\n([^\r]+)/) || [])[1] || '';
       const fileBytes = (body.match(/name="file"[\s\S]*?\r\n\r\n([\s\S]*?)\r\n--/) || ['', ''])[1].length;
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ text: ` fake transcript language=${language} bytes=${fileBytes} ` }));
+      // Der echte whisper-server trennt Segmente mit \n — der Fake auch,
+      // damit Tests die Whitespace-Normalisierung absichern.
+      res.end(JSON.stringify({ text: ` fake transcript\n language=${language}\n bytes=${fileBytes} ` }));
     });
     return;
   }

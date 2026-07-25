@@ -11,7 +11,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { api, TreeHasPdfError } from '../api';
+import { api, TreeHasSourceError } from '../api';
 import type { Message } from '../types';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -231,14 +231,25 @@ describe('api.sendMessageStream', () => {
 // ─── explainWord ────────────────────────────────────────────────────────────
 
 describe('api.explainWord', () => {
-  it('sends POST with word and context', async () => {
+  it('sends POST with word, context and the App language (Grill 2026-07-24)', async () => {
+    localStorage.removeItem('syflo.appLanguage');
     vi.mocked(fetch).mockReturnValue(mockJsonResponse({ explanation: 'A quantum is...' }));
     const result = await api.explainWord('quantum', 'physics lesson');
     expect(fetch).toHaveBeenCalledWith('/api/explain', expect.objectContaining({
       method: 'POST',
-      body: JSON.stringify({ word: 'quantum', context: 'physics lesson' }),
+      body: JSON.stringify({ word: 'quantum', context: 'physics lesson', language: 'en' }),
     }));
     expect(result.explanation).toBe('A quantum is...');
+  });
+
+  it('sends language=de when the App language is German', async () => {
+    localStorage.setItem('syflo.appLanguage', 'de');
+    vi.mocked(fetch).mockReturnValue(mockJsonResponse({ explanation: 'Ein Quant ist…' }));
+    await api.explainWord('quantum', 'physics lesson');
+    expect(vi.mocked(fetch).mock.calls[0][1]?.body).toBe(
+      JSON.stringify({ word: 'quantum', context: 'physics lesson', language: 'de' }),
+    );
+    localStorage.removeItem('syflo.appLanguage');
   });
 });
 
@@ -275,11 +286,11 @@ describe('api.uploadPaper', () => {
     expect(result).toEqual(paper);
   });
 
-  it('wirft TreeHasPdfError mit root_chat_id bei 409 (ADR-0002)', async () => {
-    vi.mocked(fetch).mockReturnValue(mockJsonResponse({ error: 'tree-has-pdf', root_chat_id: 'root9' }, 409));
+  it('wirft TreeHasSourceError mit root_chat_id bei 409 (ADR-0002/0005)', async () => {
+    vi.mocked(fetch).mockReturnValue(mockJsonResponse({ error: 'tree-has-source', root_chat_id: 'root9' }, 409));
     const err = await api.uploadPaper('c1', pdf).catch(e => e);
-    expect(err).toBeInstanceOf(TreeHasPdfError);
-    expect((err as TreeHasPdfError).rootChatId).toBe('root9');
+    expect(err).toBeInstanceOf(TreeHasSourceError);
+    expect((err as TreeHasSourceError).rootChatId).toBe('root9');
   });
 
   it('throws a plain error on other failures', async () => {
@@ -332,15 +343,67 @@ describe('api.importPaperFromUrl', () => {
     expect(result).toEqual(paper);
   });
 
-  it('wirft TreeHasPdfError bei 409 (ADR-0002)', async () => {
-    vi.mocked(fetch).mockReturnValue(mockJsonResponse({ error: 'tree-has-pdf', root_chat_id: 'root1' }, 409));
+  it('wirft TreeHasSourceError bei 409 (ADR-0002/0005)', async () => {
+    vi.mocked(fetch).mockReturnValue(mockJsonResponse({ error: 'tree-has-source', root_chat_id: 'root1' }, 409));
     const err = await api.importPaperFromUrl('c1', 'https://arxiv.org/pdf/1.pdf').catch(e => e);
-    expect(err).toBeInstanceOf(TreeHasPdfError);
-    expect((err as TreeHasPdfError).rootChatId).toBe('root1');
+    expect(err).toBeInstanceOf(TreeHasSourceError);
+    expect((err as TreeHasSourceError).rootChatId).toBe('root1');
   });
 
   it('reicht die Backend-Fehlermeldung durch (z. B. Publisher-Block)', async () => {
     vi.mocked(fetch).mockReturnValue(mockJsonResponse({ error: 'Publisher blocks direct download (HTTP 403).' }, 502));
     await expect(api.importPaperFromUrl('c1', 'https://x/y.pdf')).rejects.toThrow(/Publisher blocks/);
+  });
+});
+
+// ─── YouTube transcript (ADR-0005) ──────────────────────────────────────────
+
+describe('api.searchYouTube', () => {
+  it('fetches video results from GET /api/youtube/search', async () => {
+    const body = { results: [{ youtube_id: 'zjkBMFhNj_g', title: 'Intro to LLMs', channel: 'Karpathy', duration: '59:47', published: '2 years ago', thumbnail_url: null, url: 'https://www.youtube.com/watch?v=zjkBMFhNj_g' }] };
+    vi.mocked(fetch).mockReturnValue(mockJsonResponse(body));
+    const result = await api.searchYouTube('karpathy llm');
+    expect(fetch).toHaveBeenCalledWith('/api/youtube/search?q=karpathy%20llm');
+    expect(result).toEqual(body.results);
+  });
+});
+
+describe('api.importYouTubeVideo', () => {
+  it('POSTs chat_id and youtube_id and returns the bound video', async () => {
+    const video = { id: 'v1', youtube_id: 'zjkBMFhNj_g', title: 'Intro to LLMs', channel: 'Karpathy', duration_seconds: 3587, language: 'en', url: 'https://www.youtube.com/watch?v=zjkBMFhNj_g' };
+    vi.mocked(fetch).mockReturnValue(mockJsonResponse(video, 201));
+    const result = await api.importYouTubeVideo('c1', 'zjkBMFhNj_g');
+    expect(fetch).toHaveBeenCalledWith('/api/youtube/import', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ chat_id: 'c1', youtube_id: 'zjkBMFhNj_g' }),
+    }));
+    expect(result).toEqual(video);
+  });
+
+  it('wirft TreeHasSourceError bei 409 (eine Quelle pro Baum, ADR-0005)', async () => {
+    vi.mocked(fetch).mockReturnValue(mockJsonResponse({ error: 'tree-has-source', root_chat_id: 'root2' }, 409));
+    const err = await api.importYouTubeVideo('c1', 'zjkBMFhNj_g').catch(e => e);
+    expect(err).toBeInstanceOf(TreeHasSourceError);
+    expect((err as TreeHasSourceError).rootChatId).toBe('root2');
+  });
+
+  it('reicht die no-transcript-Meldung des Backends durch', async () => {
+    vi.mocked(fetch).mockReturnValue(mockJsonResponse({ error: 'no-transcript', message: 'YouTube offers no captions for this video — not even auto-generated ones. Pick a different video.' }, 422));
+    await expect(api.importYouTubeVideo('c1', 'zjkBMFhNj_g')).rejects.toThrow(/no captions/i);
+  });
+});
+
+describe('api.getTreeVideo', () => {
+  it('returns the video (incl. transcript) bound to the chat tree', async () => {
+    const video = { id: 'v1', youtube_id: 'zjkBMFhNj_g', title: 'Intro to LLMs', channel: 'Karpathy', duration_seconds: 3587, language: 'en', url: 'https://www.youtube.com/watch?v=zjkBMFhNj_g', transcript: '[00:00] Hi everyone.' };
+    vi.mocked(fetch).mockReturnValue(mockJsonResponse({ video }));
+    const result = await api.getTreeVideo('c1');
+    expect(fetch).toHaveBeenCalledWith('/api/youtube/for-chat/c1');
+    expect(result).toEqual(video);
+  });
+
+  it('returns null when the tree has no video', async () => {
+    vi.mocked(fetch).mockReturnValue(mockJsonResponse({ video: null }));
+    expect(await api.getTreeVideo('c1')).toBeNull();
   });
 });

@@ -1,0 +1,24 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <!-- Syflo App-Icon, Professional (Dock/Desktop, 1024er-Canvas mit
+       Transparenz-Rand). Flat-Material aus v5: ruhiges Blau, kein Rand,
+       weiche Schattenkante. Proportionen aus der 96px-Kachel.
+       Design source: design/mockup-logo-icons.html (Professional).
+       Regenerieren: 1024er-PNG via headless Chromium → electron/assets/icon-professional.png -->
+  <defs>
+    <filter id="pro-shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="30"/>
+    </filter>
+  </defs>
+  <!-- weicher Flat-Schatten -->
+  <rect x="92" y="110" width="800" height="800" rx="200" fill="rgba(37,99,235,0.35)" filter="url(#pro-shadow)"/>
+  <!-- Kachel -->
+  <rect x="92" y="72" width="800" height="800" rx="200" fill="#2563EB"/>
+  <!-- Marke: 466px zentriert auf (492, 472) -->
+  <g transform="translate(259, 239) scale(9.71)">
+    <path d="M8 24 H 22 C 28 24, 29 15, 36 13" stroke="#FFFFFF" stroke-width="4.5" stroke-linecap="round" fill="none"/>
+    <path d="M22 24 C 28 24, 29 33, 36 35" stroke="#FFFFFF" stroke-width="4.5" stroke-linecap="round" fill="none"/>
+    <circle cx="7" cy="24" r="4" fill="#FFFFFF"/>
+    <circle cx="38" cy="12.5" r="5.5" fill="#34D399"/>
+    <circle cx="38" cy="35.5" r="5.5" fill="#FFFFFF"/>
+  </g>
+</svg>

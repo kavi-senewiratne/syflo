@@ -53,6 +53,43 @@ A user-editable name attached to one of the five highlight colors (e.g. "Importa
 "Question"), renamed inline in the right-click menu.
 _Avoid_: tag, category
 
+**Source**:
+The one external document a chat tree is about, bound to the tree's root — today either
+a paper (PDF) or a YouTube transcript. A tree has at most one source (ADR-0002,
+generalized); adding a second one prompts starting a new tree.
+_Avoid_: attachment (that's message-level), document (unqualified)
+
+**Retrieval mode**:
+The prompt strategy for a source that exceeds the context window (ADR-0006): the
+system prompt carries the source's **skeleton**, and per question the most relevant
+**source chunks** are appended after the history. Sources that fit stay on the
+full-text path — retrieval is the exception, not the default.
+_Avoid_: RAG (implementation jargon), search mode
+
+**Skeleton**:
+The stable, per-source-identical stand-in for a long source in the system prompt:
+beginning (title/abstract), section outline, end (conclusion). Exists so the KV-cache
+prefix survives every question in retrieval mode.
+_Avoid_: summary (it's verbatim material, not a rewrite), outline (that's one part of it)
+
+**Source chunk**:
+A paragraph-aligned piece of a source (~800 tokens, with its section heading),
+embedded via the local embedding model and cached in `source_chunks`. Per question,
+the top-8 by cosine similarity are injected in document order.
+_Avoid_: passage, snippet, embedding (that's the vector, not the text)
+
+**YouTube transcript**:
+A source fetched from a YouTube video chosen via in-app search: the video's full
+caption text plus its title and channel. Always qualified — a bare "transcript" is
+the dictation output, not this.
+_Avoid_: transcript (unqualified), video (as the source's name)
+
+**Video overview**:
+The first reply in a tree with a YouTube transcript, produced by an auto-sent visible
+user message right after import. A restructuring of the video's content — sections and
+key points with nothing substantive dropped — not a summary.
+_Avoid_: summary (that's lossy; this isn't), auto-prompt (that's the message triggering it)
+
 **Paper search**:
 Searching external indices for a research paper from the plus menu and attaching
 the found paper's PDF to the current chat.
@@ -60,7 +97,8 @@ _Avoid_: import, fetch
 
 **Plus menu**:
 The attach menu opened by the round + button in the chat composer, offering
-"Upload file" and "Research paper". The paperclip appears only as an item icon.
+"Media", "PDF", "Research paper", and "YouTube Transcript". The paperclip appears
+only as an item icon.
 _Avoid_: paperclip menu
 
 **Availability**:
@@ -114,6 +152,15 @@ This product (formerly **FlowTalk**; repo renamed 2026-07-18). Not to be confuse
 the earlier research-focused prototype living in repo `syflo-2`, from which selected
 features were ported.
 _Avoid_: SciFlow, Ciflow (voice-transcript artifacts), FlowTalk (old name)
+
+**App language**:
+The language (German or English) the UI chrome, every auto-sent message (e.g. the
+auto-prompt that produces the Video overview), and Explain answers are written in;
+chosen in Settings. Does not change the reply language of the user's own conversation
+— that stays mirrored to the user's message — and does not affect Dictation, which
+always auto-detects.
+_Avoid_: locale (technical term), UI language (too narrow — it also governs auto-sent
+messages), language (unqualified)
 
 **Dictation**:
 Voice input in the chat composer: while recording, speech is buffered; on stop the

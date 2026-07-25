@@ -282,19 +282,24 @@ describe('applyContextBudget', () => {
     expect(out.parentTranscript).toHaveLength(500);
   });
 
-  it('trims the paper text first', () => {
-    const out = applyContextBudget(blocks(), 1400);
-    // 500 parent + 400 summaries stay; paper shrinks to the remainder
+  // Reihenfolge gedreht 2026-07-25 (vorher: Quelle zuerst gekürzt): Die
+  // Quelle ist der teuerste, im ganzen Baum byte-identisch geteilte
+  // Prompt-Präfix — sie wird zuletzt angetastet, damit der KV-Cache des
+  // Eltern-Prefills beim Branchen weiterverwendet werden kann.
+  it('drops ancestor summaries oldest-first before touching the source', () => {
+    const out = applyContextBudget(blocks(), 1700);
+    // Root (oldest) sacrificed first, the nearer ancestor survives —
+    // and the source stays byte-identical.
+    expect(out.paperText).toHaveLength(1000);
+    expect(out.summaries.map(s => s.id)).toEqual(['mid']);
     expect(out.parentTranscript).toHaveLength(500);
-    expect(out.summaries).toHaveLength(2);
-    expect(out.paperText.length).toBeLessThan(1000);
   });
 
-  it('drops ancestor summaries oldest-first when trimming the paper is not enough', () => {
+  it('shrinks the source only after all summaries are gone', () => {
     const out = applyContextBudget(blocks(), 750);
-    expect(out.paperText).toBeNull();
-    // Root (oldest) sacrificed first, the nearer ancestor survives
-    expect(out.summaries.map(s => s.id)).toEqual(['mid']);
+    expect(out.summaries).toEqual([]);
+    // 750 budget − 500 transcript → the source keeps its head
+    expect(out.paperText).toHaveLength(250);
     expect(out.parentTranscript).toHaveLength(500);
   });
 
@@ -318,16 +323,14 @@ describe('context budget vs. context window', () => {
     RESERVED_TOKENS,
     CHARS_PER_TOKEN,
   } = require('../ancestor-context');
-  const { MAX_PAPER_CHARS } = require('../pdf-text');
-
   it('system-context budget plus reserve fits into the context window', () => {
     const budgetTokens = Math.ceil(MAX_SYSTEM_CONTEXT_CHARS / CHARS_PER_TOKEN);
     expect(budgetTokens + RESERVED_TOKENS).toBeLessThanOrEqual(CONTEXT_WINDOW_TOKENS);
   });
 
-  it('trims a maximum-length paper down to the budget instead of overflowing', () => {
+  it('trims an oversized paper down to the budget instead of overflowing', () => {
     const out = applyContextBudget(
-      { paperText: 'P'.repeat(MAX_PAPER_CHARS), summaries: [], parentTranscript: null },
+      { paperText: 'P'.repeat(60_000), summaries: [], parentTranscript: null },
       MAX_SYSTEM_CONTEXT_CHARS
     );
     expect(out.paperText.length).toBeLessThanOrEqual(MAX_SYSTEM_CONTEXT_CHARS);

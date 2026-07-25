@@ -2,9 +2,9 @@ const Database = require('better-sqlite3');
 const path = require('path');
 const fs = require('fs');
 
-// In production (Tauri-bundled app), the backend folder is read-only inside
-// the .app bundle. The Tauri Rust wrapper sets SYFLO_DATA_DIR to a
-// per-user writable location (e.g. ~/Library/Application Support/app.syflo).
+// In production (Electron-bundled app), the backend folder is read-only inside
+// the .app bundle. The Electron main process sets SYFLO_DATA_DIR to a
+// per-user writable location (e.g. ~/Library/Application Support/Syflo).
 // In normal development (running `npm start` from backend/), no env var is
 // set and we fall back to the backend folder for backwards compatibility.
 const DATA_DIR = process.env.SYFLO_DATA_DIR || __dirname;
@@ -71,6 +71,22 @@ function createDb(dbPath = DB_PATH) {
       uploaded_at TEXT NOT NULL,
       pdf_path TEXT NOT NULL,
       status TEXT NOT NULL CHECK(status IN ('parsing', 'ready', 'failed'))
+    );
+
+    -- Videos: YouTube transcript als zweite Quellenart (ADR-0005: ein Baum
+    -- hat höchstens EINE Quelle — Paper ODER Video; der Root-Chat trägt
+    -- paper_id bzw. video_id). transcript hält den vollen Untertitel-Text
+    -- mit groben Minutenmarken pro Absatz.
+    CREATE TABLE IF NOT EXISTS videos (
+      id TEXT PRIMARY KEY,
+      youtube_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      channel TEXT,
+      duration_seconds INTEGER,
+      language TEXT,
+      transcript TEXT NOT NULL,
+      url TEXT NOT NULL,
+      created_at TEXT NOT NULL
     );
 
     -- Text-Anker für Highlights (Syflo-Port, Slice 04). bbox_json hält die
@@ -151,6 +167,12 @@ function createDb(dbPath = DB_PATH) {
     db.exec('ALTER TABLE chats ADD COLUMN paper_id TEXT REFERENCES papers(id) ON DELETE SET NULL');
   }
 
+  // Migration: chats.video_id (nullable) — Gegenstück zu paper_id für die
+  // zweite Quellenart (ADR-0005). Nur der Root-Chat eines Trees trägt sie.
+  if (!chatsCols.some((c) => c.name === 'video_id')) {
+    db.exec('ALTER TABLE chats ADD COLUMN video_id TEXT REFERENCES videos(id) ON DELETE SET NULL');
+  }
+
   // Migration: chats.summary + chats.summary_last_message_id — gecachte
   // LLM-Zusammenfassung des Chats für den geerbten Vorfahren-Kontext von
   // Branches. Reiner Cache (jederzeit regenerierbar); summary_last_message_id
@@ -177,6 +199,29 @@ function createDb(dbPath = DB_PATH) {
   if (!papersCols.some((c) => c.name === 'extracted_text')) {
     db.exec('ALTER TABLE papers ADD COLUMN extracted_text TEXT');
   }
+
+  // Migration: source_chunks — Absatz-Chunks + Embeddings für den Retrieval-
+  // Modus langer Quellen (retrieval.js, ADR-0006). Reiner Cache: jederzeit
+  // aus papers.extracted_text bzw. videos.transcript regenerierbar.
+  // text_hash hält den Hash des Quelltexts, aus dem die Chunks entstanden —
+  // ändert er sich (z. B. Re-Extraktion eines gekappten Caches), wird neu
+  // gechunkt. embedding ist ein Float32-BLOB (Kosinus-Suche in JS; bei
+  // ~100–200 Chunks pro Quelle braucht es keine Vektor-Datenbank).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS source_chunks (
+      id TEXT PRIMARY KEY,
+      source_type TEXT NOT NULL CHECK(source_type IN ('paper', 'video')),
+      source_id TEXT NOT NULL,
+      chunk_index INTEGER NOT NULL,
+      heading TEXT,
+      content TEXT NOT NULL,
+      embedding BLOB,
+      text_hash TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_source_chunks_source
+      ON source_chunks(source_type, source_id, chunk_index);
+  `);
 
   return db;
 }

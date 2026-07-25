@@ -1,0 +1,767 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Syflo · YouTube Transcript (plus menu, video search, video overview, transcript drawer)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --brand-blue: #3B82F6;
+    --brand-teal: #1FB6A6;
+    --brand-green: #34D399;
+    --bg-app: #F8FAFC;
+    --surface: #FFFFFF;
+    --text-strong: #0F172A;
+    --text-default: #334155;
+    --text-muted: #64748B;
+    --border: #E2E8F0;
+    --highlight-bg: #DBEAFE;
+    --danger: #DC2626;
+    --danger-bg: #FEF2F2;
+    --shadow: 0 1px 3px rgba(15,23,42,0.06), 0 1px 2px rgba(15,23,42,0.04);
+    --shadow-lg: 0 10px 30px rgba(15,23,42,0.10), 0 4px 10px rgba(15,23,42,0.05);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Inter', -apple-system, sans-serif; background: var(--bg-app);
+    color: var(--text-default); -webkit-font-smoothing: antialiased;
+    min-height: 100vh; padding: 48px 32px 96px;
+  }
+  .wrap { max-width: 1360px; margin: 0 auto; }
+  svg { display: block; }
+
+  .intro { margin-bottom: 40px; }
+  .intro h1 {
+    font-size: 24px; font-weight: 700; color: var(--text-strong);
+    letter-spacing: -0.015em; margin-bottom: 8px;
+  }
+  .intro p { font-size: 14px; color: var(--text-muted); line-height: 1.6; max-width: 760px; }
+
+  .section { margin-bottom: 64px; }
+  .section-label {
+    font-size: 12px; font-weight: 600; color: var(--text-muted);
+    letter-spacing: 0.06em; text-transform: uppercase;
+    display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px;
+  }
+  .section-label .num { color: var(--brand-blue); font-weight: 700; }
+  .section-desc { font-size: 13px; color: var(--text-muted); line-height: 1.55; margin-bottom: 18px; max-width: 760px; }
+
+  /* ============================================================
+     Shared: composer
+     ============================================================ */
+  .composer {
+    display: flex; align-items: flex-end; gap: 10px;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+    padding: 10px 12px; box-shadow: var(--shadow);
+  }
+  .composer .plus-btn {
+    width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--border);
+    background: var(--bg-app); color: var(--text-muted); cursor: pointer; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .composer .plus-btn.open { background: var(--highlight-bg); color: var(--brand-blue); border-color: #BFDBFE; }
+  .composer .plus-btn svg { width: 17px; height: 17px; }
+  .composer .field { flex: 1; font-size: 14px; color: var(--text-muted); padding: 8px 2px; }
+  .composer .send-btn {
+    width: 34px; height: 34px; border-radius: 50%; border: none; flex-shrink: 0;
+    background: var(--brand-blue); color: white; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .composer .send-btn svg { width: 15px; height: 15px; }
+
+  /* Plus menu popover */
+  .menu-stage { position: relative; max-width: 640px; padding-top: 210px; }
+  .attach-menu {
+    position: absolute; bottom: 68px; left: 0; width: 236px;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+    box-shadow: var(--shadow-lg); padding: 6px; z-index: 5;
+  }
+  .attach-menu .item {
+    display: flex; align-items: center; gap: 10px; width: 100%;
+    padding: 9px 10px; border: none; background: transparent; border-radius: 8px;
+    font-family: inherit; font-size: 13.5px; font-weight: 500; color: var(--text-default);
+    cursor: pointer; text-align: left;
+  }
+  .attach-menu .item:hover, .attach-menu .item.hovered { background: var(--bg-app); color: var(--text-strong); }
+  .attach-menu .item.hovered { background: var(--highlight-bg); color: var(--brand-blue); }
+  .attach-menu .item svg { width: 16px; height: 16px; color: var(--text-muted); flex-shrink: 0; }
+  .attach-menu .item.hovered svg { color: var(--brand-blue); }
+  .attach-menu .item .hint { margin-left: auto; font-size: 11px; font-weight: 400; color: var(--text-muted); }
+
+  /* ============================================================
+     Shared: modal
+     ============================================================ */
+  .backdrop {
+    background: rgba(15,23,42,0.30); border-radius: 16px;
+    padding: 48px 24px; display: flex; align-items: flex-start; justify-content: center;
+  }
+  .modal {
+    background: var(--surface); border-radius: 16px; box-shadow: var(--shadow-lg);
+    width: 100%; max-width: 560px; overflow: hidden;
+  }
+  .modal-head {
+    display: flex; align-items: center; gap: 10px; padding: 16px 18px;
+    border-bottom: 1px solid var(--border);
+  }
+  .modal-head .m-icon {
+    width: 30px; height: 30px; border-radius: 9px; background: var(--highlight-bg);
+    color: var(--brand-blue); display: flex; align-items: center; justify-content: center;
+  }
+  .modal-head .m-icon svg { width: 16px; height: 16px; }
+  .modal-head h3 { font-size: 15px; font-weight: 600; color: var(--text-strong); flex: 1; }
+  .modal-head .x { color: var(--text-muted); cursor: pointer; }
+  .modal-head .x svg { width: 16px; height: 16px; }
+  .modal-body { padding: 16px 18px 18px; }
+
+  .search-row {
+    display: flex; align-items: center; gap: 9px;
+    border: 1px solid var(--border); border-radius: 10px; padding: 9px 12px;
+    background: var(--bg-app); margin-bottom: 14px;
+  }
+  .search-row svg { width: 15px; height: 15px; color: var(--text-muted); flex-shrink: 0; }
+  .search-row .q { font-size: 14px; color: var(--text-strong); flex: 1; }
+  .search-row .q .caret { display: inline-block; width: 1px; height: 15px; background: var(--brand-blue); vertical-align: -2px; margin-left: 1px; }
+
+  .result {
+    display: flex; gap: 12px; padding: 10px; border-radius: 12px; cursor: pointer;
+    align-items: center;
+  }
+  .result:hover, .result.hovered { background: var(--bg-app); }
+  .thumb {
+    width: 112px; height: 63px; border-radius: 8px; flex-shrink: 0; position: relative;
+    display: flex; align-items: center; justify-content: center; color: rgba(255,255,255,0.92);
+  }
+  .thumb svg { width: 20px; height: 20px; filter: drop-shadow(0 1px 2px rgba(0,0,0,0.3)); }
+  .thumb .dur {
+    position: absolute; right: 5px; bottom: 5px; font-family: 'JetBrains Mono', monospace;
+    font-size: 10px; font-weight: 500; color: white; background: rgba(15,23,42,0.75);
+    padding: 1px 5px; border-radius: 4px;
+  }
+  .t1 { background: linear-gradient(135deg, #1E293B, #475569); }
+  .t2 { background: linear-gradient(135deg, #7C3AED, #3B82F6); }
+  .t3 { background: linear-gradient(135deg, #0F766E, #34D399); }
+  .r-meta { min-width: 0; flex: 1; }
+  .r-meta .r-title { font-size: 13.5px; font-weight: 600; color: var(--text-strong); line-height: 1.35; margin-bottom: 3px; }
+  .r-meta .r-sub { font-size: 12px; color: var(--text-muted); display: flex; align-items: center; gap: 6px; }
+  .r-meta .r-sub .sep { width: 3px; height: 3px; border-radius: 50%; background: var(--border); }
+  .result .add {
+    flex-shrink: 0; display: inline-flex; align-items: center; gap: 6px;
+    font-size: 12.5px; font-weight: 600; color: var(--brand-blue);
+    background: var(--highlight-bg); border: none; border-radius: 8px;
+    padding: 6px 12px; cursor: pointer; font-family: inherit;
+    opacity: 0; transition: opacity 120ms;
+  }
+  .result.hovered .add { opacity: 1; }
+  .modal-foot {
+    padding: 12px 18px; border-top: 1px solid var(--border);
+    font-size: 12px; color: var(--text-muted); line-height: 1.5;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .modal-foot svg { width: 13px; height: 13px; flex-shrink: 0; }
+
+  /* Importing / error states */
+  .modal-row-pair { display: flex; gap: 24px; flex-wrap: wrap; align-items: flex-start; }
+  .modal-row-pair .backdrop { flex: 1; min-width: 460px; }
+  .fetch-state { display: flex; align-items: center; gap: 12px; padding: 14px 10px; }
+  .spinner {
+    width: 22px; height: 22px; border-radius: 50%; flex-shrink: 0;
+    border: 2.5px solid var(--highlight-bg); border-top-color: var(--brand-blue);
+    animation: spin 0.9s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .fetch-state .f-title { font-size: 13.5px; font-weight: 600; color: var(--text-strong); margin-bottom: 2px; }
+  .fetch-state .f-sub { font-size: 12.5px; color: var(--text-muted); }
+  .error-banner {
+    display: flex; gap: 10px; align-items: flex-start;
+    background: var(--danger-bg); border: 1px solid #FECACA; border-radius: 10px;
+    padding: 12px 14px; margin-top: 4px;
+  }
+  .error-banner svg { width: 16px; height: 16px; color: var(--danger); flex-shrink: 0; margin-top: 1px; }
+  .error-banner .e-title { font-size: 13px; font-weight: 600; color: var(--danger); margin-bottom: 2px; }
+  .error-banner .e-sub { font-size: 12.5px; color: #991B1B; line-height: 1.5; }
+
+  /* ============================================================
+     App frame (sections 04 / 05)
+     ============================================================ */
+  .app-frame {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 16px;
+    box-shadow: var(--shadow-lg); overflow: hidden;
+    display: grid; grid-template-rows: 56px 1fr; height: 700px;
+  }
+  .topbar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 20px; background: var(--surface); border-bottom: 1px solid var(--border);
+  }
+  .topbar-left { display: flex; align-items: center; gap: 14px; }
+  .logo { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 700; color: var(--text-strong); }
+  .logo .mark {
+    width: 22px; height: 22px; border-radius: 7px;
+    background: linear-gradient(135deg, var(--brand-blue), var(--brand-green));
+    display: flex; align-items: center; justify-content: center; color: white;
+  }
+  .logo .mark svg { width: 13px; height: 13px; }
+  .chat-title { font-size: 14px; font-weight: 500; color: var(--text-strong); }
+  .model-pill {
+    display: inline-flex; align-items: center; gap: 8px; background: var(--bg-app);
+    border: 1px solid var(--border); border-radius: 999px; padding: 5px 12px 5px 9px;
+    font-size: 12.5px; font-weight: 500; color: var(--text-strong);
+  }
+  .model-pill .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--brand-green); box-shadow: 0 0 0 3px rgba(52,211,153,0.15); }
+
+  .columns { display: grid; grid-template-columns: 250px 1fr; overflow: hidden; height: 100%; }
+  .columns.with-drawer { grid-template-columns: 250px 1fr 360px; }
+
+  .app-sidebar {
+    background: var(--surface); border-right: 1px solid var(--border);
+    padding: 18px 16px; overflow-y: auto;
+  }
+  .section-header h4 {
+    font-size: 12px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.06em; color: var(--text-muted); margin-bottom: 14px;
+    display: flex; align-items: center; gap: 7px;
+  }
+  .section-header h4 svg { width: 13px; height: 13px; }
+  .tree { font-size: 13.5px; }
+  .node {
+    padding: 7px 10px; border-radius: 8px; cursor: pointer;
+    display: flex; align-items: center; gap: 8px; color: var(--text-default);
+    white-space: nowrap; overflow: hidden;
+  }
+  .node .label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .node:hover { background: var(--bg-app); }
+  .node.active { background: var(--highlight-bg); color: var(--brand-blue); font-weight: 500; }
+  .node .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-muted); flex-shrink: 0; }
+  .node.root .dot { background: linear-gradient(135deg, #3B82F6, #34D399); }
+  .node.active .dot { background: var(--brand-blue); }
+  .node .src-tag {
+    margin-left: auto; flex-shrink: 0; display: inline-flex; align-items: center; gap: 3px;
+    font-size: 10px; font-weight: 600; color: var(--text-muted);
+    background: var(--bg-app); border: 1px solid var(--border);
+    padding: 1px 6px; border-radius: 5px; letter-spacing: 0.04em;
+  }
+  .node .src-tag svg { width: 9px; height: 9px; }
+  .tree-list, .tree-list ul { list-style: none; margin: 0; padding: 0; }
+  .tree-list ul { padding-left: 22px; position: relative; }
+  .tree-list ul::before {
+    content: ''; position: absolute; left: 14px; top: -10px; bottom: 0;
+    border-left: 1px solid #CBD5E1;
+  }
+  .tree-list .node { position: relative; }
+  .tree-list ul > li > .node::before {
+    content: ''; position: absolute; left: -8px; top: 50%; width: 14px;
+    border-top: 1px solid #CBD5E1;
+  }
+  .tree-list ul > li:last-child > .node::after {
+    content: ''; position: absolute; left: -9px; top: calc(50% + 0.5px);
+    height: 9999px; width: 2px; background: var(--surface);
+  }
+
+  /* Chat column */
+  .chat-col { display: flex; flex-direction: column; overflow: hidden; background: var(--bg-app); }
+
+  /* Source banner */
+  .source-banner {
+    display: flex; align-items: center; gap: 12px;
+    background: var(--surface); border-bottom: 1px solid var(--border);
+    padding: 10px 20px; cursor: pointer;
+  }
+  .source-banner:hover { background: #FBFDFF; }
+  .source-banner .yt-badge {
+    width: 30px; height: 30px; border-radius: 9px; flex-shrink: 0;
+    background: #FEE2E2; color: #DC2626;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .source-banner .yt-badge svg { width: 16px; height: 16px; }
+  .source-banner .s-meta { min-width: 0; flex: 1; }
+  .source-banner .s-title { font-size: 13px; font-weight: 600; color: var(--text-strong); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .source-banner .s-sub { font-size: 11.5px; color: var(--text-muted); display: flex; align-items: center; gap: 6px; }
+  .source-banner .s-sub .sep { width: 3px; height: 3px; border-radius: 50%; background: var(--border); }
+  .source-banner .s-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+  .source-banner .s-hint {
+    font-size: 11.5px; font-weight: 500; color: var(--text-muted);
+    display: inline-flex; align-items: center; gap: 5px;
+    border: 1px solid var(--border); border-radius: 7px; padding: 4px 9px; background: var(--bg-app);
+  }
+  .source-banner .s-hint svg { width: 12px; height: 12px; }
+
+  /* Messages */
+  .messages { flex: 1; overflow-y: auto; padding: 24px 28px; display: flex; flex-direction: column; gap: 18px; }
+  .msg-user { align-self: flex-end; max-width: 72%; }
+  .msg-user .bubble {
+    background: var(--brand-blue); color: white; border-radius: 16px 16px 4px 16px;
+    padding: 11px 15px; font-size: 14px; line-height: 1.55; box-shadow: var(--shadow);
+  }
+  .msg-user .auto-tag {
+    font-size: 10.5px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase;
+    color: var(--text-muted); text-align: right; margin-bottom: 5px;
+    display: flex; align-items: center; gap: 5px; justify-content: flex-end;
+  }
+  .msg-user .auto-tag svg { width: 11px; height: 11px; }
+  .msg-ai { align-self: flex-start; max-width: 86%; }
+  .msg-ai .bubble {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 16px 16px 16px 4px;
+    padding: 16px 18px; font-size: 14px; line-height: 1.6; color: var(--text-default);
+    box-shadow: var(--shadow);
+  }
+  .bubble h5 { font-size: 13px; font-weight: 700; color: var(--text-strong); margin: 14px 0 6px; }
+  .bubble h5:first-child { margin-top: 0; }
+  .bubble h5 .tc {
+    font-family: 'JetBrains Mono', monospace; font-size: 10.5px; font-weight: 500;
+    color: var(--brand-blue); background: var(--highlight-bg);
+    padding: 1px 6px; border-radius: 5px; margin-left: 7px; vertical-align: 1px; cursor: pointer;
+  }
+  .bubble ul { margin: 0 0 4px 18px; }
+  .bubble li { margin-bottom: 4px; }
+  .bubble li strong { color: var(--text-strong); font-weight: 600; }
+  .bubble .hl { background: var(--hl-yellow, #FEF08A); border-radius: 3px; padding: 0 2px; }
+
+  .composer-dock { padding: 14px 28px 18px; }
+
+  /* Transcript drawer */
+  .drawer {
+    background: var(--surface); border-left: 1px solid var(--border);
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  .drawer-head {
+    display: flex; align-items: center; gap: 9px; padding: 14px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .drawer-head svg { width: 15px; height: 15px; color: var(--text-muted); }
+  .drawer-head h4 { font-size: 13px; font-weight: 600; color: var(--text-strong); flex: 1; }
+  .drawer-head .x { color: var(--text-muted); cursor: pointer; }
+  .drawer-sub {
+    padding: 10px 16px; border-bottom: 1px solid var(--border);
+    font-size: 11.5px; color: var(--text-muted); line-height: 1.5; background: var(--bg-app);
+  }
+  .drawer-body { flex: 1; overflow-y: auto; padding: 14px 16px; font-size: 13px; line-height: 1.65; }
+  .tr-block { margin-bottom: 14px; }
+  .tr-time {
+    font-family: 'JetBrains Mono', monospace; font-size: 10.5px; font-weight: 500;
+    color: var(--brand-blue); background: var(--highlight-bg);
+    padding: 1px 6px; border-radius: 5px; display: inline-block; margin-bottom: 4px;
+  }
+  .tr-text { color: var(--text-default); }
+
+  .note {
+    font-size: 12.5px; color: var(--text-muted); background: var(--surface);
+    border: 1px dashed var(--border); border-radius: 10px; padding: 10px 14px;
+    margin-top: 14px; max-width: 760px; line-height: 1.55;
+  }
+  .note strong { color: var(--text-default); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="intro">
+    <h1>Syflo · YouTube Transcript</h1>
+    <p>Flow for attaching a YouTube transcript as a tree source (ADR-0005): the plus menu
+    gains a "YouTube Transcript" item, a search modal finds the video via the local SearXNG
+    instance, import fetches the full caption track plus title and channel, auto-sends a
+    visible restructure prompt, and the reply is the <strong>Video overview</strong>. A source
+    banner keeps the transcript visible and clickable on every chat of the tree.</p>
+  </div>
+
+  <!-- ============================================================ -->
+  <div class="section">
+    <div class="section-label"><span class="num">01</span> Plus menu with the new item</div>
+    <div class="section-desc">The fourth entry follows the "Research paper" pattern. Lucide
+    <code>youtube</code> icon — no emojis. Disabled with the same 409 flow if the tree
+    already has a source (PDF or video).</div>
+
+    <div class="menu-stage">
+      <div class="attach-menu">
+        <button class="item">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
+          Media
+        </button>
+        <button class="item">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/></svg>
+          PDF
+        </button>
+        <button class="item">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/></svg>
+          Research paper
+        </button>
+        <button class="item hovered">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 17a24.12 24.12 0 0 1 0-10 2 2 0 0 1 1.4-1.4 49.56 49.56 0 0 1 16.2 0A2 2 0 0 1 21.5 7a24.12 24.12 0 0 1 0 10 2 2 0 0 1-1.4 1.4 49.55 49.55 0 0 1-16.2 0A2 2 0 0 1 2.5 17"/><path d="m10 15 5-3-5-3z"/></svg>
+          YouTube Transcript
+        </button>
+      </div>
+      <div class="composer">
+        <button class="plus-btn open">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
+        </button>
+        <div class="field">Ask anything…</div>
+        <button class="send-btn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================ -->
+  <div class="section">
+    <div class="section-label"><span class="num">02</span> Video search modal</div>
+    <div class="section-desc">Near-copy of the PaperSearch modal. Results come from the local
+    SearXNG YouTube engine: thumbnail, title, channel, duration. Hovering a row reveals the
+    Add action. One single explainer line under the header — no footer (user decision
+    2026-07-24: less text).</div>
+
+    <div class="backdrop">
+      <div class="modal">
+        <div class="modal-head">
+          <div class="m-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 17a24.12 24.12 0 0 1 0-10 2 2 0 0 1 1.4-1.4 49.56 49.56 0 0 1 16.2 0A2 2 0 0 1 21.5 7a24.12 24.12 0 0 1 0 10 2 2 0 0 1-1.4 1.4 49.55 49.55 0 0 1-16.2 0A2 2 0 0 1 2.5 17"/><path d="m10 15 5-3-5-3z"/></svg>
+          </div>
+          <h3>Add a YouTube transcript</h3>
+          <span class="x"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></span>
+        </div>
+        <p style="font-size:12.5px; color: var(--text-muted); padding: 4px 18px 0;">The
+        transcript becomes this tree's source; the video itself is never downloaded.</p>
+        <div class="modal-body">
+          <div class="search-row">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+            <div class="q">karpathy intro to large language models<span class="caret"></span></div>
+          </div>
+
+          <div class="result hovered">
+            <div class="thumb t1">
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="m7 4 13 8-13 8z"/></svg>
+              <span class="dur">59:47</span>
+            </div>
+            <div class="r-meta">
+              <div class="r-title">Intro to Large Language Models</div>
+              <div class="r-sub">Andrej Karpathy <span class="sep"></span> 2 years ago</div>
+            </div>
+            <button class="add">
+              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
+              Add
+            </button>
+          </div>
+
+          <div class="result">
+            <div class="thumb t2">
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="m7 4 13 8-13 8z"/></svg>
+              <span class="dur">3:31:24</span>
+            </div>
+            <div class="r-meta">
+              <div class="r-title">Deep Dive into LLMs like ChatGPT</div>
+              <div class="r-sub">Andrej Karpathy <span class="sep"></span> youtube.com</div>
+            </div>
+            <button class="add">Add</button>
+          </div>
+
+          <div class="result">
+            <div class="thumb t3">
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="m7 4 13 8-13 8z"/></svg>
+              <span class="dur">42:13</span>
+            </div>
+            <div class="r-meta">
+              <div class="r-title">Large Language Models explained briefly</div>
+              <div class="r-sub">3Blue1Brown <span class="sep"></span> youtube.com</div>
+            </div>
+            <button class="add">Add</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================ -->
+  <div class="section">
+    <div class="section-label"><span class="num">03</span> Importing &amp; no-captions error</div>
+    <div class="section-desc">Left: after Add, the modal shows the fetch state (transcript +
+    metadata, typically 1–3 s). Right: a video without any caption track fails with a clear,
+    non-technical message; the Whisper fallback is deliberately out of scope (ADR-0005).</div>
+
+    <div class="modal-row-pair">
+      <div class="backdrop">
+        <div class="modal">
+          <div class="modal-head">
+            <div class="m-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 17a24.12 24.12 0 0 1 0-10 2 2 0 0 1 1.4-1.4 49.56 49.56 0 0 1 16.2 0A2 2 0 0 1 21.5 7a24.12 24.12 0 0 1 0 10 2 2 0 0 1-1.4 1.4 49.55 49.55 0 0 1-16.2 0A2 2 0 0 1 2.5 17"/><path d="m10 15 5-3-5-3z"/></svg>
+            </div>
+            <h3>Add a YouTube transcript</h3>
+            <span class="x"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></span>
+          </div>
+          <div class="modal-body">
+            <div class="fetch-state">
+              <div class="spinner"></div>
+              <div>
+                <div class="f-title">Fetching transcript…</div>
+                <div class="f-sub">Intro to Large Language Models · Andrej Karpathy · 59:47</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="backdrop">
+        <div class="modal">
+          <div class="modal-head">
+            <div class="m-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 17a24.12 24.12 0 0 1 0-10 2 2 0 0 1 1.4-1.4 49.56 49.56 0 0 1 16.2 0A2 2 0 0 1 21.5 7a24.12 24.12 0 0 1 0 10 2 2 0 0 1-1.4 1.4 49.55 49.55 0 0 1-16.2 0A2 2 0 0 1 2.5 17"/><path d="m10 15 5-3-5-3z"/></svg>
+            </div>
+            <h3>Add a YouTube transcript</h3>
+            <span class="x"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></span>
+          </div>
+          <div class="modal-body">
+            <div class="result" style="opacity:0.55">
+              <div class="thumb t2">
+                <svg viewBox="0 0 24 24" fill="currentColor"><path d="m7 4 13 8-13 8z"/></svg>
+                <span class="dur">4:02</span>
+              </div>
+              <div class="r-meta">
+                <div class="r-title">Music video (no captions)</div>
+                <div class="r-sub">Some Channel <span class="sep"></span> youtube.com</div>
+              </div>
+            </div>
+            <div class="error-banner">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+              <div>
+                <div class="e-title">This video has no transcript</div>
+                <div class="e-sub">YouTube offers no captions for this video — not even
+                auto-generated ones. Pick a different video.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================ -->
+  <div class="section">
+    <div class="section-label"><span class="num">04</span> After import: source banner, auto prompt, Video overview</div>
+    <div class="section-desc">The transcript is bound to the tree (YT tag in the sidebar, like
+    the PDF tag). A slim source banner sits above the messages on <strong>every</strong> chat
+    of the tree. Import auto-sent one visible user message in the video's language; the reply
+    is the Video overview — a restructuring with minute marks, not a summary. It is a normal
+    message: highlightable, branchable, quotable.</div>
+
+    <div class="app-frame">
+      <div class="topbar">
+        <div class="topbar-left">
+          <div class="logo">
+            <span class="mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 3v18"/><path d="M12 9c4 0 6-2 6-6"/><path d="M12 15c-4 0-6 2-6 6"/></svg></span>
+            Syflo
+          </div>
+          <div class="chat-title">Intro to Large Language Models</div>
+        </div>
+        <div class="model-pill"><span class="dot"></span> qwen3.5:9b</div>
+      </div>
+      <div class="columns">
+        <div class="app-sidebar">
+          <div class="section-header"><h4>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3-9 4 18 3-9h4"/></svg>
+            Chats</h4></div>
+          <div class="tree">
+            <ul class="tree-list">
+              <li>
+                <div class="node root active">
+                  <span class="dot"></span><span class="label">Intro to Large Language Models</span>
+                  <span class="src-tag">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 17a24.12 24.12 0 0 1 0-10 2 2 0 0 1 1.4-1.4 49.56 49.56 0 0 1 16.2 0A2 2 0 0 1 21.5 7a24.12 24.12 0 0 1 0 10 2 2 0 0 1-1.4 1.4 49.55 49.55 0 0 1-16.2 0A2 2 0 0 1 2.5 17"/></svg>
+                    YT
+                  </span>
+                </div>
+                <ul>
+                  <li><div class="node"><span class="dot"></span><span class="label">Tokenization</span></div></li>
+                  <li><div class="node"><span class="dot"></span><span class="label">Jailbreaks</span></div></li>
+                </ul>
+              </li>
+            </ul>
+          </div>
+        </div>
+        <div class="chat-col">
+          <div class="source-banner">
+            <div class="yt-badge">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 17a24.12 24.12 0 0 1 0-10 2 2 0 0 1 1.4-1.4 49.56 49.56 0 0 1 16.2 0A2 2 0 0 1 21.5 7a24.12 24.12 0 0 1 0 10 2 2 0 0 1-1.4 1.4 49.55 49.55 0 0 1-16.2 0A2 2 0 0 1 2.5 17"/><path d="m10 15 5-3-5-3z"/></svg>
+            </div>
+            <div class="s-meta">
+              <div class="s-title">Intro to Large Language Models</div>
+              <div class="s-sub">Andrej Karpathy <span class="sep"></span> 59:47 <span class="sep"></span> transcript attached</div>
+            </div>
+            <div class="s-actions">
+              <span class="s-hint">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 12h4"/><path d="M10 16h4"/></svg>
+                View transcript
+              </span>
+              <span class="s-hint">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>
+                Open on YouTube
+              </span>
+            </div>
+          </div>
+          <div class="messages">
+            <div class="msg-user">
+              <div class="auto-tag">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>
+                Sent automatically on import
+              </div>
+              <div class="bubble">Structure the information in this video.</div>
+            </div>
+            <div class="msg-ai">
+              <div class="bubble">
+                <h5>1 · What an LLM actually is <span class="tc">00:00</span></h5>
+                <ul>
+                  <li>An LLM is <strong>two files</strong>: the parameters (140 GB for Llama-2-70B) and ~500 lines of run code.</li>
+                  <li>Training compresses ~10 TB of internet text into the parameters — like a lossy zip of the internet.</li>
+                </ul>
+                <h5>2 · Training pipeline <span class="tc">14:14</span></h5>
+                <ul>
+                  <li><strong>Pre-training</strong>: predict the next word on internet text — expensive, rare (~1×/year).</li>
+                  <li><strong>Fine-tuning</strong>: swap the dataset for hand-written Q&amp;A — cheap, weekly; this creates the assistant.</li>
+                  <li>Optional <span class="hl">RLHF: comparison labels are easier for humans than writing answers</span>.</li>
+                </ul>
+                <h5>3 · Scaling laws &amp; tool use <span class="tc">25:43</span></h5>
+                <ul>
+                  <li>Accuracy improves predictably with more parameters + more data — no sign of topping out.</li>
+                  <li>Modern assistants delegate: browser, calculator, code interpreter, image generation.</li>
+                </ul>
+                <h5>4 · Security: jailbreaks, injections, poisoning <span class="tc">45:30</span></h5>
+                <ul>
+                  <li>Jailbreaks via roleplay or base64; prompt injection hides instructions in web pages or images.</li>
+                  <li>Data poisoning: trigger words planted in training data can flip behavior.</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+          <div class="composer-dock">
+            <div class="composer">
+              <button class="plus-btn">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
+              </button>
+              <div class="field">Was meint er mit „lossy zip"?</div>
+              <button class="send-btn">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="note"><strong>Behavior notes:</strong> the overview is in the video's language
+    (caption-track language code); follow-up questions mirror the user's language as usual.
+    The full transcript sits in the system prompt under the paper-text budget slot — when
+    trimmed, the model is told from which minute the transcript is cut off.</div>
+  </div>
+
+  <!-- ============================================================ -->
+  <div class="section">
+    <div class="section-label"><span class="num">05</span> Transcript drawer (banner clicked)</div>
+    <div class="section-desc">Clicking the banner (or "View transcript") opens the raw
+    transcript as a right-hand drawer — same slot as the highlights drawer. Coarse minute
+    marks per paragraph; this is exactly the text the model sees.</div>
+
+    <div class="app-frame">
+      <div class="topbar">
+        <div class="topbar-left">
+          <div class="logo">
+            <span class="mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 3v18"/><path d="M12 9c4 0 6-2 6-6"/><path d="M12 15c-4 0-6 2-6 6"/></svg></span>
+            Syflo
+          </div>
+          <div class="chat-title">Intro to Large Language Models</div>
+        </div>
+        <div class="model-pill"><span class="dot"></span> qwen3.5:9b</div>
+      </div>
+      <div class="columns with-drawer">
+        <div class="app-sidebar">
+          <div class="section-header"><h4>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3-9 4 18 3-9h4"/></svg>
+            Chats</h4></div>
+          <div class="tree">
+            <ul class="tree-list">
+              <li>
+                <div class="node root active">
+                  <span class="dot"></span><span class="label">Intro to Large Language Models</span>
+                  <span class="src-tag">YT</span>
+                </div>
+                <ul>
+                  <li><div class="node"><span class="dot"></span><span class="label">Tokenization</span></div></li>
+                  <li><div class="node"><span class="dot"></span><span class="label">Jailbreaks</span></div></li>
+                </ul>
+              </li>
+            </ul>
+          </div>
+        </div>
+        <div class="chat-col">
+          <div class="source-banner" style="background: #FBFDFF;">
+            <div class="yt-badge">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 17a24.12 24.12 0 0 1 0-10 2 2 0 0 1 1.4-1.4 49.56 49.56 0 0 1 16.2 0A2 2 0 0 1 21.5 7a24.12 24.12 0 0 1 0 10 2 2 0 0 1-1.4 1.4 49.55 49.55 0 0 1-16.2 0A2 2 0 0 1 2.5 17"/><path d="m10 15 5-3-5-3z"/></svg>
+            </div>
+            <div class="s-meta">
+              <div class="s-title">Intro to Large Language Models</div>
+              <div class="s-sub">Andrej Karpathy <span class="sep"></span> 59:47</div>
+            </div>
+          </div>
+          <div class="messages">
+            <div class="msg-user"><div class="bubble">Was meint er mit „lossy zip"?</div></div>
+            <div class="msg-ai"><div class="bubble">Er meint, dass die Modell-Parameter den
+            Trainingstext nicht wörtlich speichern, sondern verlustbehaftet komprimieren —
+            bei <span class="tc" style="margin-left:0">08:58</span> vergleicht er die 140 GB
+            Parameter mit einem „zip file" der ~10 TB Trainingsdaten, nur eben lossy: Gestalt
+            und Wissen bleiben, exakte Wortlaute nicht.</div></div>
+          </div>
+          <div class="composer-dock">
+            <div class="composer">
+              <button class="plus-btn">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
+              </button>
+              <div class="field">Ask anything…</div>
+              <button class="send-btn">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+        <div class="drawer">
+          <div class="drawer-head">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 12h4"/><path d="M10 16h4"/></svg>
+            <h4>Transcript · 59:47</h4>
+            <span class="x"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></span>
+          </div>
+          <div class="drawer-sub">This is the source text the model reads. English
+          (auto-generated captions).</div>
+          <div class="drawer-body">
+            <div class="tr-block">
+              <span class="tr-time">00:00</span>
+              <div class="tr-text">Hi everyone. So recently I gave a 30-minute talk on large
+              language models, just kind of like an intro talk…</div>
+            </div>
+            <div class="tr-block">
+              <span class="tr-time">01:30</span>
+              <div class="tr-text">So what is a large language model really? Well, a large
+              language model is just two files, right? There would be two files in this
+              hypothetical directory…</div>
+            </div>
+            <div class="tr-block">
+              <span class="tr-time">03:00</span>
+              <div class="tr-text">…this is a 70 billion parameter model. Every one of those
+              parameters is stored as two bytes, and so therefore the parameters file here is
+              140 gigabytes…</div>
+            </div>
+            <div class="tr-block">
+              <span class="tr-time">04:30</span>
+              <div class="tr-text">To obtain the parameters, basically the training of the
+              model — that's a lot more involved. Think of it as compressing a good chunk
+              of the internet…</div>
+            </div>
+            <div class="tr-block">
+              <span class="tr-time">06:00</span>
+              <div class="tr-text">…roughly 10 terabytes of text. You then procure a GPU
+              cluster, and you would compress this large chunk of text into what you can
+              think of as a kind of zip file…</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

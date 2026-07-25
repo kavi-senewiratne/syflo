@@ -650,6 +650,192 @@ describe('POST /api/chats/:chatId/messages – paper context', () => {
   });
 });
 
+// ─── Latenz-Log (perf) am echten Endpoint ────────────────────────────────────
+// Die [perf]-Zeile trägt Modus/Cache/Quellengröße; Gesprächsinhalte NIE.
+
+describe('POST /api/chats/:chatId/messages – perf logging', () => {
+  let logSpy;
+  beforeEach(() => { logSpy = jest.spyOn(console, 'log').mockImplementation(() => {}); });
+  afterEach(() => { logSpy.mockRestore(); });
+
+  it('logs an enriched [perf] line with mode and cache, without leaking the question', async () => {
+    const chat = await request(app).post('/api/chats').send({ title: 'Perf' });
+    mockCreate.mockResolvedValueOnce({
+      [Symbol.asyncIterator]: async function* () {
+        yield { choices: [{ delta: { content: 'Hi' } }] };
+        yield { choices: [{ delta: {} }] };
+        yield { choices: [], usage: { prompt_tokens: 1200, completion_tokens: 42 } };
+      },
+    });
+    mockCreate.mockResolvedValueOnce({ choices: [{ message: { content: 'Title' } }] });
+
+    const SECRET = 'PINEAPPLE-onboarding-passphrase';
+    await request(app)
+      .post(`/api/chats/${chat.body.id}/messages`)
+      .send({ content: `Tell me about ${SECRET}` })
+      .buffer(true);
+
+    const perfLine = logSpy.mock.calls.map((c) => String(c[0])).find((l) => l.startsWith('[perf]'));
+    expect(perfLine).toBeDefined();
+    expect(perfLine).toContain('mode=none'); // Chat ohne Quelle
+    expect(perfLine).toContain('cache=cold'); // erste Frage
+    expect(perfLine).toContain('prompt_tokens=1200');
+    // Datenschutz: die Frage selbst darf NIE im Log stehen.
+    expect(perfLine).not.toContain(SECRET);
+  });
+});
+
+// ─── Retrieval-Modus für lange Quellen (ADR-0006) ────────────────────────────
+// Papers, die das Kontextfenster sprengen, werden nicht mehr stumpf gekappt:
+// der System-Prompt bekommt ein stabiles Skeleton (Anfang + Gliederung +
+// Ende), und pro Frage wandern die passendsten Chunks als eigener Block
+// HINTER die Historie — der KV-Cache-Prefix bleibt byte-identisch.
+
+describe('POST /api/chats/:chatId/messages – retrieval mode for long papers', () => {
+  const FACT_PARA =
+    'Rotary positional encodings twist query and key vectors by an angle proportional to position.';
+
+  // > MAX_SYSTEM_CONTEXT_CHARS (~40k), FACT_PARA tief in der Mitte — weit
+  // hinter dem Skeleton-Anfang und vor dem Skeleton-Ende.
+  function longPaperText() {
+    const paras = Array.from(
+      { length: 520 },
+      (_, i) => `Paragraph ${i} discussing unrelated background material in sufficient detail to fill space.`
+    );
+    paras[260] = FACT_PARA;
+    return paras.join('\n\n');
+  }
+
+  // Deterministische Fake-Embeddings: nur der FACT-Absatz (und die Frage
+  // danach) zeigen auf Achse 0.
+  const fakeEmbed = jest.fn(async (texts) =>
+    texts.map((t) => (t.includes('positional encodings') ? [1, 0] : [0, 1]))
+  );
+
+  function retrievalApp() {
+    return createApp(db, {
+      messages: {
+        extractPdfTextFn: jest.fn().mockResolvedValue(longPaperText()),
+        embedTextsFn: fakeEmbed,
+      },
+    });
+  }
+
+  function bindPaper(chatId) {
+    db.prepare(
+      'INSERT INTO papers (id, title, uploaded_at, pdf_path, status) VALUES (?, ?, ?, ?, ?)'
+    ).run('paper-long', 'RoFormer', new Date().toISOString(), '/fake/long.pdf', 'ready');
+    db.prepare('UPDATE chats SET paper_id = ? WHERE id = ?').run('paper-long', chatId);
+  }
+
+  it('sends the skeleton in the system prompt and the retrieved chunks after the history', async () => {
+    const app2 = retrievalApp();
+    const chat = await request(app2).post('/api/chats').send({ title: 'Long' });
+    bindPaper(chat.body.id);
+    mockCreate.mockResolvedValueOnce(makeStream(['Answer']));
+
+    await request(app2)
+      .post(`/api/chats/${chat.body.id}/messages`)
+      .send({ content: 'Explain rotary positional encodings' })
+      .buffer(true);
+
+    const call = mockCreate.mock.calls[0][0];
+    const system = call.messages[0];
+    // Skeleton statt Volltext im System-Prompt …
+    expect(system.content).toContain('PAPER SKELETON START');
+    expect(system.content).not.toContain('PAPER TEXT START');
+    // … der FACT-Absatz aus der Dokument-Mitte steht NICHT im Prefix …
+    expect(system.content).not.toContain(FACT_PARA);
+    // … sondern im Auszugs-Block direkt vor der User-Nachricht.
+    const excerpts = call.messages.at(-2);
+    expect(excerpts.role).toBe('system');
+    expect(excerpts.content).toContain('EXCERPTS');
+    expect(excerpts.content).toContain(FACT_PARA);
+    expect(call.messages.at(-1)).toMatchObject({
+      role: 'user',
+      content: 'Explain rotary positional encodings',
+    });
+    // Chunks liegen persistent in source_chunks (einmalig eingebettet).
+    const n = db.prepare("SELECT COUNT(*) AS n FROM source_chunks WHERE source_id = 'paper-long'").get().n;
+    expect(n).toBeGreaterThan(5);
+  });
+
+  it('keeps the warm-up prefix stable: real prompt = warm-up prompt + excerpts + question', async () => {
+    const realFetch = global.fetch;
+    global.fetch = jest.fn().mockResolvedValue({ ok: true, json: async () => ({}) });
+    try {
+      const app2 = retrievalApp();
+      const chat = await request(app2).post('/api/chats').send({ title: 'Warm long' });
+      bindPaper(chat.body.id);
+
+      mockCreate.mockResolvedValueOnce({ choices: [{ message: { content: 'x' } }] });
+      await request(app2).post(`/api/chats/${chat.body.id}/messages/warmup`);
+      const warmupCall = mockCreate.mock.calls[0][0];
+
+      mockCreate.mockResolvedValueOnce(makeStream(['Answer']));
+      await request(app2)
+        .post(`/api/chats/${chat.body.id}/messages`)
+        .send({ content: 'Explain rotary positional encodings' })
+        .buffer(true);
+      const realCall = mockCreate.mock.calls[1][0];
+
+      // Der Warm-up-Prompt ist exakt der Prefix der echten Anfrage — nur
+      // Auszugs-Block und neue Frage kommen hinten dazu.
+      expect(realCall.messages.slice(0, warmupCall.messages.length)).toEqual(warmupCall.messages);
+      expect(realCall.messages.length).toBe(warmupCall.messages.length + 2);
+    } finally {
+      global.fetch = realFetch;
+    }
+  });
+
+  it('falls back to the old full-text truncation when embedding is unavailable', async () => {
+    const app2 = createApp(db, {
+      messages: {
+        extractPdfTextFn: jest.fn().mockResolvedValue(longPaperText()),
+        embedTextsFn: jest.fn().mockRejectedValue(new Error('model "nomic-embed-text" not found')),
+      },
+    });
+    const chat = await request(app2).post('/api/chats').send({ title: 'No embed' });
+    bindPaper(chat.body.id);
+    mockCreate.mockResolvedValueOnce(makeStream(['Still answers']));
+
+    const res = await request(app2)
+      .post(`/api/chats/${chat.body.id}/messages`)
+      .send({ content: 'Explain rotary positional encodings' })
+      .buffer(true);
+
+    // Kein Retrieval — aber der Chat funktioniert wie vor ADR-0006.
+    const call = mockCreate.mock.calls[0][0];
+    const system = call.messages[0];
+    expect(system.content).toContain('PAPER TEXT START');
+    expect(system.content).not.toContain('PAPER SKELETON');
+    expect(parseSSE(res.text).find(e => e.done)).toBeDefined();
+  });
+
+  it('leaves short papers on the full-text path (no skeleton, no chunks)', async () => {
+    const app2 = createApp(db, {
+      messages: {
+        extractPdfTextFn: jest.fn().mockResolvedValue('SHORT PAPER FULL TEXT'),
+        embedTextsFn: fakeEmbed,
+      },
+    });
+    const chat = await request(app2).post('/api/chats').send({ title: 'Short' });
+    bindPaper(chat.body.id);
+    mockCreate.mockResolvedValueOnce(makeStream(['Answer']));
+
+    await request(app2)
+      .post(`/api/chats/${chat.body.id}/messages`)
+      .send({ content: 'Summarize' })
+      .buffer(true);
+
+    const call = mockCreate.mock.calls[0][0];
+    expect(call.messages[0].content).toContain('SHORT PAPER FULL TEXT');
+    expect(call.messages[0].content).not.toContain('SKELETON');
+    const n = db.prepare("SELECT COUNT(*) AS n FROM source_chunks WHERE source_id = 'paper-long'").get().n;
+    expect(n).toBe(0);
+  });
+});
+
 // ─── Sprachspiegelung (Grill-Entscheidung 2026-07-23) ────────────────────────
 // Antwort, Titel und Summaries folgen der Sprache des Nutzers — Deutsch rein,
 // Deutsch raus; gemischte Nachrichten → dominante Sprache.
@@ -660,6 +846,21 @@ describe('POST /api/chats/:chatId/messages – language mirroring', () => {
   beforeEach(async () => {
     const chat = await request(app).post('/api/chats').send({ title: 'New Chat' });
     chatId = chat.body.id;
+  });
+
+  it('instructs the model to render math with $…$ and never bare carets', async () => {
+    mockCreate.mockResolvedValueOnce(makeStream(['Antwort']));
+    mockCreate.mockResolvedValueOnce({ choices: [{ message: { content: 'Titel' } }] });
+
+    await request(app)
+      .post(`/api/chats/${chatId}/messages`)
+      .send({ content: 'Was ist 10 hoch 50?' })
+      .buffer(true);
+
+    const systemMessage = mockCreate.mock.calls[0][0].messages.find((m) => m.role === 'system');
+    // Hochzahlen/Formeln gehören in $…$ (rendert als 10^{50}), rohe ^/_ sind verboten.
+    expect(systemMessage.content).toMatch(/\$…\$|\$\\dots\$|inline math|\$10\^\{50\}\$/i);
+    expect(systemMessage.content).toMatch(/exponent|superscript|\^/);
   });
 
   it('instructs the model to reply in the language of the latest user message', async () => {
@@ -787,5 +988,208 @@ describe('POST /api/chats/:chatId/messages – custom instructions', () => {
     } finally {
       global.fetch = realFetch;
     }
+  });
+});
+
+// ─── Sende-Warteschlange, Fehler-Marker und Regenerate (2026-07-24) ─────────
+// Ollama hat einen KV-Slot: gleichzeitige Fragen laufen FIFO durch eine
+// Backend-Warteschlange (User-Insert erst beim Dequeue → Antwort 1 steht in
+// Frage 2s Kontext). Fehler persistieren einen '*Failed*'-Marker statt stumm
+// zu verschwinden; /regenerate beantwortet die letzte Frage neu ohne Duplikat.
+
+describe('POST /api/chats/:chatId/messages – send queue', () => {
+  const realFetch = global.fetch;
+  beforeEach(() => {
+    global.fetch = jest.fn().mockResolvedValue({ ok: true, json: async () => ({}) });
+  });
+  afterEach(() => { global.fetch = realFetch; });
+
+  // Chat mit Historie + eigenem Titel: msgCount > 2 ⇒ keine Titel-Aufrufe,
+  // die die mockCreate-Zählung verwässern würden.
+  async function seedChatWithHistory() {
+    const chat = await request(app).post('/api/chats').send({ title: 'Queue Test' });
+    const insert = db.prepare(
+      'INSERT INTO messages (id, chat_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)'
+    );
+    insert.run('h1', chat.body.id, 'user', 'Earlier question', '2026-07-24T00:00:00.000Z');
+    insert.run('h2', chat.body.id, 'assistant', 'Earlier answer', '2026-07-24T00:00:01.000Z');
+    return chat.body.id;
+  }
+
+  it('answers concurrent questions strictly in order, with answer 1 in question 2\'s context', async () => {
+    const chatId = await seedChatWithHistory();
+
+    // Antwort 1 hängt an einem Gate, bis Frage 2 eingereiht ist.
+    let releaseFirst;
+    const gate = new Promise(r => { releaseFirst = r; });
+    mockCreate.mockImplementationOnce(() => ({
+      [Symbol.asyncIterator]: async function* () {
+        await gate;
+        yield { choices: [{ delta: { content: 'Answer one' } }] };
+        yield { choices: [{ delta: {} }] };
+      },
+    }));
+    mockCreate.mockImplementationOnce(() => makeStream(['Answer two']));
+
+    const p1 = request(app).post(`/api/chats/${chatId}/messages`)
+      .send({ content: 'First?' }).buffer(true).then(r => r);
+    await new Promise(r => setTimeout(r, 50));
+    const p2 = request(app).post(`/api/chats/${chatId}/messages`)
+      .send({ content: 'Second?' }).buffer(true).then(r => r);
+    await new Promise(r => setTimeout(r, 50));
+    releaseFirst();
+
+    const [res1, res2] = await Promise.all([p1, p2]);
+    const events1 = parseSSE(res1.text);
+    const events2 = parseSSE(res2.text);
+
+    // Frage 2 hat gewartet (queued-Event mit einem Job davor) und dann ein
+    // started-Event mit ihrer jetzt persistierten Frage bekommen.
+    expect(events2.find(e => e.queued)?.queued.ahead).toBe(1);
+    const started2 = events2.find(e => e.started);
+    expect(started2.userMessage.content).toBe('Second?');
+    expect(events1.find(e => e.done).assistantMessage.content).toBe('Answer one');
+    expect(events2.find(e => e.done).assistantMessage.content).toBe('Answer two');
+
+    // Frage 2s Kontext enthält Frage 1 UND Antwort 1 (deshalb die FIFO-Regel).
+    const call2Messages = mockCreate.mock.calls[1][0].messages;
+    const texts = call2Messages.map(m => m.content);
+    expect(texts).toContain('First?');
+    expect(texts).toContain('Answer one');
+
+    // DB-Reihenfolge: Antwort 1 steht VOR Frage 2.
+    const rows = db.prepare(
+      'SELECT role, content FROM messages WHERE chat_id = ? ORDER BY created_at ASC, id ASC'
+    ).all(chatId);
+    expect(rows.map(r => r.content)).toEqual([
+      'Earlier question', 'Earlier answer', 'First?', 'Answer one', 'Second?', 'Answer two',
+    ]);
+  });
+
+  it('rejects warm-ups while a question is running or waiting', async () => {
+    const chatId = await seedChatWithHistory();
+    let releaseFirst;
+    const gate = new Promise(r => { releaseFirst = r; });
+    mockCreate.mockImplementationOnce(() => ({
+      [Symbol.asyncIterator]: async function* () {
+        await gate;
+        yield { choices: [{ delta: { content: 'Slow answer' } }] };
+        yield { choices: [{ delta: {} }] };
+      },
+    }));
+
+    const p1 = request(app).post(`/api/chats/${chatId}/messages`)
+      .send({ content: 'Slow?' }).buffer(true).then(r => r);
+    await new Promise(r => setTimeout(r, 50));
+
+    // Warm-up während der laufenden Frage: abgelehnt, statt sich in Ollamas
+    // Schlange zu stellen und den Prefix des antwortenden Chats zu verdrängen.
+    const warmup = await request(app).post(`/api/chats/${chatId}/messages/warmup`);
+    expect(warmup.body).toEqual({ warmed: false, reason: 'busy' });
+
+    releaseFirst();
+    await p1;
+  });
+
+  it('persists a *Failed* marker and reports both messages when generation errors', async () => {
+    const chatId = await seedChatWithHistory();
+    mockCreate.mockRejectedValueOnce(new Error('Ollama exploded'));
+
+    const res = await request(app).post(`/api/chats/${chatId}/messages`)
+      .send({ content: 'Doomed?' }).buffer(true);
+    const events = parseSSE(res.text);
+
+    // Fehler-Event trägt die persistierte Frage + den Marker fürs Frontend.
+    const errEvent = events.find(e => e.error);
+    expect(errEvent.error).toBe('Ollama exploded');
+    expect(errEvent.userMessage.content).toBe('Doomed?');
+    expect(errEvent.assistantMessage.content).toBe('*Failed*');
+
+    // Beides in der DB: die Frage bleibt erhalten, der Marker überlebt Reloads.
+    const rows = db.prepare(
+      'SELECT role, content FROM messages WHERE chat_id = ? ORDER BY created_at ASC, id ASC'
+    ).all(chatId);
+    expect(rows.at(-2)).toEqual({ role: 'user', content: 'Doomed?' });
+    expect(rows.at(-1)).toEqual({ role: 'assistant', content: '*Failed*' });
+  });
+});
+
+describe('POST /api/chats/:chatId/messages/regenerate', () => {
+  const realFetch = global.fetch;
+  beforeEach(() => {
+    global.fetch = jest.fn().mockResolvedValue({ ok: true, json: async () => ({}) });
+  });
+  afterEach(() => { global.fetch = realFetch; });
+
+  async function seedFailedChat() {
+    const chat = await request(app).post('/api/chats').send({ title: 'Retry Test' });
+    const insert = db.prepare(
+      'INSERT INTO messages (id, chat_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)'
+    );
+    insert.run('h1', chat.body.id, 'user', 'Earlier question', '2026-07-24T00:00:00.000Z');
+    insert.run('h2', chat.body.id, 'assistant', 'Earlier answer', '2026-07-24T00:00:01.000Z');
+    insert.run('q1', chat.body.id, 'user', 'Unlucky question', '2026-07-24T00:00:02.000Z');
+    insert.run('f1', chat.body.id, 'assistant', '*Failed*', '2026-07-24T00:00:03.000Z');
+    return chat.body.id;
+  }
+
+  it('regenerates the answer without duplicating the question and removes the marker', async () => {
+    const chatId = await seedFailedChat();
+    mockCreate.mockResolvedValueOnce(makeStream(['Recovered answer']));
+
+    const res = await request(app).post(`/api/chats/${chatId}/messages/regenerate`)
+      .send({}).buffer(true);
+    const events = parseSSE(res.text);
+
+    // started/done tragen die BESTEHENDE Frage (gleiche id, kein Duplikat).
+    expect(events.find(e => e.started).userMessage.id).toBe('q1');
+    expect(events.find(e => e.done).assistantMessage.content).toBe('Recovered answer');
+
+    const rows = db.prepare(
+      'SELECT id, role, content FROM messages WHERE chat_id = ? ORDER BY created_at ASC, id ASC'
+    ).all(chatId);
+    expect(rows.filter(r => r.content === 'Unlucky question')).toHaveLength(1);
+    expect(rows.some(r => r.content === '*Failed*')).toBe(false);
+    expect(rows.at(-1).content).toBe('Recovered answer');
+
+    // Kontext: die Frage geht als letzte User-Nachricht ins Modell, der
+    // Marker taucht nirgends auf.
+    const callMessages = mockCreate.mock.calls[0][0].messages;
+    expect(callMessages.at(-1)).toMatchObject({ role: 'user', content: 'Unlucky question' });
+    expect(callMessages.some(m => String(m.content).includes('*Failed*'))).toBe(false);
+  });
+
+  it('also answers a bare trailing user question (legacy silent failure)', async () => {
+    const chatId = await seedFailedChat();
+    db.prepare('DELETE FROM messages WHERE id = ?').run('f1');
+    mockCreate.mockResolvedValueOnce(makeStream(['Late answer']));
+
+    const res = await request(app).post(`/api/chats/${chatId}/messages/regenerate`)
+      .send({}).buffer(true);
+    const events = parseSSE(res.text);
+
+    expect(events.find(e => e.started).userMessage.id).toBe('q1');
+    const rows = db.prepare(
+      'SELECT role, content FROM messages WHERE chat_id = ? ORDER BY created_at ASC, id ASC'
+    ).all(chatId);
+    expect(rows.filter(r => r.content === 'Unlucky question')).toHaveLength(1);
+    expect(rows.at(-1).content).toBe('Late answer');
+  });
+
+  it('returns 409 when the last message is a real answer', async () => {
+    const chat = await request(app).post('/api/chats').send({ title: 'Fine Chat' });
+    const insert = db.prepare(
+      'INSERT INTO messages (id, chat_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)'
+    );
+    insert.run('u1', chat.body.id, 'user', 'Question', '2026-07-24T00:00:00.000Z');
+    insert.run('a1', chat.body.id, 'assistant', 'Perfectly fine answer', '2026-07-24T00:00:01.000Z');
+
+    const res = await request(app).post(`/api/chats/${chat.body.id}/messages/regenerate`).send({});
+    expect(res.status).toBe(409);
+  });
+
+  it('returns 404 for an unknown chat', async () => {
+    const res = await request(app).post('/api/chats/nope/messages/regenerate').send({});
+    expect(res.status).toBe(404);
   });
 });

@@ -18,6 +18,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { ChevronDown, ChevronUp, List } from 'lucide-react';
+import { useStrings } from '../../strings';
 import type { QuestionEntry } from '../../chat/questionNav';
 
 interface ButtonProps {
@@ -27,6 +28,8 @@ interface ButtonProps {
 }
 
 export function QuestionNavButton({ questions, activeIndex, onJump }: ButtonProps) {
+  // UI-Texte in der App language — re-rendert beim Sprachwechsel mit.
+  const S = useStrings().questionNav;
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const activeItemRef = useRef<HTMLButtonElement>(null);
@@ -65,7 +68,7 @@ export function QuestionNavButton({ questions, activeIndex, onJump }: ButtonProp
         type="button"
         data-testid="question-nav-button"
         aria-expanded={open}
-        title="All questions in this chat"
+        title={S.buttonTitle}
         onClick={() => setOpen((o) => !o)}
         className={`flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-[12.5px] font-medium transition-colors ${
           open
@@ -74,7 +77,7 @@ export function QuestionNavButton({ questions, activeIndex, onJump }: ButtonProp
         }`}
       >
         <List size={14} />
-        <span className="@max-[30rem]:hidden">{questions.length} questions</span>
+        <span className="@max-[30rem]:hidden">{S.buttonLabel(questions.length)}</span>
       </button>
 
       {open && (
@@ -84,7 +87,7 @@ export function QuestionNavButton({ questions, activeIndex, onJump }: ButtonProp
           className="absolute right-0 top-[calc(100%+6px)] z-30 w-[300px] overflow-hidden rounded-xl border border-gray-100 bg-white shadow-2xl"
         >
           <p className="border-b border-gray-100 px-3.5 pb-2 pt-2.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
-            Questions in this chat
+            {S.popoverHeading}
           </p>
           <div className="max-h-80 overflow-y-auto py-1">
             {questions.map((q, i) => {
@@ -139,6 +142,7 @@ interface StepperProps {
 // Nachrichtenliste überläuft (Grill-Entscheidung 3) und positioniert sie
 // absolut über dem Composer.
 export function QuestionStepper({ activeIndex, total, onJumpTo }: StepperProps) {
+  const S = useStrings().questionNav;
   const atFirst = activeIndex <= 0;
   const atLast = activeIndex >= total - 1;
   return (
@@ -149,7 +153,7 @@ export function QuestionStepper({ activeIndex, total, onJumpTo }: StepperProps) 
       <button
         type="button"
         data-testid="question-stepper-prev"
-        title="Previous question (Alt+↑)"
+        title={S.previous}
         disabled={atFirst}
         onClick={() => onJumpTo(activeIndex - 1)}
         className="flex h-7 w-7 items-center justify-center rounded-full text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 disabled:pointer-events-none disabled:text-gray-300"
@@ -162,7 +166,7 @@ export function QuestionStepper({ activeIndex, total, onJumpTo }: StepperProps) 
       <button
         type="button"
         data-testid="question-stepper-next"
-        title="Next question (Alt+↓)"
+        title={S.next}
         disabled={atLast}
         onClick={() => onJumpTo(activeIndex + 1)}
         className="flex h-7 w-7 items-center justify-center rounded-full text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 disabled:pointer-events-none disabled:text-gray-300"

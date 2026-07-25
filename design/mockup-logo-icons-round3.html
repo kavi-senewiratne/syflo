@@ -1,0 +1,701 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Syflo App-Icons — Knoten-Marke, Material-Optionen (v7)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=DM+Sans:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'DM Sans', -apple-system, sans-serif;
+    background: #101623;
+    color: #C7D2E4;
+    padding: 48px 32px 96px;
+  }
+
+  .page-head { max-width: 1120px; margin: 0 auto 40px; }
+  .page-head h1 {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 26px; font-weight: 700; color: #F2F6FC;
+    letter-spacing: -0.01em;
+  }
+  .page-head p { margin-top: 8px; font-size: 14px; color: #8DA0BF; max-width: 70ch; line-height: 1.55; }
+  .page-head .idea {
+    margin-top: 14px; font-size: 13px; color: #B8C6DC;
+    border-left: 3px solid #3B82F6; padding: 8px 14px;
+    background: rgba(59, 130, 246, 0.08); border-radius: 0 8px 8px 0;
+    max-width: 78ch; line-height: 1.55;
+  }
+
+  .theme { max-width: 1120px; margin: 0 auto 72px; }
+  .theme-head { display: flex; align-items: baseline; gap: 14px; margin-bottom: 6px; flex-wrap: wrap; }
+  .theme-head h2 {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 15px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.14em; color: #F2F6FC;
+  }
+  .theme-head .note { font-size: 13px; color: #8DA0BF; }
+  .critique {
+    font-size: 13px; color: #E8B4B0; margin-bottom: 18px;
+    border-left: 3px solid #C0564F; padding: 7px 14px;
+    background: rgba(192, 86, 79, 0.09); border-radius: 0 8px 8px 0;
+    max-width: 78ch; line-height: 1.5;
+  }
+
+  /* ---------- Options-Grid ---------- */
+  .options { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 18px; }
+  @media (max-width: 980px) { .options { grid-template-columns: 1fr; } }
+
+  .opt {
+    border-radius: 16px; overflow: hidden;
+    border: 1px solid rgba(255,255,255,0.09);
+    background: #0F1524;
+    display: flex; flex-direction: column;
+  }
+  .opt-head { padding: 14px 16px 12px; }
+  .opt-head h3 {
+    font-family: 'Space Grotesk', sans-serif; font-size: 14px; font-weight: 700;
+    color: #F2F6FC; letter-spacing: 0.01em;
+  }
+  .opt-head h3 .tag {
+    font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 400;
+    letter-spacing: 0.1em; color: #6E82A3; margin-right: 8px;
+  }
+  .opt-head p { margin-top: 5px; font-size: 12.5px; color: #8DA0BF; line-height: 1.5; }
+  .opt-stage {
+    flex: 1; display: flex; align-items: center; justify-content: center;
+    padding: 34px 16px; min-height: 190px;
+  }
+
+  /* ---------- Kachel-Grundform (96 px, macOS-Squircle-artig) ---------- */
+  .tile {
+    display: grid; place-items: center; position: relative; flex: none;
+    width: 96px; height: 96px; border-radius: 24px;
+  }
+  .tile.s64 { width: 64px; height: 64px; border-radius: 16px; }
+  .tile.s64 .fit { transform: scale(0.667); }
+  .tile .fit { display: grid; place-items: center; }
+
+  /* ---------- Desktop/Dock-Mock ---------- */
+  .desk {
+    border-radius: 18px; overflow: hidden;
+    border: 1px solid rgba(255,255,255,0.09);
+    padding: 40px 24px 22px;
+    display: flex; flex-direction: column; align-items: center; gap: 18px;
+    background:
+      radial-gradient(ellipse 120% 90% at 20% 0%, rgba(120, 90, 220, 0.35), transparent 55%),
+      radial-gradient(ellipse 110% 100% at 85% 100%, rgba(40, 120, 220, 0.30), transparent 60%),
+      linear-gradient(160deg, #1B2340 0%, #232C52 55%, #1A2E52 100%);
+  }
+  .dock {
+    display: flex; align-items: flex-end; gap: 24px;
+    background: rgba(255, 255, 255, 0.10);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 22px; padding: 14px 24px;
+    backdrop-filter: blur(6px);
+  }
+  .dock .slot { display: flex; flex-direction: column; align-items: center; gap: 9px; }
+  .dock .name {
+    font-family: 'IBM Plex Mono', monospace; font-size: 9px;
+    letter-spacing: 0.1em; text-transform: uppercase; color: #C7D2E4;
+  }
+  .dock .name.dim { color: #7484A3; }
+  .desk .caption { font-size: 12.5px; color: #A8B6CE; text-align: center; max-width: 62ch; line-height: 1.5; }
+
+  /* ============ MUSHROOM KINGDOM Kacheln ============ */
+  /* gemeinsames: rote Kappe, Navy-Rand, weiße Punkte, 3D-Kanten */
+  .tile.mk-a, .tile.mk-b {
+    background: linear-gradient(180deg, #E4574C 0%, #D8433B 55%, #C0362F 100%);
+    border: 3px solid #26264F;
+    box-shadow: inset 0 4px 0 rgba(255, 249, 238, 0.28), inset 0 -6px 0 rgba(38, 38, 79, 0.30), 6px 6px 0 rgba(38, 38, 79, 0.9);
+  }
+  .tile.mk-a::after, .tile.mk-b::after {
+    content: ''; position: absolute; border-radius: 50%; background: #FFF9EE;
+    width: 11px; height: 11px; top: 7px; left: 7px;
+    box-shadow: 71px 0 0 #FFF9EE, 0 71px 0 #FFF9EE, 71px 71px 0 #FFF9EE;
+    pointer-events: none;
+  }
+  .tile.mk-b::after { border-radius: 0; }
+  /* skalierte Eck-Punkte für die 64-px-Dock-Kacheln */
+  .tile.s64.mk-a::after, .tile.s64.mk-b::after {
+    width: 7px; height: 7px; top: 5px; left: 5px;
+    box-shadow: 46px 0 0 #FFF9EE, 0 46px 0 #FFF9EE, 46px 46px 0 #FFF9EE;
+  }
+  .tile.s64.mk-c::after {
+    width: 4px; height: 4px; top: 5px; left: 5px;
+    box-shadow: 49px 0 0 #26264F, 0 49px 0 #26264F, 49px 49px 0 #26264F;
+  }
+  .tile.mk-c {
+    background: linear-gradient(180deg, #F7C550 0%, #EFB43A 55%, #E9A92E 100%);
+    border: 3px solid #26264F; border-radius: 18px;
+    box-shadow: inset 0 4px 0 rgba(255, 252, 230, 0.55), inset 0 -6px 0 rgba(120, 82, 10, 0.35), 6px 6px 0 rgba(38, 38, 79, 0.9);
+  }
+  .tile.mk-c::after {
+    content: ''; position: absolute; background: #26264F; border-radius: 1.5px;
+    width: 6px; height: 6px; top: 8px; left: 8px;
+    box-shadow: 74px 0 0 #26264F, 0 74px 0 #26264F, 74px 74px 0 #26264F;
+    pointer-events: none;
+  }
+
+  /* ============ MATRIX Kacheln ============ */
+  .tile.mx {
+    background:
+      repeating-linear-gradient(0deg, rgba(43, 231, 107, 0.05) 0 1px, transparent 1px 3px),
+      radial-gradient(ellipse 90% 80% at 50% 40%, #071108, #030503);
+    border: 1px solid #12301A; border-radius: 20px;
+    box-shadow: 0 0 16px rgba(43, 231, 107, 0.18), inset 0 0 26px rgba(43, 231, 107, 0.07);
+  }
+  .tile.mx svg { overflow: visible; }
+  .mx-flicker { animation: mx-flicker 3.4s steps(1) infinite; }
+  @keyframes mx-flicker {
+    0%, 90%, 94.5%, 100% { opacity: 1; }
+    91% { opacity: 0.5; transform: translateX(1px); }
+    94% { opacity: 0.8; transform: translateX(-0.5px); }
+  }
+  .mx-cursor-rect { animation: mx-blink 1.1s steps(1) infinite; }
+  @keyframes mx-blink { 0%, 55% { opacity: 1; } 56%, 100% { opacity: 0.1; } }
+
+  /* ============ INK BLUE Kacheln ============ */
+  .tile.ink-a {
+    background: linear-gradient(180deg, #5B9BFF 0%, #3B82F6 48%, #2E6BE0 100%);
+    border: 3px solid #1C2B4A;
+    box-shadow: inset 0 3px 0 rgba(255, 255, 255, 0.35), 6px 6px 0 rgba(28, 43, 74, 0.9);
+  }
+  .tile.ink-b {
+    background:
+      radial-gradient(circle 70px at 32% 30%, rgba(59, 130, 246, 0.65), rgba(59, 130, 246, 0.12) 70%, transparent),
+      #16233F;
+    border: 3px solid #0E1830;
+    box-shadow: 6px 6px 0 rgba(10, 17, 33, 0.9);
+  }
+  .tile.ink-c {
+    background: #3B82F6;
+    border: 3px solid #1C2B4A;
+    box-shadow: 6px 6px 0 rgba(28, 43, 74, 0.9);
+  }
+</style>
+</head>
+<body>
+
+<div class="page-head">
+  <h1>Syflo — App-Icon (Dock &amp; Schreibtisch), Runde 3 (v7)</h1>
+  <p>Nur das Desktop-/Dock-Icon. Die <strong>Knoten-Marke bleibt in jeder Option</strong> —
+     ein Strom, der in zwei Knoten gabelt. Was sich ändert, ist das Material pro Theme.</p>
+  <div class="idea">
+    <strong>Eine Marke, echte Materialien.</strong> Mushroom Kingdom rendert die Knoten-Marke
+    als Spielblock mit 3D-Kanten, Matrix lässt sie aus Code bestehen oder glitchen,
+    Ink Blue vertieft das Blau. Unter jeder Sektion: alle drei Optionen im Dock,
+    neben dem Status quo.
+  </div>
+</div>
+
+<!-- ================= 1 · MUSHROOM KINGDOM ================= -->
+<section class="theme">
+  <div class="theme-head">
+    <h2>Mushroom Kingdom</h2>
+    <span class="note">Weg von flachen Pixel-Klötzen — Tiefe wie ein Spielblock</span>
+  </div>
+  <div class="critique">Kritik: zu zweidimensional, zu viele Blöcke. Die Knoten-Marke bleibt, aber das Icon braucht Licht, Schatten und weniger Kleinteile.</div>
+
+  <div class="options">
+    <div class="opt">
+      <div class="opt-head">
+        <h3><span class="tag">OPTION A</span>Cartoon-Kappe</h3>
+        <p>Keine Pixel mehr: glatte Creme-Marke mit Navy-Kontur auf der Pilzkappen-Kachel.
+           Die Kachel selbst hat 3D-Kanten (Licht oben, Schatten unten) wie ein Spielblock.
+           Akzentknoten in ?-Block-Gold mit Glanzpunkt.</p>
+      </div>
+      <div class="opt-stage">
+        <div class="tile mk-a">
+          <svg width="58" height="58" viewBox="0 0 48 48" fill="none">
+            <g stroke="#26264F" stroke-width="7.5" stroke-linecap="round">
+              <path d="M8 24 H 22 C 28 24, 29 15, 36 13"/>
+              <path d="M22 24 C 28 24, 29 33, 36 35"/>
+            </g>
+            <g stroke="#FFF9EE" stroke-width="4" stroke-linecap="round">
+              <path d="M8 24 H 22 C 28 24, 29 15, 36 13"/>
+              <path d="M22 24 C 28 24, 29 33, 36 35"/>
+            </g>
+            <circle cx="7.5" cy="24" r="4.5" fill="#FFF9EE" stroke="#26264F" stroke-width="2.6"/>
+            <circle cx="38.5" cy="12.5" r="6" fill="#EFB43A" stroke="#26264F" stroke-width="2.6"/>
+            <circle cx="36.6" cy="10.6" r="1.5" fill="#FFFCE6"/>
+            <circle cx="38.5" cy="35.5" r="6" fill="#FFF9EE" stroke="#26264F" stroke-width="2.6"/>
+          </svg>
+        </div>
+      </div>
+    </div>
+
+    <div class="opt">
+      <div class="opt-head">
+        <h3><span class="tag">OPTION B</span>Pixel 2.0 — geschattet</h3>
+        <p>Pixel bleiben, aber wie ein 16-Bit-Sprite: halb so viele, dafür größere Blöcke,
+           jeder mit heller Ober- und dunkler Unterkante. Goldener Akzentknoten mit
+           Glanzpixel. Eckige Kappen-Punkte statt runder.</p>
+      </div>
+      <div class="opt-stage">
+        <div class="tile mk-b">
+          <svg width="58" height="58" viewBox="0 0 48 48">
+            <g shape-rendering="crispEdges">
+              <!-- Strom -->
+              <rect x="3" y="21" width="16" height="6" fill="#FFF9EE"/>
+              <rect x="3" y="21" width="16" height="1.5" fill="#FFFFFF"/>
+              <rect x="3" y="25.5" width="16" height="1.5" fill="#D9BE8E"/>
+              <!-- Ast oben (2 Stufen) -->
+              <rect x="19" y="15" width="7" height="6" fill="#FFF9EE"/>
+              <rect x="19" y="15" width="7" height="1.5" fill="#FFFFFF"/>
+              <rect x="26" y="9" width="7" height="6" fill="#FFF9EE"/>
+              <rect x="26" y="9" width="7" height="1.5" fill="#FFFFFF"/>
+              <!-- Ast unten (2 Stufen) -->
+              <rect x="19" y="27" width="7" height="6" fill="#FFF9EE"/>
+              <rect x="19" y="31.5" width="7" height="1.5" fill="#D9BE8E"/>
+              <rect x="26" y="33" width="7" height="6" fill="#FFF9EE"/>
+              <rect x="26" y="37.5" width="7" height="1.5" fill="#D9BE8E"/>
+              <!-- Knoten oben: Gold mit Glanz + Schattenkante -->
+              <rect x="33" y="4" width="12" height="12" fill="#EFB43A"/>
+              <rect x="34.5" y="5.5" width="3.5" height="3.5" fill="#FFE9A8"/>
+              <rect x="33" y="13" width="12" height="3" fill="#C8871B"/>
+              <!-- Knoten unten: Creme mit Schattenkante -->
+              <rect x="33" y="32" width="12" height="12" fill="#FFF9EE"/>
+              <rect x="34.5" y="33.5" width="3.5" height="3.5" fill="#FFFFFF"/>
+              <rect x="33" y="41" width="12" height="3" fill="#D9BE8E"/>
+            </g>
+          </svg>
+        </div>
+      </div>
+    </div>
+
+    <div class="opt">
+      <div class="opt-head">
+        <h3><span class="tag">OPTION C</span>?-Block</h3>
+        <p>Die Kachel wird zum goldenen Fragezeichen-Block: Nieten in den Ecken, 3D-Kanten.
+           Darauf die Marke in sattem Navy, der Akzentknoten als rote Pilzkappe.
+           Am mutigsten — das Icon ist selbst ein Spielobjekt.</p>
+      </div>
+      <div class="opt-stage">
+        <div class="tile mk-c">
+          <svg width="58" height="58" viewBox="0 0 48 48" fill="none">
+            <g stroke="#26264F" stroke-width="5" stroke-linecap="round">
+              <path d="M8 24 H 22 C 28 24, 29 15, 36 13"/>
+              <path d="M22 24 C 28 24, 29 33, 36 35"/>
+            </g>
+            <circle cx="7.5" cy="24" r="4.2" fill="#26264F"/>
+            <circle cx="38.5" cy="12.5" r="6" fill="#D8433B" stroke="#26264F" stroke-width="2.6"/>
+            <circle cx="36.4" cy="10.8" r="1.6" fill="#FFF9EE"/>
+            <circle cx="38.5" cy="35.5" r="6" fill="#26264F"/>
+          </svg>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="desk">
+    <div class="dock">
+      <div class="slot">
+        <div class="tile s64" style="background:#D8433B; border:2px solid #26264F; border-radius:14px;">
+          <svg width="40" height="40" viewBox="0 0 48 48" style="opacity:.95;">
+            <g fill="#FFF9EE" shape-rendering="crispEdges">
+              <rect x="4"  y="20" width="16" height="8"/>
+              <rect x="16" y="12" width="10" height="8"/>
+              <rect x="16" y="28" width="10" height="8"/>
+              <rect x="26" y="30" width="14" height="14"/>
+            </g>
+            <rect x="26" y="4" width="14" height="14" fill="#EFB43A" shape-rendering="crispEdges"/>
+          </svg>
+        </div>
+        <span class="name dim">Status quo</span>
+      </div>
+      <div class="slot">
+        <div class="tile s64 mk-a" style="box-shadow: inset 0 3px 0 rgba(255,249,238,0.28), inset 0 -4px 0 rgba(38,38,79,0.30), 4px 4px 0 rgba(38,38,79,0.9);">
+          <span class="fit">
+          <svg width="58" height="58" viewBox="0 0 48 48" fill="none">
+            <g stroke="#26264F" stroke-width="7.5" stroke-linecap="round">
+              <path d="M8 24 H 22 C 28 24, 29 15, 36 13"/>
+              <path d="M22 24 C 28 24, 29 33, 36 35"/>
+            </g>
+            <g stroke="#FFF9EE" stroke-width="4" stroke-linecap="round">
+              <path d="M8 24 H 22 C 28 24, 29 15, 36 13"/>
+              <path d="M22 24 C 28 24, 29 33, 36 35"/>
+            </g>
+            <circle cx="7.5" cy="24" r="4.5" fill="#FFF9EE" stroke="#26264F" stroke-width="2.6"/>
+            <circle cx="38.5" cy="12.5" r="6" fill="#EFB43A" stroke="#26264F" stroke-width="2.6"/>
+            <circle cx="36.6" cy="10.6" r="1.5" fill="#FFFCE6"/>
+            <circle cx="38.5" cy="35.5" r="6" fill="#FFF9EE" stroke="#26264F" stroke-width="2.6"/>
+          </svg>
+          </span>
+        </div>
+        <span class="name">A · Cartoon</span>
+      </div>
+      <div class="slot">
+        <div class="tile s64 mk-b" style="box-shadow: inset 0 3px 0 rgba(255,249,238,0.28), inset 0 -4px 0 rgba(38,38,79,0.30), 4px 4px 0 rgba(38,38,79,0.9);">
+          <span class="fit">
+          <svg width="58" height="58" viewBox="0 0 48 48">
+            <g shape-rendering="crispEdges">
+              <rect x="3" y="21" width="16" height="6" fill="#FFF9EE"/>
+              <rect x="3" y="21" width="16" height="1.5" fill="#FFFFFF"/>
+              <rect x="3" y="25.5" width="16" height="1.5" fill="#D9BE8E"/>
+              <rect x="19" y="15" width="7" height="6" fill="#FFF9EE"/>
+              <rect x="19" y="15" width="7" height="1.5" fill="#FFFFFF"/>
+              <rect x="26" y="9" width="7" height="6" fill="#FFF9EE"/>
+              <rect x="26" y="9" width="7" height="1.5" fill="#FFFFFF"/>
+              <rect x="19" y="27" width="7" height="6" fill="#FFF9EE"/>
+              <rect x="19" y="31.5" width="7" height="1.5" fill="#D9BE8E"/>
+              <rect x="26" y="33" width="7" height="6" fill="#FFF9EE"/>
+              <rect x="26" y="37.5" width="7" height="1.5" fill="#D9BE8E"/>
+              <rect x="33" y="4" width="12" height="12" fill="#EFB43A"/>
+              <rect x="34.5" y="5.5" width="3.5" height="3.5" fill="#FFE9A8"/>
+              <rect x="33" y="13" width="12" height="3" fill="#C8871B"/>
+              <rect x="33" y="32" width="12" height="12" fill="#FFF9EE"/>
+              <rect x="34.5" y="33.5" width="3.5" height="3.5" fill="#FFFFFF"/>
+              <rect x="33" y="41" width="12" height="3" fill="#D9BE8E"/>
+            </g>
+          </svg>
+          </span>
+        </div>
+        <span class="name">B · Pixel 2.0</span>
+      </div>
+      <div class="slot">
+        <div class="tile s64 mk-c" style="box-shadow: inset 0 3px 0 rgba(255,252,230,0.55), inset 0 -4px 0 rgba(120,82,10,0.35), 4px 4px 0 rgba(38,38,79,0.9);">
+          <span class="fit">
+          <svg width="58" height="58" viewBox="0 0 48 48" fill="none">
+            <g stroke="#26264F" stroke-width="5" stroke-linecap="round">
+              <path d="M8 24 H 22 C 28 24, 29 15, 36 13"/>
+              <path d="M22 24 C 28 24, 29 33, 36 35"/>
+            </g>
+            <circle cx="7.5" cy="24" r="4.2" fill="#26264F"/>
+            <circle cx="38.5" cy="12.5" r="6" fill="#D8433B" stroke="#26264F" stroke-width="2.6"/>
+            <circle cx="36.4" cy="10.8" r="1.6" fill="#FFF9EE"/>
+            <circle cx="38.5" cy="35.5" r="6" fill="#26264F"/>
+          </svg>
+          </span>
+        </div>
+        <span class="name">C · ?-Block</span>
+      </div>
+    </div>
+    <p class="caption">Im Dock: Status quo (flache Pixel) gegen die drei neuen Materialien.</p>
+  </div>
+</section>
+
+<!-- ================= 2 · MATRIX ================= -->
+<section class="theme">
+  <div class="theme-head">
+    <h2>Matrix</h2>
+    <span class="note">Die Marke bleibt — aber sie besteht aus Code, glitcht oder ist Terminal-Text</span>
+  </div>
+  <div class="critique">Kritik: zu ordentlich. Glatte Striche und saubere Kreise passen nicht zu einem Matrix-Theme — es soll flimmern, fallen, kaputt sein.</div>
+
+  <div class="options">
+    <div class="opt">
+      <div class="opt-head">
+        <h3><span class="tag">OPTION A</span>Code-Strom</h3>
+        <p>Die Äste der Marke bestehen aus Binärzeichen, die den Pfad entlanglaufen —
+           die Marke <em>ist</em> der fallende Code. Knoten als Phosphor-Glow-Punkte,
+           dahinter dezenter Regen.</p>
+      </div>
+      <div class="opt-stage">
+        <div class="tile mx">
+          <svg width="64" height="64" viewBox="0 0 48 48" fill="none">
+            <defs>
+              <path id="mxa-stem" d="M4 25.5 H 17"/>
+              <path id="mxa-up" d="M20 24.5 C 25 22.5, 29 17.5, 34.5 14.8"/>
+              <path id="mxa-down" d="M20 26.5 C 25 28.5, 29 33.5, 34.5 36.2"/>
+            </defs>
+            <!-- Hintergrund-Regen -->
+            <g font-family="'Share Tech Mono', monospace" font-size="5" fill="#2BE76B" opacity="0.28" text-anchor="middle">
+              <text x="9" y="9">ﾘ</text><text x="9" y="16">0</text>
+              <text x="24" y="41">7</text><text x="24" y="47">ｶ</text>
+              <text x="41" y="25">1</text><text x="44" y="45">ﾊ</text>
+              <text x="15" y="38">ﾐ</text>
+            </g>
+            <!-- Marke aus Code -->
+            <g font-family="'Share Tech Mono', monospace" font-size="6" fill="#2BE76B" letter-spacing="0.9" style="filter: drop-shadow(0 0 3px rgba(43,231,107,0.55));">
+              <text><textPath href="#mxa-stem">101</textPath></text>
+              <text><textPath href="#mxa-up" startOffset="4">0110</textPath></text>
+              <text><textPath href="#mxa-down" startOffset="4">1100</textPath></text>
+            </g>
+            <circle cx="4" cy="24" r="2.2" fill="#2BE76B" opacity="0.7"/>
+            <circle cx="39" cy="12.5" r="5" fill="#8CF5B0" style="filter: drop-shadow(0 0 6px rgba(140,245,176,0.9));"/>
+            <circle cx="39" cy="35.5" r="5" fill="#2BE76B" style="filter: drop-shadow(0 0 5px rgba(43,231,107,0.7));"/>
+          </svg>
+        </div>
+      </div>
+    </div>
+
+    <div class="opt">
+      <div class="opt-head">
+        <h3><span class="tag">OPTION B</span>Glitch-Marke</h3>
+        <p>Die glatte Marke, aber gestört: ein horizontaler Streifen ist zur Seite gerissen,
+           dahinter dunkle und helle Phosphor-Echos. Das Icon flackert alle paar Sekunden
+           kurz (im Browser animiert).</p>
+      </div>
+      <div class="opt-stage">
+        <div class="tile mx">
+          <svg width="64" height="64" viewBox="0 0 48 48" fill="none" class="mx-flicker">
+            <defs>
+              <g id="mxb-mark">
+                <path d="M8 24 H 22 C 28 24, 29 15, 36 13" stroke-width="4.5" stroke-linecap="round" fill="none"/>
+                <path d="M22 24 C 28 24, 29 33, 36 35" stroke-width="4.5" stroke-linecap="round" fill="none"/>
+                <circle cx="7" cy="24" r="3.6"/>
+                <circle cx="39" cy="12.5" r="5.5"/>
+                <circle cx="39" cy="35.5" r="5.5"/>
+              </g>
+              <clipPath id="mxb-top"><rect x="-6" y="-4" width="60" height="23"/></clipPath>
+              <clipPath id="mxb-band"><rect x="-6" y="19" width="60" height="7.5"/></clipPath>
+              <clipPath id="mxb-bottom"><rect x="-6" y="26.5" width="60" height="26"/></clipPath>
+            </defs>
+            <!-- Echos -->
+            <use href="#mxb-mark" stroke="#0F7A3C" fill="#0F7A3C" transform="translate(-2.6, 0)" opacity="0.75"/>
+            <use href="#mxb-mark" stroke="#8CF5B0" fill="#8CF5B0" transform="translate(2.6, 0.6)" opacity="0.35"/>
+            <!-- Hauptmarke in drei Streifen, Mitte verrissen -->
+            <g style="filter: drop-shadow(0 0 4px rgba(43,231,107,0.5));">
+              <use href="#mxb-mark" stroke="#2BE76B" fill="#2BE76B" clip-path="url(#mxb-top)"/>
+              <use href="#mxb-mark" stroke="#2BE76B" fill="#2BE76B" clip-path="url(#mxb-band)" transform="translate(4.2, 0)"/>
+              <use href="#mxb-mark" stroke="#2BE76B" fill="#2BE76B" clip-path="url(#mxb-bottom)" transform="translate(-1.4, 0)"/>
+            </g>
+          </svg>
+        </div>
+      </div>
+    </div>
+
+    <div class="opt">
+      <div class="opt-head">
+        <h3><span class="tag">OPTION C</span>Terminal-Baum</h3>
+        <p>Die Marke terminal-echt gesetzt: Prompt, Box-Drawing-Äste, Knoten als
+           Zeichenblöcke, blinkender Cursor. Wie <span style="font-family:'IBM Plex Mono',monospace;">tree</span> in einer Shell —
+           roh statt poliert.</p>
+      </div>
+      <div class="opt-stage">
+        <div class="tile mx">
+          <svg width="66" height="66" viewBox="0 0 48 48">
+            <g font-family="'Share Tech Mono', monospace" font-size="8.5" fill="#2BE76B" style="filter: drop-shadow(0 0 3px rgba(43,231,107,0.5));">
+              <text x="4" y="14" fill="#12805B" style="filter:none;">$ syflo</text>
+              <text x="4" y="26">──┬─</text>
+              <text x="27" y="26" fill="#8CF5B0" style="filter: drop-shadow(0 0 5px rgba(140,245,176,0.85));">▓</text>
+              <text x="10.5" y="36">└─</text>
+              <text x="27" y="36">▓</text>
+            </g>
+            <rect x="36" y="40" width="5" height="2.5" fill="#2BE76B" class="mx-cursor-rect"/>
+          </svg>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="desk">
+    <div class="dock">
+      <div class="slot">
+        <div class="tile s64 mx">
+          <svg width="40" height="40" viewBox="0 0 48 48" fill="none">
+            <path d="M8 24 H 22 C 28 24, 29 15, 36 13" stroke="#2BE76B" stroke-width="5" stroke-linecap="round"/>
+            <path d="M22 24 C 28 24, 29 33, 36 35" stroke="#2BE76B" stroke-width="5" stroke-linecap="round"/>
+            <circle cx="37" cy="12.5" r="6" fill="#8CF5B0"/>
+            <circle cx="37" cy="35.5" r="6" fill="#2BE76B"/>
+          </svg>
+        </div>
+        <span class="name dim">Status quo</span>
+      </div>
+      <div class="slot">
+        <div class="tile s64 mx">
+          <span class="fit">
+          <svg width="64" height="64" viewBox="0 0 48 48" fill="none">
+            <g font-family="'Share Tech Mono', monospace" font-size="5" fill="#2BE76B" opacity="0.28" text-anchor="middle">
+              <text x="9" y="9">ﾘ</text><text x="24" y="44">7</text><text x="41" y="25">1</text>
+            </g>
+            <g font-family="'Share Tech Mono', monospace" font-size="6" fill="#2BE76B" letter-spacing="0.9" style="filter: drop-shadow(0 0 3px rgba(43,231,107,0.55));">
+              <text><textPath href="#mxa-stem">101</textPath></text>
+              <text><textPath href="#mxa-up" startOffset="4">0110</textPath></text>
+              <text><textPath href="#mxa-down" startOffset="4">1100</textPath></text>
+            </g>
+            <circle cx="4" cy="24" r="2.2" fill="#2BE76B" opacity="0.7"/>
+            <circle cx="39" cy="12.5" r="5" fill="#8CF5B0" style="filter: drop-shadow(0 0 6px rgba(140,245,176,0.9));"/>
+            <circle cx="39" cy="35.5" r="5" fill="#2BE76B" style="filter: drop-shadow(0 0 5px rgba(43,231,107,0.7));"/>
+          </svg>
+          </span>
+        </div>
+        <span class="name">A · Code-Strom</span>
+      </div>
+      <div class="slot">
+        <div class="tile s64 mx">
+          <span class="fit">
+          <svg width="64" height="64" viewBox="0 0 48 48" fill="none" class="mx-flicker">
+            <use href="#mxb-mark" stroke="#0F7A3C" fill="#0F7A3C" transform="translate(-2.6, 0)" opacity="0.75"/>
+            <use href="#mxb-mark" stroke="#8CF5B0" fill="#8CF5B0" transform="translate(2.6, 0.6)" opacity="0.35"/>
+            <g style="filter: drop-shadow(0 0 4px rgba(43,231,107,0.5));">
+              <use href="#mxb-mark" stroke="#2BE76B" fill="#2BE76B" clip-path="url(#mxb-top)"/>
+              <use href="#mxb-mark" stroke="#2BE76B" fill="#2BE76B" clip-path="url(#mxb-band)" transform="translate(4.2, 0)"/>
+              <use href="#mxb-mark" stroke="#2BE76B" fill="#2BE76B" clip-path="url(#mxb-bottom)" transform="translate(-1.4, 0)"/>
+            </g>
+          </svg>
+          </span>
+        </div>
+        <span class="name">B · Glitch</span>
+      </div>
+      <div class="slot">
+        <div class="tile s64 mx">
+          <span class="fit">
+          <svg width="66" height="66" viewBox="0 0 48 48">
+            <g font-family="'Share Tech Mono', monospace" font-size="8.5" fill="#2BE76B">
+              <text x="4" y="14" fill="#12805B">$ syflo</text>
+              <text x="4" y="26">──┬─</text>
+              <text x="27" y="26" fill="#8CF5B0">▓</text>
+              <text x="10.5" y="36">└─</text>
+              <text x="27" y="36">▓</text>
+            </g>
+            <rect x="36" y="40" width="5" height="2.5" fill="#2BE76B" class="mx-cursor-rect"/>
+          </svg>
+          </span>
+        </div>
+        <span class="name">C · Terminal</span>
+      </div>
+    </div>
+    <p class="caption">Im Dock: der saubere Status quo gegen Code-Strom, Glitch und Terminal-Baum.</p>
+  </div>
+</section>
+
+<!-- ================= 3 · INK BLUE ================= -->
+<section class="theme">
+  <div class="theme-head">
+    <h2>Ink Blue</h2>
+    <span class="note">Blauer Hintergrund, mehr Material — drei Blau-Richtungen</span>
+  </div>
+  <div class="critique">Kritik: Das bisherige Icon überzeugt nicht. Der Hintergrund soll klar blau sein — hier drei Wege, dem Blau Tiefe zu geben.</div>
+
+  <div class="options">
+    <div class="opt">
+      <div class="opt-head">
+        <h3><span class="tag">OPTION A</span>Sticker mit Verlauf</h3>
+        <p>Wie bisher, aber mit Tiefe: Blau-Verlauf (hell oben, satt unten), Lichtkante
+           am oberen Rand, kräftigerer Ink-Rand und dickere weiße Marke. Der vertraute
+           Sticker-Look, nur wertiger.</p>
+      </div>
+      <div class="opt-stage">
+        <div class="tile ink-a">
+          <svg width="58" height="58" viewBox="0 0 48 48" fill="none">
+            <circle cx="7" cy="24" r="5" fill="#FFFFFF"/>
+            <path d="M11 24 H 22 C 28 24, 29 15, 36 13" stroke="#FFFFFF" stroke-width="4.5" stroke-linecap="round"/>
+            <path d="M22 24 C 28 24, 29 33, 36 35" stroke="#FFFFFF" stroke-width="4.5" stroke-linecap="round"/>
+            <circle cx="39" cy="12.5" r="5.5" fill="#34D399"/>
+            <circle cx="39" cy="35.5" r="5.5" fill="#FFFFFF"/>
+          </svg>
+        </div>
+      </div>
+    </div>
+
+    <div class="opt">
+      <div class="opt-head">
+        <h3><span class="tag">OPTION B</span>Tiefsee-Tinte</h3>
+        <p>Dunkles Tinten-Navy als Grund, ein blauer Licht-Klecks hinter der Marke —
+           wie Tinte, die sich im Wasser verteilt. Edler und ruhiger; die grüne
+           Akzentfarbe leuchtet stärker.</p>
+      </div>
+      <div class="opt-stage">
+        <div class="tile ink-b">
+          <svg width="58" height="58" viewBox="0 0 48 48" fill="none">
+            <circle cx="7" cy="24" r="5" fill="#FFFFFF"/>
+            <path d="M11 24 H 22 C 28 24, 29 15, 36 13" stroke="#FFFFFF" stroke-width="4.5" stroke-linecap="round"/>
+            <path d="M22 24 C 28 24, 29 33, 36 35" stroke="#FFFFFF" stroke-width="4.5" stroke-linecap="round"/>
+            <circle cx="39" cy="12.5" r="5.5" fill="#34D399"/>
+            <circle cx="39" cy="35.5" r="5.5" fill="#5B9BFF"/>
+          </svg>
+        </div>
+      </div>
+    </div>
+
+    <div class="opt">
+      <div class="opt-head">
+        <h3><span class="tag">OPTION C</span>Klecks auf Blau</h3>
+        <p>Blaue Kachel, darauf ein organischer Navy-Tintenklecks mit Spritzer als Bühne
+           für die weiße Marke. Am verspieltesten — und die Tinte aus dem Theme-Namen
+           wird endlich sichtbar.</p>
+      </div>
+      <div class="opt-stage">
+        <div class="tile ink-c">
+          <svg width="76" height="73" viewBox="0 0 52 50" fill="none">
+            <path d="M 26 4.5 C 36 3.5, 45.5 9.5, 45 22.5 C 44.5 35.5, 39 45, 25.5 44.5 C 13 44, 6 35.5, 6.5 22.5 C 7 11, 16 5.5, 26 4.5 Z"
+                  fill="#1C2B4A"/>
+            <circle cx="46.5" cy="7.5" r="2.4" fill="#1C2B4A"/>
+            <circle cx="8.5" cy="42.5" r="1.7" fill="#1C2B4A"/>
+            <g transform="translate(5, 2.5) scale(0.875)">
+              <circle cx="7" cy="24" r="5" fill="#FFFFFF"/>
+              <path d="M11 24 H 22 C 28 24, 29 15, 36 13" stroke="#FFFFFF" stroke-width="4.5" stroke-linecap="round" fill="none"/>
+              <path d="M22 24 C 28 24, 29 33, 36 35" stroke="#FFFFFF" stroke-width="4.5" stroke-linecap="round" fill="none"/>
+              <circle cx="39" cy="12.5" r="5.5" fill="#34D399"/>
+              <circle cx="39" cy="35.5" r="5.5" fill="#FFFFFF"/>
+            </g>
+          </svg>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="desk">
+    <div class="dock">
+      <div class="slot">
+        <div class="tile s64" style="background:#3B82F6; border:2px solid #1C2B4A; box-shadow: 3px 3px 0 rgba(28,43,74,0.9);">
+          <svg width="38" height="38" viewBox="0 0 48 48" fill="none">
+            <circle cx="7" cy="24" r="5" fill="#FFFFFF"/>
+            <path d="M11 24 H 22 C 28 24, 29 15, 36 13" stroke="#FFFFFF" stroke-width="4" stroke-linecap="round"/>
+            <path d="M22 24 C 28 24, 29 33, 36 35" stroke="#FFFFFF" stroke-width="4" stroke-linecap="round"/>
+            <circle cx="39" cy="12.5" r="5.5" fill="#34D399"/>
+            <circle cx="39" cy="35.5" r="5.5" fill="#FFFFFF"/>
+          </svg>
+        </div>
+        <span class="name dim">Status quo</span>
+      </div>
+      <div class="slot">
+        <div class="tile s64 ink-a" style="box-shadow: inset 0 2px 0 rgba(255,255,255,0.35), 4px 4px 0 rgba(28,43,74,0.9);">
+          <span class="fit">
+          <svg width="58" height="58" viewBox="0 0 48 48" fill="none">
+            <circle cx="7" cy="24" r="5" fill="#FFFFFF"/>
+            <path d="M11 24 H 22 C 28 24, 29 15, 36 13" stroke="#FFFFFF" stroke-width="4.5" stroke-linecap="round"/>
+            <path d="M22 24 C 28 24, 29 33, 36 35" stroke="#FFFFFF" stroke-width="4.5" stroke-linecap="round"/>
+            <circle cx="39" cy="12.5" r="5.5" fill="#34D399"/>
+            <circle cx="39" cy="35.5" r="5.5" fill="#FFFFFF"/>
+          </svg>
+          </span>
+        </div>
+        <span class="name">A · Sticker</span>
+      </div>
+      <div class="slot">
+        <div class="tile s64 ink-b" style="box-shadow: 4px 4px 0 rgba(10,17,33,0.9);">
+          <span class="fit">
+          <svg width="58" height="58" viewBox="0 0 48 48" fill="none">
+            <circle cx="7" cy="24" r="5" fill="#FFFFFF"/>
+            <path d="M11 24 H 22 C 28 24, 29 15, 36 13" stroke="#FFFFFF" stroke-width="4.5" stroke-linecap="round"/>
+            <path d="M22 24 C 28 24, 29 33, 36 35" stroke="#FFFFFF" stroke-width="4.5" stroke-linecap="round"/>
+            <circle cx="39" cy="12.5" r="5.5" fill="#34D399"/>
+            <circle cx="39" cy="35.5" r="5.5" fill="#5B9BFF"/>
+          </svg>
+          </span>
+        </div>
+        <span class="name">B · Tiefsee</span>
+      </div>
+      <div class="slot">
+        <div class="tile s64 ink-c" style="box-shadow: 4px 4px 0 rgba(28,43,74,0.9);">
+          <span class="fit">
+          <svg width="76" height="73" viewBox="0 0 52 50" fill="none">
+            <path d="M 26 4.5 C 36 3.5, 45.5 9.5, 45 22.5 C 44.5 35.5, 39 45, 25.5 44.5 C 13 44, 6 35.5, 6.5 22.5 C 7 11, 16 5.5, 26 4.5 Z"
+                  fill="#1C2B4A"/>
+            <circle cx="46.5" cy="7.5" r="2.4" fill="#1C2B4A"/>
+            <g transform="translate(5, 2.5) scale(0.875)">
+              <circle cx="7" cy="24" r="5" fill="#FFFFFF"/>
+              <path d="M11 24 H 22 C 28 24, 29 15, 36 13" stroke="#FFFFFF" stroke-width="4.5" stroke-linecap="round" fill="none"/>
+              <path d="M22 24 C 28 24, 29 33, 36 35" stroke="#FFFFFF" stroke-width="4.5" stroke-linecap="round" fill="none"/>
+              <circle cx="39" cy="12.5" r="5.5" fill="#34D399"/>
+              <circle cx="39" cy="35.5" r="5.5" fill="#FFFFFF"/>
+            </g>
+          </svg>
+          </span>
+        </div>
+        <span class="name">C · Klecks</span>
+      </div>
+    </div>
+    <p class="caption">Im Dock: Status quo (flaches Blau) gegen Verlauf, Tiefsee-Navy und Tintenklecks.</p>
+  </div>
+</section>
+
+</body>
+</html>

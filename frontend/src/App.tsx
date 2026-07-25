@@ -25,31 +25,60 @@ import { ParentContextPane } from './components/ParentContextPane';
 import { PdfView, type PdfHighlightSelection, type PdfViewHandle } from './components/PdfView';
 import { HighlightActionsMenu } from './components/PdfView/HighlightActionsMenu';
 import { PaperSearchModal } from './components/PaperSearch';
+import { YouTubeSearchModal } from './components/YouTubeSearch';
+import { structurePrompt } from './components/YouTubeSearch/autoPrompt';
+import { getAppLanguage } from './appLanguage';
+import { useStrings } from './strings';
+import { VideoBanner } from './components/VideoBanner';
+import { TranscriptDrawer } from './components/TranscriptDrawer';
 import { FloatingPopup } from './components/FloatingPopup';
 import { HighlightsDrawer } from './components/HighlightsDrawer';
-import { api, TreeHasPdfError } from './api';
+import { api, StreamFailedError, TreeHasSourceError } from './api';
+import { orderMessages } from './chat/messageOrder';
 import { useHighlights } from './hooks/useHighlights';
 import { useChatHighlights } from './hooks/useChatHighlights';
 import { contextAroundSelection } from './pdf/selection';
-import { INTERRUPTED_MARKER } from './types';
-import type { Chat, ChatAncestor, ChatDetail, ChatSelection, ComposerQuote, Highlight, HighlightColor, LocalAttachment, Message, MessageHighlight, OllamaModelInfo, Paper, SearchResult, SearchSource, Settings, SystemRecommendation, TreeHighlight, WordPopup } from './types';
+import { FAILED_MARKER, INTERRUPTED_MARKER } from './types';
+import type { Chat, ChatAncestor, ChatDetail, ChatSelection, ComposerQuote, Highlight, HighlightColor, LocalAttachment, Message, MessageHighlight, OllamaModelInfo, Paper, SearchResult, SearchSource, Settings, SystemRecommendation, ToolEvent, TreeHighlight, Video, VideoSearchResult, WordPopup } from './types';
 
 // Ein laufender Antwort-Stream. Antworten laufen beim Chat-Wechsel im
 // Hintergrund weiter (Nutzerkorrektur 2026-07-22) — der Puffer hält den
 // bisher gestreamten Stand außerhalb des React-States, damit Deltas auch
 // ankommen, während ein anderer Chat angezeigt wird, und der Teilstand beim
-// Zurückwechseln sofort wieder erscheint.
+// Zurückwechseln sofort wieder erscheint. Es kann MEHRERE Streams pro Chat
+// geben (das Backend beantwortet sie FIFO): die Registry ist deshalb nach
+// tempAssistantId geschlüsselt, nicht nach Chat — der frühere Chat-Schlüssel
+// ließ ein zweites Senden den ersten Eintrag überschreiben und das finally
+// des ersten den zweiten löschen (Bug 2026-07-24).
 interface ActiveStream {
+  chatId: string;
   tempUserId: string;
   tempAssistantId: string;
+  // Inhalt der optimistischen User-Frage — für die Wiederherstellung beim
+  // Chat-Wechsel, solange der Job wartet (die Frage wird erst beim Job-Start
+  // serverseitig persistiert und fehlt bis dahin in der GET-Antwort).
+  userContent: string;
   content: string;
   reasoning: string;
   sources: SearchSource[];
   createdAt: string;
+  // Warteschlangen-Status des Backends: Zahl der Jobs davor, null = läuft
+  // (oder war nie eingereiht). started kippt mit dem started-Event.
+  queuedAhead: number | null;
+  started: boolean;
+  // Prefill-ETA (Sekunden) des laufenden Jobs — null, sobald das erste
+  // Token/Reasoning eintrifft (der Countdown-Balken verschwindet).
+  prefillEta: number | null;
+  // Retry eines persistierten '*Failed*'-Markers: es gibt keine optimistische
+  // User-Blase, und ein Abbruch im Wartezustand stellt die Fehlerzeile wieder
+  // her, statt Blasen zu entfernen.
+  isRegenerate: boolean;
   abort: AbortController;
 }
 
 export default function App() {
+  // UI-Texte in der App language — re-rendert beim Sprachwechsel mit.
+  const S = useStrings().app;
   // chats: the full tree shown in the sidebar
   const [chats, setChats] = useState<Chat[]>([]);
 
@@ -102,29 +131,44 @@ export default function App() {
   const handleWarmupResult = (r: import('./types').WarmupResult) => {
     if (!r?.gpu) return;
     setGpuWarning(
-      r.gpu.vramPercent < 100
-        ? `Model runs only ${r.gpu.vramPercent}% on the GPU — responses will be much slower. Try a smaller model.`
-        : null,
+      r.gpu.vramPercent < 100 ? S.gpuWarning(r.gpu.vramPercent) : null,
     );
   };
 
-  // Laufende Streams, EIN Eintrag pro Chat (siehe ActiveStream oben). Der
-  // Stop-Button bricht nur den Stream des gerade sichtbaren Chats ab.
+  // Laufende Streams, geschlüsselt nach tempAssistantId — mehrere pro Chat
+  // möglich (Backend-FIFO). Der Stop-Button bricht alle Streams des gerade
+  // sichtbaren Chats ab.
   const activeStreamsRef = useRef<Map<string, ActiveStream>>(new Map());
-  // Spiegel für die UI: Composer-Zustand des aktiven Chats + die animierten
-  // Punkte in der Sidebar für Hintergrund-Antworten.
+  // Spiegel für die UI: Punkte in der Sidebar für antwortende Chats, Uhr für
+  // Chats, deren Fragen nur in der Warteschlange stehen, und die IDs der
+  // Assistant-Platzhalter (pro Nachricht statt "letzte Nachricht" — bei
+  // mehreren Streams in einem Chat ist der Platzhalter nicht mehr zwingend
+  // die letzte Nachricht).
   const [streamingChatIds, setStreamingChatIds] = useState<Set<string>>(new Set());
+  const [queuedChatIds, setQueuedChatIds] = useState<Set<string>>(new Set());
+  const [streamingMessageIds, setStreamingMessageIds] = useState<Set<string>>(new Set());
   // Live-Spiegel der aktiven Chat-ID für Stream-Callbacks (der State im
   // Closure wäre veraltet, sobald der Nutzer den Chat wechselt).
   const activeChatIdRef = useRef<string | null>(null);
 
-  const markStreaming = (chatId: string, on: boolean) => {
-    setStreamingChatIds(prev => {
-      const next = new Set(prev);
-      if (on) next.add(chatId);
-      else next.delete(chatId);
-      return next;
-    });
+  const streamsForChat = (chatId: string): ActiveStream[] =>
+    [...activeStreamsRef.current.values()].filter(s => s.chatId === chatId);
+
+  // Leitet alle UI-Spiegel aus der Registry ab — nach JEDER Mutation aufrufen.
+  // Ein Chat mit generierendem UND wartendem Stream zeigt die Punkte.
+  const syncStreamIndicators = () => {
+    const streaming = new Set<string>();
+    const queued = new Set<string>();
+    const messageIds = new Set<string>();
+    for (const s of activeStreamsRef.current.values()) {
+      messageIds.add(s.tempAssistantId);
+      if (!s.started && s.queuedAhead !== null) queued.add(s.chatId);
+      else streaming.add(s.chatId);
+    }
+    for (const id of streaming) queued.delete(id);
+    setStreamingChatIds(streaming);
+    setQueuedChatIds(queued);
+    setStreamingMessageIds(messageIds);
   };
 
   // treePaper: the PDF bound to the active chat's tree (ADR-0002: one per
@@ -132,17 +176,27 @@ export default function App() {
   // the left sidebar, PDF center, active branch's chat right.
   const [treePaper, setTreePaper] = useState<Paper | null>(null);
 
-  // pendingAttach: an attach attempt (local file OR search-import URL) that
-  // was rejected with 'tree-has-pdf'. While set, the new-tree prompt is
-  // shown; confirming attaches it to a fresh tree (ADR-0002).
+  // pendingAttach: an attach attempt (local file, search-import URL, or a
+  // YouTube video) that was rejected with 'tree-has-source'. While set, the
+  // new-tree prompt is shown; confirming attaches it to a fresh tree
+  // (ADR-0002/0005: one source per tree).
   const [pendingAttach, setPendingAttach] = useState<
     | { kind: 'file'; file: File }
     | { kind: 'url'; url: string; title: string; fallbacks: string[] }
+    | { kind: 'video'; youtubeId: string; title: string }
     | null
   >(null);
 
   // Paper-Such-Modal (Slice 07), geöffnet über "Research paper" im Plus-Menü.
   const [paperSearchOpen, setPaperSearchOpen] = useState(false);
+
+  // treeVideo: das YouTube transcript des aktiven Baums (ADR-0005: eine
+  // Quelle pro Baum). Non-null rendert das Quellen-Banner über dem Verlauf.
+  const [treeVideo, setTreeVideo] = useState<Video | null>(null);
+  // Video-Such-Modal, geöffnet über "YouTube Transcript" im Plus-Menü.
+  const [youtubeSearchOpen, setYoutubeSearchOpen] = useState(false);
+  // Roh-Transkript-Drawer (Banner-Klick).
+  const [transcriptOpen, setTranscriptOpen] = useState(false);
 
   // Width of the right chat column in the three-column PDF layout. The user
   // drags the divider between PDF and chat to resize; persisted so the
@@ -413,7 +467,7 @@ export default function App() {
       prev.messages.length === 0 &&
       prev.children.length === 0 &&
       treePaper === null &&
-      !activeStreamsRef.current.has(prev.id)
+      streamsForChat(prev.id).length === 0
     ) {
       api.deleteChat(prev.id).then(() => refreshTree()).catch(() => {});
     }
@@ -428,61 +482,82 @@ export default function App() {
     activeChatIdRef.current = id;
     setLoadingChat(true);
     try {
-      const [chat, paper] = await Promise.all([
+      const [chat, paper, video] = await Promise.all([
         api.getChat(id),
         api.getTreePaper(id).catch(() => null),
+        api.getTreeVideo(id).catch(() => null),
       ]);
-      // Läuft in diesem Chat noch ein Hintergrund-Stream, den Teilstand
-      // wieder anhängen: die User-Frage ist bereits serverseitig persistiert
-      // (Teil der GET-Antwort), nur die entstehende Assistant-Nachricht
-      // fehlt dort noch — sie kommt aus dem Stream-Puffer.
-      const stream = activeStreamsRef.current.get(id);
+      // Laufen in diesem Chat noch Hintergrund-Streams, deren Teilstand
+      // wieder anhängen. Gestartete Jobs: die User-Frage ist serverseitig
+      // persistiert (Teil der GET-Antwort), nur die entstehende Assistant-
+      // Nachricht kommt aus dem Puffer. Noch WARTENDE Jobs: auch die Frage
+      // existiert nur lokal (Insert passiert erst beim Job-Start) — beide
+      // Blasen aus dem Puffer wiederherstellen.
+      const streams = streamsForChat(id);
       setActiveChat(
-        stream
-          ? { ...chat, messages: [...chat.messages, materializeStreamingAssistant(id, stream)] }
+        streams.length > 0
+          ? { ...chat, messages: [...chat.messages, ...streams.flatMap(materializeStreamMessages)] }
           : chat,
       );
       setTreePaper(paper);
+      setTreeVideo(video);
+      setTranscriptOpen(false);
       // Prefix-Warm-up (fire-and-forget): das lokale Modell liest Paper +
       // Historie schon jetzt ein — die erste Frage trifft auf warmen Cache.
       // Nicht während ein Stream in diesem Chat läuft (der Prefix ist dann
-      // ohnehin heiß, und der Warm-up würde sich hinten anstellen).
-      if (!stream) api.warmupChat(id).then(handleWarmupResult).catch(() => {});
+      // ohnehin heiß; das Backend lehnt Warm-ups bei belegter Warteschlange
+      // ohnehin ab).
+      if (streams.length === 0) api.warmupChat(id).then(handleWarmupResult).catch(() => {});
     } finally {
       setLoadingChat(false);
     }
   };
 
   // Der aktuelle Zwischenstand eines Hintergrund-Streams als anzeigbare
-  // Assistant-Nachricht (gleiche temp-ID wie beim Absenden, damit weitere
-  // Deltas sie nahtlos weiterschreiben).
-  const materializeStreamingAssistant = (chatId: string, s: ActiveStream): Message => ({
-    id: s.tempAssistantId,
-    chat_id: chatId,
-    role: 'assistant',
-    content: s.content,
-    created_at: s.createdAt,
-    ...(s.sources.length > 0 ? { sources: [...s.sources] } : null),
-    ...(s.reasoning ? { reasoning: s.reasoning } : null),
-  });
+  // Nachrichten (gleiche temp-IDs wie beim Absenden, damit weitere Deltas
+  // sie nahtlos weiterschreiben). Wartende Jobs liefern auch die User-Frage
+  // mit — sie ist noch nirgends persistiert.
+  const materializeStreamMessages = (s: ActiveStream): Message[] => {
+    const assistant: Message = {
+      id: s.tempAssistantId,
+      chat_id: s.chatId,
+      role: 'assistant',
+      content: s.content,
+      created_at: s.createdAt,
+      ...(s.sources.length > 0 ? { sources: [...s.sources] } : null),
+      ...(s.reasoning ? { reasoning: s.reasoning } : null),
+      ...(!s.started && s.queuedAhead !== null ? { queuedAhead: s.queuedAhead } : null),
+      ...(s.prefillEta !== null ? { prefillEta: s.prefillEta } : null),
+    };
+    if (s.started || s.isRegenerate) return [assistant];
+    const user: Message = {
+      id: s.tempUserId,
+      chat_id: s.chatId,
+      role: 'user',
+      content: s.userContent,
+      created_at: s.createdAt,
+    };
+    return [user, assistant];
+  };
 
   // Create a blank chat and immediately open it.
   const handleNewChat = async () => {
-    const chat = await api.createChat('New Chat');
+    const chat = await api.createChat(S.newChatTitle);
     await refreshTree();
     await handleSelectChat(chat.id);
   };
 
   // Delete a chat; if it was the active chat, clear the chat area.
   const handleDeleteChat = async (id: string) => {
-    // Ein noch laufender Stream dieses Chats wäre verwaist — abbrechen.
-    activeStreamsRef.current.get(id)?.abort.abort();
+    // Noch laufende/wartende Streams dieses Chats wären verwaist — abbrechen.
+    streamsForChat(id).forEach(s => s.abort.abort());
     await api.deleteChat(id);
     if (activeChatId === id) {
       setActiveChatId(null);
       activeChatIdRef.current = null;
       setActiveChat(null);
       setTreePaper(null);
+      setTreeVideo(null);
     }
     await refreshTree();
   };
@@ -496,8 +571,15 @@ export default function App() {
       const paper = await api.uploadPaper(activeChatId, file);
       setTreePaper(paper);
       await refreshTree(); // the root node now shows its PDF tag
+      // Die Quelle steckt ab jetzt im System-Prompt — der alte KV-Prefix ist
+      // wertlos. Sofort wärmen, damit der Paper-Prefill (~60 s kalt, Messung
+      // 2026-07-25) läuft, während der Nutzer noch das PDF ansieht, statt
+      // erst bei seiner ersten Frage.
+      if (activeChatIdRef.current === activeChatId) {
+        api.warmupChat(activeChatId).then(handleWarmupResult).catch(() => {});
+      }
     } catch (err) {
-      if (err instanceof TreeHasPdfError) {
+      if (err instanceof TreeHasSourceError) {
         setPendingAttach({ kind: 'file', file });
         return;
       }
@@ -523,8 +605,12 @@ export default function App() {
       setTreePaper(paper);
       setPaperSearchOpen(false);
       await refreshTree();
+      // Wie beim Upload: neue Quelle = neuer Prefix → im Hintergrund wärmen.
+      if (activeChatIdRef.current === activeChatId) {
+        api.warmupChat(activeChatId).then(handleWarmupResult).catch(() => {});
+      }
     } catch (err) {
-      if (err instanceof TreeHasPdfError) {
+      if (err instanceof TreeHasSourceError) {
         setPaperSearchOpen(false);
         setPendingAttach({
           kind: 'url',
@@ -538,24 +624,66 @@ export default function App() {
     }
   };
 
+  // Import aus dem "YouTube Transcript"-Modal (ADR-0005): Transkript holen
+  // und an den aktiven Baum binden, dann den sichtbaren Auto-Prompt in der
+  // App language senden (Amendment 2026-07-24; vorher Untertitel-Spur) —
+  // die Antwort ist die Video overview.
+  // 409 → gleicher Neuer-Tree-Dialog wie bei Papers; andere Fehler werfen
+  // weiter, damit das Modal sie inline zeigt (z. B. no-transcript).
+  const handleImportVideo = async (result: VideoSearchResult) => {
+    if (!activeChatId) return;
+    try {
+      const video = await api.importYouTubeVideo(activeChatId, result.youtube_id);
+      setYoutubeSearchOpen(false);
+      setTreeVideo(video);
+      await refreshTree(); // der Root-Knoten zeigt jetzt seinen YT-Tag
+      void handleSendMessage(structurePrompt(getAppLanguage()));
+    } catch (err) {
+      if (err instanceof TreeHasSourceError) {
+        setYoutubeSearchOpen(false);
+        setPendingAttach({ kind: 'video', youtubeId: result.youtube_id, title: result.title });
+        return;
+      }
+      throw err;
+    }
+  };
+
+  // Banner-Klick: Drawer öffnen; das Transkript lazy nachladen, wenn nur die
+  // Import-Antwort (ohne Transkript) im State liegt.
+  const handleOpenTranscript = async () => {
+    setTranscriptOpen(true);
+    if (treeVideo && !treeVideo.transcript && activeChatId) {
+      const full = await api.getTreeVideo(activeChatId).catch(() => null);
+      if (full) setTreeVideo(full);
+    }
+  };
+
   // Confirmed the new-tree prompt: create a fresh root chat, attach the held
-  // PDF (upload or URL import) there, and switch to it (handleSelectChat
-  // re-fetches the tree paper).
+  // source (PDF upload, URL import, or YouTube video) there, and switch to
+  // it (handleSelectChat re-fetches the tree's source).
   const handleStartNewTreeWithPdf = async () => {
     const pending = pendingAttach;
     setPendingAttach(null);
     if (!pending) return;
     try {
-      const chat = await api.createChat('New Chat');
+      const chat = await api.createChat(S.newChatTitle);
+      let importedVideo: Video | null = null;
       if (pending.kind === 'file') {
         await api.uploadPaper(chat.id, pending.file);
-      } else {
+      } else if (pending.kind === 'url') {
         await api.importPaperFromUrl(chat.id, pending.url, pending.title, pending.fallbacks);
+      } else {
+        importedVideo = await api.importYouTubeVideo(chat.id, pending.youtubeId);
       }
       await refreshTree();
       await handleSelectChat(chat.id);
+      // Auto-Prompt in den frischen Baum — explizite Chat-ID, weil der
+      // activeChatId-State in diesem Tick noch den alten Chat trägt.
+      if (importedVideo) {
+        void handleSendMessage(structurePrompt(getAppLanguage()), [], chat.id);
+      }
     } catch (err) {
-      console.error('Failed to start a new tree with PDF:', err);
+      console.error('Failed to start a new tree with the source:', err);
     }
   };
 
@@ -572,14 +700,19 @@ export default function App() {
   // gehört dem Chat, in dem gesendet wurde — wechselt der Nutzer den Chat,
   // läuft er im Hintergrund weiter (Puffer in activeStreamsRef); alle
   // React-State-Updates sind auf prev.id === chatId gewacht, damit Deltas
-  // nie in einen fremden Chat schreiben.
-  const handleSendMessage = async (content: string, attachments: LocalAttachment[] = []) => {
-    const chatId = activeChatId;
+  // nie in einen fremden Chat schreiben. Resolves, sobald der Stream
+  // GESTARTET ist (nicht wenn er fertig ist) — der Composer ist damit sofort
+  // wieder frei, weitere Fragen landen in der Backend-Warteschlange (FIFO).
+  const handleSendMessage = async (content: string, attachments: LocalAttachment[] = [], targetChatId?: string) => {
+    // targetChatId: für programmatische Sends in einen gerade erst
+    // gewechselten Chat (Auto-Prompt nach Video-Import in einen neuen Baum) —
+    // der activeChatId-State hinkt dem Wechsel um einen Render hinterher.
+    const chatId = targetChatId ?? activeChatId;
     if (!chatId) return;
 
     // Create temporary IDs for the optimistic messages.
-    const tempUserId = `temp-user-${Date.now()}`;
-    const tempAssistantId = `temp-assistant-${Date.now()}`;
+    const tempUserId = `temp-user-${crypto.randomUUID()}`;
+    const tempAssistantId = `temp-assistant-${crypto.randomUUID()}`;
     const now = new Date().toISOString();
 
     // Optimistische Anhänge: nur die Felder, die das UI braucht, mit Object-URLs als Vorschau.
@@ -597,24 +730,63 @@ export default function App() {
     const tempUser: Message = { id: tempUserId, chat_id: chatId, role: 'user', content, created_at: now, attachments: optimisticAttachments };
     const tempAssistant: Message = { id: tempAssistantId, chat_id: chatId, role: 'assistant', content: '', created_at: now };
 
-    const abort = new AbortController();
     const stream: ActiveStream = {
+      chatId,
       tempUserId,
       tempAssistantId,
+      userContent: content,
       content: '',
       reasoning: '',
       sources: [],
       createdAt: now,
-      abort,
+      queuedAhead: null,
+      started: false,
+      prefillEta: null,
+      isRegenerate: false,
+      abort: new AbortController(),
     };
-    activeStreamsRef.current.set(chatId, stream);
-    markStreaming(chatId, true);
+    activeStreamsRef.current.set(tempAssistantId, stream);
+    syncStreamIndicators();
 
     setActiveChat(prev =>
       prev && prev.id === chatId
         ? { ...prev, messages: [...prev.messages, tempUser, tempAssistant] }
         : prev,
     );
+
+    // Objekt-URLs der Vorschau-Bilder erst freigeben, wenn der Stream endet
+    // (dann ersetzen die persistierten Server-URLs die optimistische Blase).
+    const revokePreviews = () => {
+      attachments.forEach(a => a.previewUrl && URL.revokeObjectURL(a.previewUrl));
+    };
+
+    void runMessageStream(stream, (h) =>
+      api.sendMessageStream(chatId, content, h.onDelta, attachments, h.onToolEvent, {
+        think: thinkByChat[chatId] || undefined,
+        ...h.opts,
+      }),
+    ).finally(revokePreviews);
+  };
+
+  // Gemeinsamer Kern von Senden und Retry: verdrahtet die Stream-Callbacks
+  // mit dem Puffer + React-State, behandelt Warteschlange, Fehler und
+  // Abbruch, und räumt die Registry am Ende auf.
+  const runMessageStream = async (
+    stream: ActiveStream,
+    start: (handlers: {
+      onDelta: (delta: string) => void;
+      onToolEvent: (evt: ToolEvent) => void;
+      opts: {
+        signal: AbortSignal;
+        onThinking: () => void;
+        onReasoning: (delta: string) => void;
+        onQueued: (ahead: number) => void;
+        onStarted: (userMessage: Message) => void;
+        onPrefill: (seconds: number) => void;
+      };
+    }) => Promise<{ userMessage: Message; assistantMessage: Message }>,
+  ) => {
+    const { chatId, tempUserId, tempAssistantId } = stream;
 
     // Patcht die Platzhalter-Nachricht — aber nur, wenn ihr Chat gerade
     // sichtbar ist. Der Puffer in `stream` bleibt immer aktuell.
@@ -632,34 +804,69 @@ export default function App() {
     let thinkingStartedAt: number | null = null;
 
     try {
-      // Stream the response — onDelta appends each chunk to the placeholder message.
-      const { userMessage, assistantMessage } = await api.sendMessageStream(
-        chatId,
-        content,
-        (delta) => {
+      const { userMessage, assistantMessage } = await start({
+        onDelta: (delta) => {
           stream.content += delta;
+          // Erstes Token = Prefill vorbei; die ETA-Zeile verschwindet mit dem
+          // Indicator, der Stream-Puffer wird trotzdem sauber gehalten.
+          if (stream.prefillEta !== null) stream.prefillEta = null;
           patchAssistant({ content: stream.content });
         },
-        attachments,
-        (evt) => {
+        onToolEvent: (evt) => {
           // Tool-event from the LLM. Phase 'result' for web_search carries
           // the sources we want to display under the assistant's answer.
           if (evt.phase !== 'result' || evt.name !== 'web_search' || !evt.result?.results) return;
           stream.sources = [...stream.sources, ...evt.result.results];
           patchAssistant({ sources: stream.sources });
         },
-        {
-          think: thinkByChat[chatId] || undefined,
-          signal: abort.signal,
+        opts: {
+          signal: stream.abort.signal,
           onThinking: () => {
             thinkingStartedAt = Date.now();
+            // Denk-Phase beginnt = Prefill vorbei.
+            if (stream.prefillEta !== null) {
+              stream.prefillEta = null;
+              patchAssistant({ prefillEta: undefined });
+            }
           },
           onReasoning: (delta) => {
             stream.reasoning += delta;
             patchAssistant({ reasoning: stream.reasoning });
           },
+          onQueued: (ahead) => {
+            stream.queuedAhead = ahead;
+            syncStreamIndicators();
+            patchAssistant({ queuedAhead: ahead });
+          },
+          onPrefill: (seconds) => {
+            stream.prefillEta = seconds;
+            patchAssistant({ prefillEta: seconds });
+          },
+          onStarted: (userMessage) => {
+            // Der Job ist an der Reihe; die Frage ist jetzt persistiert.
+            // Optimistische Frage durch die persistierte ersetzen (echter
+            // Zeitstempel → chronologisch richtige Position hinter allen
+            // inzwischen fertigen Antworten) und den Platzhalter angleichen.
+            stream.started = true;
+            stream.queuedAhead = null;
+            stream.createdAt = userMessage.created_at;
+            syncStreamIndicators();
+            setActiveChat(prev => {
+              if (!prev || prev.id !== chatId) return prev;
+              return {
+                ...prev,
+                messages: prev.messages.map(m =>
+                  m.id === tempUserId
+                    ? userMessage
+                    : m.id === tempAssistantId
+                      ? { ...m, created_at: userMessage.created_at, queuedAhead: undefined }
+                      : m,
+                ),
+              };
+            });
+          },
         },
-      );
+      });
 
       // Replace the temporary messages with the real persisted ones from the
       // server — only if this chat is still on screen (a re-select merged the
@@ -692,33 +899,144 @@ export default function App() {
       }
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') {
-        // Stop-Button (Nutzerentscheid 2026-07-22): der Teiltext wird
-        // verworfen, es bleibt nur die "Interrupted"-Markierung — das
-        // Backend persistiert denselben Marker.
-        patchAssistant({ content: INTERRUPTED_MARKER, reasoning: undefined, sources: undefined });
-        refreshTree().catch(() => {});
-      } else {
-        // On error, remove the optimistic messages so the UI stays consistent.
+        if (!stream.started) {
+          // Abbruch im Wartezustand: das Backend hat nichts persistiert —
+          // die Frage gilt als nie gestellt. Beim Retry eines persistierten
+          // Fehlers bleibt stattdessen die Fehlerzeile stehen.
+          if (stream.isRegenerate) {
+            patchAssistant({ content: FAILED_MARKER, reasoning: undefined, sources: undefined, queuedAhead: undefined });
+          } else {
+            setActiveChat(prev => {
+              if (!prev || prev.id !== chatId) return prev;
+              return {
+                ...prev,
+                messages: prev.messages.filter(m => m.id !== tempUserId && m.id !== tempAssistantId),
+              };
+            });
+          }
+        } else {
+          // Stop-Button (Nutzerentscheid 2026-07-22): der Teiltext wird
+          // verworfen, es bleibt nur die "Interrupted"-Markierung — das
+          // Backend persistiert denselben Marker.
+          patchAssistant({ content: INTERRUPTED_MARKER, reasoning: undefined, sources: undefined, queuedAhead: undefined });
+          refreshTree().catch(() => {});
+          // Der Marker ersetzt die halb generierte Antwort — der KV-Zustand
+          // im Slot passt nicht mehr zur Historie, und das Hybrid-Modell
+          // (qwen3.5) kann nicht auf den gemeinsamen Punkt zurückspulen:
+          // Ohne Warm-up kostet die nächste Frage den vollen Paper-Prefill
+          // (82–103 s gemessen, 2026-07-25). Deshalb wie nach normalen
+          // Antworten wärmen, solange der Chat noch angezeigt wird.
+          if (activeChatIdRef.current === chatId) {
+            api.warmupChat(chatId).then(handleWarmupResult).catch(() => {});
+          }
+        }
+      } else if (err instanceof StreamFailedError && err.assistantMessage) {
+        // Das Backend hat Frage + '*Failed*'-Marker persistiert: Temps durch
+        // die persistierten Nachrichten ersetzen — die Fehlerzeile trägt den
+        // Retry-Button und überlebt Reloads.
+        const failedUser = err.userMessage;
+        const failedAssistant = err.assistantMessage;
         setActiveChat(prev => {
           if (!prev || prev.id !== chatId) return prev;
+          const drop = new Set(
+            [tempUserId, tempAssistantId, failedUser?.id, failedAssistant.id].filter(Boolean) as string[],
+          );
+          const filtered = prev.messages.filter(m => !drop.has(m.id));
           return {
             ...prev,
-            messages: prev.messages.filter(m => m.id !== tempUserId && m.id !== tempAssistantId),
+            messages: [...filtered, ...(failedUser && !stream.isRegenerate ? [failedUser] : []), failedAssistant],
           };
         });
+        console.error('Failed to generate answer:', err);
+        // Auch der persistierte '*Failed*'-Marker ändert die Historie —
+        // gleicher Cache-Bruch wie beim Stop-Button (siehe oben).
+        if (activeChatIdRef.current === chatId) {
+          api.warmupChat(chatId).then(handleWarmupResult).catch(() => {});
+        }
+      } else {
+        // Netzwerk-/Clientfehler ohne persistierte Spur: lokale Fehlerzeile
+        // mit Retry — nichts verschwindet mehr stumm (Vorfall 2026-07-24).
+        patchAssistant({ content: FAILED_MARKER, reasoning: undefined, sources: undefined, queuedAhead: undefined });
         console.error('Failed to send message:', err);
       }
     } finally {
-      activeStreamsRef.current.delete(chatId);
-      markStreaming(chatId, false);
+      // Nur den EIGENEN Eintrag entfernen — der Chat kann weitere Streams haben.
+      activeStreamsRef.current.delete(tempAssistantId);
+      syncStreamIndicators();
     }
   };
 
-  // Stop-Button im Composer: bricht den Stream des SICHTBAREN Chats ab —
-  // Hintergrund-Streams anderer Chats laufen weiter.
+  // Retry-Button der Fehlerzeile. Zwei Fälle: Die Frage wurde nie persistiert
+  // (lokaler Sendefehler, temp-ID) → komplett neu senden. Die Frage ist
+  // persistiert ('*Failed*'-Marker vom Backend) → regenerate, damit die
+  // Frage nicht dupliziert wird.
+  const handleRetryMessage = (failed: Message) => {
+    const chat = activeChat;
+    if (!chat) return;
+    const chatId = chat.id;
+    const ordered = orderMessages(chat.messages);
+    const idx = ordered.findIndex(m => m.id === failed.id);
+    if (idx === -1) return;
+    const userMsg = ordered.slice(0, idx).reverse().find(m => m.role === 'user');
+    if (!userMsg) return;
+
+    if (userMsg.id.startsWith('temp-')) {
+      // Frage existiert nur lokal: beide Blasen entfernen und neu senden.
+      setActiveChat(prev =>
+        prev && prev.id === chatId
+          ? { ...prev, messages: prev.messages.filter(m => m.id !== failed.id && m.id !== userMsg.id) }
+          : prev,
+      );
+      void handleSendMessage(userMsg.content, [], chatId);
+      return;
+    }
+
+    // Frage ist persistiert → Fehlerzeile weicht einem frischen Platzhalter,
+    // das Backend erzeugt die Antwort neu (und räumt den Marker weg).
+    const tempAssistantId = `temp-assistant-${crypto.randomUUID()}`;
+    const now = new Date().toISOString();
+    const stream: ActiveStream = {
+      chatId,
+      tempUserId: `temp-user-${crypto.randomUUID()}`,
+      tempAssistantId,
+      userContent: userMsg.content,
+      content: '',
+      reasoning: '',
+      sources: [],
+      createdAt: now,
+      queuedAhead: null,
+      started: false,
+      prefillEta: null,
+      isRegenerate: true,
+      abort: new AbortController(),
+    };
+    activeStreamsRef.current.set(tempAssistantId, stream);
+    syncStreamIndicators();
+    setActiveChat(prev =>
+      prev && prev.id === chatId
+        ? {
+            ...prev,
+            messages: [
+              ...prev.messages.filter(m => m.id !== failed.id),
+              { id: tempAssistantId, chat_id: chatId, role: 'assistant', content: '', created_at: now },
+            ],
+          }
+        : prev,
+    );
+
+    void runMessageStream(stream, (h) =>
+      api.regenerateMessage(chatId, h.onDelta, h.onToolEvent, {
+        think: thinkByChat[chatId] || undefined,
+        ...h.opts,
+      }),
+    );
+  };
+
+  // Stop-Button im Composer: bricht alle Streams des SICHTBAREN Chats ab
+  // (laufende UND wartende) — Hintergrund-Streams anderer Chats laufen weiter.
   const handleStopStreaming = () => {
     if (!activeChatId) return;
-    activeStreamsRef.current.get(activeChatId)?.abort.abort();
+    streamsForChat(activeChatId).forEach(s => s.abort.abort());
   };
 
   // Fetch an explanation for a right-clicked word and show the floating popup.
@@ -756,13 +1074,15 @@ export default function App() {
     setExplanation('');
     setLoadingExplanation(true);
     try {
-      const res = await api.explainWord(wordPopup.word, wordPopup.context);
-      setExplanation(res.explanation || '(No definition returned)');
+      // chatId für KV-Prefix-Sharing: die Erklärung nutzt den Gesprächs-
+      // Cache, statt ihn zu verdrängen (2026-07-25).
+      const res = await api.explainWord(wordPopup.word, wordPopup.context, activeChatIdRef.current ?? undefined);
+      setExplanation(res.explanation || S.noDefinition);
     } catch (err) {
       // Without a catch, a backend/Ollama failure produced an empty popup with
       // no feedback. Surface the error so the user knows what happened.
-      const msg = err instanceof Error ? err.message : 'Unknown error';
-      setExplanation(`Could not load definition: ${msg}`);
+      const msg = err instanceof Error ? err.message : S.unknownError;
+      setExplanation(S.couldNotLoadDefinition(msg));
       console.error('explainWord failed:', err);
     } finally {
       setLoadingExplanation(false);
@@ -855,10 +1175,10 @@ export default function App() {
     // error in its body, same pattern as the explainWord failure above.
     let child: Awaited<ReturnType<typeof api.createChat>>;
     try {
-      child = await api.createChat(`About: ${word}`, parentId, word);
+      child = await api.createChat(S.aboutChatTitle(word), parentId, word);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Unknown error';
-      setExplanation(`Could not create chat: ${msg} — is the backend running?`);
+      const msg = err instanceof Error ? err.message : S.unknownError;
+      setExplanation(S.couldNotCreateChat(msg));
       console.error('createChat failed:', err);
       return;
     }
@@ -945,7 +1265,7 @@ export default function App() {
     const sourceLabel = fromPdf
       ? treePaper?.title ?? 'PDF'
       : (chatSel?.chatId === parentContext?.id ? parentContext?.title : activeChat?.title) ??
-        'chat';
+        S.chatFallbackLabel;
     setComposerQuote({ chatId: activeChatId, text: word, sourceLabel, color: quoteColor });
   };
 
@@ -1112,6 +1432,7 @@ export default function App() {
         collapsed={sidebarCollapsed}
         onToggleCollapsed={toggleSidebar}
         streamingChatIds={streamingChatIds}
+        queuedChatIds={queuedChatIds}
       />
 
       <div className="flex-1 flex flex-col overflow-hidden">
@@ -1130,7 +1451,7 @@ export default function App() {
             <div
               role="separator"
               aria-orientation="horizontal"
-              aria-label="Resize mind map"
+              aria-label={S.resizeMindMap}
               data-testid="mindmap-pane-resizer"
               onPointerDown={handleMapPaneResizeStart}
               onPointerMove={handleMapPaneResizeMove}
@@ -1188,7 +1509,7 @@ export default function App() {
             <div
               role="separator"
               aria-orientation="vertical"
-              aria-label="Resize chat column"
+              aria-label={S.resizeChatColumn}
               data-testid="chat-pane-resizer"
               onPointerDown={handleChatPaneResizeStart}
               onPointerMove={handleChatPaneResizeMove}
@@ -1210,13 +1531,26 @@ export default function App() {
               ref={chatAreaRef}
               chat={activeChat}
               loading={loadingChat}
-              streaming={activeChatId ? streamingChatIds.has(activeChatId) : false}
+              streaming={activeChatId ? streamingChatIds.has(activeChatId) || queuedChatIds.has(activeChatId) : false}
+              streamingMessageIds={streamingMessageIds}
               onSendMessage={handleSendMessage}
+              onRetryMessage={handleRetryMessage}
               onWordRightClick={handleWordRightClick}
               onSelectChat={handleSelectChat}
               onBranchedFromClick={handleBranchedFromClick}
               onUploadPdf={handleUploadPdf}
               onOpenPaperSearch={() => setPaperSearchOpen(true)}
+              onOpenYouTubeSearch={() => setYoutubeSearchOpen(true)}
+              videoBanner={
+                treeVideo ? (
+                  <VideoBanner video={treeVideo} onOpenTranscript={() => void handleOpenTranscript()} />
+                ) : undefined
+              }
+              transcriptDrawer={
+                treeVideo && transcriptOpen ? (
+                  <TranscriptDrawer video={treeVideo} onClose={() => setTranscriptOpen(false)} />
+                ) : undefined
+              }
               chatHighlights={activeChatHl.highlights}
               onChatSelection={handleChatSelection}
               onHighlightContextMenu={(h, x, y) => setChatHighlightMenu({ highlight: h, x, y })}
@@ -1277,8 +1611,8 @@ export default function App() {
         </div>
       </div>
 
-      {/* New-tree prompt: shown when an upload hit a tree that already has a
-          PDF (ADR-0002). Confirming moves the file into a fresh chat tree. */}
+      {/* New-tree prompt: shown when an attach hit a tree that already has a
+          source (ADR-0002/0005). Confirming moves it into a fresh chat tree. */}
       {pendingAttach && (
         <div
           className="fixed inset-0 z-50 bg-black/30 flex items-center justify-center"
@@ -1287,13 +1621,15 @@ export default function App() {
           <div className="bg-white rounded-xl shadow-xl w-[26rem] max-w-[calc(100vw-2rem)] p-6">
             <div className="flex items-center gap-2.5 mb-2">
               <FileText size={18} className="text-blue-500 shrink-0" />
-              <h3 className="text-[15px] font-medium text-gray-900">This chat tree already has a PDF</h3>
+              <h3 className="text-[15px] font-medium text-gray-900">{S.newTreeTitle}</h3>
             </div>
             <p className="text-sm text-gray-600 leading-relaxed mb-5">
-              Each chat tree holds one PDF. Start a new tree with{' '}
+              {S.newTreeLead}{' '}
+              {S.newTreeAskPrefix}
               <span className="font-medium text-gray-800">
                 {pendingAttach.kind === 'file' ? pendingAttach.file.name : pendingAttach.title}
-              </span>?
+              </span>
+              {S.newTreeAskSuffix}
             </p>
             <div className="flex justify-end gap-2">
               <button
@@ -1301,14 +1637,14 @@ export default function App() {
                 className="px-3.5 py-1.5 rounded-lg text-sm text-gray-700 border border-gray-200 hover:bg-gray-50 transition-colors"
                 data-testid="new-tree-cancel"
               >
-                Cancel
+                {S.cancel}
               </button>
               <button
                 onClick={handleStartNewTreeWithPdf}
                 className="px-3.5 py-1.5 rounded-lg text-sm text-white bg-blue-500 hover:bg-blue-600 transition-colors"
                 data-testid="new-tree-confirm"
               >
-                Start new tree
+                {S.startNewTree}
               </button>
             </div>
           </div>
@@ -1351,6 +1687,15 @@ export default function App() {
         <PaperSearchModal
           onClose={() => setPaperSearchOpen(false)}
           onImport={handleImportPaper}
+        />
+      )}
+
+      {/* Video-Such-Modal (ADR-0005): YouTube über die lokale SearXNG-
+          Instanz durchsuchen und das Transkript an den aktiven Baum binden. */}
+      {youtubeSearchOpen && activeChatId && (
+        <YouTubeSearchModal
+          onClose={() => setYoutubeSearchOpen(false)}
+          onImport={handleImportVideo}
         />
       )}
 

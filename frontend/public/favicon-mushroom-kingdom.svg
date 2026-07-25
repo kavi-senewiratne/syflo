@@ -1,15 +1,32 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
-  <!-- Mushroom Kingdom favicon — mushroom-cap tile: red with white cap dots,
-       cream pixel branch mark, yellow accent node.
-       Design source: design/mockup-logo-icons.html (Mushroom Kingdom, Favicon-Test) -->
-  <rect x="1.5" y="1.5" width="45" height="45" rx="7" fill="#D8433B" stroke="#26264F" stroke-width="3"/>
-  <g fill="#FFF9EE" shape-rendering="crispEdges">
-    <rect x="4"  y="20" width="16" height="8"/>
-    <rect x="16" y="12" width="10" height="8"/>
-    <rect x="16" y="28" width="10" height="8"/>
-    <rect x="26" y="30" width="14" height="14"/>
+  <!-- Mushroom Kingdom favicon — Pilzkappen-Kachel mit Verlauf und 3D-Kanten
+       (Licht oben, Schatten unten), vier runde Kappen-Punkte klar innerhalb
+       der Fläche, Status-quo-Pixel-Marke zentriert.
+       Design source: design/mockup-logo-icons-round6.html (Mushroom Kingdom, Final) -->
+  <defs>
+    <linearGradient id="mk-cap" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#E4574C"/>
+      <stop offset="55%" stop-color="#D8433B"/>
+      <stop offset="100%" stop-color="#C0362F"/>
+    </linearGradient>
+  </defs>
+  <rect x="1.5" y="1.5" width="45" height="45" rx="9" fill="url(#mk-cap)" stroke="#26264F" stroke-width="3"/>
+  <!-- 3D-Kanten: Lichtkante oben, Schattenkante unten -->
+  <rect x="5" y="3.8" width="38" height="2.6" rx="1.3" fill="#FFF9EE" opacity="0.28"/>
+  <rect x="5" y="41.4" width="38" height="3" rx="1.5" fill="#26264F" opacity="0.30"/>
+  <!-- Kappen-Punkte, eingerückt -->
+  <circle cx="10" cy="10" r="2.5" fill="#FFF9EE"/>
+  <circle cx="38" cy="10" r="2.5" fill="#FFF9EE"/>
+  <circle cx="10" cy="38" r="2.5" fill="#FFF9EE"/>
+  <circle cx="38" cy="38" r="2.5" fill="#FFF9EE"/>
+  <!-- Status-quo-Pixel-Marke -->
+  <g transform="translate(10, 10) scale(0.583)" shape-rendering="crispEdges">
+    <g fill="#FFF9EE">
+      <rect x="4"  y="20" width="16" height="8"/>
+      <rect x="16" y="12" width="10" height="8"/>
+      <rect x="16" y="28" width="10" height="8"/>
+      <rect x="26" y="30" width="14" height="14"/>
+    </g>
+    <rect x="26" y="4" width="14" height="14" fill="#EFB43A"/>
   </g>
-  <rect x="26" y="4" width="14" height="14" fill="#EFB43A" shape-rendering="crispEdges"/>
-  <circle cx="8.5" cy="8.5" r="3" fill="#FFF9EE"/>
-  <circle cx="8.5" cy="40" r="3" fill="#FFF9EE"/>
 </svg>

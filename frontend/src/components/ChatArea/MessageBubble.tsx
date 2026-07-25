@@ -11,13 +11,14 @@
  * to that child chat.
  */
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Children, isValidElement, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import type { ReactElement } from 'react';
 import ReactMarkdown, { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
-import { Brain, ChevronDown, ChevronRight, Clock, Square } from 'lucide-react';
+import { AlertCircle, Brain, ChevronDown, ChevronRight, Clock, RotateCcw, Square } from 'lucide-react';
 import { ThinkingIndicator } from './ThinkingIndicator';
 import {
   clearFlashChatRange,
@@ -30,7 +31,10 @@ import {
   textOffsetInRoot,
 } from '../../chat/highlightAnchors';
 import { splitLeadingQuote } from '../../chat/messageQuote';
-import { INTERRUPTED_MARKER } from '../../types';
+import { useStrings } from '../../strings';
+import { gfmTableComponents } from './markdownTables';
+import { CodeBlock } from './CodeBlock';
+import { FAILED_MARKER, INTERRUPTED_MARKER } from '../../types';
 import type { ChatSelection, HighlightColor, Message, MessageHighlight } from '../../types';
 
 // ReactMarkdown's defaultUrlTransform strips URLs with unknown schemes (anything
@@ -74,6 +78,10 @@ interface Props {
   // (nicht die Bubble), in ihrer Highlight-Farbe (wie beim PDF). ChatArea
   // taktet das Blinken, hier wird nur gemalt.
   flashRange?: { startOffset: number; endOffset: number; color: HighlightColor } | null;
+  // Retry-Button der '*Failed*'-Fehlerzeile: erzeugt die Antwort neu, ohne
+  // dass der Nutzer die Frage erneut tippen/diktieren muss. Ohne Handler
+  // wird nur die Fehlerzeile ohne Button gezeigt (z. B. ParentContextPane).
+  onRetryMessage?: (message: Message) => void;
 }
 
 // "Thought for 1m 42s" / "Thought for 34s".
@@ -106,13 +114,71 @@ function insertBranchLinks(content: string, branchWords: BranchWord[]): string {
 // matrix/aligned) auf eine eigene Display-Zeile befördern — inline gequetscht
 // kollidieren die hohen Konstrukte mit den Nachbarzeilen (Report 2026-07-22).
 const DISPLAY_INTENT = /\\displaystyle|\\begin\{/;
+// Code-Span-Heuristiken fürs Formel-Auspacken (Reports 2026-07-24):
+// `$PATH$` (Env-Var-Stil, reine GROSSBUCHSTABEN) bleibt Code, ebenso
+// Regex-Escapes wie `\d+`. Echte Formeln erkennt man an Dollar-/\(...\)-
+// Trennern oder an einem bekannten LaTeX-Kommando im Span.
+const ENV_VAR_STYLE = /^[A-Z_][A-Z0-9_]*$/;
+const LATEX_COMMAND = new RegExp(
+  '\\\\(?:' +
+    [
+      'approx', 'hat', 'frac', 'sqrt', 'sum', 'prod', 'int', 'cdot', 'times', 'pm', 'infty',
+      'alpha', 'beta', 'gamma', 'delta', 'epsilon', 'varepsilon', 'zeta', 'eta', 'theta',
+      'kappa', 'lambda', 'mu', 'nu', 'xi', 'pi', 'rho', 'sigma', 'tau', 'phi', 'varphi',
+      'chi', 'psi', 'omega', 'Delta', 'Gamma', 'Theta', 'Lambda', 'Sigma', 'Phi', 'Psi', 'Omega',
+      'leq', 'geq', 'neq', 'sim', 'propto', 'nabla', 'partial', 'mid', 'to',
+      'mathcal', 'mathbb', 'mathbf', 'mathrm', 'operatorname', 'text',
+      'vec', 'bar', 'dot', 'ddot', 'tilde', 'displaystyle', 'begin', 'left', 'right',
+      'rightarrow', 'leftarrow', 'Rightarrow', 'binom', 'log', 'ln', 'exp',
+      'sin', 'cos', 'tan', 'min', 'max', 'arg',
+    ].join('|') +
+    // kein \b: dahinter dürfen _{(^ etc. folgen (\sum_{i=1} — "_" ist ein
+    // Wortzeichen, \b würde scheitern); nur weitere Buchstaben schließen aus,
+    // damit \tanh nicht fälschlich als \tan zählt.
+    ')(?![a-zA-Z])',
+);
 export function normalizeMathDelimiters(content: string): string {
-  return content
-    .replace(/\\\[([\s\S]+?)\\\]/g, (_, expr) => `\n$$\n${expr}\n$$\n`)
-    .replace(/\\\(([\s\S]+?)\\\)/g, (_, expr) => `$${expr}$`)
-    .replace(/\$([^$\n]+)\$/g, (m, expr) =>
-      DISPLAY_INTENT.test(expr) ? `\n$$\n${expr}\n$$\n` : m,
-    );
+  return (
+    content
+      // Kleine Modelle verpacken Formeln zusätzlich in Backticks
+      // (`$\hat{P}(...)$`, `$n-1$`) — in Code-Spans rendert KaTeX bewusst
+      // nicht. Auspacken, außer der Inhalt ist eine Env-Var wie `$PATH$`.
+      // Bewusst OHNE \s* zwischen Backtick und $: sonst könnte die Regel
+      // über "…`code` $x$ `mehr`…" hinweg zwei fremde Spans verschmelzen.
+      .replace(/`(\$\$?)([^`$][^`]*?)\1`/g, (m, dollars, expr) =>
+        ENV_VAR_STYLE.test(expr.trim()) ? m : `${dollars}${expr}${dollars}`,
+      )
+      // Unbalancierte Reste (Report 2026-07-24, Runde 3): `$\hat{P}(...)``
+      // oder ``$O(n^2)$`` — schiefe Backtick-Zahl und/oder fehlendes
+      // Schluss-$. Math-Signale: bekanntes Kommando, Hoch-/Tiefstellung,
+      // oder ein sauberes Schluss-$. `$PATH``/`${var}` bleiben Code.
+      .replace(/`{1,2}\$([^`$][^`]*?)(\$?)`{1,2}/g, (m, expr, closing) => {
+        const t = expr.trim();
+        if (ENV_VAR_STYLE.test(t) || t.startsWith('{')) return m;
+        if (LATEX_COMMAND.test(t) || /[\^_]/.test(t) || closing === '$') return `$${t}$`;
+        return m;
+      })
+      // `\(...\)` / `\[...\]` in Backticks: die Trenner sind eindeutig LaTeX.
+      // [^`] statt [\s\S], damit die Regel nie über Span-Grenzen hinweg
+      // zwei verschiedene Code-Spans zu einer Formel verschmilzt.
+      .replace(/`(\\\([^`]+?\\\)|\\\[[^`]+?\\\])`/g, '$1')
+      // Nacktes LaTeX in Backticks (`\hat{P}(...)`, `\approx`) → $...$ —
+      // aber nur bei bekanntem Kommando; `\d+` & Co. bleiben Code.
+      .replace(/`([^`\n$]+)`/g, (m, expr) =>
+        LATEX_COMMAND.test(expr) ? `$${expr.trim()}$` : m,
+      )
+      // Verwaiste einzelne Backticks direkt an sonst intakter $-Mathe
+      // (`$w_t$… bzw. …$w_t$`). Lookaround verhindert, dass ein kompletter
+      // Code-Span `$PATH$` angefasst wird (dort steht auf beiden Seiten
+      // ein Backtick).
+      .replace(/`(\$\$?)([^`$\n]+)\1(?!`)/g, '$1$2$1')
+      .replace(/(?<!`)(\$\$?)([^`$\n]+)\1`/g, '$1$2$1')
+      .replace(/\\\[([\s\S]+?)\\\]/g, (_, expr) => `\n$$\n${expr}\n$$\n`)
+      .replace(/\\\(([\s\S]+?)\\\)/g, (_, expr) => `$${expr}$`)
+      .replace(/\$([^$\n]+)\$/g, (m, expr) =>
+        DISPLAY_INTENT.test(expr) ? `\n$$\n${expr}\n$$\n` : m,
+      )
+  );
 }
 
 export function MessageBubble({
@@ -127,10 +193,18 @@ export function MessageBubble({
   pendingSelection,
   showThinkingTips,
   flashRange,
+  onRetryMessage,
 }: Props) {
+  // UI-Texte in der App language — re-rendert beim Sprachwechsel mit.
+  const S = useStrings().messageBubble;
   const isUser = message.role === 'user';
   const isInterrupted =
     message.role === 'assistant' && message.content.trim() === INTERRUPTED_MARKER;
+  const isFailed =
+    message.role === 'assistant' && message.content.trim() === FAILED_MARKER;
+  // Der Job dieser Antwort wartet noch in der Backend-Warteschlange
+  // (Ollama hat einen Slot; Fragen laufen FIFO über alle Chats).
+  const isQueued = message.queuedAhead !== undefined && !message.content;
 
   // Root around the rendered message text — the coordinate system for
   // highlight offsets. Excludes streaming indicator and sources list.
@@ -199,6 +273,7 @@ export function MessageBubble({
         rehypePlugins={[rehypeKatex]}
         urlTransform={urlTransform}
         components={{
+          ...gfmTableComponents,
           // Branch links: rendered as blue underlined buttons (not real <a> tags).
           a({ href, children }) {
             if (href?.startsWith('branch:')) {
@@ -214,15 +289,20 @@ export function MessageBubble({
             }
             return <a href={href}>{String(children)}</a>;
           },
-          code({ className, children, ...props }: any) {
-            const isBlock = className?.includes('language-');
-            if (isBlock) {
-              return (
-                <pre className="bg-gray-950 text-gray-100 rounded-xl p-4 overflow-x-auto text-xs my-3">
-                  <code {...props}>{children}</code>
-                </pre>
-              );
-            }
+          // Code-Blöcke laufen über den pre-Renderer (auch Fences OHNE
+          // Sprache — die landeten früher fälschlich im Inline-Stil):
+          // Sprache + Text aus dem inneren <code> ziehen und an den
+          // gehighlighteten, theme-fähigen CodeBlock geben.
+          pre({ children }) {
+            const child = Children.toArray(children).find(isValidElement) as
+              | ReactElement<{ className?: string; children?: unknown }>
+              | undefined;
+            const fenceLang = /language-([\w+-]+)/.exec(child?.props.className ?? '')?.[1];
+            const code = String(child?.props.children ?? '').replace(/\n$/, '');
+            return <CodeBlock code={code} fenceLang={fenceLang} />;
+          },
+          // Nur noch Inline-Code — Block-Code fängt pre() oben ab.
+          code({ children, ...props }) {
             return (
               <code className="bg-gray-100 text-gray-800 px-1.5 py-0.5 rounded text-xs font-mono" {...props}>
                 {children}
@@ -438,10 +518,10 @@ export function MessageBubble({
           >
             <Brain size={12} className="shrink-0" />
             {reasoningStreaming
-              ? 'Thinking…'
+              ? S.thinking
               : message.thoughtForSeconds !== undefined
-                ? `Thought for ${formatThoughtDuration(message.thoughtForSeconds)}`
-                : 'Thoughts'}
+                ? S.thoughtFor(formatThoughtDuration(message.thoughtForSeconds))
+                : S.thoughts}
             {thinkingOpen
               ? <ChevronDown size={12} className="shrink-0" />
               : <ChevronRight size={12} className="shrink-0" />}
@@ -466,7 +546,7 @@ export function MessageBubble({
           className="mb-1 flex items-center gap-1.5 text-[12px] font-medium text-gray-400"
         >
           <Clock size={12} className="shrink-0" />
-          Thought for {formatThoughtDuration(message.thoughtForSeconds)}
+          {S.thoughtFor(formatThoughtDuration(message.thoughtForSeconds))}
         </div>
       )}
       <div
@@ -483,7 +563,30 @@ export function MessageBubble({
             className="flex items-center gap-1.5 text-[12.5px] italic text-gray-400"
           >
             <Square size={9} fill="currentColor" strokeWidth={0} className="shrink-0" />
-            Interrupted
+            {S.interrupted}
+          </div>
+        ) : isFailed ? (
+          // Fehlgeschlagene Generierung ('*Failed*'-Marker, persistiert oder
+          // lokal): dezente Fehlerzeile im Stil der Interrupted-Markierung —
+          // Standard-Grautöne, damit alle Themes sie umfärben können — plus
+          // Retry-Button, der die Antwort ohne Neu-Tippen neu erzeugt.
+          <div
+            data-testid="failed-note"
+            className="flex items-center gap-2 text-[12.5px] text-gray-400"
+          >
+            <AlertCircle size={13} className="shrink-0" />
+            <span className="italic">{S.failed}</span>
+            {onRetryMessage && (
+              <button
+                type="button"
+                data-testid="retry-button"
+                onClick={() => onRetryMessage(message)}
+                className="inline-flex items-center gap-1 rounded-md border border-gray-200 px-2 py-0.5 text-[12px] font-medium text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-700"
+              >
+                <RotateCcw size={11} className="shrink-0" />
+                {S.retry}
+              </button>
+            )}
           </div>
         ) : markdownTree ? (
           <div ref={contentRef} data-chat-content>
@@ -491,10 +594,26 @@ export function MessageBubble({
           </div>
         ) : null}
 
+        {/* Wartet der Job noch in der Backend-Warteschlange, zeigt die Blase
+            den Platz in der Schlange statt der Denk-Punkte — ehrlicher als
+            minutenlanges "Denkt nach…". */}
+        {isQueued && (
+          <div
+            data-testid="queued-note"
+            className="flex items-center gap-1.5 text-[12.5px] italic text-gray-400"
+          >
+            <Clock size={12} className="shrink-0" />
+            {message.queuedAhead === 0 ? S.queuedNext : S.queued(message.queuedAhead!)}
+          </div>
+        )}
+
         {/* Läuft die Gedankenkette sichtbar im Panel, wären die Tipps darunter
             doppelt — dann nur die Punkte. */}
-        {isStreaming && !processedContent && (
-          <ThinkingIndicator withTips={Boolean(showThinkingTips) && !message.reasoning} />
+        {isStreaming && !processedContent && !isQueued && !isFailed && (
+          <ThinkingIndicator
+            withTips={Boolean(showThinkingTips) && !message.reasoning}
+            prefillEta={message.prefillEta}
+          />
         )}
 
         {isStreaming && processedContent && (
@@ -513,6 +632,7 @@ export function MessageBubble({
 // web_search. Each source is a small chip with the site's hostname; clicking
 // opens the full URL in a new tab. The full title shows as tooltip on hover.
 function SourcesList({ sources }: { sources: NonNullable<Message['sources']> }) {
+  const S = useStrings().messageBubble;
   // De-duplicate by URL — the same article can come from multiple engines.
   const seen = new Set<string>();
   const unique = sources.filter(s => {
@@ -525,7 +645,7 @@ function SourcesList({ sources }: { sources: NonNullable<Message['sources']> }) 
   return (
     <div className="mt-4 pt-3 border-t border-gray-100">
       <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5">
-        Sources
+        {S.sources}
       </p>
       <ol className="flex flex-wrap gap-1.5">
         {unique.slice(0, 8).map((s, i) => {

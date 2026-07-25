@@ -374,12 +374,18 @@ body {
 :root[data-theme='hyrule'] .uppercase {
   letter-spacing: 0.22em;
 }
-/* design:hyrule.bubbles — teal gradient user bubble, parchment AI bubble */
+/* design:hyrule.bubbles — flat teal user bubble, parchment AI bubble.
+   Solid --bubble-user-bg (#2AA198) statt Verlauf + Inset-Glanz: der Verlauf
+   (Licht von oben) und die helle obere Innenkante ließen die Blase plastisch
+   wirken (Nutzer-Feedback 2026-07-24). Solide Farbe = flach und
+   mockup-treu (mockup-fun-themes-v4.html: --bubble-user-bg ist einfarbig).
+   Der harte 4px-Versatzschatten bleibt — er ist der bewusst flache
+   Cartoon-/Sticker-Look des Themes, kein 3-D-Effekt. */
 :root[data-theme='hyrule'] .bg-gray-100.select-text {
-  background: linear-gradient(165deg, #2faea4, #218a82);
+  background: #2aa198;
   color: #fcfbf2;
   border-radius: 13px 13px 4px 13px !important;
-  box-shadow: inset 0 1px 0 rgba(252, 251, 242, 0.2), 4px 4px 0 var(--syflo-shadow-ink);
+  box-shadow: 4px 4px 0 var(--syflo-shadow-ink);
 }
 :root[data-theme='hyrule'] .prose {
   background-color: #efebd8;
@@ -1006,4 +1012,113 @@ body {
 }
 ::-webkit-scrollbar-thumb:hover {
   background: color-mix(in srgb, var(--color-gray-500) 55%, transparent);
+}
+
+/*
+ * Code-Blöcke in Chat-Antworten (CodeBlock.tsx, Nutzer-Wunsch 2026-07-24).
+ * Die Komponente kennt keine Farbwerte — alles läuft über diese Variablen,
+ * jedes Theme definiert seine eigene Palette aus den eigenen Ankertönen.
+ * Vorher war der Block hart bg-gray-950: in den Themes flippt gray-950
+ * (Matrix: helles Grün!) und nichts passte zusammen.
+ */
+:root {
+  --syflo-code-bg: #0d1117;
+  --syflo-code-text: #e6edf3;
+  --syflo-code-border: #263041;
+  --syflo-code-label: #8b949e;
+  --syflo-code-comment: #8b949e;
+  --syflo-code-keyword: #ff7b72;
+  --syflo-code-string: #a5d6ff;
+  --syflo-code-number: #79c0ff;
+  --syflo-code-fn: #d2a8ff;
+  --syflo-code-type: #ffa657;
+}
+:root[data-theme='mushroom-kingdom'] {
+  --syflo-code-bg: #26264f;      /* das Outline-Ink der Karten */
+  --syflo-code-text: #fcfbf2;
+  --syflo-code-border: #26264f;
+  --syflo-code-label: #8f8fb8;
+  --syflo-code-comment: #8f8fb8;
+  --syflo-code-keyword: #ea7a6c; /* Mushroom-Rot (blue-300-Slot) */
+  --syflo-code-string: #e6c15c;  /* Münz-Gold */
+  --syflo-code-number: #8fd6a3;
+  --syflo-code-fn: #8ec3ea;
+  --syflo-code-type: #f2a99a;
+}
+:root[data-theme='hyrule'] {
+  --syflo-code-bg: #33372a;      /* Moos-Ink auf Pergament */
+  --syflo-code-text: #f1eddc;
+  --syflo-code-border: #4e5240;
+  --syflo-code-label: #a8ab8e;
+  --syflo-code-comment: #8e9078;
+  --syflo-code-keyword: #d9b45b; /* Triforce-Gold */
+  --syflo-code-string: #a3d1c7;
+  --syflo-code-number: #74bcaf;
+  --syflo-code-fn: #cbe4dd;
+  --syflo-code-type: #c6bfa0;
+}
+:root[data-theme='ink-blue'] {
+  --syflo-code-bg: #1c2b4a;      /* das Tinten-Navy der Ränder */
+  --syflo-code-text: #eef4fb;
+  --syflo-code-border: #1c2b4a;
+  --syflo-code-label: #8fa5c9;
+  --syflo-code-comment: #7e93b8;
+  --syflo-code-keyword: #82b4ff;
+  --syflo-code-string: #f2c98a;  /* ein warmer Kontrast im Blau */
+  --syflo-code-number: #8fd9d0;
+  --syflo-code-fn: #c5b3f5;
+  --syflo-code-type: #9fc1e8;
+}
+:root[data-theme='matrix'] {
+  --syflo-code-bg: #08130a;
+  --syflo-code-text: #b7e8bc;
+  --syflo-code-border: #12301a;
+  --syflo-code-label: #4c7e58;
+  --syflo-code-comment: #3e6a48;
+  --syflo-code-keyword: #2be76b; /* Phosphor-Hell */
+  --syflo-code-string: #9ad6a4;
+  --syflo-code-number: #d9f6dd;
+  --syflo-code-fn: #7bc188;
+  --syflo-code-type: #64a272;
+}
+
+/* hljs-Token → Variablen. Nur eine Handvoll Slots: Kommentar, Keyword,
+   String, Zahl/Literal, Funktions-/Titelname, Typ/Attribut. */
+.syflo-code .hljs-comment,
+.syflo-code .hljs-quote {
+  color: var(--syflo-code-comment);
+  font-style: italic;
+}
+.syflo-code .hljs-keyword,
+.syflo-code .hljs-selector-tag,
+.syflo-code .hljs-doctag,
+.syflo-code .hljs-meta {
+  color: var(--syflo-code-keyword);
+}
+.syflo-code .hljs-string,
+.syflo-code .hljs-regexp,
+.syflo-code .hljs-addition {
+  color: var(--syflo-code-string);
+}
+.syflo-code .hljs-number,
+.syflo-code .hljs-literal,
+.syflo-code .hljs-symbol,
+.syflo-code .hljs-bullet {
+  color: var(--syflo-code-number);
+}
+.syflo-code .hljs-title,
+.syflo-code .hljs-section,
+.syflo-code .hljs-name {
+  color: var(--syflo-code-fn);
+}
+.syflo-code .hljs-type,
+.syflo-code .hljs-class,
+.syflo-code .hljs-built_in,
+.syflo-code .hljs-attr,
+.syflo-code .hljs-attribute,
+.syflo-code .hljs-selector-class,
+.syflo-code .hljs-selector-id,
+.syflo-code .hljs-variable,
+.syflo-code .hljs-template-variable {
+  color: var(--syflo-code-type);
 }

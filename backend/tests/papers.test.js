@@ -77,7 +77,7 @@ describe('POST /api/papers — upload a PDF into a chat tree', () => {
     expect(branchDetail.body.title).toBe('Branch');
   });
 
-  it('rejects a second PDF for the same tree with tree-has-pdf (ADR-0002)', async () => {
+  it('rejects a second PDF for the same tree with tree-has-source (ADR-0002/0005)', async () => {
     const root = await createChat('Root');
     const branch = await createChat('Branch', root.id, 'deposit');
     await uploadPdf(root.id);
@@ -85,8 +85,22 @@ describe('POST /api/papers — upload a PDF into a chat tree', () => {
     // Second attach — also from a branch of the same tree — is rejected.
     const res = await uploadPdf(branch.id, 'second.pdf');
     expect(res.status).toBe(409);
-    expect(res.body.error).toBe('tree-has-pdf');
+    expect(res.body.error).toBe('tree-has-source');
     expect(res.body.root_chat_id).toBe(root.id);
+  });
+
+  it('rejects a PDF when the tree already has a YouTube transcript (one source per tree, ADR-0005)', async () => {
+    const chat = await createChat('Video tree');
+    db.prepare(
+      `INSERT INTO videos (id, youtube_id, title, channel, duration_seconds, language, transcript, url, created_at)
+       VALUES ('v1', 'zjkBMFhNj_g', 'Intro to LLMs', 'Karpathy', 3587, 'en', '[00:00] Hi.', 'https://www.youtube.com/watch?v=zjkBMFhNj_g', ?)`,
+    ).run(new Date().toISOString());
+    db.prepare('UPDATE chats SET video_id = ? WHERE id = ?').run('v1', chat.id);
+
+    const res = await uploadPdf(chat.id);
+    expect(res.status).toBe(409);
+    expect(res.body.error).toBe('tree-has-source');
+    expect(res.body.root_chat_id).toBe(chat.id);
   });
 
   it('rejects non-PDF uploads', async () => {
@@ -109,6 +123,83 @@ describe('POST /api/papers — upload a PDF into a chat tree', () => {
       .field('chat_id', 'does-not-exist')
       .attach('pdf', PDF_BYTES, { filename: 'a.pdf', contentType: 'application/pdf' });
     expect(unknown.status).toBe(404);
+  });
+});
+
+describe('POST /api/papers — background retrieval preparation (ADR-0006)', () => {
+  // > MAX_SYSTEM_CONTEXT_CHARS (~40k) → Retrieval-Modus-Kandidat.
+  const LONG_TEXT = Array.from(
+    { length: 520 },
+    (_, i) => `Paragraph ${i} discussing background material in sufficient detail to fill space.`
+  ).join('\n\n');
+
+  function appWith(extractedText, embedFn) {
+    return createApp(db, {
+      papers: {
+        extractPdfTextFn: jest.fn().mockResolvedValue(extractedText),
+        embedTextsFn: embedFn,
+      },
+    });
+  }
+
+  async function uploadVia(app2, chatId) {
+    return request(app2)
+      .post('/api/papers')
+      .field('chat_id', chatId)
+      .attach('pdf', PDF_BYTES, { filename: 'long.pdf', contentType: 'application/pdf' });
+  }
+
+  // Der Hook ist fire-and-forget — kurz auf setImmediate-Arbeit warten.
+  const flushBackground = () => new Promise((r) => setTimeout(r, 50));
+
+  it('extracts, chunks and embeds a long paper right after upload', async () => {
+    const fakeEmbed = jest.fn(async (texts) => texts.map(() => [0.1, 0.2]));
+    const app2 = appWith(LONG_TEXT, fakeEmbed);
+    const chat = await request(app2).post('/api/chats').send({ title: 'Long' });
+
+    const res = await uploadVia(app2, chat.body.id);
+    expect(res.status).toBe(201);
+    await flushBackground();
+
+    // Volltext liegt im Cache — die erste Frage extrahiert nicht mehr …
+    const row = db.prepare('SELECT extracted_text FROM papers WHERE id = ?').get(res.body.id);
+    expect(row.extracted_text).toBe(LONG_TEXT);
+    // … und die Chunks samt Embeddings liegen bereit — die erste Frage
+    // wartet nicht auf das Einbetten.
+    const n = db
+      .prepare('SELECT COUNT(*) AS n FROM source_chunks WHERE source_id = ?')
+      .get(res.body.id).n;
+    expect(n).toBeGreaterThan(5);
+  });
+
+  it('caches the text but skips chunking for short papers (full-text mode)', async () => {
+    const fakeEmbed = jest.fn(async (texts) => texts.map(() => [0.1, 0.2]));
+    const app2 = appWith('SHORT PAPER TEXT', fakeEmbed);
+    const chat = await request(app2).post('/api/chats').send({ title: 'Short' });
+
+    const res = await uploadVia(app2, chat.body.id);
+    await flushBackground();
+
+    const row = db.prepare('SELECT extracted_text FROM papers WHERE id = ?').get(res.body.id);
+    expect(row.extracted_text).toBe('SHORT PAPER TEXT');
+    expect(fakeEmbed).not.toHaveBeenCalled();
+  });
+
+  it('never fails the upload when background preparation dies', async () => {
+    const app2 = createApp(db, {
+      papers: {
+        extractPdfTextFn: jest.fn().mockRejectedValue(new Error('corrupt')),
+        embedTextsFn: jest.fn(),
+      },
+    });
+    const chat = await request(app2).post('/api/chats').send({ title: 'Broken' });
+
+    const res = await uploadVia(app2, chat.body.id);
+    expect(res.status).toBe(201);
+    await flushBackground();
+    // Kein Cache, keine Chunks — aber der Upload selbst ist durch.
+    const row = db.prepare('SELECT extracted_text FROM papers WHERE id = ?').get(res.body.id);
+    expect(row.extracted_text).toBeNull();
   });
 });
 

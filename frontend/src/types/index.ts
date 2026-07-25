@@ -13,6 +13,9 @@ export interface Chat {
   // ID des an den Tree gebundenen PDFs — nur am Root gesetzt (ADR-0002).
   // Rendert den PDF-Tag am Root-Knoten im Chat tree.
   paper_id?: string | null;
+  // ID des an den Tree gebundenen YouTube transcript (ADR-0005) — nur am
+  // Root gesetzt. Rendert den YT-Tag am Root-Knoten im Chat tree.
+  video_id?: string | null;
 }
 
 export interface Attachment {
@@ -51,6 +54,12 @@ export interface ToolEvent {
 // denselben String — MessageBubble rendert ihn als graue "Interrupted"-Zeile.
 export const INTERRUPTED_MARKER = '*Interrupted*';
 
+// Inhalt einer Assistant-Nachricht, deren Generierung fehlschlug (z. B.
+// Ollama-Fehler oder Timeout). Das Backend (routes/messages.js) schreibt
+// exakt denselben String — MessageBubble rendert ihn als dezente Fehlerzeile
+// mit "Erneut versuchen"-Button (Pendant zu INTERRUPTED_MARKER).
+export const FAILED_MARKER = '*Failed*';
+
 export interface Message {
   id: string;
   chat_id: string;
@@ -68,6 +77,14 @@ export interface Message {
   // Transient (not persisted): die live gestreamte Gedankenkette (nur bei
   // think=on) — rendert das einklappbare Thinking-Panel über der Antwort.
   reasoning?: string;
+  // Transient (not persisted): Zahl der Anfragen VOR dieser in der Backend-
+  // Warteschlange (Ollama hat einen Slot, Fragen laufen FIFO). Gesetzt auf
+  // dem Assistant-Platzhalter, solange der Job wartet — rendert die
+  // "Wartet …"-Zeile statt der Denk-Punkte; verschwindet mit dem started-Event.
+  queuedAhead?: number;
+  // Prefill-ETA (Sekunden) des Backends — Countdown-Balken im
+  // ThinkingIndicator, verschwindet mit dem ersten Token.
+  prefillEta?: number;
 }
 
 // Antwort des Prefix-Warm-ups. gpu meldet, wie viel des Modells im
@@ -279,6 +296,36 @@ export interface PaperSearchResponse {
   results: SearchResult[];
   rate_limited: boolean;
   retry_after_seconds?: number;
+}
+
+// ─── YouTube transcript (ADR-0005) ──────────────────────────────────────────
+
+// Ein an einen Chat tree gebundenes YouTube transcript — die zweite
+// Quellenart neben dem Paper (eine Quelle pro Baum). transcript (mit groben
+// Minutenmarken) liefert nur GET /api/youtube/for-chat mit.
+export interface Video {
+  id: string;
+  youtube_id: string;
+  title: string;
+  channel: string;
+  duration_seconds: number | null;
+  language: string | null;
+  url: string;
+  transcript?: string;
+}
+
+// Ein Treffer der Video-Suche (GET /api/youtube/search, lokale SearXNG-
+// YouTube-Engine). duration kommt vorformatiert ("59:47") oder fehlt.
+// published ist YouTubes relative Datumsangabe ("9 months ago"), per
+// InnerTube beigemischt — fehlt, wenn die Anreicherung fehlschlägt.
+export interface VideoSearchResult {
+  youtube_id: string;
+  title: string;
+  channel: string;
+  duration: string | null;
+  published: string | null;
+  thumbnail_url: string | null;
+  url: string;
 }
 
 export interface WordPopup {

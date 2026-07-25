@@ -1,0 +1,41 @@
+{
+  "name": "syflo-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Syflo desktop shell (Electron)",
+  "main": "main.js",
+  "scripts": {
+    "dev": "electron .",
+    "build": "bash ../scripts/sync-electron-resources.sh && npm --prefix ../frontend run build && electron-builder",
+    "build:dir": "bash ../scripts/sync-electron-resources.sh && npm --prefix ../frontend run build && electron-builder --dir"
+  },
+  "devDependencies": {
+    "electron": "^38.0.0",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "app.syflo",
+    "productName": "Syflo",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "assets/**",
+      "package.json"
+    ],
+    "extraResources": [
+      { "from": "../frontend/dist", "to": "frontend" },
+      { "from": "resources/backend", "to": "backend" },
+      { "from": "resources/backend/node_modules", "to": "backend/node_modules" },
+      { "from": "resources/node", "to": "node" }
+    ],
+    "mac": {
+      "target": ["dmg"],
+      "icon": "assets/icon.icns",
+      "category": "public.app-category.productivity",
+      "identity": null
+    }
+  }
+}

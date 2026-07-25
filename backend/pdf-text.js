@@ -8,17 +8,18 @@
  * Extraction is lazy and cached: the first message in a tree with a bound
  * paper triggers pdf.js text extraction, the result is stored in
  * papers.extracted_text, and every later message reads the cached column.
+ *
+ * The DB holds the FULL text — prompt budgets are applied at prompt-build
+ * time (messages.js / retrieval.js), never here. Papers that exceed the
+ * context window go through the retrieval mode instead of blunt truncation.
  */
 
 const fs = require('fs');
 const path = require('path');
 
-// Cap the text handed to the LLM. 40k chars ≈ 10k tokens — fits the
-// OLLAMA_CONTEXT_LENGTH=16384 the start script configures (paper + history +
-// answer), and is far under cloud-model limits. Truncated papers get an
-// explicit marker so the model knows the tail is missing instead of
-// inventing it.
-const MAX_PAPER_CHARS = 40_000;
+// Marker, den die alte 40k-Kappung ans Ende gekürzter Texte schrieb. Solche
+// Caches sind unvollständig und werden beim nächsten Zugriff neu extrahiert.
+const LEGACY_TRUNCATION_MARKER = '[… paper text truncated]';
 
 // pdf.js is ESM-only; require() can't load it from this CommonJS module, so
 // the import is dynamic and cached across calls. The `new Function` wrapper
@@ -32,9 +33,8 @@ function loadPdfjs() {
 }
 
 /**
- * Extract the plain text of a PDF file, page by page, capped at
- * MAX_PAPER_CHARS. Throws on unreadable/corrupt files — callers decide how
- * to degrade.
+ * Extract the full plain text of a PDF file, page by page. Throws on
+ * unreadable/corrupt files — callers decide how to degrade.
  */
 async function extractPdfText(pdfPath) {
   const { getDocument } = await loadPdfjs();
@@ -43,8 +43,7 @@ async function extractPdfText(pdfPath) {
   const doc = await task.promise;
   try {
     const pages = [];
-    let total = 0;
-    for (let p = 1; p <= doc.numPages && total < MAX_PAPER_CHARS; p += 1) {
+    for (let p = 1; p <= doc.numPages; p += 1) {
       const page = await doc.getPage(p);
       const content = await page.getTextContent();
       let text = '';
@@ -54,13 +53,8 @@ async function extractPdfText(pdfPath) {
       }
       const cleaned = text.replace(/[ \t]+\n/g, '\n').replace(/[ \t]{2,}/g, ' ').trim();
       pages.push(cleaned);
-      total += cleaned.length;
     }
-    let full = pages.join('\n\n');
-    if (full.length > MAX_PAPER_CHARS) {
-      full = `${full.slice(0, MAX_PAPER_CHARS)}\n[… paper text truncated]`;
-    }
-    return full;
+    return pages.join('\n\n');
   } finally {
     await task.destroy();
   }
@@ -69,8 +63,8 @@ async function extractPdfText(pdfPath) {
 /**
  * The paper bound to the chat's tree (ADR-0002: the ROOT chat carries
  * paper_id), with its text extracted-and-cached. Returns
- * `{ title, text }` or null when the tree has no paper or extraction fails
- * (a chat that works without paper context beats a 500).
+ * `{ paperId, title, text }` or null when the tree has no paper or extraction
+ * fails (a chat that works without paper context beats a 500).
  *
  * `extractFn` is injectable for tests.
  */
@@ -85,19 +79,35 @@ async function getTreePaperContext(db, chatId, extractFn = extractPdfText) {
     .get(chat.paper_id);
   if (!paper) return null;
 
-  if (typeof paper.extracted_text === 'string' && paper.extracted_text.length > 0) {
-    return { title: paper.title || path.basename(paper.pdf_path), text: paper.extracted_text };
+  const cached = typeof paper.extracted_text === 'string' ? paper.extracted_text : '';
+  // Von der alten 40k-Kappung abgeschnittene Caches einmalig neu extrahieren
+  // — der Retrieval-Modus braucht den Volltext in der DB.
+  const cacheUsable = cached.length > 0 && !cached.endsWith(LEGACY_TRUNCATION_MARKER);
+  if (cacheUsable) {
+    return {
+      paperId: paper.id,
+      title: paper.title || path.basename(paper.pdf_path),
+      text: cached,
+    };
   }
 
   try {
     const text = await extractFn(paper.pdf_path);
     if (!text || !text.trim()) return null;
     db.prepare('UPDATE papers SET extracted_text = ? WHERE id = ?').run(text, paper.id);
-    return { title: paper.title || path.basename(paper.pdf_path), text };
+    return { paperId: paper.id, title: paper.title || path.basename(paper.pdf_path), text };
   } catch (err) {
     console.error(`Paper text extraction failed for ${paper.pdf_path}:`, err.message);
+    // Ein gekappter alter Cache ist besser als gar kein Paper-Kontext.
+    if (cached.length > 0) {
+      return {
+        paperId: paper.id,
+        title: paper.title || path.basename(paper.pdf_path),
+        text: cached,
+      };
+    }
     return null;
   }
 }
 
-module.exports = { extractPdfText, getTreePaperContext, MAX_PAPER_CHARS };
+module.exports = { extractPdfText, getTreePaperContext, LEGACY_TRUNCATION_MARKER };

@@ -26,3 +26,18 @@ The UI shows exactly what the model inherits (mockup section 04 in
 `design/mockup-chat-highlights-ask-in-chat.html`): the chain line plus one collapsible
 summary card per grandparent+ above the parent-context pane. Display = prompt, so a bad
 answer caused by a bad summary is diagnosable at a glance.
+
+## Addendum 2026-07-25: sacrifice order flipped (summaries before source)
+
+The original sacrifice order (paper text first, then summaries) predates the KV-cache
+work and optimized purely for answer quality. Measurements on the hybrid-attention
+qwen3.5 (`scripts/experiments/kv-snapshot-spike/`) showed that any byte change to the
+source block invalidates the expensive tree-wide shared prefix — a branch then pays
+the full ~60 s source prefill again instead of a cache hit. Two coupled changes:
+
+1. `applyContextBudget` now drops ancestor summaries (oldest first) BEFORE touching
+   the source, which stays byte-identical whenever anything else can yield; the
+   parent transcript remains untouchable.
+2. The full-text-vs-retrieval decision (ADR-0006) no longer subtracts ancestor
+   context (`sourceRoom = MAX_SYSTEM_CONTEXT_CHARS`, messages.js) — a source keeps
+   the same representation across the whole tree instead of flipping modes per node.

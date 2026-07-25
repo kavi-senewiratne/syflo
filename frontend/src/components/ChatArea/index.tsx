@@ -6,17 +6,19 @@
  */
 
 import { useState, useRef, useEffect, useImperativeHandle, useMemo } from 'react';
-import { Mic, MicOff, Plus, ArrowUp, ChevronDown, ChevronUp, Highlighter, Image as ImageIcon, ImagePlus, FileText, BookOpen, MessageSquareQuote, Square, X } from 'lucide-react';
+import { Loader2, Mic, MicOff, Plus, ArrowUp, ChevronDown, ChevronUp, Highlighter, Image as ImageIcon, ImagePlus, FileText, BookOpen, MessageSquareQuote, Square, TvMinimalPlay, X } from 'lucide-react';
 import { MessageBubble } from './MessageBubble';
 import { InheritedContextBanner } from './InheritedContextBanner';
 import { AttachmentChip } from './AttachmentChip';
 import { Logo } from '../Logo';
 import { VoiceWaveform } from './VoiceWaveform';
 import { useVoiceInput } from '../../hooks/useVoiceInput';
+import { useStrings } from '../../strings';
 import { HIGHLIGHT_HEX } from '../../types';
-import type { ChatAncestor, ChatDetail, ChatSelection, ComposerQuote, HighlightColor, LocalAttachment, MessageHighlight, WordPopup } from '../../types';
+import type { ChatAncestor, ChatDetail, ChatSelection, ComposerQuote, HighlightColor, LocalAttachment, Message, MessageHighlight, WordPopup } from '../../types';
 import { rangeFromOffsets } from '../../chat/highlightAnchors';
 import { deriveQuestions, currentQuestionIndex } from '../../chat/questionNav';
+import { orderMessages } from '../../chat/messageOrder';
 import { QuestionNavButton, QuestionStepper } from './QuestionNav';
 
 interface Props {
@@ -32,6 +34,15 @@ interface Props {
   // "Research paper" im Plus-Menü: öffnet das Paper-Such-Modal (Slice 07).
   // Ohne Handler wird der Menüeintrag nicht angeboten.
   onOpenPaperSearch?: () => void;
+  // "YouTube Transcript" im Plus-Menü: öffnet das Video-Such-Modal
+  // (ADR-0005). Ohne Handler wird der Menüeintrag nicht angeboten.
+  onOpenYouTubeSearch?: () => void;
+  // Quellen-Banner für Bäume mit YouTube transcript — sitzt fest unter dem
+  // Header (wie das Kontext-Banner), kommt fertig komponiert vom Owner (App).
+  videoBanner?: React.ReactNode;
+  // Roh-Transkript-Drawer über dem Chat-Inhalt — gleicher Slot-Mechanismus
+  // wie highlightsDrawer.
+  transcriptDrawer?: React.ReactNode;
   // Chat-Text-Highlights dieses Chats — MessageBubble malt die zur jeweiligen
   // Nachricht gehörenden (mockup-chat-highlights-ask-in-chat.html).
   chatHighlights?: MessageHighlight[];
@@ -63,11 +74,23 @@ interface Props {
   modelPicker?: React.ReactNode;
   // Stop-Button: während des Streamens wird der Senden-Pfeil zum roten
   // Quadrat; der Handler bricht den Stream ab (bereits Gestreamtes bleibt).
+  // Tippt der Nutzer schon die nächste Frage, zeigt der Knopf wieder Senden —
+  // weitere Fragen sind erlaubt und landen in der Backend-Warteschlange.
   onStopStreaming?: () => void;
+  // IDs der Assistant-Platzhalter aller aktiven Streams (App-Registry). Pro
+  // Nachricht statt "letzte Nachricht": bei mehreren Streams im selben Chat
+  // ist der streamende Platzhalter nicht zwingend die letzte Nachricht.
+  streamingMessageIds?: Set<string>;
+  // Retry-Button der '*Failed*'-Fehlerzeile (MessageBubble reicht die
+  // Nachricht hoch; App entscheidet zwischen Neu-Senden und Regenerate).
+  onRetryMessage?: (message: Message) => void;
   // Vorfahren-Pfad des aktiven Chats fürs Kontext-Banner unter dem Header
   // (design/mockup-context-banner-variants.html §01, Variante 3a) — der
   // geerbte Kontext wird im Chat angezeigt, der ihn empfängt.
   ancestors?: ChatAncestor[];
+  // Nur für Tests: ersetzt den AudioWorklet-Recorder des Diktats durch einen
+  // Fake (durchgereicht an useVoiceInput, gleiches Muster wie dort).
+  voiceRecorderFactory?: Parameters<typeof useVoiceInput>[0]['recorderFactory'];
   ref?: React.Ref<ChatAreaHandle>;
 }
 
@@ -85,6 +108,12 @@ export interface ChatAreaHandle {
 // Dauer des Aufblinkens nach einem Drawer-Sprung.
 const FLASH_MS = 1500;
 
+// Ab dieser Haltedauer gilt die Leertaste im Eingabefeld als Push-to-Talk
+// statt als getipptes Leerzeichen. Kürzer als der macOS-Standard-Key-Repeat
+// wäre riskant (versehentliche Aufnahmen beim normalen Tippen), deutlich
+// länger fühlte sich das Diktat träge an.
+const SPACE_HOLD_MS = 300;
+
 // Wählt eine Alias-Basis je nach MIME-Typ — z. B. "@foto" für Bilder.
 function aliasBaseFor(mimetype: string): string {
   if (mimetype.startsWith('image/')) return '@foto';
@@ -96,7 +125,9 @@ function aliasBaseFor(mimetype: string): string {
 // auto-scroll once the user manually scrolls back down.
 const AT_BOTTOM_THRESHOLD = 8;
 
-export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightClick, onSelectChat, onUploadPdf, onOpenPaperSearch, chatHighlights, onChatSelection, onHighlightContextMenu, pendingSelection, onBranchedFromClick, composerQuote, onClearComposerQuote, onToggleHighlights, highlightsOpen, highlightsDrawer, modelPicker, onStopStreaming, ancestors, ref }: Props) {
+export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightClick, onSelectChat, onUploadPdf, onOpenPaperSearch, onOpenYouTubeSearch, videoBanner, transcriptDrawer, chatHighlights, onChatSelection, onHighlightContextMenu, pendingSelection, onBranchedFromClick, composerQuote, onClearComposerQuote, onToggleHighlights, highlightsOpen, highlightsDrawer, modelPicker, onStopStreaming, streamingMessageIds, onRetryMessage, ancestors, voiceRecorderFactory, ref }: Props) {
+  // UI-Texte in der App language — re-rendert beim Sprachwechsel mit.
+  const S = useStrings().chatArea;
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [attachments, setAttachments] = useState<LocalAttachment[]>([]);
@@ -120,6 +151,9 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // Enter fiel mit laufender Transkription zusammen → Senden vormerken,
+  // sobald das Transkript im Eingabefeld gelandet ist (Effekt unten).
+  const pendingSendRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pdfInputRef = useRef<HTMLInputElement>(null);
   const chatColumnClass = 'shrink-0 px-6 sm:px-8';
@@ -157,15 +191,17 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
 
   // onTranscript wird erst beim Stoppen aufgerufen, mit dem gesammelten Text —
   // wir hängen ihn ans Eingabefeld an (oder schreiben ihn rein, wenn leer).
-  const { isListening, volume, supported, startListening, stopListening } = useVoiceInput({
+  const { isListening, isTranscribing, volume, supported, startListening, stopListening } = useVoiceInput({
     onTranscript: (text) => {
       const trimmed = text.trim();
       if (!trimmed) return;
       setInput(prev => (prev ? prev + ' ' + trimmed : trimmed));
     },
+    recorderFactory: voiceRecorderFactory,
   });
 
   const handleToggleListening = () => {
+    if (isTranscribing) return; // Whisper arbeitet noch am letzten Diktat
     if (isListening) stopListening();
     else startListening();
   };
@@ -248,6 +284,7 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
   // im streamenden Chat übernimmt das `streaming`-Prop.
   useEffect(() => {
     setSending(false);
+    pendingSendRef.current = false;
   }, [chat?.id]);
 
   const scrollToBottom = () => {
@@ -294,6 +331,13 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
     // Während der Aufnahme nicht senden — User muss erst stoppen, damit das
     // Transkript fertig ans Eingabefeld angehängt wird.
     if (isListening) return;
+    // Whisper arbeitet noch: Enter direkt nach dem Loslassen der Leertaste
+    // soll nicht ins Leere laufen — Senden vormerken, der Effekt unten
+    // schickt die Nachricht ab, sobald das Transkript im Eingabefeld steht.
+    if (isTranscribing) {
+      pendingSendRef.current = true;
+      return;
+    }
     const text = input.trim();
     if ((!text && attachments.length === 0) || sending || !chat) return;
     // Zitat als Markdown-Blockquote über die Frage stellen — so landet es im
@@ -308,12 +352,39 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
     if (composerQuote) onClearComposerQuote?.();
     setSending(true);
     try {
+      // Resolves beim Stream-START (nicht -Ende): der Composer ist sofort
+      // wieder frei, weitere Fragen reihen sich in die Backend-Warteschlange.
+      // Die Objekt-URLs der Vorschau-Bilder gibt App am Stream-Ende frei.
       await onSendMessage(content, sentAttachments);
     } finally {
       setSending(false);
-      sentAttachments.forEach(a => a.previewUrl && URL.revokeObjectURL(a.previewUrl));
     }
   };
+
+  // Vorgemerktes Senden (Enter während Whisper noch transkribierte) —
+  // feuert, sobald isTranscribing auf false kippt; `input` enthält dann
+  // bereits das angehängte Transkript, weil onTranscript und
+  // setIsTranscribing(false) im selben React-Batch landen.
+  useEffect(() => {
+    if (!isTranscribing && pendingSendRef.current) {
+      pendingSendRef.current = false;
+      void handleSend();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isTranscribing]);
+
+  // Leertaste-Halten IM Eingabefeld: kurzer Tipp = normales Leerzeichen,
+  // Halten über SPACE_HOLD_MS = Diktat (das eine schon getippte Leerzeichen
+  // wird wieder entfernt). Key-Repeats werden geschluckt, damit Halten keine
+  // Leerzeichen-Salve tippt.
+  const spaceHoldTimerRef = useRef<number | null>(null);
+  const clearSpaceHold = () => {
+    if (spaceHoldTimerRef.current !== null) {
+      window.clearTimeout(spaceHoldTimerRef.current);
+      spaceHoldTimerRef.current = null;
+    }
+  };
+  useEffect(() => clearSpaceHold, [chat?.id]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     // Wenn das Mention-Dropdown gerade Vorschläge zeigt, übernimmt die Tastatur
@@ -345,8 +416,65 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSend();
+      return;
+    }
+    // Leertaste im Eingabefeld: erst ganz normal tippen lassen (kein
+    // preventDefault), aber einen Halte-Timer scharfstellen — läuft er ab,
+    // war es Push-to-Talk und das eine getippte Leerzeichen fliegt raus.
+    if (e.key === ' ' && supported && !isListening && !isTranscribing) {
+      if (e.repeat) {
+        // Key-Repeat = die Taste wird gehalten; keine weiteren Leerzeichen.
+        e.preventDefault();
+        return;
+      }
+      // keydown feuert VOR dem Einfügen — selectionStart ist die Stelle,
+      // an der das Leerzeichen gleich landet.
+      const pos = (e.target as HTMLTextAreaElement).selectionStart ?? input.length;
+      clearSpaceHold();
+      spaceHoldTimerRef.current = window.setTimeout(() => {
+        spaceHoldTimerRef.current = null;
+        setInput(prev =>
+          prev[pos] === ' ' ? prev.slice(0, pos) + prev.slice(pos + 1) : prev
+        );
+        startListening();
+      }, SPACE_HOLD_MS);
     }
   };
+
+  const handleKeyUp = (e: React.KeyboardEvent) => {
+    // Leertaste vor Ablauf des Halte-Timers losgelassen → normales
+    // Leerzeichen, Diktat abblasen. Das Stoppen einer laufenden Aufnahme
+    // übernimmt der globale keyup-Handler in useVoiceInput.
+    if (e.key === ' ') clearSpaceHold();
+  };
+
+  // Enter sendet auch OHNE fokussiertes Eingabefeld (z. B. direkt nach dem
+  // Leertaste-Diktat, wenn der Fokus irgendwo im Chat liegt). Interaktive
+  // Elemente behalten ihr natives Enter-Verhalten (Button klicken, Link
+  // öffnen) — sonst würde ein fokussierter Knopf gleichzeitig senden.
+  const globalEnterSendRef = useRef(() => {});
+  globalEnterSendRef.current = () => {
+    if (mentionQuery !== null) return;
+    void handleSend();
+  };
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Enter' || e.shiftKey || e.metaKey || e.ctrlKey || e.altKey || e.repeat) return;
+      const a = document.activeElement;
+      if (a instanceof HTMLElement) {
+        const tag = a.tagName;
+        if (
+          tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' ||
+          tag === 'BUTTON' || tag === 'A' || a.isContentEditable ||
+          a.getAttribute('role') === 'button' || a.getAttribute('role') === 'link'
+        ) return;
+      }
+      e.preventDefault();
+      globalEnterSendRef.current();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   // Plus-Button → kleines Popover-Menü öffnen (statt direkt File-Picker).
   const handleTogglePickerMenu = () => {
@@ -535,7 +663,10 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
     });
   };
 
-  const isBusy = sending || streaming || loading;
+  // Seit der Backend-Warteschlange blockiert ein laufender Stream den
+  // Composer NICHT mehr: weitere Fragen sind erwünscht und reihen sich ein
+  // (FIFO). Nur der kurze Sende-Moment selbst und das Chat-Laden sperren.
+  const isBusy = sending || loading;
 
   // Sprung aus dem Highlights-Drawer: Nachricht mittig in den Viewport
   // scrollen und die Zeile kurz aufblinken lassen (Grill-Entscheidung 8).
@@ -705,8 +836,8 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
           <div className="flex justify-center mb-6" data-testid="empty-state-logo">
             <Logo scale={1.6} />
           </div>
-          <h2 className="syflo-empty-title text-[32px] font-serif text-gray-800 mb-3 tracking-tight">How can I help you today?</h2>
-          <p className="text-gray-500 text-[15px] leading-relaxed">Select a chat from the sidebar or start a new one.</p>
+          <h2 className="syflo-empty-title text-[32px] font-serif text-gray-800 mb-3 tracking-tight">{S.emptyTitle}</h2>
+          <p className="text-gray-500 text-[15px] leading-relaxed">{S.emptySubtitle}</p>
         </div>
       </div>
     );
@@ -751,7 +882,7 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
               <button
                 type="button"
                 aria-pressed={highlightsOpen ?? false}
-                title="Show all highlights of this tree"
+                title={S.toggleHighlightsTitle}
                 onClick={onToggleHighlights}
                 className={`flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-[12.5px] font-medium transition-colors ${
                   highlightsOpen
@@ -760,7 +891,7 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
                 }`}
               >
                 <Highlighter size={14} />
-                <span className="@max-[30rem]:hidden">Highlights</span>
+                <span className="@max-[30rem]:hidden">{S.highlightsButton}</span>
               </button>
             )}
           </div>
@@ -770,6 +901,11 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
       {/* Geerbter Kontext als Banner + Inline-Akkordeon (Variante 3a):
           sitzt fest unter dem Header, die Nachrichten scrollen darunter. */}
       {ancestors && ancestors.length > 0 && <InheritedContextBanner ancestors={ancestors} />}
+
+      {/* Quellen-Banner für Bäume mit YouTube transcript (ADR-0005): sitzt
+          wie das Kontext-Banner fest unter dem Header und bleibt auch bei
+          offenem Drawer sichtbar. */}
+      {videoBanner}
 
       {/* Alles unterhalb des Headers in einem relativen Container, damit der
           Highlights-Drawer sich exakt darüberlegen kann — der Header (und
@@ -796,7 +932,7 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
                   className={`min-w-0 flex-1 break-words leading-relaxed ${branchQuoteExpanded ? '' : 'line-clamp-2'}`}
                   data-testid="branched-from-quote"
                 >
-                  <span className="text-gray-400">Branched from </span>
+                  <span className="text-gray-400">{S.branchedFrom}</span>
                   {/* Kein <button>: Buttons sind atomare Inline-Blöcke, die
                       weder über Zeilen umbrechen noch sich clampen lassen —
                       das Zitat wäre wieder einzeilig abgeschnitten. Ein
@@ -822,7 +958,7 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
                 {(branchQuoteOverflows || branchQuoteExpanded) && (
                   <button
                     onClick={() => setBranchQuoteExpanded(v => !v)}
-                    title={branchQuoteExpanded ? 'Show less' : 'Show full text'}
+                    title={branchQuoteExpanded ? S.showLess : S.showFullText}
                     aria-expanded={branchQuoteExpanded}
                     data-testid="branched-from-toggle"
                     className="mt-0.5 shrink-0 rounded p-0.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
@@ -835,13 +971,13 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
 
             {chat.messages.length === 0 && (
               <div className="w-full pt-16 text-center text-sm text-gray-400">
-                <p className="text-base font-medium text-gray-500 mb-1">Start the conversation</p>
-                <p className="text-xs">Right-click any word in a response to get a definition or branch a new chat.</p>
+                <p className="text-base font-medium text-gray-500 mb-1">{S.emptyChatTitle}</p>
+                <p className="text-xs">{S.emptyChatHint}</p>
               </div>
             )}
 
-            {chat.messages.map((msg, i) => {
-              const isLastAssistant = msg.role === 'assistant' && i === chat.messages.length - 1;
+            {orderMessages(chat.messages).map((msg, i, ordered) => {
+              const isLastAssistant = msg.role === 'assistant' && i === ordered.length - 1;
               const branchWords = chat.children
                 .filter(c => c.parent_word)
                 .map(c => ({ word: c.parent_word!, chatId: c.id }));
@@ -865,8 +1001,13 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
                 >
                   <MessageBubble
                     message={msg}
-                    isStreaming={isLastAssistant && (sending || streaming)}
+                    isStreaming={
+                      streamingMessageIds
+                        ? streamingMessageIds.has(msg.id)
+                        : isLastAssistant && (sending || streaming)
+                    }
                     showThinkingTips={isLastAssistant}
+                    onRetryMessage={onRetryMessage}
                     onWordRightClick={(word, context, x, y) =>
                       onWordRightClick({ word, context, x, y })
                     }
@@ -894,7 +1035,7 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
       {!isPinnedToBottom && (
         <button
           onClick={scrollToBottom}
-          title="Scroll to latest"
+          title={S.scrollToLatest}
           className="absolute left-1/2 -translate-x-1/2 bottom-32 z-10 w-9 h-9 flex items-center justify-center rounded-full bg-white border border-gray-200 text-gray-600 shadow-md hover:text-gray-900 hover:bg-gray-50 transition-colors"
         >
           <ChevronDown size={18} strokeWidth={2} />
@@ -930,7 +1071,7 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
             data-testid="chat-drop-overlay"
           >
             <ImagePlus size={18} strokeWidth={1.9} />
-            <span className="text-sm font-medium">Drop files to attach</span>
+            <span className="text-sm font-medium">{S.dropFiles}</span>
           </div>
         )}
         <div className="flex justify-center">
@@ -956,7 +1097,7 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
             {mentionQuery !== null && filteredMentions.length > 0 && (
               <div className="absolute bottom-[112px] left-1/2 -translate-x-1/2 z-20 bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden w-[28rem] max-w-[calc(100%-3rem)]">
                 <div className="px-3 py-2 text-[11px] uppercase tracking-wider text-gray-400 font-medium border-b border-gray-100">
-                  Anhänge
+                  {S.attachmentsHeading}
                 </div>
                 {filteredMentions.map((att, i) => (
                   <button
@@ -1000,13 +1141,13 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
                   </p>
                   <p className="mt-0.5 flex items-center gap-1 text-[11px] font-medium text-gray-400">
                     <MessageSquareQuote size={11} className="shrink-0" />
-                    <span className="truncate">from "{composerQuote.sourceLabel}"</span>
+                    <span className="truncate">{S.quoteFrom(composerQuote.sourceLabel)}</span>
                   </p>
                 </div>
                 <button
                   onClick={onClearComposerQuote}
-                  title="Remove quote"
-                  aria-label="Remove quote"
+                  title={S.removeQuote}
+                  aria-label={S.removeQuote}
                   data-testid="composer-quote-remove"
                   className="shrink-0 p-1 rounded-md text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
                 >
@@ -1058,7 +1199,7 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
                       ? 'text-gray-900 bg-gray-100'
                       : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
                   }`}
-                  title="Attach"
+                  title={S.attach}
                   data-testid="attach-plus-button"
                 >
                   <Plus size={20} strokeWidth={1.75} />
@@ -1077,7 +1218,7 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
                       data-testid="attach-menu-files"
                     >
                       <ImageIcon size={16} className="text-gray-500 shrink-0" />
-                      <span>Media</span>
+                      <span>{S.menuMedia}</span>
                     </button>
                     {onUploadPdf && (
                       <button
@@ -1087,7 +1228,7 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
                         data-testid="attach-menu-upload-pdf"
                       >
                         <FileText size={16} className="text-gray-500 shrink-0" />
-                        <span>PDF</span>
+                        <span>{S.menuPdf}</span>
                       </button>
                     )}
                     {onOpenPaperSearch && (
@@ -1098,7 +1239,18 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
                         data-testid="attach-menu-research-paper"
                       >
                         <BookOpen size={16} className="text-gray-500 shrink-0" />
-                        <span>Research paper</span>
+                        <span>{S.menuResearchPaper}</span>
+                      </button>
+                    )}
+                    {onOpenYouTubeSearch && (
+                      <button
+                        role="menuitem"
+                        onClick={() => { setPickerMenuOpen(false); onOpenYouTubeSearch(); }}
+                        className="w-full flex items-center gap-3 px-3 py-2 hover:bg-gray-50 transition-colors text-left text-sm text-gray-800"
+                        data-testid="attach-menu-youtube-transcript"
+                      >
+                        <TvMinimalPlay size={16} className="text-gray-500 shrink-0" />
+                        <span>{S.menuYouTubeTranscript}</span>
                       </button>
                     )}
                   </div>
@@ -1117,10 +1269,11 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
                   value={input}
                   onChange={handleInputChange}
                   onKeyDown={handleKeyDown}
-                  placeholder={isListening ? '' : composerQuote ? 'Ask about this…' : 'Ask anything'}
+                  onKeyUp={handleKeyUp}
+                  placeholder={isListening || isTranscribing ? '' : composerQuote ? S.placeholderAskQuote : S.placeholderAsk}
                   rows={1}
                   disabled={isBusy}
-                  readOnly={isListening}
+                  readOnly={isListening || isTranscribing}
                   className="min-h-[44px] w-full min-w-0 bg-transparent px-2 py-[10px] text-[16px] text-gray-900 outline-none resize-none leading-[1.5] disabled:opacity-50 placeholder:text-transparent placeholder:whitespace-nowrap placeholder:overflow-hidden"
                   data-testid="chat-textarea"
                 />
@@ -1130,7 +1283,7 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
                     className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 max-w-[calc(100%-1rem)] truncate text-[16px] leading-[1.5] text-gray-400"
                     data-testid="chat-textarea-placeholder"
                   >
-                    {composerQuote ? 'Ask about this…' : 'Ask anything'}
+                    {isTranscribing ? S.transcribing : composerQuote ? S.placeholderAskQuote : S.placeholderAsk}
                   </span>
                 )}
               </div>
@@ -1141,8 +1294,9 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
               {supported && (
                 <button
                   onClick={handleToggleListening}
-                  title={isListening ? 'Stop recording' : 'Start recording'}
+                  title={isTranscribing ? S.transcribing : isListening ? S.stopRecording : S.startRecording}
                   aria-pressed={isListening}
+                  disabled={isTranscribing}
                   className={`shrink-0 w-9 h-9 @max-[24rem]:hidden flex items-center justify-center rounded-full transition-colors ${
                     isListening
                       ? 'text-white bg-blue-500 hover:bg-blue-600'
@@ -1150,13 +1304,17 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
                   }`}
                   data-testid="mic-button"
                 >
-                  {isListening ? <MicOff size={20} strokeWidth={1.9} /> : <Mic size={20} strokeWidth={1.9} />}
+                  {isTranscribing
+                    ? <Loader2 size={20} strokeWidth={1.9} className="animate-spin" />
+                    : isListening
+                      ? <MicOff size={20} strokeWidth={1.9} />
+                      : <Mic size={20} strokeWidth={1.9} />}
                 </button>
               )}
 
               {modelPicker}
 
-              {(sending || streaming) && onStopStreaming ? (
+              {(sending || streaming) && onStopStreaming && !input.trim() && attachments.length === 0 ? (
                 // Bewusst dieselben Klassen wie der Senden-Knopf (bg-blue-600
                 // rounded-full): nur so greifen die Theme-Overrides in
                 // index.css (Question-Block, Sticker-Schatten, Phosphor-Glow)
@@ -1164,8 +1322,8 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
                 // Theme heraus (Nutzerkorrektur 2026-07-22).
                 <button
                   onClick={onStopStreaming}
-                  title="Stop response"
-                  aria-label="Stop response"
+                  title={S.stopResponse}
+                  aria-label={S.stopResponse}
                   data-testid="stop-button"
                   className="shrink-0 w-9 h-9 flex items-center justify-center rounded-full bg-blue-600 text-white transition-all hover:bg-blue-700"
                 >
@@ -1174,8 +1332,8 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
               ) : (
                 <button
                   onClick={handleSend}
-                  disabled={isBusy || isListening || (!input.trim() && attachments.length === 0)}
-                  title="Send"
+                  disabled={isBusy || isListening || isTranscribing || (!input.trim() && attachments.length === 0)}
+                  title={S.send}
                   className="shrink-0 w-9 h-9 flex items-center justify-center rounded-full bg-blue-600 text-white transition-all hover:bg-blue-700 disabled:opacity-30 disabled:cursor-not-allowed"
                 >
                   <ArrowUp size={20} strokeWidth={2.25} />
@@ -1189,6 +1347,9 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
       {/* Highlights-Drawer über Nachrichtenliste + Composer (Slot vom Owner).
           Innerhalb des relativen Containers, damit der Header sichtbar bleibt. */}
       {highlightsDrawer}
+
+      {/* Roh-Transkript-Drawer (ADR-0005) — gleicher Slot-Mechanismus. */}
+      {transcriptDrawer}
 
       </div>
     </div>

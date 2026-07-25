@@ -90,6 +90,18 @@ describe('ChatTree – rendering', () => {
     expect(tags.length).toBe(1);
     expect(screen.getByText('Alpha').closest('div')).toContainElement(tags[0]);
   });
+
+  it('zeigt den YT-Tag nur an Knoten mit video_id (ADR-0005)', () => {
+    const withVideo: Chat[] = [
+      { ...flatChats[0], video_id: 'v1' },
+      flatChats[1],
+    ];
+    render(<ChatTree chats={withVideo} {...baseProps} />);
+    const tags = screen.getAllByTestId('tree-yt-tag');
+    expect(tags.length).toBe(1);
+    expect(tags[0]).toHaveTextContent('YT');
+    expect(screen.getByText('Alpha').closest('div')).toContainElement(tags[0]);
+  });
 });
 
 describe('ChatTree – interactions', () => {

@@ -25,10 +25,14 @@ export interface ThemeInfo {
   // Three representative colors shown as swatch dots in the picker:
   // [app background, accent, neutral/text]
   swatches: [string, string, string];
+  // Im Theme-Picker ausgeblendet, aber voll funktionsfähig (Nutzerwunsch
+  // 2026-07-23: "Basic" verstecken, nicht entfernen — vielleicht später
+  // wieder anbieten). Ein gespeichertes hidden-Theme bleibt gültig.
+  hidden?: boolean;
 }
 
 export const THEMES: ThemeInfo[] = [
-  { id: 'professional', label: 'Basic', swatches: ['#FFFFFF', '#2563EB', '#6B7280'] },
+  { id: 'professional', label: 'Basic', swatches: ['#FFFFFF', '#2563EB', '#6B7280'], hidden: true },
   { id: 'mushroom-kingdom', label: 'Mushroom Kingdom', swatches: ['#6FA3F8', '#D8433B', '#EFB43A'] },
   { id: 'hyrule', label: 'Hyrule', swatches: ['#EFEBDA', '#2AA198', '#B8963A'] },
   { id: 'ink-blue', label: 'Ink Blue', swatches: ['#F3F8FD', '#3B82F6', '#5C7194'] },
@@ -56,4 +60,9 @@ export function applyTheme(id: ThemeId): void {
   } catch {
     // localStorage full/blocked — the theme still applies for this session.
   }
+  // Läuft die App in der Electron-Hülle, ziehen Dock-Icon und Schreibtisch-
+  // Launcher mit (electron/preload.js exponiert window.syfloDesktop; im
+  // normalen Browser ist das undefined und der Aufruf entfällt).
+  (window as unknown as { syfloDesktop?: { setTheme: (id: string) => void } })
+    .syfloDesktop?.setTheme(id);
 }

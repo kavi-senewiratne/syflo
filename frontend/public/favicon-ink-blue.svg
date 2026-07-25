@@ -1,10 +1,22 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
-  <!-- Ink Blue favicon — sticker-style blue tile, ink outline, white branch
-       mark with the green accent node.
-       Design source: design/mockup-logo-icons.html (Ink Blue, Favicon-Test) -->
-  <rect x="1.5" y="1.5" width="45" height="45" rx="10" fill="#3B82F6" stroke="#1C2B4A" stroke-width="3"/>
-  <path d="M9 24 H 22 C 28 24, 29 15, 36 13" stroke="#FFFFFF" stroke-width="5" stroke-linecap="round" fill="none"/>
-  <path d="M22 24 C 28 24, 29 33, 36 35" stroke="#FFFFFF" stroke-width="5" stroke-linecap="round" fill="none"/>
-  <circle cx="37" cy="12.5" r="6" fill="#34D399"/>
-  <circle cx="37" cy="35.5" r="6" fill="#FFFFFF"/>
+  <!-- Ink Blue favicon — Verlaufs-Kachel (Sticker), Marke wie im Sidebar-Logo:
+       Navy-Strom, blauer Startknoten, grüner Akzent, blauer unterer Knoten.
+       Design source: design/mockup-logo-icons-round6.html (Ink Blue, V1) -->
+  <defs>
+    <linearGradient id="ink-tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#5B9BFF"/>
+      <stop offset="48%" stop-color="#3B82F6"/>
+      <stop offset="100%" stop-color="#2E6BE0"/>
+    </linearGradient>
+  </defs>
+  <rect x="1.5" y="1.5" width="45" height="45" rx="10" fill="url(#ink-tile)" stroke="#1C2B4A" stroke-width="3"/>
+  <!-- Lichtkante oben -->
+  <rect x="5" y="3.8" width="38" height="2.4" rx="1.2" fill="#FFFFFF" opacity="0.35"/>
+  <g transform="translate(6.7, 6.7) scale(0.72)">
+    <path d="M11 24 H 22 C 28 24, 29 15, 36 13" stroke="#1C2B4A" stroke-width="5" stroke-linecap="round" fill="none"/>
+    <path d="M22 24 C 28 24, 29 33, 36 35" stroke="#1C2B4A" stroke-width="5" stroke-linecap="round" fill="none"/>
+    <circle cx="7" cy="24" r="5.5" fill="#3B82F6" stroke="#1C2B4A" stroke-width="3"/>
+    <circle cx="39" cy="12.5" r="6" fill="#34D399" stroke="#1C2B4A" stroke-width="3"/>
+    <circle cx="39" cy="35.5" r="6" fill="#3B82F6" stroke="#1C2B4A" stroke-width="3"/>
+  </g>
 </svg>

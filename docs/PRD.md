@@ -93,7 +93,10 @@ feeds the conversation, paper search attaches a PDF.
 
 ### 7. Desktop packaging (existing)
 
-The app ships as a Tauri desktop shell (`src-tauri/`).
+The app ships as an Electron desktop shell (`electron/`). Dev mode loads the
+Vite dev server (`cd electron && npm run dev`, with `./start.command` running);
+the packaged app spawns the bundled Node backend, which also serves the built
+frontend same-origin on :3001 (`cd electron && npm run build`).
 
 ## Non-goals
 

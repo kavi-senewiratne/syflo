@@ -28,6 +28,7 @@ import { X, GitBranch, Loader2, Copy, Check, MessageSquare, Pencil, RotateCcw } 
 import type { HighlightColor, WordPopup } from '../../types';
 import { HIGHLIGHT_COLORS } from '../../types';
 import { useLabels } from '../../hooks/useLabels';
+import { useStrings } from '../../strings';
 
 interface Props {
   popup: WordPopup | null;
@@ -70,6 +71,8 @@ export function FloatingPopup({
   activeColor = 'yellow',
   onAskInChat,
 }: Props) {
+  // UI-Texte in der App language — re-rendert beim Sprachwechsel mit.
+  const S = useStrings().floatingPopup;
   const [pos, setPos] = useState({ x: 0, y: 0 });
   const cardRef = useRef<HTMLDivElement>(null);
   // Solange der Nutzer nicht selbst gezogen hat, darf jede Neumessung die
@@ -237,16 +240,16 @@ export function FloatingPopup({
       >
         <div className="min-w-0 flex-1">
           <p className="text-[10px] font-medium uppercase tracking-wider text-gray-400 mb-0.5">
-            Definition
+            {S.definition}
             {isPhrase && (
-              <span className="ml-1 normal-case text-gray-300">· {wordCount} words</span>
+              <span className="ml-1 normal-case text-gray-300">{S.wordCount(wordCount)}</span>
             )}
           </p>
           {isPhrase ? (
             <button
               type="button"
               onClick={() => setExpanded((v) => !v)}
-              title={expanded ? 'Collapse' : popup.word}
+              title={expanded ? S.collapse : popup.word}
               aria-expanded={expanded}
               className={`font-semibold text-sm text-gray-900 text-left w-full hover:text-blue-600 transition-colors ${
                 collapsed ? 'truncate' : 'break-words'
@@ -261,15 +264,15 @@ export function FloatingPopup({
         <div className="shrink-0 flex items-center gap-0.5 -mr-1 -mt-0.5">
           <button
             onClick={handleCopy}
-            aria-label={copied ? 'Copied' : 'Copy text'}
-            title={copied ? 'Copied!' : 'Copy text'}
+            aria-label={copied ? S.copiedAria : S.copyText}
+            title={copied ? S.copiedTitle : S.copyText}
             className="p-1 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
           >
             {copied ? <Check size={15} className="text-green-600" /> : <Copy size={15} />}
           </button>
           <button
             onClick={onClose}
-            aria-label="Close"
+            aria-label={S.close}
             className="p-1 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
           >
             <X size={15} />
@@ -283,7 +286,7 @@ export function FloatingPopup({
         {loading ? (
           <div className="flex items-center gap-2 text-gray-400 text-sm">
             <Loader2 size={14} className="animate-spin" />
-            <span>Loading definition…</span>
+            <span>{S.loadingDefinition}</span>
           </div>
         ) : (
           <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">{explanation}</p>
@@ -296,7 +299,7 @@ export function FloatingPopup({
         <div className="shrink-0 border-t border-gray-100 px-5 pt-3 pb-2" data-testid="popup-color-section">
           <div className="flex items-center justify-between mb-2">
             <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">
-              {editingLabels ? 'Rename colors' : 'Highlight color'}
+              {editingLabels ? S.renameColors : S.highlightColor}
             </p>
             {editingLabels ? (
               <button
@@ -304,14 +307,14 @@ export function FloatingPopup({
                 onClick={() => setEditingLabels(false)}
                 className="text-xs text-gray-500 hover:text-gray-700 hover:underline"
               >
-                Cancel
+                {S.cancel}
               </button>
             ) : (
               <button
                 type="button"
                 onClick={() => setEditingLabels(true)}
-                aria-label="Rename labels"
-                title="Rename labels"
+                aria-label={S.renameLabels}
+                title={S.renameLabels}
                 className="p-1 rounded-md text-gray-400 hover:text-blue-600 hover:bg-gray-100 transition-colors"
               >
                 <Pencil size={13} />
@@ -336,15 +339,15 @@ export function FloatingPopup({
                     }
                     maxLength={24}
                     placeholder={labels[color]}
-                    aria-label={`Label for ${color}`}
+                    aria-label={S.labelFor(color)}
                     className="flex-1 px-2.5 py-1.5 text-sm text-gray-900 border border-gray-200 rounded-md focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15"
                   />
                   <button
                     type="button"
                     onClick={() => setLabelDraft({ ...labelDraft, [color]: '' })}
                     disabled={labelDraft[color] === ''}
-                    aria-label="Reset to default"
-                    title="Reset to default"
+                    aria-label={S.resetToDefault}
+                    title={S.resetToDefault}
                     className="p-1 rounded-md text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
                   >
                     <RotateCcw size={12} />
@@ -363,7 +366,7 @@ export function FloatingPopup({
                     type="button"
                     onClick={() => onPickColor?.(color)}
                     className="flex flex-col items-center gap-1 px-1 py-1 rounded-md hover:bg-gray-50 transition-colors flex-1 min-w-0"
-                    aria-label={`Highlight as ${labels[color]}`}
+                    aria-label={S.highlightAs(labels[color])}
                     title={labels[color]}
                   >
                     <span
@@ -399,7 +402,7 @@ export function FloatingPopup({
             className="flex items-center justify-center gap-2 w-full px-3 py-2 rounded-lg text-sm font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 transition-colors"
           >
             <Check size={14} />
-            Save labels
+            {S.saveLabels}
           </button>
         ) : (
           <>
@@ -410,7 +413,7 @@ export function FloatingPopup({
                 data-testid="popup-ask-in-chat"
               >
                 <MessageSquare size={14} />
-                Ask in chat
+                {S.askInChat}
               </button>
             )}
             <button
@@ -421,7 +424,7 @@ export function FloatingPopup({
               className="flex items-center justify-center gap-2 w-full px-3 py-2 rounded-lg text-sm font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 transition-colors"
             >
               <GitBranch size={14} />
-              Open as new chat
+              {S.openAsNewChat}
             </button>
           </>
         )}

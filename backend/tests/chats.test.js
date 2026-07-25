@@ -107,4 +107,23 @@ describe('GET /api/chats/tree', () => {
     expect(res.status).toBe(200);
     expect(res.body.length).toBeGreaterThan(0);
   });
+
+  // Sidebar-Wunsch 2026-07-24: neueste Root-Chats oben. Die Branch-Reihenfolge
+  // innerhalb eines Baums bleibt aufsteigend — sie speist die Baumlinien.
+  it('returns roots newest-first while branches stay in creation order', async () => {
+    const ins = db.prepare(
+      'INSERT INTO chats (id, title, parent_id, parent_word, created_at) VALUES (?, ?, ?, ?, ?)'
+    );
+    ins.run('r-old', 'Oldest root', null, null, '2026-07-20 10:00:00');
+    ins.run('r-new', 'Newest root', null, null, '2026-07-24 10:00:00');
+    ins.run('r-mid', 'Middle root', null, null, '2026-07-22 10:00:00');
+    ins.run('b-1', 'First branch', 'r-old', 'alpha', '2026-07-21 09:00:00');
+    ins.run('b-2', 'Second branch', 'r-old', 'beta', '2026-07-23 09:00:00');
+
+    const res = await request(app).get('/api/chats/tree');
+
+    expect(res.body.map(c => c.id)).toEqual(['r-new', 'r-mid', 'r-old']);
+    const oldRoot = res.body.find(c => c.id === 'r-old');
+    expect(oldRoot.children.map(c => c.id)).toEqual(['b-1', 'b-2']);
+  });
 });

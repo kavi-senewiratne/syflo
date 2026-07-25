@@ -23,6 +23,7 @@
 import { useLayoutEffect, useRef } from 'react';
 import { ExternalLink, MessageSquare } from 'lucide-react';
 import { MessageBubble } from './ChatArea/MessageBubble';
+import { useStrings } from '../strings';
 import type { ChatDetail, ChatSelection, MessageHighlight, WordPopup } from '../types';
 
 interface Props {
@@ -57,6 +58,8 @@ export function ParentContextPane({
   scrollToMessageId,
   onScrollTargetConsumed,
 }: Props) {
+  // UI-Texte in der App language — re-rendert beim Sprachwechsel mit.
+  const S = useStrings().parentContext;
   const paneRef = useRef<HTMLDivElement>(null);
 
   useLayoutEffect(() => {
@@ -87,13 +90,13 @@ export function ParentContextPane({
             {chat.title}
           </span>
           <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wider text-gray-400 bg-gray-50 border border-gray-200 rounded px-1.5 py-px">
-            parent chat
+            {S.badge}
           </span>
         </div>
         <button
           onClick={() => onOpenChat(chat.id)}
-          title="Open this chat"
-          aria-label="Open this chat"
+          title={S.openChat}
+          aria-label={S.openChat}
           data-testid="parent-context-open"
           className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-50 transition-colors"
         >

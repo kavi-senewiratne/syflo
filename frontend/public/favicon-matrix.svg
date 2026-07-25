@@ -1,10 +1,41 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
-  <!-- Matrix favicon — phosphor tile: black with the branch mark in terminal
-       green, brighter green accent node. Same tile geometry as every theme.
-       Design source: design/mockup-logo-icons.html (Matrix, Favicon-Test) -->
-  <rect x="0.5" y="0.5" width="47" height="47" rx="5" fill="#030503" stroke="#12301A"/>
-  <path d="M8 24 H 22 C 28 24, 29 15, 36 13" stroke="#2BE76B" stroke-width="5" stroke-linecap="round" fill="none"/>
-  <path d="M22 24 C 28 24, 29 33, 36 35" stroke="#2BE76B" stroke-width="5" stroke-linecap="round" fill="none"/>
-  <circle cx="37" cy="12.5" r="6" fill="#8CF5B0"/>
-  <circle cx="37" cy="35.5" r="6" fill="#2BE76B"/>
+  <!-- Matrix favicon — Phosphor-Kachel mit Glitch-Marke (drei Risse, zwei Echos)
+       und leuchtendem Cartoon-Offset-Schatten in Grün.
+       Design source: design/mockup-logo-icons-round6.html (Matrix, V2) -->
+  <defs>
+    <radialGradient id="mx-bg" cx="0.5" cy="0.4" r="0.9">
+      <stop offset="0%" stop-color="#071108"/>
+      <stop offset="100%" stop-color="#030503"/>
+    </radialGradient>
+    <filter id="mx-soft" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="1.6"/>
+    </filter>
+    <filter id="mx-glow" x="-40%" y="-40%" width="180%" height="180%">
+      <feDropShadow dx="0" dy="0" stdDeviation="1.1" flood-color="#2BE76B" flood-opacity="0.5"/>
+    </filter>
+    <g id="mx-mark">
+      <path d="M8 24 H 22 C 28 24, 29 15, 36 13" stroke-width="4.5" stroke-linecap="round" fill="none"/>
+      <path d="M22 24 C 28 24, 29 33, 36 35" stroke-width="4.5" stroke-linecap="round" fill="none"/>
+      <circle cx="7" cy="24" r="3.6"/>
+      <circle cx="39" cy="12.5" r="5.5"/>
+      <circle cx="39" cy="35.5" r="5.5"/>
+    </g>
+    <clipPath id="mx-top"><rect x="-6" y="-4" width="60" height="23"/></clipPath>
+    <clipPath id="mx-band"><rect x="-6" y="19" width="60" height="7.5"/></clipPath>
+    <clipPath id="mx-bottom"><rect x="-6" y="26.5" width="60" height="26"/></clipPath>
+  </defs>
+  <!-- leuchtender Offset-Schatten -->
+  <rect x="4.2" y="4.2" width="43" height="43" rx="9" fill="#2BE76B" opacity="0.55" filter="url(#mx-soft)"/>
+  <!-- Kachel -->
+  <rect x="0.75" y="0.75" width="43.5" height="43.5" rx="9" fill="url(#mx-bg)" stroke="#123A1E" stroke-width="1.5"/>
+  <!-- Glitch-Marke: dunkles Echo, helles Echo, drei Streifen (Mitte verrissen) -->
+  <g transform="translate(7.6, 7.6) scale(0.62)">
+    <use href="#mx-mark" stroke="#0F7A3C" fill="#0F7A3C" transform="translate(-2.6, 0)" opacity="0.75"/>
+    <use href="#mx-mark" stroke="#8CF5B0" fill="#8CF5B0" transform="translate(2.6, 0.6)" opacity="0.35"/>
+    <g filter="url(#mx-glow)">
+      <use href="#mx-mark" stroke="#2BE76B" fill="#2BE76B" clip-path="url(#mx-top)"/>
+      <use href="#mx-mark" stroke="#2BE76B" fill="#2BE76B" clip-path="url(#mx-band)" transform="translate(4.2, 0)"/>
+      <use href="#mx-mark" stroke="#2BE76B" fill="#2BE76B" clip-path="url(#mx-bottom)" transform="translate(-1.4, 0)"/>
+    </g>
+  </g>
 </svg>
