@@ -37,6 +37,9 @@ vi.mock('../api', () => ({
     getTreeVideo: vi.fn().mockResolvedValue(null),
     uploadPaper: vi.fn(),
     createChat: vi.fn(),
+    // Default: no title from the model — the branch falls back to the tidied
+    // passage, which is what the older tests below expect.
+    passageTitle: vi.fn().mockResolvedValue(null),
     deleteChat: vi.fn(),
     renameChat: vi.fn(),
     sendMessageStream: vi.fn(),
@@ -220,6 +223,32 @@ describe('App — Highlight-Flows (Slices 04–06)', () => {
         color: 'yellow',
         chatId: 'c2',
       })),
+    );
+  });
+
+  // Der Branch trägt SOFORT den fertigen Titel — im Baum darf nie die rohe
+  // Passage stehen (Nutzeranforderung 2026-08-02). Die Titel-Abfrage startet
+  // beim Öffnen des Popups, der Branch-Klick verwendet ihr Ergebnis.
+  it('erstellt den Branch mit dem vom Modell rekonstruierten Formel-Titel', async () => {
+    const branch: Chat = { ...rootChat, id: 'c2', title: '$x^{(k)}$', parent_id: 'c1' };
+    vi.mocked(api.createChat).mockResolvedValue(branch);
+    vi.mocked(api.passageTitle).mockResolvedValue('$x^{(k)}$');
+
+    await openPdfChatAndRightClick();
+    // Die Abfrage läuft, sobald das Popup offen ist — nicht erst beim Klick.
+    await waitFor(() => expect(api.passageTitle).toHaveBeenCalledWith('inverse dynamics model'));
+
+    fireEvent.click(screen.getByText(/open as new chat/i));
+
+    await waitFor(() =>
+      expect(api.createChat).toHaveBeenCalledWith(
+        '$x^{(k)}$',
+        'c1',
+        // parent_word bleibt die Original-Passage — der Zitat-Text im
+        // Branch-Header ist NICHT der Titel.
+        'inverse dynamics model',
+        'inverse dynamics model',
+      ),
     );
   });
 

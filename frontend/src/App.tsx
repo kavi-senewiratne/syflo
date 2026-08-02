@@ -41,6 +41,7 @@ import { api, StreamFailedError, TreeHasSourceError } from './api';
 import { TextSmoother } from './streaming/TextSmoother';
 import { orderMessages } from './chat/messageOrder';
 import { buildPickerGroups } from './chat/pickerGroups';
+import { awaitTitle, startPassageTitle, type PendingTitle } from './chat/passageTitle';
 import { useHighlights } from './hooks/useHighlights';
 import { useChatHighlights } from './hooks/useChatHighlights';
 import { contextAroundSelection } from './pdf/selection';
@@ -438,6 +439,9 @@ export default function App() {
   // of pendingPdfSelectionRef.
   const pendingChatSelectionRef = useRef<ChatSelection | null>(null);
   const savedChatHighlightIdRef = useRef<string | null>(null);
+  // Title lookup for the passage in the open popup — started when the popup
+  // opens, consumed when a branch is created (chat/passageTitle.ts).
+  const pendingTitleRef = useRef<PendingTitle | null>(null);
   // Chat twin of pdfHighlightCreatePromiseRef — same race, same fix.
   const chatHighlightCreatePromiseRef = useRef<Promise<unknown> | null>(null);
   const [popupHasChatSelection, setPopupHasChatSelection] = useState(false);
@@ -1525,6 +1529,14 @@ export default function App() {
     setPopup(wordPopup);
     setExplanation('');
     setLoadingExplanation(true);
+    // Title lookup starts NOW, in parallel with the definition: the user
+    // spends a moment reading the popup, so by the time they hit "ask in a
+    // new chat" the title is usually there and the branch appears with its
+    // formula already set — never with the raw passage
+    // (user requirement 2026-08-02, chat/passageTitle.ts).
+    // Only for real selections; a right-clicked single word is its own title.
+    const isPassage = Boolean(pendingPdfSelectionRef.current || pendingChatSelectionRef.current);
+    pendingTitleRef.current = isPassage ? startPassageTitle(wordPopup.word) : null;
     try {
       // chatId für KV-Prefix-Sharing: die Erklärung nutzt den Gesprächs-
       // Cache, statt ihn zu verdrängen (2026-07-25).
@@ -1655,11 +1667,18 @@ export default function App() {
       // ("Rm" for R^m), only the surrounding lines make the term
       // interpretable for the model. Chat branches don't need it —
       // parent_word already carries the full selected passage.
-      // Provisional title: keeps the $…$ math source — every title render
-      // site goes through <MathText> now (2026-07-26), so "$V$" shows as
-      // rendered math in the sidebar/header/mindmap instead of raw LaTeX.
+      // Title: the lookup started when the popup opened, so it is normally
+      // finished by now and the chat is created WITH its rendered formula —
+      // the tree never shows the raw passage (user requirement 2026-08-02).
+      // If it is still in flight, awaitTitle waits briefly and otherwise
+      // hands back the tidied passage; the post-answer path in
+      // routes/messages.js still improves the title later either way.
+      // Titles keep their $…$ math source — every render site goes through
+      // <MathText> (2026-07-26), so "$V$" shows as set math.
+      const title = await awaitTitle(pendingTitleRef.current, word);
+      pendingTitleRef.current = null;
       child = await api.createChat(
-        S.aboutChatTitle(word), parentId, word,
+        S.aboutChatTitle(title), parentId, word,
         fromPdf && context ? context : undefined,
       );
     } catch (err) {

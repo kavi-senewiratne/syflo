@@ -32,6 +32,18 @@
 - Backend: `cd backend && npm test` (Jest; the script sets NODE_OPTIONS).
 - Frontend: `cd frontend && npm test` (vitest) plus typecheck.
 - Run the affected suite after every feature before calling it done.
+- **Every frontend feature is verified in the RUNNING app, never on green
+  tests alone** (user rule 2026-08-02). Drive it in a real browser —
+  Playwright, or the Chrome DevTools MCP when the Playwright browser is
+  already in use: open the app, perform the actual gesture (select the text,
+  click the button), then read the result back from the UI *and* from the
+  database. State what was clicked and what came out; "the tests pass" is not
+  a verification.
+  Green tests routinely pass over what the real app trips on — that day
+  alone: a backend still running the old code, an exhausted provider quota
+  (429), a request that hung for minutes because no timeout was set, and a
+  weaker fallback model echoing the prompt's own example back as the answer.
+  None of it was visible to a mock.
 
 ## Gotchas
 

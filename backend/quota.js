@@ -36,4 +36,38 @@ const msUntilUtcMidnight = () => {
   return Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1) - now.getTime();
 };
 
-module.exports = { isRateLimit, isDailyQuota, isTooLarge, isModelUnavailable, isBillingRequired, msUntilUtcMidnight };
+/**
+ * The failover ladder, shared by every cloud route (explain, passage titles).
+ * Same candidate order as the chat's pickFallback (messages.js): the selected
+ * model of each provider first, providers starting with the active one,
+ * cloud-with-key only. No vision gate — these are text tasks.
+ *
+ * Cost-tier parity (2026-07-30): paid-only models are never fallback
+ * material; only the active provider's deliberate selection may be one.
+ */
+function cloudCandidates(db, activeProvider) {
+  const { getSetting } = require('./llm');
+  const { getRegistry, getModelInfo } = require('./registry');
+  const reg = getRegistry(db);
+  const order = [activeProvider, ...Object.keys(reg.providers).filter((n) => n !== activeProvider)];
+  const candidates = [];
+  for (const name of order) {
+    const p = reg.providers[name];
+    if (!p || p.kind !== 'cloud') continue;
+    if (!getSetting(db, `${name}_api_key`)) continue;
+    const selected = getSetting(db, `${name}_model`);
+    const models = [selected, ...p.models.map((m) => m.name).filter((n) => n !== selected)];
+    for (const m of models) {
+      if (!m) continue;
+      const isActiveSelection = name === activeProvider && m === selected;
+      if (!isActiveSelection && getModelInfo(db, name, m).free === false) continue;
+      candidates.push({ provider: name, model: m });
+    }
+  }
+  return candidates;
+}
+
+module.exports = {
+  isRateLimit, isDailyQuota, isTooLarge, isModelUnavailable, isBillingRequired,
+  msUntilUtcMidnight, cloudCandidates,
+};

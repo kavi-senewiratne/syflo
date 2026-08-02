@@ -18,6 +18,10 @@ const multer = require('multer');
 const { getLLMClient, getLLMClientFor, getSetting, noThinkExtras, extendOllamaKeepAlive } = require('../llm');
 const { getModelInfo, getRegistry } = require('../registry');
 const { streamWithTools, ALL_TOOLS } = require('../tools');
+const {
+  MAX_PASSAGE_CHARS, capTitleWords, sanitizeTitle,
+  branchTitleInstruction, chatTitleInstruction,
+} = require('../title');
 const { getTreePaperContext } = require('../pdf-text');
 const { getTreeVideoContext, transcriptTruncationNote } = require('../youtube');
 const {
@@ -1292,75 +1296,27 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
       // letting title generation overwrite it.
       const hasSourceName = Boolean(chat.paper_id || chat.video_id);
       if (!aborted && !hasSourceName && (chat.title === 'New Chat' || msgCount.count <= 2)) {
-        // Hard caps so the sidebar list and mindmap stay readable even if the
-        // LLM ignores the word-limit instruction (some smaller models do).
-        const MAX_TITLE_WORDS = 4;
-        const MAX_TITLE_CHARS = 40;
-
-        // Titles may carry inline $…$ LaTeX — the frontend renders them
-        // via MathText (2026-07-26). The word/char caps must never cut
-        // through a math span: a dangling `$` swallows the rest of the
-        // title once rendered.
-        const capTitleWords = (text, maxWords) => {
-          // Mask spaces inside $…$ so a formula counts as ONE word.
-          const masked = text.replace(/\$\$?[^$]*\$\$?/g, (m) => m.replace(/\s/g, '\u0000'));
-          return masked
-            .split(/\s+/)
-            .filter(Boolean)
-            .slice(0, maxWords)
-            .join(' ')
-            .replace(/\u0000/g, ' ');
-        };
-        const capTitleChars = (text, maxChars) => {
-          // Measure what the user SEES: LaTeX source is much longer than
-          // the rendered formula, so the cap applies to the
-          // delimiter-stripped text.
-          if (text.replace(/\$\$?([^$]*)\$\$?/g, '$1').length <= maxChars) return text;
-          let cut = text.slice(0, maxChars - 1);
-          if ((cut.match(/\$/g) || []).length % 2 === 1) {
-            const idx = cut.lastIndexOf('$');
-            // Backing off to "before the dangling $" empties the whole cut
-            // when the title IS one long formula starting at position 0 —
-            // the prompt above tells the model to title math-centric
-            // passages as a bare LaTeX expression, so this isn't rare (user
-            // report 2026-07-31: a branch titled only "…"). Drop the lone
-            // delimiter instead of the entire title — same half-delimiter
-            // fallback as the sanitizer below, just applied locally.
-            cut = idx > 0 ? cut.slice(0, idx) : cut.replace(/\$/g, '');
-          }
-          return cut.trimEnd() + '…';
-        };
-
+        // Caps, prompts and sanitizing live in ../title.js — the
+        // passage-title endpoint (routes/chats.js) reuses exactly the same
+        // rules, so a branch titled up front and one titled after the first
+        // answer can never disagree.
         // Branch chats are titled after the SELECTED PASSAGE they were opened
         // from, not after the first question (user decision 2026-07-26): in
         // the sidebar tree "Kannst du mir alle" says nothing, a summary of
         // the marked text does.
-        const branchQuote = chat.parent_word ? String(chat.parent_word).trim().slice(0, 600) : null;
+        const branchQuote = chat.parent_word
+          ? String(chat.parent_word).trim().slice(0, MAX_PASSAGE_CHARS)
+          : null;
 
         // Fallback: first few words of the passage (branches) or of the
         // user's message, in case the LLM call fails.
-        let newTitle = capTitleWords((branchQuote || content || 'Chat').trim(), MAX_TITLE_WORDS);
+        let newTitle = capTitleWords((branchQuote || content || 'Chat').trim());
 
         try {
           const { client: titleClient, model: titleModel, provider: titleProvider } = getLLMClient(db);
-          const titleInstruction = {
-            role: 'user',
-            content: branchQuote
-              ? 'Generate a 2 to 4 word title that summarizes the following selected passage ' +
-                '(this branch chat explores it). If the passage is already a short term, use the term itself. ' +
-                'Write the title in the language of the passage. ' +
-                'If the passage centers on a math expression, use that expression as the title, ' +
-                'written as LaTeX wrapped in $...$ — reconstruct proper LaTeX even if the passage ' +
-                'shows mangled plain-text math (e.g. "wt−1" means w_{t-1}). ' +
-                'Output ONLY the title — no quotes, no punctuation, no markdown, no labels, no extra commentary ' +
-                '(inline $...$ math is the one allowed markup). ' +
-                `Passage: "${branchQuote}"`
-              : 'Generate a 2 to 4 word title for this chat. ' +
-                'Write the title in the language of the conversation (a German chat gets a German title). ' +
-                'Output ONLY the title — no quotes, no punctuation, no markdown, no labels, no extra commentary ' +
-                '(a math expression central to the chat may appear as LaTeX wrapped in $...$). ' +
-                'Examples: React hooks tutorial / Bicycle repair guide / Berlin trip planning / Linear algebra basics.',
-          };
+          const titleInstruction = branchQuote
+            ? branchTitleInstruction(branchQuote)
+            : chatTitleInstruction();
           // Ollama has exactly ONE KV cache slot (vision models force
           // parallel:1). A standalone title prompt would evict the
           // expensive paper prefix — the next question then pays the full
@@ -1398,21 +1354,9 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
           if (raw.trim()) newTitle = raw.trim();
         } catch (_) { /* the fallback is good enough */ }
 
-        // Sanitize whatever the LLM returned: strip wrapping quotes/backticks,
-        // strip trailing punctuation, drop any line breaks the model added, and
-        // enforce the word + character caps.
-        newTitle = capTitleWords(
-          newTitle
-            .replace(/[\r\n]+/g, ' ')
-            .replace(/^["'`*_]+|["'`*_.!?,;:]+$/g, '')
-            .trim(),
-          MAX_TITLE_WORDS,
-        );
-        newTitle = capTitleChars(newTitle, MAX_TITLE_CHARS);
-        // A leftover unbalanced `$` (an LLM half-delimiter) reads as broken
-        // math in the UI — fall back to plain text.
-        if ((newTitle.match(/\$/g) || []).length % 2 === 1) newTitle = newTitle.replace(/\$/g, '');
-        if (!newTitle) newTitle = 'New Chat';
+        // Strip wrapping quotes/backticks and trailing punctuation, drop line
+        // breaks, enforce both caps, defuse a half-delimiter (../title.js).
+        newTitle = sanitizeTitle(newTitle);
 
         db.prepare('UPDATE chats SET title = ? WHERE id = ?').run(newTitle, req.params.chatId);
       }

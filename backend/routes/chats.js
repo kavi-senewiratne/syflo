@@ -1,8 +1,21 @@
 const express = require('express');
 const fs = require('fs');
 const { warmUpAncestorSummaries, getAncestorPath } = require('../ancestor-context');
+const { getLLMClientFor, getSetting, noThinkExtras } = require('../llm');
+const { MAX_PASSAGE_CHARS, sanitizeTitle, branchTitleInstruction } = require('../title');
+const {
+  isRateLimit, isDailyQuota, isModelUnavailable, msUntilUtcMidnight, cloudCandidates,
+} = require('../quota');
 
-module.exports = (db) => {
+// options.isQuotaCoolingDown / markQuotaCooldown: the chat's quota memory
+// (server.js injects it) — the passage-title endpoint shares that ladder.
+// A passage title is a nicety, never a blocker: the whole ladder gets one
+// budget, each single call a shorter one. The frontend gives up after
+// ~2.5 s anyway and shows the tidied passage instead.
+const TITLE_BUDGET_MS = 9000;
+const TITLE_CALL_MS = 5000;
+
+module.exports = (db, { isQuotaCoolingDown, markQuotaCooldown } = {}) => {
   const router = express.Router();
   // Get all root chats (no parent)
   router.get('/', (req, res) => {
@@ -153,6 +166,110 @@ module.exports = (db) => {
 
     const chat = db.prepare('SELECT * FROM chats WHERE id = ?').get(id);
     res.status(201).json(chat);
+  });
+
+  // Title for a selected passage, BEFORE any chat exists.
+  //
+  // Why up front: a branch used to be created with the raw passage as its
+  // provisional title and only got a real one after the first answer. For a
+  // formula marked in a PDF that raw text is mangled ("x ( k ) = x ( k ) − E
+  // [ x ( k ) ] √ Var" — the fraction bar is a drawn line, superscripts are
+  // geometry), so the sidebar showed rubble until the user asked something.
+  // The frontend calls this while the selection popup is open and passes the
+  // finished title to POST / — the tree never shows the raw passage
+  // (user requirement 2026-08-02: "the formatted formula, immediately").
+  //
+  // Ollama is deliberately excluded: it has exactly ONE KV cache slot, and a
+  // standalone prompt would evict the conversation prefix (~40 s of prefill
+  // on the next question, measured 2026-07-21). There the title keeps coming
+  // from the post-answer path, which shares that prefix.
+  router.post('/passage-title', async (req, res) => {
+    const passage = typeof req.body?.passage === 'string' ? req.body.passage.trim() : '';
+    if (!passage) return res.status(400).json({ error: 'passage is required' });
+
+    const activeProvider = getSetting(db, 'llm_provider');
+    if (activeProvider === 'ollama') return res.json({ title: null });
+
+    const messages = [branchTitleInstruction(passage.slice(0, MAX_PASSAGE_CHARS))];
+    // A server-side hiccup is worth one retry: Gemini answered 503 on the
+    // first of three live calls (measured 2026-08-02) and fine right after.
+    const transient = (err) => {
+      const status = err?.status ?? err?.response?.status;
+      return typeof status === 'number' && status >= 500;
+    };
+
+    // Same failover ladder as chat and explain (../quota.js): an exhausted
+    // Gemini quota must not send the user back to raw PDF text when a Groq
+    // key is sitting right there — that was exactly the live failure
+    // (429, measured 2026-08-02). Known-cold models are skipped, new walls
+    // are written into the SAME cooldown memory the picker badges read.
+    const cooling = isQuotaCoolingDown || (() => false);
+    const all = cloudCandidates(db, activeProvider);
+    let candidates = all.filter((c) => !cooling(c.provider, c.model));
+    if (candidates.length === 0) candidates = all;
+
+    // Hard time budget. A title is a nicety: the frontend waits ~2.5 s and
+    // then shows the tidied passage, so anything beyond that is wasted work.
+    // Without it one hanging candidate blocked the whole ladder for minutes
+    // (measured 2026-08-02 — the request never returned).
+    const deadline = Date.now() + TITLE_BUDGET_MS;
+    const remaining = () => deadline - Date.now();
+
+    for (const cand of candidates) {
+      if (remaining() <= 0) break;
+      let client;
+      try {
+        ({ client } = getLLMClientFor(db, cand.provider));
+      } catch {
+        continue; // no key / unknown provider — next candidate
+      }
+      let plain = false;   // set when the model rejects the no-thinking flag
+      for (let attempt = 0; attempt < 2; attempt++) {
+        if (remaining() <= 0) break;
+        try {
+          const completion = await client.chat.completions.create({
+            model: cand.model,
+            ...(plain ? {} : noThinkExtras(cand.provider)),
+            messages,
+          }, { signal: AbortSignal.timeout(Math.min(TITLE_CALL_MS, remaining())) });
+          const raw = completion.choices[0]?.message?.content || '';
+          return res.json({ title: raw.trim() ? sanitizeTitle(raw) : null });
+        } catch (err) {
+          if (attempt === 0 && transient(err)) {
+            await new Promise((resolve) => setTimeout(resolve, 400));
+            continue;
+          }
+          // Some models reject the no-thinking flag outright (Groq's
+          // llama-3.3: "400 `reasoning_effort` is not supported with this
+          // model", measured 2026-08-02) — one plain retry makes them usable.
+          if (attempt === 0 && /reasoning_effort/i.test(err?.message || '')) {
+            plain = true;
+            continue;
+          }
+          const unavailable = isModelUnavailable(err);
+          if (markQuotaCooldown) {
+            if (unavailable) markQuotaCooldown(cand.provider, cand.model, 24 * 60 * 60 * 1000, 'retired');
+            else if (isRateLimit(err) && isDailyQuota(err)) {
+              markQuotaCooldown(cand.provider, cand.model, msUntilUtcMidnight(), 'daily');
+            } else if (isRateLimit(err)) {
+              markQuotaCooldown(cand.provider, cand.model, 90_000, 'minute');
+            }
+          }
+          // EVERY failure moves on to the next candidate — a timeout or a
+          // 400 used to end the whole ladder and hand back the raw passage
+          // even though the very next model would have answered in 0.5 s
+          // (measured 2026-08-02).
+          if (!isRateLimit(err) && !unavailable) {
+            console.error(`[chats] passage title via ${cand.provider}/${cand.model}: ${err.message}`);
+          }
+          break; // next candidate
+        }
+      }
+    }
+
+    // Every candidate was rate-limited or retired — the caller tidies the
+    // passage instead.
+    return res.json({ title: null });
   });
 
   // Update chat title

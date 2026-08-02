@@ -29,7 +29,10 @@ const express = require('express');
 const { getLLMClient, getLLMClientFor, getSetting, noThinkExtras } = require('../llm');
 const { getRegistry, getModelInfo } = require('../registry');
 const { ALL_TOOLS } = require('../tools');
-const { isRateLimit, isDailyQuota, isModelUnavailable, msUntilUtcMidnight } = require('../quota');
+const {
+  isRateLimit, isDailyQuota, isModelUnavailable, msUntilUtcMidnight,
+  cloudCandidates: buildCloudCandidates,
+} = require('../quota');
 
 module.exports = (db, { buildSystemAndHistory, isQuotaCoolingDown, markQuotaCooldown } = {}) => {
   // router is created inside the factory so each call gets a fresh instance.
@@ -56,31 +59,9 @@ module.exports = (db, { buildSystemAndHistory, isQuotaCoolingDown, markQuotaCool
     'no bold, no italics, no headings, no bullet lists, no quotation marks around the word ' +
     'itself. Return plain text only.';
 
-  // Same candidate order as the chat's pickFallback (messages.js): the
-  // selected model of each provider first, providers starting with the
-  // active one, cloud-with-key only. No vision gate — definitions are text.
-  const cloudCandidates = (activeProvider) => {
-    const reg = getRegistry(db);
-    const order = [activeProvider, ...Object.keys(reg.providers).filter((n) => n !== activeProvider)];
-    const candidates = [];
-    for (const name of order) {
-      const p = reg.providers[name];
-      if (!p || p.kind !== 'cloud') continue;
-      if (!getSetting(db, `${name}_api_key`)) continue;
-      const selected = getSetting(db, `${name}_model`);
-      const models = [selected, ...p.models.map((m) => m.name).filter((n) => n !== selected)];
-      for (const m of models) {
-        if (!m) continue;
-        // Ladder parity with the chat (cost tiers 2026-07-30): paid-only
-        // models are never fallback material — only the active provider's
-        // deliberate selection may be one.
-        const isActiveSelection = name === activeProvider && m === selected;
-        if (!isActiveSelection && getModelInfo(db, name, m).free === false) continue;
-        candidates.push({ provider: name, model: m });
-      }
-    }
-    return candidates;
-  };
+  // The failover ladder lives in ../quota.js — shared with the passage-title
+  // endpoint so definitions and titles walk the same providers.
+  const cloudCandidates = (activeProvider) => buildCloudCandidates(db, activeProvider);
 
   // POST /api/explain
   // Accepts a word, optional surrounding context, an optional target language

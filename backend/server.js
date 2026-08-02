@@ -40,9 +40,15 @@ function createApp(db, options = {}) {
     },
   }));
 
-  app.use('/api/chats', require('./routes/chats')(db));
   // options.messages: e.g. { extractPdfTextFn } — injectable for tests.
+  // Built BEFORE the chats router: the passage-title endpoint there shares
+  // this router's quota memory, so an exhausted provider is skipped and a
+  // fresh wall is remembered for the picker badges (2026-08-02).
   const messagesRouter = require('./routes/messages')(db, UPLOADS_DIR, options.messages);
+  app.use('/api/chats', require('./routes/chats')(db, {
+    isQuotaCoolingDown: messagesRouter.isQuotaCoolingDown,
+    markQuotaCooldown: messagesRouter.markQuotaCooldown,
+  }));
   app.use('/api/chats/:chatId/messages', messagesRouter);
   // Quota-cooldown snapshot for the model-picker badges (mockup-quota-states
   // §06). The map lives in the messages router — the only place quotas are

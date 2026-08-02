@@ -232,6 +232,24 @@ export const api = {
     return res.json();
   },
 
+  // Titles a selected passage BEFORE the branch chat exists, so the tree
+  // never shows the raw passage first. Crucial for formulas marked in a PDF:
+  // the text layer flattens them, and only the model writes them back as
+  // LaTeX (user requirement 2026-08-02). Returns null whenever the title
+  // isn't available (no key, Ollama, quota, network) — the caller then falls
+  // back to the passage itself.
+  async passageTitle(passage: string, signal?: AbortSignal): Promise<string | null> {
+    const res = await fetch(`${BASE}/chats/passage-title`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ passage }),
+      signal,
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return typeof data.title === 'string' && data.title.trim() ? data.title : null;
+  },
+
   // Sends a user message (mit optionalen Datei-Anhängen) und streamt die AI-Antwort.
   // onDelta wird mit jedem Text-Chunk aufgerufen, der vom Server ankommt.
   // Wenn Anhänge dabei sind, wird multipart/form-data verwendet — sonst JSON.
