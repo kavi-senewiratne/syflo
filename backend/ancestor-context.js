@@ -1,27 +1,27 @@
 /**
  * ancestor-context.js
  *
- * Geerbter Gesprächskontext für Branch-Chats (Design-Session 2026-07-20):
- * Ein Kind-Knoten erbt den ganzen Pfad bis zur Wurzel — der direkte
- * Elternchat wörtlich, Großeltern und höher als gecachte Zusammenfassung,
- * dazu die parent_word-Kette als roter Faden. Geschwister-Äste nie.
+ * Inherited conversation context for branch chats (design session 2026-07-20):
+ * A child node inherits the whole path up to the root — the direct parent
+ * chat verbatim, grandparents and higher as a cached summary, plus the
+ * parent_word chain as the connecting thread. Sibling branches never.
  *
- * Die Summary pro Chat ist ein reiner Cache (chats.summary), live gehalten
- * über die id der letzten abgedeckten Nachricht (summary_last_message_id):
- * stimmt sie mit der aktuell letzten Nachricht überein, ist der Cache frisch.
+ * The per-chat summary is a pure cache (chats.summary), kept live via the
+ * id of the last covered message (summary_last_message_id): if it matches
+ * the currently last message, the cache is fresh.
  */
 
 const { getLLMClient, noThinkExtras } = require('./llm');
 
-// Ziel-Länge einer Knoten-Zusammenfassung (Prompt-Anweisung, kein Hard-Cap).
+// Target length of a node summary (prompt instruction, not a hard cap).
 const SUMMARY_WORD_TARGET = 120;
 
-// Zeichen-Budget für das wörtliche Eltern-Transkript. Darüber wird derselbe
-// Hybrid-Trick rekursiv angewendet: Summary des Chats + wörtlicher Schwanz.
+// Character budget for the verbatim parent transcript. Above it the same
+// hybrid trick is applied recursively: summary of the chat + verbatim tail.
 const MAX_PARENT_CHARS = 8000;
 const PARENT_VERBATIM_TAIL = 10;
 
-// Letzte Nachricht eines Chats — Grundlage des Staleness-Checks.
+// Last message of a chat — basis of the staleness check.
 function lastMessageId(db, chatId) {
   const row = db
     .prepare(
@@ -32,42 +32,51 @@ function lastMessageId(db, chatId) {
 }
 
 function getTranscript(db, chatId) {
+  // Prompt hygiene (mockup-model-flow §07/§10): failure markers are UI
+  // state, and pending rows are questions still waiting in the send queue —
+  // neither belongs in an inherited branch transcript.
   return db
-    .prepare('SELECT role, content FROM messages WHERE chat_id = ? ORDER BY created_at ASC')
-    .all(chatId);
+    .prepare(
+      'SELECT role, content FROM messages WHERE chat_id = ? AND IFNULL(pending, 0) = 0 ORDER BY created_at ASC'
+    )
+    .all(chatId)
+    .filter((m) => {
+      const t = (m.content || '').trim();
+      return !(m.role === 'assistant' && (t === '*Failed*' || t === '*Interrupted*'));
+    });
 }
 
 function renderTranscript(messages) {
   return messages.map((m) => `${m.role}: ${m.content}`).join('\n');
 }
 
-// Chats, deren Summary gerade im Hintergrund erneuert wird — verhindert,
-// dass jede weitere Nachricht während der Generierung noch eine anstößt.
+// Chats whose summary is currently being refreshed in the background —
+// prevents every further message during generation from triggering another.
 const summaryRefreshInFlight = new Set();
 
-// Stößt die Erneuerung einer stale Summary im Hintergrund an. Fehler sind
-// nie fatal — der stale Cache bleibt dann einfach stehen.
+// Kicks off the refresh of a stale summary in the background. Errors are
+// never fatal — the stale cache then simply stays in place.
 function refreshChatSummaryInBackground(db, chatId) {
   if (summaryRefreshInFlight.has(chatId)) return;
   summaryRefreshInFlight.add(chatId);
   setImmediate(async () => {
     try {
       await ensureChatSummary(db, chatId);
-    } catch (_) { /* stale Summary bleibt */ } finally {
+    } catch (_) { /* stale summary stays */ } finally {
       summaryRefreshInFlight.delete(chatId);
     }
   });
 }
 
 /**
- * Liefert die aktuelle Zusammenfassung eines Chats — aus dem Cache, wenn
- * seit der letzten Generierung keine Nachricht dazukam, sonst frisch vom
- * konfigurierten Chat-Modell. Leere Chats ergeben null (nichts zusammenzufassen).
+ * Returns the current summary of a chat — from the cache if no message was
+ * added since the last generation, otherwise fresh from the configured chat
+ * model. Empty chats yield null (nothing to summarize).
  *
- * `allowStale` (latenzkritische Pfade, z. B. Nachricht senden): eine
- * veraltete Summary wird sofort zurückgegeben und im Hintergrund erneuert —
- * kein blockierender LLM-Aufruf vor der eigentlichen Antwort, und der
- * Prompt-Prefix bleibt identisch zum letzten Warm-up (KV-Cache greift).
+ * `allowStale` (latency-critical paths, e.g. sending a message): an
+ * outdated summary is returned immediately and refreshed in the background —
+ * no blocking LLM call before the actual response, and the prompt prefix
+ * stays identical to the last warm-up (KV cache kicks in).
  */
 async function ensureChatSummary(db, chatId, { allowStale = false } = {}) {
   const chat = db.prepare('SELECT * FROM chats WHERE id = ?').get(chatId);
@@ -116,11 +125,11 @@ async function ensureChatSummary(db, chatId, { allowStale = false } = {}) {
 }
 
 /**
- * Zerlegt die Summarizer-Antwort in { summary, display }.
- * summary = Fließtext für den geerbten Prompt (unverändert dessen Rolle),
- * display = {gist, points[]} für das Kontext-Banner. Kleine lokale Modelle
- * liefern nicht zuverlässig JSON — jeder Parse-Fehler degradiert sanft:
- * die ganze Rohantwort wird zur Summary, display bleibt null.
+ * Splits the summarizer response into { summary, display }.
+ * summary = flowing prose for the inherited prompt (its role unchanged),
+ * display = {gist, points[]} for the context banner. Small local models do
+ * not reliably deliver JSON — every parse error degrades gently: the whole
+ * raw response becomes the summary, display stays null.
  */
 function parseSummaryResponse(raw) {
   const start = raw.indexOf('{');
@@ -135,15 +144,15 @@ function parseSummaryResponse(raw) {
         : [];
       if (summary) return { summary, display: gist ? { gist, points } : null };
     } catch (_) {
-      /* kein JSON — Rohtext als Summary */
+      /* no JSON — raw text as the summary */
     }
   }
   return { summary: raw, display: null };
 }
 
 /**
- * Vorfahren-Pfad eines Chats: [Wurzel, …, direkter Elternchat].
- * Leer für Root-Chats.
+ * Ancestor path of a chat: [root, …, direct parent chat].
+ * Empty for root chats.
  */
 function getAncestorPath(db, chatId) {
   const getChat = db.prepare('SELECT * FROM chats WHERE id = ?');
@@ -157,11 +166,11 @@ function getAncestorPath(db, chatId) {
 }
 
 /**
- * Baut den geerbten Gesprächskontext für einen Branch-Chat:
- *   - parent_word-Kette (Wurzel-Titel → word → … → aktuelles Branch-Wort)
- *   - Großeltern und höher: gecachte Zusammenfassungen (Wurzel zuerst)
- *   - direkter Elternchat: wörtliches Transkript
- * Gibt null für Root-Chats zurück. `text` ist der fertige Prompt-Block.
+ * Builds the inherited conversation context for a branch chat:
+ *   - parent_word chain (root title → word → … → current branch word)
+ *   - grandparents and higher: cached summaries (root first)
+ *   - direct parent chat: verbatim transcript
+ * Returns null for root chats. `text` is the finished prompt block.
  */
 async function buildAncestorContext(db, chatId, opts = {}) {
   const maxParentChars = opts.maxParentChars ?? MAX_PARENT_CHARS;
@@ -172,7 +181,7 @@ async function buildAncestorContext(db, chatId, opts = {}) {
   const parent = ancestorPath[ancestorPath.length - 1];
   const olderAncestors = ancestorPath.slice(0, -1);
 
-  // Kette: Wurzel-Titel, dann pro Ebene das Wort, aus dem sie entstand.
+  // Chain: root title, then per level the word it was branched from.
   const chainParts = [
     ancestorPath[0].title,
     ...ancestorPath.slice(1).map((c) => c.parent_word || c.title),
@@ -180,16 +189,16 @@ async function buildAncestorContext(db, chatId, opts = {}) {
   if (chat.parent_word) chainParts.push(chat.parent_word);
   const chain = chainParts.join(' → ');
 
-  // allowStale: der Nachrichtenpfad darf nie auf Summary-Generierung warten —
-  // veraltete Summaries werden genutzt und im Hintergrund erneuert.
+  // allowStale: the message path must never wait for summary generation —
+  // outdated summaries are used and refreshed in the background.
   const summaries = [];
   for (const ancestor of olderAncestors) {
     const summary = await ensureChatSummary(db, ancestor.id, { allowStale: true });
     if (summary) summaries.push({ id: ancestor.id, title: ancestor.title, summary });
   }
 
-  // Elternchat wörtlich — außer er sprengt das Budget: dann Summary des
-  // Chats als Ersatz für den älteren Teil + die letzten Nachrichten wörtlich.
+  // Parent chat verbatim — unless it blows the budget: then the chat's
+  // summary as a stand-in for the older part + the last messages verbatim.
   const parentMessages = getTranscript(db, parent.id);
   let parentTranscript = renderTranscript(parentMessages);
   if (parentTranscript.length > maxParentChars) {
@@ -205,7 +214,7 @@ async function buildAncestorContext(db, chatId, opts = {}) {
 }
 
 /**
- * Rendert die Kontext-Teile (ggf. nach applyContextBudget) zum Prompt-Block.
+ * Renders the context parts (after applyContextBudget if applicable) into the prompt block.
  */
 function renderAncestorText({ chain, summaries, parentTranscript }) {
   const parts = [`Path through the conversation tree: ${chain}`];
@@ -222,17 +231,18 @@ function renderAncestorText({ chain, summaries, parentTranscript }) {
 }
 
 /**
- * Opfer-Reihenfolge, wenn der Gesamtkontext das Budget sprengt:
- * zuerst Vorfahren-Summaries von der Wurzel her (älteste zuerst) fallen
- * lassen, erst dann den Quelltext kürzen (Anfang behalten), notfalls ganz
- * streichen. Das wörtliche Eltern-Transkript wird nie angetastet — die
- * unmittelbare Gesprächsnähe ist beim Vertiefen das Wertvollste.
+ * Sacrifice order when the total context blows the budget:
+ * first drop ancestor summaries from the root down (oldest first), only
+ * then trim the source text (keep the beginning), as a last resort cut it
+ * entirely. The verbatim parent transcript is never touched — the immediate
+ * conversational proximity is the most valuable thing when going deeper.
  *
- * Reihenfolge gedreht am 2026-07-25 (vorher: Quelle zuerst): Die Quelle ist
- * der teuerste Prompt-Teil und im ganzen Baum byte-identisch geteilt — jede
- * Kürzung im Kind macht den KV-Cache des Eltern-Prefills wertlos (gemessen:
- * voller Re-Prefill ~60 s). Summaries sind klein und stehen ohnehin HINTER
- * der Quelle im Prompt; sie zu opfern erhält den gemeinsamen Präfix.
+ * Order flipped on 2026-07-25 (before: source first): The source is the
+ * most expensive prompt part and shared byte-identically across the whole
+ * tree — any trimming in the child makes the KV cache of the parent prefill
+ * worthless (measured: full re-prefill ~60 s). Summaries are small and sit
+ * BEHIND the source in the prompt anyway; sacrificing them preserves the
+ * shared prefix.
  */
 function applyContextBudget({ paperText, summaries, parentTranscript }, maxTotalChars) {
   const parentLen = parentTranscript ? parentTranscript.length : 0;
@@ -242,13 +252,13 @@ function applyContextBudget({ paperText, summaries, parentTranscript }, maxTotal
   const paperLen = () => (trimmedPaper ? trimmedPaper.length : 0);
   const summariesLen = () => trimmedSummaries.reduce((n, s) => n + s.summary.length, 0);
 
-  // 1. Summaries älteste zuerst opfern, bis alles zusammen passt.
+  // 1. Sacrifice summaries oldest first until everything fits together.
   while (trimmedSummaries.length > 0 && paperLen() + parentLen + summariesLen() > maxTotalChars) {
     trimmedSummaries.shift();
   }
 
-  // 2. Reicht das nicht: Quelle auf den Rest-Platz kürzen (Anfang behalten —
-  //    dort stehen Titel/Abstract), notfalls ganz streichen.
+  // 2. If that is not enough: trim the source to the remaining room (keep
+  //    the beginning — title/abstract live there), cut entirely if needed.
   if (trimmedPaper) {
     const room = maxTotalChars - parentLen - summariesLen();
     if (trimmedPaper.length > room) {
@@ -260,41 +270,73 @@ function applyContextBudget({ paperText, summaries, parentTranscript }, maxTotal
 }
 
 /**
- * Warm-up beim Anlegen einer Abzweigung: erzeugt/erneuert die Summaries der
- * ganzen Vorfahren-Kette des neuen Chats im Hintergrund, damit sie bei der
- * ersten Frage schon im Cache liegen. Fehler einzelner Summaries werden
- * geschluckt — der Lazy-Pfad in buildAncestorContext bleibt das Sicherheitsnetz.
+ * Warm-up when creating a branch: generates/refreshes the summaries of the
+ * new chat's whole ancestor chain in the background so they are already
+ * cached at the first question. Errors of individual summaries are
+ * swallowed — the lazy path in buildAncestorContext remains the safety net.
  */
 async function warmUpAncestorSummaries(db, chatId) {
   for (const ancestor of getAncestorPath(db, chatId)) {
     try {
       await ensureChatSummary(db, ancestor.id);
-    } catch (_) { /* nächster Vorfahre */ }
+    } catch (_) { /* next ancestor */ }
   }
 }
 
-// Ollamas Kontextfenster in Tokens — muss zu dem Wert passen, den
-// start.command exportiert (OLLAMA_CONTEXT_LENGTH). Läuft das Backend aus
-// derselben Shell, erbt es die Variable; der Fallback ist derselbe Wert.
+// Ollama's context window in tokens — must match the value that
+// start.command exports (OLLAMA_CONTEXT_LENGTH). If the backend runs from
+// the same shell, it inherits the variable; the fallback is the same value.
 const CONTEXT_WINDOW_TOKENS = parseInt(process.env.OLLAMA_CONTEXT_LENGTH || '', 10) || 16384;
 
-// Reserve im Fenster für alles außerhalb des System-Kontexts: Basis-System-
-// Prompt, Tool-Definitionen, Nachrichten-Historie und die Antwort selbst.
+// Reserve in the window for everything outside the system context: base
+// system prompt, tool definitions, message history and the response itself.
 const RESERVED_TOKENS = 5_000;
 
-// Konservative Schätzung für wissenschaftlichen Text (Formeln, Zitate und
-// Fachwörter tokenisieren schlechter als die üblichen ~4 Zeichen/Token).
+// Conservative estimate for scientific text (formulas, citations and
+// technical terms tokenize worse than the usual ~4 chars/token).
 const CHARS_PER_TOKEN = 3.5;
 
-// Gesamt-Budget für die variablen Kontext-Blöcke (Paper + Summaries +
-// Eltern-Transkript) im System-Prompt — abgeleitet aus dem Fenster statt
-// fest verdrahtet: ein Budget über dem Fenster hieße stilles Context-
-// Shifting bei Ollama, und damit einen KV-Cache, der nie greift.
+// Total budget for the variable context blocks (paper + summaries +
+// parent transcript) in the system prompt — derived from the window instead
+// of hard-wired: a budget above the window would mean silent context
+// shifting in Ollama, and thus a KV cache that never kicks in.
 const MAX_SYSTEM_CONTEXT_CHARS = Math.floor(
   (CONTEXT_WINDOW_TOKENS - RESERVED_TOKENS) * CHARS_PER_TOKEN
 );
 
+/**
+ * Budget of the model that will ANSWER (ADR-0008 slice 4): window and
+ * character budget come from the registry instead of globally from
+ * OLLAMA_CONTEXT_LENGTH. For cloud models the budget cap (budgetCapTokens)
+ * counts — it protects the free quotas even though e.g. Gemini would have a
+ * 1M window. For Ollama everything stays with the env-derived window (KV
+ * cache contract). Defaults to the active settings model; pass `forModel`
+ * ({provider, model}) when a different model answers — failover candidates
+ * and the one-off local regenerate must get a prompt sized to THEIR budget
+ * (fix 2026-07-29), never the active model's.
+ */
+function contextBudget(db, forModel = null) {
+  const { getSetting } = require('./llm');
+  const { getModelInfo } = require('./registry');
+  const provider = forModel ? forModel.provider : getSetting(db, 'llm_provider');
+  const model = forModel
+    ? forModel.model
+    : getSetting(db, provider === 'ollama' ? 'ollama_model' : `${provider}_model`);
+  const info = getModelInfo(db, provider, model);
+  const budgetTokens = Math.min(
+    info.contextWindowTokens,
+    info.budgetCapTokens || info.contextWindowTokens
+  );
+  return {
+    provider,
+    model,
+    contextWindowTokens: info.contextWindowTokens,
+    maxSystemContextChars: Math.floor((budgetTokens - RESERVED_TOKENS) * CHARS_PER_TOKEN),
+  };
+}
+
 module.exports = {
+  contextBudget,
   ensureChatSummary,
   parseSummaryResponse,
   buildAncestorContext,

@@ -11,7 +11,7 @@
  * cells). Colors and fonts here are the fixed brand constants of each theme's
  * logo — intentionally hardcoded, not the semantic UI tokens.
  */
-import { useSyncExternalStore } from 'react';
+import { useId, useSyncExternalStore } from 'react';
 import type { ThemeId } from '../theme';
 
 // The theme lives as a `data-theme` attribute on <html> (see theme.ts), so a
@@ -27,6 +27,46 @@ function subscribeToTheme(onChange: () => void): () => void {
 
 function readTheme(): ThemeId {
   return (document.documentElement.dataset.theme as ThemeId | undefined) ?? 'professional';
+}
+
+// Matrix glitch mark — the same branch mark as the app/dock icon
+// (design/mockup-logo-icons-round6.html, Matrix section): dark and light
+// ghost copies offset sideways, the phosphor-green mark on top split into
+// three horizontal bands with the middle band shifted (the "glitch"), plus
+// a soft green glow. Replaces the old ">_" terminal prefix in the wordmark
+// (user decision 2026-07-26) — the SYFLO text stays.
+function MatrixMark({ size = 20 }: { size?: number }) {
+  // <use>/<clipPath> need document-unique ids; the logo renders twice
+  // (sidebar + empty state). React 19's useId emits non-alphanumeric
+  // characters that are shaky inside url(#…), so strip them.
+  const uid = useId().replace(/[^a-zA-Z0-9]/g, '');
+  const markId = `mx-mark-${uid}`;
+  const topId = `mx-top-${uid}`;
+  const bandId = `mx-band-${uid}`;
+  const bottomId = `mx-bottom-${uid}`;
+  return (
+    <svg width={size} height={size} viewBox="0 0 48 48" fill="none" aria-hidden="true">
+      <defs>
+        <g id={markId}>
+          <path d="M8 24 H 22 C 28 24, 29 15, 36 13" strokeWidth="4.5" strokeLinecap="round" fill="none" />
+          <path d="M22 24 C 28 24, 29 33, 36 35" strokeWidth="4.5" strokeLinecap="round" fill="none" />
+          <circle cx="7" cy="24" r="3.6" />
+          <circle cx="39" cy="12.5" r="5.5" />
+          <circle cx="39" cy="35.5" r="5.5" />
+        </g>
+        <clipPath id={topId}><rect x="-6" y="-4" width="60" height="23" /></clipPath>
+        <clipPath id={bandId}><rect x="-6" y="19" width="60" height="7.5" /></clipPath>
+        <clipPath id={bottomId}><rect x="-6" y="26.5" width="60" height="26" /></clipPath>
+      </defs>
+      <use href={`#${markId}`} stroke="#0F7A3C" fill="#0F7A3C" transform="translate(-2.6, 0)" opacity="0.75" />
+      <use href={`#${markId}`} stroke="#8CF5B0" fill="#8CF5B0" transform="translate(2.6, 0.6)" opacity="0.35" />
+      <g style={{ filter: 'drop-shadow(0 0 4px rgba(43,231,107,0.5))' }}>
+        <use href={`#${markId}`} stroke="#2BE76B" fill="#2BE76B" clipPath={`url(#${topId})`} />
+        <use href={`#${markId}`} stroke="#2BE76B" fill="#2BE76B" clipPath={`url(#${bandId})`} transform="translate(4.2, 0)" />
+        <use href={`#${markId}`} stroke="#2BE76B" fill="#2BE76B" clipPath={`url(#${bottomId})`} transform="translate(-1.4, 0)" />
+      </g>
+    </svg>
+  );
 }
 
 const VARIANTS: Record<ThemeId, React.ReactNode> = {
@@ -139,18 +179,21 @@ const VARIANTS: Record<ThemeId, React.ReactNode> = {
   ),
 
   matrix: (
-    <span
-      style={{
-        fontFamily: "'Share Tech Mono', 'IBM Plex Mono', monospace",
-        fontSize: 13,
-        letterSpacing: '0.1em',
-        textTransform: 'uppercase',
-        color: '#2BE76B',
-        textShadow: '0 0 8px rgba(43, 231, 107, 0.35)',
-      }}
-    >
-      <span style={{ color: '#12805B', textShadow: 'none' }}>&gt;_</span> SYFLO
-    </span>
+    <>
+      <MatrixMark size={20} />
+      <span
+        style={{
+          fontFamily: "'Share Tech Mono', 'IBM Plex Mono', monospace",
+          fontSize: 13,
+          letterSpacing: '0.1em',
+          textTransform: 'uppercase',
+          color: '#2BE76B',
+          textShadow: '0 0 8px rgba(43, 231, 107, 0.35)',
+        }}
+      >
+        SYFLO
+      </span>
+    </>
   ),
 };
 

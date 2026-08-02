@@ -19,8 +19,8 @@ const fs = require('fs');
 const FAKE_SERVER = path.join(__dirname, 'fake-whisper-server.js');
 const PORT = 18991;
 
-// Ein winziges, aber echtes WAV (44-Byte-Header + ein paar Samples) — der
-// Endpoint soll echte Bytes durchreichen, nicht nur "irgendein Body".
+// A tiny but real WAV (44-byte header + a few samples) — the endpoint
+// should pass through real bytes, not just "some body".
 function tinyWav() {
   const header = Buffer.alloc(44);
   header.write('RIFF', 0);
@@ -32,7 +32,7 @@ function tinyWav() {
 function makeManager(overrides = {}) {
   return createWhisperManager({
     buildCommand: (port) => ['node', FAKE_SERVER, String(port)],
-    modelPath: __filename, // irgendeine existierende Datei
+    modelPath: __filename, // any existing file
     port: PORT,
     idleMs: 60_000,
     ...overrides,
@@ -93,11 +93,11 @@ describe('POST /api/transcribe', () => {
       .send(tinyWav());
     expect(manager.isRunning()).toBe(true);
 
-    // Idle-Timeout verstreichen lassen → Prozess muss weg sein.
+    // Let the idle timeout elapse → the process must be gone.
     await new Promise(r => setTimeout(r, 500));
     expect(manager.isRunning()).toBe(false);
 
-    // Nächstes Diktat startet ihn transparent neu.
+    // The next dictation restarts it transparently.
     const res = await request(app)
       .post('/api/transcribe')
       .set('Content-Type', 'audio/wav')
@@ -130,14 +130,14 @@ describe('POST /api/transcribe', () => {
       .set('Content-Type', 'audio/wav')
       .send(wav);
 
-    // Der Fake spiegelt die empfangenen Multipart-Felder in den Text.
+    // The fake mirrors the received multipart fields into the text.
     expect(res.body.text).toContain('language=auto');
     expect(res.body.text).toContain(`bytes=${wav.length}`);
   });
 
   it('collapses whisper segment line breaks into single spaces', async () => {
-    // whisper-server trennt Segmente mit \n — im Composer soll das Diktat
-    // aber als EIN Fließtext-Block landen.
+    // whisper-server separates segments with \n — in the composer, however,
+    // the dictation should land as ONE flowing text block.
     manager = makeManager();
     app = createApp(db, { transcribe: { manager } });
 
@@ -163,10 +163,10 @@ describe('POST /api/transcribe', () => {
   });
 });
 
-// Whisper gibt bei Stille/Nicht-Sprache Marker aus den Trainings-Untertiteln
-// zurück ([BLANK_AUDIO], [Musik], (soft music), ♪) — die dürfen nie als
-// "Diktat" im Eingabefeld landen.
-describe('cleanTranscript – Nicht-Sprach-Marker', () => {
+// For silence/non-speech Whisper returns markers from its training subtitles
+// ([BLANK_AUDIO], [Musik], (soft music), ♪) — these must never land in the
+// input field as "dictation".
+describe('cleanTranscript – non-speech markers', () => {
   it('turns a silence-only transcript into an empty string', () => {
     expect(cleanTranscript('[BLANK_AUDIO]')).toBe('');
     expect(cleanTranscript(' [BLANK_AUDIO] \n [BLANK_AUDIO] ')).toBe('');

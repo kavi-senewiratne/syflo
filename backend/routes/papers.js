@@ -19,7 +19,7 @@ const defaultArxiv = require('../arxiv');
 const defaultSemanticScholar = require('../semantic-scholar');
 const { prepareSourceInBackground } = require('../retrieval');
 
-// ─── URL-Import-Helfer (1:1 aus Syflo routes/papers.js) ─────────────────────
+// ─── URL import helpers (1:1 from Syflo routes/papers.js) ───────────────────
 
 // arXiv /abs/ links are rewritten to the direct /pdf/ URL automatically.
 function normalizeUrl(url) {
@@ -72,7 +72,7 @@ function extractCitationPdfUrl(html, baseUrl) {
   }
 }
 
-// ─── Such-Merge-Helfer (1:1 aus Syflo routes/papers.js) ─────────────────────
+// ─── Search merge helpers (1:1 from Syflo routes/papers.js) ─────────────────
 
 // Pull the SearchResult[] out of a Promise.allSettled outcome from either
 // search backend (OpenAlex returns `{ results, rate_limited }`, arXiv either
@@ -173,12 +173,12 @@ module.exports = (db, uploadsDir, options = {}) => {
   const arxivSearchFn = options.arxivSearchFn || defaultArxiv.searchPapers;
   const ssSearchFn = options.searchFn || defaultSemanticScholar.searchPapers;
   const urlFetchFn = options.urlFetchFn || fetch;
-  // Retrieval-Vorbereitung (ADR-0006), injectable for tests.
+  // Retrieval preparation (ADR-0006), injectable for tests.
   const extractPdfTextFn = options.extractPdfTextFn || require('../pdf-text').extractPdfText;
   const embedTextsFn = options.embedTextsFn;
 
-  // Direkt nach dem Import: Text extrahieren + cachen und lange Papers im
-  // Hintergrund chunken/einbetten — die erste Frage wartet auf nichts davon.
+  // Right after the import: extract + cache the text and chunk/embed long
+  // papers in the background — the first question waits for none of this.
   function preparePaperInBackground(row) {
     prepareSourceInBackground(db, {
       sourceType: 'paper',
@@ -262,8 +262,8 @@ module.exports = (db, uploadsDir, options = {}) => {
       discardUpload();
       return res.status(404).json({ error: 'Chat not found' });
     }
-    // ADR-0005 generalisiert ADR-0002: ein Baum hat höchstens EINE Quelle —
-    // PDF oder YouTube transcript.
+    // ADR-0005 generalizes ADR-0002: a tree has at most ONE source —
+    // PDF or YouTube transcript.
     if (root.paper_id || root.video_id) {
       discardUpload();
       return res.status(409).json({ error: 'tree-has-source', root_chat_id: root.id });
@@ -285,9 +285,9 @@ module.exports = (db, uploadsDir, options = {}) => {
   });
 
   // GET /api/papers/search?q=... — paper search for the "Research paper"
-  // modal (1:1 aus Syflo). OpenAlex + arXiv parallel, Ergebnisse gemergt und
-  // dedupliziert; Semantic Scholar nur, wenn BEIDE Primärquellen ausfallen.
-  // Muss vor GET /:id registriert sein, sonst frisst die :id-Route den Pfad.
+  // modal (1:1 from Syflo). OpenAlex + arXiv in parallel, results merged and
+  // deduplicated; Semantic Scholar only when BOTH primary sources fail.
+  // Must be registered before GET /:id, otherwise the :id route eats the path.
   //
   // Response shape: { results, rate_limited, retry_after_seconds? }
   router.get('/search', async (req, res, next) => {
@@ -333,12 +333,12 @@ module.exports = (db, uploadsDir, options = {}) => {
   });
 
   // POST /api/papers/from-url — import a paper by URL and bind it to the
-  // chat tree of `chat_id` (Syflo-Port ohne Marker: das Paper ist sofort
-  // 'ready'). Body: { url, chat_id, title?, fallback_urls? }.
+  // chat tree of `chat_id` (Syflo port without Marker: the paper is
+  // immediately 'ready'). Body: { url, chat_id, title?, fallback_urls? }.
   //
-  // ADR-0002 gilt wie beim Upload: hat der Tree schon ein PDF, antwortet die
-  // Route mit 409 'tree-has-pdf' — geprüft VOR dem Download, damit der
-  // Fehlfall keine Publisher-Requests verbrennt.
+  // ADR-0002 applies as with upload: if the tree already has a PDF, the
+  // route responds with 409 'tree-has-pdf' — checked BEFORE the download so
+  // the failure case burns no publisher requests.
   router.post('/from-url', async (req, res) => {
     const { url, title, fallback_urls, chat_id } = req.body || {};
     if (!url || typeof url !== 'string') {
@@ -411,7 +411,7 @@ module.exports = (db, uploadsDir, options = {}) => {
             const html = await r.text();
             resolvedPdfUrl = extractCitationPdfUrl(html, candidate);
             academicHtml = hasAcademicHtmlSignals(html);
-          } catch (_) { /* fällt in den Wrong-content-type-Fehler durch */ }
+          } catch (_) { /* falls through to the wrong-content-type error */ }
         }
         return { ok: false, status: r.status, error: `wrong content-type (${ct || 'unknown'})`, contentType: ct, resolvedPdfUrl, academicHtml };
       }
@@ -446,8 +446,8 @@ module.exports = (db, uploadsDir, options = {}) => {
           (a) => a.academicHtml || (a.resolvedPdfUrl && typeof a.resolvedPdfUrl === 'string'),
         ) || candidates.some(urlLooksLikePaperIntent);
       if (!hasAcademicSignal) {
-        // `error` bleibt der stabile Maschinen-Code (Tests + API-Verträge);
-        // `message` ist die Meldung, die das Modal dem User anzeigt.
+        // `error` stays the stable machine code (tests + API contracts);
+        // `message` is the message the modal shows the user.
         return res.status(422).json({
           error: 'not-a-paper',
           message:
@@ -527,7 +527,7 @@ module.exports = (db, uploadsDir, options = {}) => {
   return router;
 };
 
-// Helfer-Exporte für Unit-Tests (gleiches Muster wie in Syflo).
+// Helper exports for unit tests (same pattern as in Syflo).
 module.exports.mergeSearchResults = mergeSearchResults;
 module.exports.normalizeTitleKey = normalizeTitleKey;
 module.exports.stripHtmlFromTitle = stripHtmlFromTitle;

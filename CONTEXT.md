@@ -42,6 +42,15 @@ the direct parent verbatim, grandparents+ as cached **chat summaries**, plus the
 `parent_word` chain. Never includes sibling branches.
 _Avoid_: parent context (that's the UI pane), history injection
 
+**Selection surroundings**:
+The text-layer lines around a PDF selection (±2 spans, ≤400 chars), captured at
+selection time and stored as `chats.parent_context` when a branch is opened from a
+PDF selection (decision 2026-07-26). Needed because PDF text extraction flattens
+math notation ("Rm" for ℝ^m); the branch prompt cites the surroundings and warns the
+model about the flattening. Chat-selection branches don't carry it — their
+`parent_word` is already the full selected passage.
+_Avoid_: selection context (too close to ancestor context), snippet
+
 **Chat summary**:
 The cached ~120-word LLM summary of one chat (`chats.summary`), used as the inherited
 form of grandparents+ in the ancestor context. Kept live via a staleness check on the
@@ -74,7 +83,9 @@ _Avoid_: summary (it's verbatim material, not a rewrite), outline (that's one pa
 
 **Source chunk**:
 A paragraph-aligned piece of a source (~800 tokens, with its section heading),
-embedded via the local embedding model and cached in `source_chunks`. Per question,
+embedded via the local embedding model — embeddings always run locally, regardless of
+the chat provider — and cached in `source_chunks`. The cache is stamped with the
+embedding model that produced it; a mismatch triggers a rebuild. Per question,
 the top-8 by cosine similarity are injected in document order.
 _Avoid_: passage, snippet, embedding (that's the vector, not the text)
 
@@ -107,10 +118,26 @@ but its host blocks automated download), *paywalled* (no free copy; only a publi
 link is offered).
 _Avoid_: access status, lock state
 
+**Cloud provider**:
+A chat-reply provider that runs on an external service using the user's own API key —
+Syflo never ships, proxies, or shares keys. Some cloud providers include a free quota
+("Free" cost badge); that is a pricing property, not a separate kind of provider. Every
+cloud provider comes with a step-by-step in-app guide for obtaining its key.
+_Avoid_: free provider (as a category), remote model
+
+**Local provider**:
+The chat-reply provider that runs models on the user's own machine. Its promise is
+privacy — chat content (source, questions, answers) never leaves the device. That it
+also happens to work without internet (for PDF trees, without web search) is a side
+effect, not the promise.
+_Avoid_: offline mode, offline provider
+
 **Vision model**:
 A chat model that can read images, including text inside images (figures, screenshots,
 scans). For the local provider, only vision models are offered for selection — models
-without this ability are not selectable.
+without this ability are not selectable. Cloud providers may offer text-only models;
+those are labeled as such, and image attachments are rejected with a hint while one is
+active — never silently dropped.
 _Avoid_: multimodal model (unqualified), OCR model
 
 **Model ladder**:
@@ -161,6 +188,13 @@ chosen in Settings. Does not change the reply language of the user's own convers
 always auto-detects.
 _Avoid_: locale (technical term), UI language (too narrow — it also governs auto-sent
 messages), language (unqualified)
+
+**Feedback**:
+A short text message (kind: Bug / Idea / Question, plus optional reply-to
+email) sent from the sidebar button or the `/feedback` composer command to a
+private inbox (ADR-0010) — never auto-posted as a public GitHub issue.
+_Avoid_: bug report (too narrow — also covers ideas/questions), issue (that's
+the public GitHub artifact the maintainer may create afterward)
 
 **Dictation**:
 Voice input in the chat composer: while recording, speech is buffered; on stop the

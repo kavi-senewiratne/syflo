@@ -22,6 +22,7 @@ import { Check, MessageSquare, Trash2 } from 'lucide-react';
 import { HIGHLIGHT_COLORS } from '../../types';
 import type { HighlightColor } from '../../types';
 import { useLabels } from '../../hooks/useLabels';
+import { useStrings } from '../../strings';
 
 const SWATCH_BG: Record<HighlightColor, string> = {
   yellow: 'bg-[#FEF08A]',
@@ -55,6 +56,8 @@ export function HighlightActionsMenu({
 }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const { labels } = useLabels();
+  // UI-Texte in der App language — re-rendert beim Sprachwechsel mit.
+  const S = useStrings().highlightMenu;
 
   useEffect(() => {
     const onPointer = (e: MouseEvent) => {
@@ -93,7 +96,7 @@ export function HighlightActionsMenu({
     >
       <div className="px-3 pt-2.5 pb-2 border-b border-gray-100">
         <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 mb-1.5">
-          Change color
+          {S.changeColor}
         </p>
         <div className="flex justify-between items-center gap-1">
           {HIGHLIGHT_COLORS.map((c) => {
@@ -123,7 +126,7 @@ export function HighlightActionsMenu({
             className="w-full flex items-center gap-2.5 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
           >
             <MessageSquare size={14} className="text-gray-500" />
-            Open linked chat
+            {S.openLinkedChat}
           </button>
         )}
         <button
@@ -132,7 +135,7 @@ export function HighlightActionsMenu({
           className="w-full flex items-center gap-2.5 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
         >
           <Trash2 size={14} className="text-gray-500" />
-          Delete highlight
+          {S.deleteHighlight}
         </button>
       </div>
     </div>

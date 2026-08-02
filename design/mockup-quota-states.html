@@ -1,0 +1,709 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Syflo · Quota exhaustion — every state of the token-limit journey</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --brand-blue: #3B82F6;
+    --bg-app: #F8FAFC;
+    --surface: #FFFFFF;
+    --text-strong: #0F172A;
+    --text-default: #334155;
+    --text-muted: #64748B;
+    --border: #E2E8F0;
+    --blue-50: #EFF6FF; --blue-100: #DBEAFE; --blue-700: #1D4ED8;
+    --gray-50: #F9FAFB; --gray-100: #F3F4F6; --gray-200: #E5E7EB;
+    --gray-400: #9CA3AF; --gray-500: #6B7280;
+    --amber-50: #FFFBEB; --amber-200: #FDE68A; --amber-700: #B45309;
+    --green-600: #16A34A;
+    --shadow: 0 1px 3px rgba(15,23,42,0.06), 0 1px 2px rgba(15,23,42,0.04);
+    --shadow-lg: 0 10px 30px rgba(15,23,42,0.10), 0 4px 10px rgba(15,23,42,0.05);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Inter', -apple-system, sans-serif; background: var(--bg-app);
+    color: var(--text-default); -webkit-font-smoothing: antialiased;
+    min-height: 100vh; padding: 48px 32px 96px;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; }
+
+  .intro { margin-bottom: 40px; }
+  .intro h1 { font-size: 24px; font-weight: 700; color: var(--text-strong); letter-spacing: -0.015em; margin-bottom: 8px; }
+  .intro p { font-size: 14px; color: var(--text-muted); line-height: 1.6; max-width: 820px; }
+
+  .section { margin-bottom: 56px; }
+  .section-label {
+    font-size: 12px; font-weight: 600; color: var(--text-muted);
+    letter-spacing: 0.06em; text-transform: uppercase;
+    display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px;
+  }
+  .section-label .num { color: var(--brand-blue); font-weight: 700; }
+  .tag { font-size: 9.5px; font-weight: 700; letter-spacing: 0.05em; border-radius: 4px; padding: 2px 6px; text-transform: uppercase; }
+  .tag.keep { background: var(--gray-100); color: var(--gray-500); }
+  .tag.replace { background: var(--amber-50); color: var(--amber-700); border: 1px solid var(--amber-200); }
+  .tag.new { background: var(--blue-50); color: var(--blue-700); border: 1px solid var(--blue-100); }
+  .section-desc { font-size: 13px; color: var(--text-muted); line-height: 1.55; margin-bottom: 18px; max-width: 820px; }
+  .section-desc strong { color: var(--text-default); }
+  .section-desc code { font-family: 'JetBrains Mono', monospace; font-size: 11.5px; background: var(--gray-100); border-radius: 4px; padding: 1px 5px; }
+
+  .stage { background: #E2E8F0; border-radius: 14px; padding: 36px 24px; display: flex; justify-content: center; gap: 28px; align-items: flex-start; flex-wrap: wrap; }
+  .state-label {
+    text-align: center; font-size: 10.5px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.06em; color: var(--text-muted); margin-bottom: 10px;
+  }
+  .col { display: flex; flex-direction: column; }
+
+  /* ── Chat pane ── */
+  .chat-pane {
+    width: 400px; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; overflow: hidden; box-shadow: var(--shadow); position: relative;
+  }
+  .chat-msgs { padding: 16px 16px 18px; display: flex; flex-direction: column; gap: 12px; }
+  .bubble-user { align-self: flex-end; background: var(--brand-blue); color: white; font-size: 11.5px; line-height: 1.5; padding: 7px 10px; border-radius: 12px 12px 4px 12px; max-width: 88%; }
+  .bubble-ai { align-self: flex-start; color: var(--text-default); font-size: 11.5px; line-height: 1.6; max-width: 94%; }
+
+  svg { flex: none; }
+
+  /* Gray meta rows (failover note, countdown, interrupted style) */
+  .meta-row { display: flex; align-items: center; gap: 6px; font-size: 11px; font-style: italic; color: var(--gray-400); }
+  .meta-row.no-italic { font-style: normal; }
+
+  /* Failed / quota card */
+  .fail-card { display: flex; flex-direction: column; align-items: flex-start; gap: 9px; font-size: 11.5px; color: var(--gray-500); }
+  .fail-line { display: flex; align-items: center; gap: 7px; }
+  .fail-line .msg { font-style: italic; }
+  .info-line { display: flex; align-items: center; gap: 6px; font-size: 10.5px; color: var(--gray-400); }
+  .btn-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 5px;
+    border: 1px solid var(--gray-200); border-radius: 7px; background: var(--surface);
+    padding: 3px 10px; font-size: 11px; font-weight: 500; color: var(--gray-500);
+    font-family: inherit; cursor: pointer;
+  }
+  .btn:hover { background: var(--gray-50); }
+  .btn.primaryish { border-color: var(--blue-100); background: var(--blue-50); color: var(--blue-700); font-weight: 600; }
+  .btn.disabled { opacity: 0.55; cursor: default; }
+  .footnote { font-size: 10px; color: var(--gray-400); }
+
+  .annot { width: 400px; margin-top: 12px; font-size: 11px; line-height: 1.55; color: var(--text-muted); }
+  .annot strong { color: var(--text-default); }
+
+  /* ── Model picker (section 06) ── */
+  .picker { width: 300px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow-lg); overflow: hidden; }
+  .picker .group { padding: 6px 0; }
+  .picker .group + .group { border-top: 1px solid var(--border); }
+  .picker .group-head { font-size: 9.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--gray-400); padding: 6px 12px 4px; }
+  .picker .item { display: flex; align-items: center; gap: 8px; padding: 7px 12px; font-size: 12px; color: var(--text-default); cursor: pointer; }
+  .picker .item:hover { background: var(--gray-50); }
+  .picker .item svg { color: var(--gray-400); }
+  .picker .item .name { flex: 1; min-width: 0; }
+  .picker .item .sub { display: block; font-size: 10px; color: var(--gray-400); margin-top: 1px; }
+  .picker .item.cooling { color: var(--gray-400); }
+  .picker .item.cooling .name { text-decoration: none; }
+  .cool-badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 9.5px; font-weight: 600; color: var(--amber-700);
+    background: var(--amber-50); border: 1px solid var(--amber-200);
+    border-radius: 999px; padding: 1px 7px; white-space: nowrap;
+  }
+  .picker .check { color: var(--brand-blue); }
+
+  .flow-note { font-size: 12px; color: var(--text-muted); line-height: 1.6; max-width: 820px; margin-top: 14px; }
+
+  /* ── §09/§10: waiting bubble (thinking-tips card) with rate-limit status.
+     Drawn in the NEUTRAL standard theme like every other section — the app
+     recolors all of this per theme via the token overrides (the user's
+     screenshots showed the cream fun theme; same structure, other skin). ── */
+  .tip-card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+    box-shadow: var(--shadow); padding: 14px 16px 12px;
+  }
+  .tip-dots { display: flex; gap: 5px; margin-bottom: 10px; }
+  .tip-dots span { width: 7px; height: 7px; border-radius: 999px; background: var(--gray-400); }
+  .tip-text { font-size: 12px; line-height: 1.6; color: var(--text-default); }
+  .tip-text b { font-weight: 700; color: var(--text-strong); }
+  .tip-old-status { display: flex; align-items: center; gap: 6px; margin-top: 10px; font-size: 11.5px; font-style: italic; color: var(--gray-400); }
+  .tip-divider { height: 1px; background: var(--border); margin: 11px -16px 0; }
+  .wait-chip {
+    display: inline-flex; align-items: center; gap: 6px; margin-top: 11px;
+    font-size: 11px; font-weight: 600; color: var(--amber-700);
+    background: var(--amber-50); border: 1px solid var(--amber-200);
+    border-radius: 999px; padding: 3px 10px;
+  }
+  .wait-chip .count { font-variant-numeric: tabular-nums; }
+  .wait-chip .spin {
+    width: 10px; height: 10px; border-radius: 999px;
+    border: 2px solid var(--amber-200); border-top-color: var(--amber-700);
+    animation: mockspin 0.9s linear infinite;
+  }
+  @keyframes mockspin { to { transform: rotate(360deg); } }
+  /* §10 v2 — variant B: draining progress bar under the tip */
+  .wait-block { margin-top: 12px; }
+  .wait-block-row { display: flex; justify-content: space-between; align-items: baseline; font-size: 10.5px; color: var(--gray-500); margin-bottom: 5px; }
+  .wait-count { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--text-default); }
+  .wait-track { height: 3px; border-radius: 999px; background: var(--gray-100); overflow: hidden; }
+  .wait-fill { height: 100%; width: 34%; border-radius: 999px; background: var(--gray-400); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="intro">
+    <h1>Quota exhaustion — every state of the token-limit journey</h1>
+    <p>
+      What the chat shows as cloud tokens run out, in the order the user experiences it:
+      short waits (01), silent failover between models (02), and the end of the ladder when
+      every candidate is cooling down (03–05). Sections 04–05 replace the current
+      all-exhausted card: <em>Retry</em> disappears while it cannot work, a reset-time line
+      says when the cloud comes back, and the local model becomes the primary way out.
+      Section 06 surfaces the same information proactively in the model picker.
+      Sections 04/05/08 carry the <strong>copy v2</strong> proposal (2026-07-26): one precise
+      message per cause (<code>quotaReason</code>: daily / minute limits / request too large)
+      instead of the generic “alle Cloud-Kontingente sind aufgebraucht”.
+      German copy comes from <em>strings.ts</em> (DE); backend behavior from
+      <em>routes/messages.js</em> (ADR-0008, slice 5).
+      <strong>See also:</strong> <em>mockup-model-flow.html</em> (2026-07-26) — the audited
+      companion covering the FULL journey around these cards: verified per-state status map,
+      grouped picker, the swallowed-error cards, queue transparency, the Interrupted exit and
+      the local→cloud privacy guard. All of it was BUILT the same day (2026-07-26): the picker
+      is now grouped with unfiltered cross-provider badges, and the deviations listed there
+      (daily-card clock, billing-link provider, retry re-arming) are fixed.
+    </p>
+  </div>
+
+  <!-- ════════════════════ 01 ════════════════════ -->
+  <div class="section">
+    <div class="section-label"><span class="num">01</span> Minute limit — visible wait <span class="tag keep">exists · unchanged</span></div>
+    <p class="section-desc">
+      A per-minute limit (429) with <strong>no free fallback candidate</strong> is waited out
+      in place: the SSE <code>rateLimit</code> event renders a countdown row, max. 3 attempts,
+      <code>Retry-After</code> respected. If any candidate is free the backend switches
+      immediately instead of waiting — then the user sees 02, never 01.
+    </p>
+    <div class="stage">
+      <div class="col">
+        <div class="state-label">Waiting for retry</div>
+        <div class="chat-pane">
+          <div class="chat-msgs">
+            <div class="bubble-user">Warum nutzt der Autor hier LoRA statt Full-Finetuning?</div>
+            <div class="meta-row no-italic">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+              Rate-Limit erreicht — neuer Versuch in 18 s
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════════ 02 ════════════════════ -->
+  <div class="section">
+    <div class="section-label"><span class="num">02</span> Failover note — another model answered <span class="tag keep">exists · unchanged</span></div>
+    <p class="section-desc">
+      A quota hit with a free candidate switches silently; the note stays with the answer
+      because it explains <strong>who it is from</strong>. Same-provider sibling (left) is the
+      common case and names the models; cross-provider (right) names the providers.
+    </p>
+    <div class="stage">
+      <div class="col">
+        <div class="state-label">Same provider</div>
+        <div class="chat-pane">
+          <div class="chat-msgs">
+            <div class="bubble-user">Fass die Ergebnisse in Abschnitt 5 zusammen.</div>
+            <div class="bubble-ai">
+              <div class="meta-row" style="margin-bottom:6px">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3 4 7l4 4"/><path d="M4 7h16"/><path d="m16 21 4-4-4-4"/><path d="M20 17H4"/></svg>
+                Kontingent bei Gemini 2.5 Flash erschöpft — diese Antwort kommt von Gemini 2.5 Flash-Lite.
+              </div>
+              Die Autoren berichten drei Kernergebnisse: Erstens erreicht das Modell auf dem Benchmark eine um 4,2 Punkte höhere Genauigkeit …
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="col">
+        <div class="state-label">Cross-provider</div>
+        <div class="chat-pane">
+          <div class="chat-msgs">
+            <div class="bubble-user">Fass die Ergebnisse in Abschnitt 5 zusammen.</div>
+            <div class="bubble-ai">
+              <div class="meta-row" style="margin-bottom:6px">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3 4 7l4 4"/><path d="M4 7h16"/><path d="m16 21 4-4-4-4"/><path d="M20 17H4"/></svg>
+                Kontingent bei Google Gemini erschöpft — diese Antwort kommt von Groq (Llama 4 Scout).
+              </div>
+              Die Autoren berichten drei Kernergebnisse: Erstens erreicht das Modell auf dem Benchmark eine um 4,2 Punkte höhere Genauigkeit …
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════════ 03 ════════════════════ -->
+  <div class="section">
+    <div class="section-label"><span class="num">03</span> All quotas exhausted — current card <span class="tag replace">current · to be replaced</span></div>
+    <p class="section-desc">
+      Today's card offers <em>Erneut versuchen</em> even when every candidate is cooling down
+      until UTC midnight — the click runs straight back into the same dead end. It also says
+      nothing about <strong>when</strong> the cloud comes back. Replaced by 04/05, which split
+      the state by cooldown type.
+    </p>
+    <div class="stage">
+      <div class="col">
+        <div class="state-label">Current — misleading retry</div>
+        <div class="chat-pane">
+          <div class="chat-msgs">
+            <div class="bubble-user">Und wie groß war das Trainingsset?</div>
+            <div class="fail-card">
+              <div class="fail-line">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                <span class="msg">Alle Cloud-Kontingente sind vorerst aufgebraucht.</span>
+              </div>
+              <div class="btn-row">
+                <button class="btn">
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+                  Erneut versuchen
+                </button>
+                <button class="btn">Mit lokalem Modell antworten</button>
+              </div>
+              <div class="footnote">Das lokale Modell kann deutlich langsamer sein.</div>
+            </div>
+          </div>
+        </div>
+        <p class="annot"><strong>Problem:</strong> with a daily limit, retry is a no-op until
+        UTC midnight — the button promises something it cannot deliver. (This pane is a 1:1
+        snapshot of today's <em>MessageBubble.tsx</em>, which is also why the local button has
+        no icon — the redesigned states 04/05 give it the CPU icon everywhere.)</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════════ 04 ════════════════════ -->
+  <div class="section">
+    <div class="section-label"><span class="num">04</span> Daily limit — no retry, reset time shown <span class="tag new">built · copy v2 proposed 2026-07-26</span></div>
+    <p class="section-desc">
+      When the earliest cooldown expiry (<code>retryAt</code>, sent with the SSE error) lies
+      far ahead — the daily-limit case — the retry button is <strong>gone</strong>. A quiet
+      clock line answers the open question (“when can I use the cloud again?”), the local
+      model becomes the single, visually primary way out. “Voraussichtlich” and “ca.” stay in
+      the copy: UTC midnight is an estimate and cooldowns live in memory.
+      <strong>Copy v2:</strong> the message names the CAUSE (“Tageskontingent”) instead of the
+      generic “alle Cloud-Kontingente … aufgebraucht” — the backend sends a
+      <code>quotaReason</code> (<code>'daily' | 'rate_limit' | 'too_large'</code>) alongside
+      <code>retryAt</code>, live incident 2026-07-26: 18/250 daily used, yet the card
+      suggested everything was gone.
+      <strong>Decision (user, 2026-07-26):</strong> NO “Modell wechseln” button here — with a
+      daily limit the failover has already tried every keyed cloud model, switching cannot
+      help. <strong>Structure v3 (user feedback: too much text):</strong> one line per
+      purpose — message, clock line, button row, footnote. The upgrade instruction becomes
+      the “Limit erhöhen” button (external-link icon): it opens the provider's billing page
+      in the browser (URL per provider from <code>registry.json</code>), and its tooltip
+      carries the explanation “Bezahlter Plan bei deinem Anbieter — dein API-Key in Syflo
+      bleibt derselbe.” BYO-Key (ADR-0008): no app change needed.
+    </p>
+    <div class="stage">
+      <div class="col">
+        <div class="state-label">Daily quota exhausted — copy v2</div>
+        <div class="chat-pane">
+          <div class="chat-msgs">
+            <div class="bubble-user">Und wie groß war das Trainingsset?</div>
+            <div class="fail-card">
+              <div class="fail-line">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                <span class="msg">Das Tageskontingent der Cloud-Modelle ist aufgebraucht.</span>
+              </div>
+              <div class="info-line">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                Voraussichtlich wieder verfügbar ab ca. 02:00 Uhr.
+              </div>
+              <div class="btn-row">
+                <button class="btn primaryish">
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 2v2"/><path d="M15 2v2"/><path d="M9 20v2"/><path d="M15 20v2"/><path d="M2 9h2"/><path d="M2 15h2"/><path d="M20 9h2"/><path d="M20 15h2"/></svg>
+                  Mit lokalem Modell antworten
+                </button>
+                <button class="btn" title="Bezahlter Plan bei deinem Anbieter (z. B. Google AI Studio) — dein API-Key in Syflo bleibt derselbe.">
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>
+                  Limit erhöhen
+                </button>
+              </div>
+              <div class="footnote">Das lokale Modell kann deutlich langsamer sein.</div>
+            </div>
+          </div>
+        </div>
+        <p class="annot"><strong>Backend:</strong> the error payload gains
+        <code style="font-family:'JetBrains Mono',monospace;font-size:10px">retryAt</code> =
+        earliest expiry across <code style="font-family:'JetBrains Mono',monospace;font-size:10px">quotaCooldowns</code>.
+        The frontend picks this layout when retryAt − now &gt; ~5 min. The upgrade line
+        replaces the “Modell wechseln” button (user decision 2026-07-26): switching cannot
+        help here, paying can — and thanks to BYO-Key the app needs no change for it.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════════ 05 ════════════════════ -->
+  <div class="section">
+    <div class="section-label"><span class="num">05</span> Short cooldown (90 s) — retry comes back on its own <span class="tag new">built · copy v2 proposed 2026-07-26</span></div>
+    <p class="section-desc">
+      After three failed attempts against per-minute limits the cooldown is only 90 s — here a
+      retry <strong>does</strong> work, just not yet. Chosen treatment: the button stays
+      visible but disabled, with the countdown inside it — the affordance stays discoverable.
+      (A hidden-button variant with a countdown info line was considered and dropped.)
+      <strong>Copy v2:</strong> “an ihren Minuten-Limits” names the real cause — “aufgebraucht”
+      read like the daily quota was gone (live confusion 2026-07-26: 18/250 used). A quiet
+      second line explains WHY the minute budget empties faster than expected: question
+      bursts and web-search rounds each count as extra requests.
+    </p>
+    <div class="stage">
+      <div class="col">
+        <div class="state-label">During cooldown — copy v2 with cause line</div>
+        <div class="chat-pane">
+          <div class="chat-msgs">
+            <div class="bubble-user">Und wie groß war das Trainingsset?</div>
+            <div class="fail-card">
+              <div class="fail-line">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                <span class="msg">Die Cloud-Modelle sind gerade an ihren Minuten-Limits.</span>
+              </div>
+              <div class="info-line">
+                Mehrere Fragen kurz nacheinander — auch Websuchen zählen als eigene Anfragen.
+              </div>
+              <div class="btn-row">
+                <button class="btn disabled">
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+                  Erneut versuchen (58 s)
+                </button>
+                <button class="btn primaryish">
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 2v2"/><path d="M15 2v2"/><path d="M9 20v2"/><path d="M15 20v2"/><path d="M2 9h2"/><path d="M2 15h2"/><path d="M20 9h2"/><path d="M20 15h2"/></svg>
+                  Mit lokalem Modell antworten
+                </button>
+              </div>
+              <div class="footnote">Das lokale Modell kann deutlich langsamer sein.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="col">
+        <div class="state-label">After the timer — ready again</div>
+        <div class="chat-pane">
+          <div class="chat-msgs">
+            <div class="bubble-user">Und wie groß war das Trainingsset?</div>
+            <div class="fail-card">
+              <div class="fail-line">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                <span class="msg">Die Cloud-Modelle sind gerade an ihren Minuten-Limits.</span>
+              </div>
+              <div class="btn-row">
+                <button class="btn">
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+                  Erneut versuchen
+                </button>
+                <button class="btn primaryish">
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 2v2"/><path d="M15 2v2"/><path d="M9 20v2"/><path d="M15 20v2"/><path d="M2 9h2"/><path d="M2 15h2"/><path d="M20 9h2"/><path d="M20 15h2"/></svg>
+                  Mit lokalem Modell antworten
+                </button>
+              </div>
+              <div class="footnote">Das lokale Modell kann deutlich langsamer sein.</div>
+            </div>
+          </div>
+        </div>
+        <p class="annot">Once <code style="font-family:'JetBrains Mono',monospace;font-size:10px">retryAt</code>
+        passes, the countdown vanishes and retry becomes clickable — the button is only ever
+        active when clicking it can actually work. The local button keeps its icon and styling
+        so the card does not jump when the timer fires.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════════ 06 ════════════════════ -->
+  <div class="section">
+    <div class="section-label"><span class="num">06</span> Proactive: cooldown badges in the model picker <span class="tag new">proposed · optional</span></div>
+    <p class="section-desc">
+      The same <code>quotaCooldowns</code> data, surfaced <strong>before</strong> sending:
+      cooling models stay selectable (the backend skips them anyway and fails over) but are
+      dimmed and carry a reset badge. The local model never cools down. Answers “can I still
+      use the cloud models?” without provoking a failed send.
+    </p>
+    <div class="stage">
+      <div class="col">
+        <div class="state-label">Model picker while quotas cool down</div>
+        <div class="picker">
+          <div class="group">
+            <div class="group-head">Cloud</div>
+            <div class="item cooling">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/></svg>
+              <span class="name">Gemini 2.5 Flash</span>
+              <span class="cool-badge">
+                <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                ab ca. 02:00
+              </span>
+            </div>
+            <div class="item cooling">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/></svg>
+              <span class="name">Gemini 2.5 Flash-Lite</span>
+              <span class="cool-badge">
+                <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                ab ca. 02:00
+              </span>
+            </div>
+            <div class="item cooling">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/></svg>
+              <span class="name">Llama 4 Scout <span class="sub">Groq</span></span>
+              <span class="cool-badge">
+                <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                in 58 s
+              </span>
+            </div>
+          </div>
+          <div class="group">
+            <div class="group-head">Lokal</div>
+            <div class="item">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 2v2"/><path d="M15 2v2"/><path d="M9 20v2"/><path d="M15 20v2"/><path d="M2 9h2"/><path d="M2 15h2"/><path d="M20 9h2"/><path d="M20 15h2"/></svg>
+              <span class="name">Qwen 3.5 9B <span class="sub">immer verfügbar</span></span>
+              <svg class="check" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════════ 07 ════════════════════ -->
+  <div class="section">
+    <div class="section-label"><span class="num">07</span> After a reload — generic failed row <span class="tag keep">exists · unchanged</span></div>
+    <p class="section-desc">
+      The <code>quotaExhausted</code> flag is transient by design: the persisted
+      <code>*Failed*</code> marker loses it on reload, and the in-memory cooldowns are gone
+      after a backend restart anyway. So a reloaded failed message shows the plain row with a
+      plain retry — which is honest again, because nobody knows the cooldown state anymore.
+    </p>
+    <div class="stage">
+      <div class="col">
+        <div class="state-label">Reloaded chat</div>
+        <div class="chat-pane">
+          <div class="chat-msgs">
+            <div class="bubble-user">Und wie groß war das Trainingsset?</div>
+            <div class="meta-row">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+              Antwort fehlgeschlagen.
+              <button class="btn" style="font-style:normal">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+                Erneut versuchen
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <p class="flow-note">
+      <strong>Decisions (2026-07-26):</strong> 05 uses the disabled-button-with-countdown
+      treatment (hidden-button variant dropped); the local button carries the CPU icon and
+      primary styling in every redesigned state (04, 05); the picker badges in 06 are
+      approved. Built the same day: <em>retryAt</em> in the SSE error, the 04/05 card in
+      <em>MessageBubble.tsx</em>, cooldown badges in the model picker.
+    </p>
+  </div>
+
+  <!-- ════════════════════ 08 ════════════════════ -->
+  <div class="section">
+    <div class="section-label"><span class="num">08</span> Request too large — no retry, no countdown <span class="tag new">proposed 2026-07-26</span></div>
+    <p class="section-desc">
+      The third cause the generic card hid: the question plus its context (a 15k-token paper
+      chat) exceeds a provider's per-request/per-minute token budget (Groq: ~8k TPM). Waiting
+      does NOT help — the same request fails deterministically — so the card shows neither a
+      retry button nor a countdown. <strong>Structure v3</strong> (user feedback: too much
+      text): message line + three buttons + footnote, nothing else — the explanations live
+      in the buttons' tooltips. Local stays primary; “Modell wechseln” opens the picker
+      (bigger-budget model often fits; §06 badges show which); “Limit erhöhen” opens the
+      provider's billing page (paid plans lift token budgets too).
+      <strong>Backend:</strong> the existing <code>too_large</code> branch sends
+      <code>quotaReason: 'too_large'</code>; the frontend picks this copy and suppresses
+      retry regardless of <code>retryAt</code>.
+    </p>
+    <div class="stage">
+      <div class="col">
+        <div class="state-label">Too large for the cloud budgets</div>
+        <div class="chat-pane">
+          <div class="chat-msgs">
+            <div class="bubble-user">Kannst du bitte alle Infos in diesem Paper strukturieren?</div>
+            <div class="fail-card">
+              <div class="fail-line">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                <span class="msg">Die Frage ist mit ihrem Kontext zu groß für die Cloud-Limits.</span>
+              </div>
+              <div class="btn-row">
+                <button class="btn primaryish">
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 2v2"/><path d="M15 2v2"/><path d="M9 20v2"/><path d="M15 20v2"/><path d="M2 9h2"/><path d="M2 15h2"/><path d="M20 9h2"/><path d="M20 15h2"/></svg>
+                  Mit lokalem Modell antworten
+                </button>
+                <button class="btn" title="Ein Modell mit größerem Token-Budget schafft die Frage oft — die Badges im Menü zeigen, welches frei ist. Nach der Wahl wird diese Antwort sofort neu versucht.">
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3 4 7l4 4"/><path d="M4 7h16"/><path d="m16 21 4-4-4-4"/><path d="M20 17H4"/></svg>
+                  Modell wechseln
+                </button>
+                <button class="btn" title="Lange Paper-Chats sprengen das Token-Budget mancher Anbieter. Ein bezahlter Plan hebt auch die Token-Budgets deutlich an — dein API-Key bleibt derselbe.">
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>
+                  Limit erhöhen
+                </button>
+              </div>
+              <div class="footnote">Das lokale Modell kann deutlich langsamer sein.</div>
+            </div>
+          </div>
+        </div>
+        <p class="annot"><strong>Why no retry:</strong> unlike 04/05 this failure is
+        size-dependent, not time-dependent — a retry sends the identical oversized request.
+        Showing a countdown here would promise a fix that never comes.
+        <strong>Exception (user request 2026-07-26):</strong> once the user actually
+        SWITCHES the model (via the picker), an enabled „Erneut versuchen“ appears on the
+        card — the newly picked model may have the budget the failed one lacked. Applies to
+        the daily card too (e.g. after switching to the local model).
+        <strong>Auto-retry (user decision 2026-07-29):</strong> when the picker was opened
+        FROM this card („Modell wechseln“), picking a DIFFERENT model retries this answer
+        immediately — no second click. Dismissing the menu without a pick disarms the
+        auto-retry; the enabled-retry exception above stays as the fallback for switches
+        made anywhere else (pill, Settings).</p>
+      </div>
+    </div>
+    <p class="flow-note">
+      <strong>Copy v3 summary (all three causes, final 2026-07-26):</strong> every card is
+      message line(s) + button row + footnote; explanations live in tooltips.
+      daily → message + clock line + [Lokal (primary)] [Limit erhöhen ↗];
+      minute → message + burst explainer + [Erneut versuchen (countdown)] [Lokal (primary)];
+      too large → message + [Lokal (primary)] [Modell wechseln] [Limit erhöhen ↗].
+      “Limit erhöhen” opens the provider's billing page — URL per provider in
+      <code>registry.json</code>. EN strings mirror DE 1:1 in <em>strings.ts</em>.
+    </p>
+  </div>
+
+  <!-- ════════════════════ 09 ════════════════════ -->
+  <div class="section">
+    <div class="section-label"><span class="num">09</span> Waiting bubble — rate-limit status inside the tips card <span class="tag replace">current · to be replaced</span></div>
+    <p class="section-desc">
+      While the backend waits out a 429 (§01), the countdown renders as an italic gray line
+      squeezed under the rotating tip — visually part of the tip, structurally unrelated
+      (screenshots 2026-07-26). It also hides WHICH limit was hit: the backend knows whether
+      the 429 was a requests-per-minute or tokens-per-minute limit (the provider's error
+      message says so) and which model hit it, but forwards none of it.
+    </p>
+    <div class="stage">
+      <div class="col">
+        <div class="state-label">Current — countdown</div>
+        <div class="chat-pane">
+          <div class="chat-msgs">
+            <div class="meta-row" style="margin-bottom:2px">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3 4 7l4 4"/><path d="M4 7h16"/><path d="m16 21 4-4-4-4"/><path d="M20 17H4"/></svg>
+              Kontingent bei Gemini Flash erschöpft — diese Antwort kommt von Gemini Pro.
+            </div>
+            <div class="tip-card">
+              <div class="tip-dots"><span></span><span></span><span></span></div>
+              <div class="tip-text"><b>Tipp:</b> Syflo is fully local by default — your chats, PDFs and even web searches never leave this machine.</div>
+              <div class="tip-old-status">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                Rate-Limit erreicht — neuer Versuch in 5 s
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="col">
+        <div class="state-label">Current — retrying</div>
+        <div class="chat-pane">
+          <div class="chat-msgs">
+            <div class="tip-card">
+              <div class="tip-dots"><span></span><span></span><span></span></div>
+              <div class="tip-text"><b>Tipp:</b> The highlights drawer collects every highlighted passage in the tree — click one to jump back to it.</div>
+              <div class="tip-old-status">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                Versuche erneut…
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="annot"><strong>Problems:</strong> italic status reads like part of the tip;
+        no visual separation; “Rate-Limit erreicht” names neither the limit type nor the
+        model.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════════ 10 ════════════════════ -->
+  <div class="section">
+    <div class="section-label"><span class="num">10</span> Waiting bubble — precise status, round 2 <span class="tag new">proposed v2 · pick one</span></div>
+    <p class="section-desc">
+      Round 1 (amber chip) was rejected 2026-07-26 — too badge-loud for a waiting state.
+      Three quieter directions, all naming the cause precisely (limit type + model, from the
+      new <code>scope</code>/<code>model</code> fields on the SSE <code>rateLimit</code>
+      event). <strong>A</strong> treats the status AS the card text — the wait replaces the
+      tip in the same typography, zero new visual elements. <strong>B</strong> keeps the tip
+      and adds a slim draining progress bar — the wait becomes visible, not just numeric.
+      <strong>C</strong> styles the status like the failover meta row above the bubble —
+      the same quiet voice the app already uses for “another model answered”.
+    </p>
+    <div class="stage">
+      <div class="col">
+        <div class="state-label">A · status replaces the tip</div>
+        <div class="chat-pane">
+          <div class="chat-msgs">
+            <div class="tip-card">
+              <div class="tip-dots"><span></span><span></span><span></span></div>
+              <div class="tip-text"><b>Kurze Pause:</b> Gemini Flash ist am Minuten-Limit (Anfragen). Es geht automatisch weiter in <span style="font-variant-numeric:tabular-nums; font-weight:700">5&nbsp;s</span>.</div>
+            </div>
+          </div>
+        </div>
+        <p class="annot">The wait talks in the card's own voice — bold lead + prose, exactly
+        like a tip. While waiting, the tip rotation pauses; when the retry starts, the text
+        flips to „<b>Kurze Pause:</b> neuer Versuch bei Gemini Flash läuft…“. No new
+        components at all.</p>
+      </div>
+      <div class="col">
+        <div class="state-label">B · tip stays, progress bar drains</div>
+        <div class="chat-pane">
+          <div class="chat-msgs">
+            <div class="tip-card">
+              <div class="tip-dots"><span></span><span></span><span></span></div>
+              <div class="tip-text"><b>Tipp:</b> Syflo is fully local by default — your chats, PDFs and even web searches never leave this machine.</div>
+              <div class="wait-block">
+                <div class="wait-block-row">
+                  <span>Minuten-Limit (Anfragen) · Gemini Flash</span>
+                  <span class="wait-count">5&nbsp;s</span>
+                </div>
+                <div class="wait-track"><div class="wait-fill"></div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="annot">The bar drains from full to empty over the wait (here ~⅓ left) and
+        turns indeterminate (gentle pulse) during the retry itself. The label is plain
+        non-italic gray — clearly metadata, clearly not part of the tip.</p>
+      </div>
+      <div class="col">
+        <div class="state-label">C · meta row above the bubble (like the failover note)</div>
+        <div class="chat-pane">
+          <div class="chat-msgs">
+            <div class="meta-row no-italic">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+              Minuten-Limit (Anfragen) bei Gemini Flash — weiter in&nbsp;<span style="font-variant-numeric:tabular-nums">5&nbsp;s</span>
+            </div>
+            <div class="tip-card">
+              <div class="tip-dots"><span></span><span></span><span></span></div>
+              <div class="tip-text"><b>Tipp:</b> The highlights drawer collects every highlighted passage in the tree — click one to jump back to it.</div>
+            </div>
+          </div>
+        </div>
+        <p class="annot">Same position and tone as the failover note (§02) — the app already
+        speaks about providers in this quiet gray row above the bubble. The card itself stays
+        completely untouched.</p>
+      </div>
+    </div>
+    <p class="flow-note">
+      <strong>Shared copy pattern (all variants):</strong> „Minuten-Limit (Anfragen|Tokens)
+      bei &lt;Modell&gt; … weiter in N s“ → „neuer Versuch läuft…“. Backend: SSE
+      <code>rateLimit</code> gains <code>scope: 'requests' | 'tokens'</code> and the model
+      name. A daily limit never appears here (it goes straight to the §04 card).
+    </p>
+  </div>
+
+</div>
+</body>
+</html>

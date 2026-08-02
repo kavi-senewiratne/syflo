@@ -213,8 +213,8 @@
   .chip:hover { border-color: #CBD5E1; background: var(--gray-50); }
   .chip .cdot { width: 8px; height: 8px; border-radius: 50%; }
   .chip .n { color: var(--text-faint); font-weight: 600; font-size: 10.5px; }
-  .chip.on { background: var(--text-strong); border-color: var(--text-strong); color: white; }
-  .chip.on .n { color: rgba(255,255,255,0.65); }
+  .chip.on { background: var(--blue-50); border-color: var(--blue-100); color: var(--blue-700); }
+  .chip.on .n { color: var(--blue-700); opacity: 0.6; }
   .cdot.yellow { background: var(--hl-yellow-deep); }
   .cdot.green  { background: var(--hl-green-deep); }
   .cdot.blue   { background: var(--hl-blue-deep); }
@@ -840,6 +840,14 @@
       (a single-envelope variant was tried and rejected — the two beats are what makes the jump
       noticeable), but the glow itself is tighter and quieter: a thin 1px contour plus one soft 8px
       ambient shadow (was 5px + 12px neon), and the color wash over the text dropped from 28% to 16%.
+    </p>
+    <p style="margin-top: 14px;">
+      <strong>Correction (2026-07-31):</strong> the active chip ("All" and each selected label) no longer
+      fills solid black (<code>--text-strong</code>) — the app's theme system remaps the gray ramp per theme
+      (Matrix inverts it entirely), so a hardcoded dark fill read as jarring or low-contrast outside the
+      default theme. It now uses the same tinted accent as <code>.icon-btn.active</code>
+      (<code>--blue-50</code> background, <code>--blue-700</code> text, <code>--blue-100</code> border),
+      which every theme already remaps consistently.
     </p>
   </div>
 

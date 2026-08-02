@@ -59,6 +59,7 @@ export function useChatHighlights(chatId: string | null) {
         id: tempId,
         messageId: payload.messageId,
         chatId,
+        childChatId: payload.childChatId ?? null,
         startOffset: payload.startOffset,
         endOffset: payload.endOffset,
         text: payload.text,
@@ -99,7 +100,7 @@ export function useChatHighlights(chatId: string | null) {
       };
     });
     try {
-      const updated = await api.updateMessageHighlight(mhid, color);
+      const updated = await api.updateMessageHighlight(mhid, { color });
       setState((s) => ({
         ...s,
         highlights: s.highlights.map((h) => (h.id === mhid ? updated : h)),
@@ -115,6 +116,38 @@ export function useChatHighlights(chatId: string | null) {
         }));
       }
       console.warn('useChatHighlights: recolor failed', err);
+      return null;
+    }
+  }, []);
+
+  // Link (or unlink) the chat branched from this highlight — the chat twin
+  // of useHighlights' PDF-side `update({ chatId })`.
+  const linkChat = useCallback(async (mhid: string, childChatId: string | null) => {
+    let previous: MessageHighlight | undefined;
+    setState((s) => {
+      previous = s.highlights.find((h) => h.id === mhid);
+      return {
+        ...s,
+        highlights: s.highlights.map((h) => (h.id === mhid ? { ...h, childChatId } : h)),
+      };
+    });
+    try {
+      const updated = await api.updateMessageHighlight(mhid, { childChatId });
+      setState((s) => ({
+        ...s,
+        highlights: s.highlights.map((h) => (h.id === mhid ? updated : h)),
+      }));
+      invalidateTreeHighlights();
+      return updated;
+    } catch (err) {
+      if (previous) {
+        const rollback = previous;
+        setState((s) => ({
+          ...s,
+          highlights: s.highlights.map((h) => (h.id === mhid ? rollback : h)),
+        }));
+      }
+      console.warn('useChatHighlights: linkChat failed', err);
       return null;
     }
   }, []);
@@ -145,6 +178,7 @@ export function useChatHighlights(chatId: string | null) {
     error: state.error,
     create,
     recolor,
+    linkChat,
     remove,
   };
 }

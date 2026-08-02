@@ -10,7 +10,8 @@
  * chunk so the UI can update in real time — exactly like ChatGPT's typing effect.
  */
 
-import type { Chat, ChatAncestor, ChatDetail, CreateHighlightPayload, CreateMessageHighlightPayload, Highlight, HighlightColor, HighlightLabels, LocalAttachment, Message, MessageHighlight, OllamaModelInfo, Paper, PaperSearchResponse, PullProgress, Settings, SettingsUpdate, SystemRecommendation, ToolEvent, TreeHighlight, Video, VideoSearchResult, WarmupResult } from '../types';
+import type { Chat, ChatAncestor, ChatDetail, CreateHighlightPayload, CreateMessageHighlightPayload, FailoverInfo, FailReason, FeedbackKind, Highlight, HighlightColor, HighlightLabels, LocalAttachment, Message, MessageHighlight, OllamaModelInfo, Paper, PaperSearchResponse, QuotaReason, Registry, Settings, SettingsUpdate, ToolEvent, TreeHighlight, UsageSummary, Video, VideoSearchResult, WarmupResult } from '../types';
+import { FAIL_REASONS } from '../types';
 import { getAppLanguage } from '../appLanguage';
 
 const BASE = '/api';
@@ -34,12 +35,39 @@ export class TreeHasSourceError extends Error {
 export class StreamFailedError extends Error {
   userMessage?: Message;
   assistantMessage?: Message;
-  constructor(message: string, userMessage?: Message, assistantMessage?: Message) {
+  // Der Failover hat ALLE Kandidaten-Modelle durchprobiert (ADR-0008) — die
+  // Fehlerzeile bietet dann den Notfall-Weg übers lokale Modell an.
+  quotaExhausted?: boolean;
+  // Earliest cooldown expiry (ISO) — gates the retry button: far ahead means
+  // no retry at all, near means a disabled countdown (mockup-quota-states).
+  retryAt?: string;
+  // Why the ladder is exhausted — picks the precise card copy + actions.
+  quotaReason?: QuotaReason;
+  // Why the generation failed (mockup-model-flow §05) — picks the honest
+  // card. failProvider/failModel name the culprit where relevant.
+  failReason?: FailReason;
+  failProvider?: string;
+  failModel?: string;
+  constructor(message: string, userMessage?: Message, assistantMessage?: Message, quotaExhausted?: boolean, retryAt?: string, quotaReason?: QuotaReason, fail?: { failReason?: FailReason; failProvider?: string; failModel?: string }) {
     super(message);
     this.name = 'StreamFailedError';
     this.userMessage = userMessage;
     this.assistantMessage = assistantMessage;
+    this.quotaExhausted = quotaExhausted;
+    this.retryAt = retryAt;
+    this.quotaReason = quotaReason;
+    this.failReason = fail?.failReason;
+    this.failProvider = fail?.failProvider;
+    this.failModel = fail?.failModel;
   }
+}
+
+// Validate a raw fail-reason code (SSE field or persisted column) — unknown
+// codes fall back to the generic row instead of rendering a wrong card.
+function asFailReason(raw: unknown): FailReason | undefined {
+  return typeof raw === 'string' && (FAIL_REASONS as readonly string[]).includes(raw)
+    ? (raw as FailReason)
+    : undefined;
 }
 
 // Callbacks eines Antwort-Streams (Senden UND Regenerate teilen sich den
@@ -50,14 +78,23 @@ interface StreamCallbacks {
   onToolEvent?: (evt: ToolEvent) => void;
   onThinking?: () => void;
   onReasoning?: (delta: string) => void;
-  // Der Job wartet: `ahead` Anfragen laufen/warten vor ihm.
-  onQueued?: (ahead: number) => void;
+  // Der Job wartet: `ahead` Anfragen laufen/warten vor ihm. `info` (queue
+  // transparency, mockup-model-flow §07): the local model that will answer
+  // this waiting question and the chat+question being answered RIGHT NOW.
+  onQueued?: (
+    ahead: number,
+    info?: { model?: string; current?: { chatId: string; question: string } },
+  ) => void;
   // Der Job ist an der Reihe; die User-Nachricht ist jetzt persistiert —
   // die UI ersetzt damit ihre optimistische Frage (echter Zeitstempel).
   onStarted?: (userMessage: Message) => void;
-  // Prefill-ETA des Backends in Sekunden — die UI zeigt einen Countdown-
-  // Balken im ThinkingIndicator (design/mockup-prefill-progress.html §01).
-  onPrefill?: (seconds: number) => void;
+  // Cloud provider 429 (ADR-0008): the backend waits out Retry-After and
+  // visibly retries — the UI shows the countdown.
+  onRateLimit?: (info: { retryInSeconds: number; attempt: number; scope?: 'requests' | 'tokens'; model?: string }) => void;
+  // The active model hit a limit and another provider with a stored key
+  // steps in for this answer — the UI shows a quiet note explaining who
+  // the answer comes from.
+  onFailover?: (info: FailoverInfo) => void;
 }
 
 // Liest die SSE-Antwort eines Nachrichten-Endpoints inkrementell und
@@ -86,16 +123,33 @@ async function readMessageStream(
     for (const line of lines) {
       if (!line.startsWith('data: ')) continue;
       const data = JSON.parse(line.slice(6));
-      if (data.error) throw new StreamFailedError(data.error, data.userMessage, data.assistantMessage);
+      if (data.error) throw new StreamFailedError(data.error, data.userMessage, data.assistantMessage, data.quotaExhausted === true, typeof data.retryAt === 'string' ? data.retryAt : undefined, ['daily', 'rate_limit', 'too_large'].includes(data.quotaReason) ? data.quotaReason as QuotaReason : undefined, {
+        failReason: asFailReason(data.failReason),
+        failProvider: typeof data.failProvider === 'string' ? data.failProvider : undefined,
+        failModel: typeof data.failModel === 'string' ? data.failModel : undefined,
+      });
 
       // Warteschlangen-Position — der Job wartet noch auf den Ollama-Slot.
-      if (data.queued && cb.onQueued) cb.onQueued(data.queued.ahead);
+      if (data.queued && cb.onQueued) {
+        cb.onQueued(data.queued.ahead, {
+          model: typeof data.queued.model === 'string' ? data.queued.model : undefined,
+          current:
+            data.queued.current &&
+            typeof data.queued.current.chatId === 'string' &&
+            typeof data.queued.current.question === 'string'
+              ? { chatId: data.queued.current.chatId, question: data.queued.current.question }
+              : undefined,
+        });
+      }
 
       // Der Job läuft jetzt; die User-Nachricht ist persistiert.
       if (data.started && cb.onStarted) cb.onStarted(data.userMessage);
 
-      // Prefill-Schätzung — wie lange das Modell die Quelle wohl noch liest.
-      if (data.prefill && cb.onPrefill) cb.onPrefill(data.prefill.seconds);
+      // Cloud provider rate limit — visible auto-retry (ADR-0008).
+      if (data.rateLimit && cb.onRateLimit) cb.onRateLimit(data.rateLimit);
+
+      // Another provider steps in for this answer (limit on the active one).
+      if (data.failover && cb.onFailover) cb.onFailover(data.failover as FailoverInfo);
 
       // A text delta — pass it to the callback so the UI can append it.
       if (data.delta) cb.onDelta(data.delta);
@@ -130,10 +184,19 @@ export const api = {
   },
 
   // Fetches a single chat including all its messages and direct child chats.
+  // Persisted fail_reason columns (mockup-model-flow §06) are mapped onto
+  // failReason so the deterministic cards survive reloads.
   async getChat(id: string): Promise<ChatDetail> {
     const res = await fetch(`${BASE}/chats/${id}`);
     if (!res.ok) throw new Error('Failed to fetch chat');
-    return res.json();
+    const chat: ChatDetail = await res.json();
+    return {
+      ...chat,
+      messages: (chat.messages ?? []).map((m) => {
+        const persisted = asFailReason(m.fail_reason);
+        return persisted ? { ...m, failReason: persisted } : m;
+      }),
+    };
   },
 
   // Fetches the ancestor path (root → … → direct parent) of a branch chat,
@@ -144,13 +207,26 @@ export const api = {
     return res.json();
   },
 
+  // Snapshot of models currently in quota cooldown (mockup-quota-states
+  // §06) — the model picker dims them and shows a reset badge. `until` is
+  // an ISO timestamp; only future expiries are reported.
+  async getQuotaCooldowns(): Promise<{ provider: string; model: string; until: string; kind?: string }[]> {
+    const res = await fetch(`${BASE}/quota-cooldowns`);
+    if (!res.ok) throw new Error('Failed to fetch quota cooldowns');
+    const data = await res.json();
+    return data.cooldowns ?? [];
+  },
+
   // Creates a new chat. parent_id and parent_word are set when branching from
-  // a specific word in an existing conversation.
-  async createChat(title: string, parent_id?: string, parent_word?: string): Promise<Chat> {
+  // a specific word in an existing conversation. parent_context carries the
+  // text-layer lines around a PDF selection (only for PDF-selection branches):
+  // PDF extraction flattens math notation, so the branch prompt needs the
+  // surroundings to make the selected term interpretable.
+  async createChat(title: string, parent_id?: string, parent_word?: string, parent_context?: string): Promise<Chat> {
     const res = await fetch(`${BASE}/chats`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title, parent_id, parent_word }),
+      body: JSON.stringify({ title, parent_id, parent_word, parent_context }),
     });
     if (!res.ok) throw new Error('Failed to create chat');
     return res.json();
@@ -174,7 +250,7 @@ export const api = {
     // Thinking-Panel über der Antwort. signal: bricht den Stream ab
     // (Stop-Button). onQueued/onStarted: Warteschlangen-Status des Backends
     // (FIFO — Ollama hat einen Slot).
-    opts?: { think?: boolean; onThinking?: () => void; onReasoning?: (delta: string) => void; onQueued?: (ahead: number) => void; onStarted?: (userMessage: Message) => void; signal?: AbortSignal },
+    opts?: { think?: boolean; onThinking?: () => void; onReasoning?: (delta: string) => void; onQueued?: (ahead: number, info?: { model?: string; current?: { chatId: string; question: string } }) => void; onStarted?: (userMessage: Message) => void; onRateLimit?: (info: { retryInSeconds: number; attempt: number }) => void; onFailover?: (info: FailoverInfo) => void; signal?: AbortSignal },
   ): Promise<{ userMessage: Message; assistantMessage: Message }> {
     let res: Response;
     if (attachments.length > 0) {
@@ -207,23 +283,35 @@ export const api = {
       onReasoning: opts?.onReasoning,
       onQueued: opts?.onQueued,
       onStarted: opts?.onStarted,
+      onRateLimit: opts?.onRateLimit,
+      onFailover: opts?.onFailover,
     });
   },
 
-  // Retry-Button der Fehlerzeile: erzeugt die Antwort auf die LETZTE
-  // User-Frage des Chats neu, ohne die Frage zu duplizieren (das Backend
-  // entfernt dabei den persistierten '*Failed*'-Marker). Gleiches
-  // SSE-Protokoll wie sendMessageStream — inklusive Warteschlange.
+  // Retry-Button der Fehlerzeile: erzeugt die Antwort neu, ohne die Frage
+  // zu duplizieren (das Backend entfernt dabei den persistierten
+  // '*Failed*'-Marker). `messageId` ist die id des geklickten Markers —
+  // der Retry beantwortet damit SEINE Frage und die neue Antwort übernimmt
+  // die Position des Markers (anchored retry); ohne messageId gilt das
+  // alte Verhalten (letzte Frage). Gleiches SSE-Protokoll wie
+  // sendMessageStream — inklusive Warteschlange.
   async regenerateMessage(
     chatId: string,
+    messageId: string | undefined,
     onDelta: (delta: string) => void,
     onToolEvent?: (evt: ToolEvent) => void,
-    opts?: { think?: boolean; onThinking?: () => void; onReasoning?: (delta: string) => void; onQueued?: (ahead: number) => void; onStarted?: (userMessage: Message) => void; signal?: AbortSignal },
+    // provider: 'ollama' = Notfall-Fallback — DIESE eine Antwort läuft übers
+    // lokale Modell, die Einstellungen bleiben unberührt (ADR-0008).
+    opts?: { think?: boolean; provider?: 'ollama'; onThinking?: () => void; onReasoning?: (delta: string) => void; onQueued?: (ahead: number, info?: { model?: string; current?: { chatId: string; question: string } }) => void; onStarted?: (userMessage: Message) => void; onRateLimit?: (info: { retryInSeconds: number; attempt: number }) => void; onFailover?: (info: FailoverInfo) => void; signal?: AbortSignal },
   ): Promise<{ userMessage: Message; assistantMessage: Message }> {
     const res = await fetch(`${BASE}/chats/${chatId}/messages/regenerate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ think: opts?.think }),
+      body: JSON.stringify({
+        think: opts?.think,
+        ...(messageId ? { messageId } : {}),
+        ...(opts?.provider ? { provider: opts.provider } : {}),
+      }),
       signal: opts?.signal,
     });
     if (!res.ok) {
@@ -237,7 +325,20 @@ export const api = {
       onReasoning: opts?.onReasoning,
       onQueued: opts?.onQueued,
       onStarted: opts?.onStarted,
+      onRateLimit: opts?.onRateLimit,
+      onFailover: opts?.onFailover,
     });
+  },
+
+  // Explicit cancel of a QUEUED question (mockup-model-flow §10): deletes
+  // the pending row persisted at enqueue — "counts as never asked". Only
+  // pending rows are deletable; the backend 409s for everything else.
+  async deleteMessage(chatId: string, messageId: string): Promise<void> {
+    const res = await fetch(`${BASE}/chats/${chatId}/messages/${messageId}`, { method: 'DELETE' });
+    if (!res.ok && res.status !== 204) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error || 'Failed to delete message');
+    }
   },
 
   // Lädt ein PDF hoch und bindet es an den Chat tree von chatId (ans Root).
@@ -405,11 +506,14 @@ export const api = {
     return res.json();
   },
 
-  async updateMessageHighlight(mhid: string, color: HighlightColor): Promise<MessageHighlight> {
+  async updateMessageHighlight(
+    mhid: string,
+    patch: { color?: HighlightColor; childChatId?: string | null },
+  ): Promise<MessageHighlight> {
     const res = await fetch(`${BASE}/message-highlights/${mhid}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ color }),
+      body: JSON.stringify(patch),
     });
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
@@ -468,7 +572,12 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ word, context, language: getAppLanguage(), ...(chatId ? { chatId } : {}) }),
     });
-    if (!res.ok) throw new Error('Failed to explain word');
+    if (!res.ok) {
+      // Surface the backend's reason (e.g. "every cloud model is
+      // rate-limited") instead of a generic failure — the popup shows it.
+      const body = await res.json().catch(() => null);
+      throw new Error(body?.error || 'Failed to explain word');
+    }
     return res.json();
   },
 
@@ -500,6 +609,22 @@ export const api = {
     return res.json();
   },
 
+  // Model registry (ADR-0008): curated shortlists, capabilities, prices and
+  // key URLs per provider — remote JSON with a bundled fallback.
+  async getRegistry(): Promise<Registry> {
+    const res = await fetch(`${BASE}/settings/registry`);
+    if (!res.ok) throw new Error('Failed to fetch model registry');
+    return res.json();
+  },
+
+  // Usage/cost summary of the current month (ADR-0008): local token log ×
+  // price table — costs are an estimate.
+  async getUsageSummary(): Promise<UsageSummary> {
+    const res = await fetch(`${BASE}/usage/summary`);
+    if (!res.ok) throw new Error('Failed to fetch usage summary');
+    return res.json();
+  },
+
   // Lists vision-capable models currently pulled in the user's local Ollama
   // installation (the backend filters; `canThink` flags reasoning models).
   // Returns an empty array if Ollama isn't reachable so the UI can fall back
@@ -515,80 +640,28 @@ export const api = {
     }
   },
 
+  // Same endpoint, but keeps the distinction the flat list drops
+  // (mockup-model-flow §02): a 200 with zero models means "Ollama runs but
+  // has no vision-capable model" — different copy from "not reachable".
+  async getOllamaStatus(): Promise<{ reachable: boolean; models: OllamaModelInfo[] }> {
+    try {
+      const res = await fetch(`${BASE}/settings/ollama-models`);
+      if (!res.ok) return { reachable: false, models: [] };
+      const data = await res.json();
+      return { reachable: true, models: Array.isArray(data.models) ? data.models : [] };
+    } catch {
+      return { reachable: false, models: [] };
+    }
+  },
+
   // Prefix-Warm-up: lässt das lokale Modell den Chat-Kontext (v. a. den
   // Paper-Volltext) schon einmal einlesen, bevor der Nutzer fragt — und hält
   // es 1 h im Speicher. Fire-and-forget beim Öffnen eines Chats und nach
-  // jeder Antwort. Meldet zusätzlich die GPU-Residency des Modells.
+  // jeder Antwort.
   async warmupChat(chatId: string): Promise<WarmupResult> {
     const res = await fetch(`${BASE}/chats/${chatId}/messages/warmup`, { method: 'POST' });
     if (!res.ok) return { warmed: false };
     return res.json().catch(() => ({ warmed: false }));
-  },
-
-  // Hardware-Fakten + Modell-Empfehlung für diesen Rechner (die "Leiter").
-  async getSystemRecommendation(): Promise<SystemRecommendation> {
-    const res = await fetch(`${BASE}/system/recommendation`);
-    if (!res.ok) throw new Error('Failed to fetch system recommendation');
-    return res.json();
-  },
-
-  // Setzt das empfohlene Modell als aktives, wenn model_source 'auto' ist und
-  // das Modell installiert ist. Wird beim App-Start aufgerufen (Download-Gate).
-  async applyRecommendedModel(): Promise<{ applied: boolean; model: string }> {
-    const res = await fetch(`${BASE}/settings/apply-recommended`, { method: 'POST' });
-    if (!res.ok) throw new Error('Failed to apply recommended model');
-    return res.json();
-  },
-
-  // Lädt ein Modell über den lokalen Ollama-Daemon herunter und meldet jede
-  // Fortschritts-Zeile (Settings-Bibliothek: Fortschrittsbalken).
-  async pullOllamaModel(
-    model: string,
-    onProgress: (p: PullProgress) => void,
-    signal?: AbortSignal,
-  ): Promise<void> {
-    const res = await fetch(`${BASE}/settings/ollama-pull`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model }),
-      signal,
-    });
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      throw new Error(body.error || 'Failed to download model');
-    }
-    const reader = res.body!.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
-      for (const line of lines) {
-        if (!line.trim()) continue;
-        try {
-          const p = JSON.parse(line) as PullProgress & { error?: string };
-          if (p.error) throw new Error(p.error);
-          onProgress(p);
-        } catch (err) {
-          if (err instanceof SyntaxError) continue; // halbe Zeile — ignorieren
-          throw err;
-        }
-      }
-    }
-  },
-
-  // Entfernt ein installiertes Ollama-Modell (Settings-Bibliothek).
-  async deleteOllamaModel(name: string): Promise<void> {
-    const res = await fetch(`${BASE}/settings/ollama-models/${encodeURIComponent(name)}`, {
-      method: 'DELETE',
-    });
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      throw new Error(body.error || 'Failed to remove model');
-    }
   },
 
   // Partielles Update. Felder, die nicht im Objekt sind, bleiben unverändert.
@@ -604,5 +677,17 @@ export const api = {
       throw new Error(body.error || 'Failed to update settings');
     }
     return res.json();
+  },
+
+  // Sidebar button + /feedback composer command (ADR-0010): goes to a
+  // private inbox, never an automatic public GitHub issue. email is the
+  // optional reply-to the user may enter.
+  async sendFeedback(kind: FeedbackKind, text: string, email?: string): Promise<void> {
+    const res = await fetch(`${BASE}/feedback`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kind, text, email }),
+    });
+    if (!res.ok) throw new Error('Failed to send feedback');
   },
 };

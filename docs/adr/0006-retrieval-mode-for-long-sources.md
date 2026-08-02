@@ -80,3 +80,30 @@ re-prefilled every turn (the skeleton and history stay cached). Dropping
 question at the measured ~300 tok/s prefill rate (M4 Pro, benchmark
 2026-07-25 in `scripts/experiments/kv-snapshot-spike/`). Holistic questions are
 served by the skeleton either way; the chunks only need to carry point lookups.
+
+## Addendum 2026-07-25: bge-m3 replaces nomic-embed-text; the index knows its model
+
+Syflo's users ask German questions about English papers (the mirror rule invites
+this), and `nomic-embed-text` is primarily English-trained. A cross-lingual check
+(2026-07-25, Bengio 2003, 21 chunks, 8 DE/EN question pairs; metric: do the German
+and English version of the same question retrieve the same top-5 chunks?) measured:
+
+| model | avg top-5 Jaccard DE↔EN | avg rank of EN top-1 in DE ranking |
+|---|---|---|
+| nomic-embed-text | 0.19 | 6.2 |
+| bge-m3 | **0.73** | **1.4** |
+
+With nomic, the chunk an English query ranks #1 lands on average at position 6 for
+the German phrasing — outside the top-5 that reach the model. bge-m3 (multilingual,
+~1.2 GB via Ollama) fixes this, so it becomes the embedding model.
+
+Two durable rules came out of the same decision (ADR-0008 session, Q9):
+
+- **Embeddings always run locally**, regardless of the chat provider. A local,
+  version-pinned model cannot be deprecated out from under the chunk cache (cloud
+  embedding models have been), costs nothing, and means the full document never
+  leaves the device — only retrieved chunks travel with a question.
+- **The chunk cache is stamped with the embedding model that produced it**; a
+  mismatch triggers an automatic re-chunk/re-embed. Vectors from different models
+  live in incomparable spaces, so a silent model swap would corrupt retrieval; the
+  stamp makes any future swap a one-line config change plus an automatic rebuild.

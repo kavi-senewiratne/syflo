@@ -114,6 +114,33 @@ describe('api.createChat', () => {
   });
 });
 
+// ─── sendFeedback ───────────────────────────────────────────────────────────
+
+describe('api.sendFeedback', () => {
+  it('posts kind and text to /api/feedback', async () => {
+    vi.mocked(fetch).mockReturnValue(mockJsonResponse({ ok: true }));
+    await api.sendFeedback('bug', 'The highlight picker closes too fast.');
+    expect(fetch).toHaveBeenCalledWith('/api/feedback', expect.objectContaining({
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kind: 'bug', text: 'The highlight picker closes too fast.', email: undefined }),
+    }));
+  });
+
+  it('includes the optional email when given', async () => {
+    vi.mocked(fetch).mockReturnValue(mockJsonResponse({ ok: true }));
+    await api.sendFeedback('idea', 'Dark mode for the mind map', 'me@example.com');
+    expect(fetch).toHaveBeenCalledWith('/api/feedback', expect.objectContaining({
+      body: JSON.stringify({ kind: 'idea', text: 'Dark mode for the mind map', email: 'me@example.com' }),
+    }));
+  });
+
+  it('throws when the response is not ok', async () => {
+    vi.mocked(fetch).mockReturnValue(mockJsonResponse({ error: 'nope' }, 502));
+    await expect(api.sendFeedback('question', 'How does retrieval mode work?')).rejects.toThrow('Failed to send feedback');
+  });
+});
+
 // ─── sendMessageStream ──────────────────────────────────────────────────────
 
 describe('api.sendMessageStream', () => {

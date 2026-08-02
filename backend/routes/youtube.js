@@ -14,7 +14,7 @@ module.exports = (db, options = {}) => {
   const router = express.Router();
   const searchVideosFn = options.searchVideosFn || defaultYoutube.searchVideos;
   const fetchTranscriptFn = options.fetchTranscriptFn || defaultYoutube.fetchTranscript;
-  // Retrieval-Vorbereitung (ADR-0006), injectable for tests.
+  // Retrieval preparation (ADR-0006), injectable for tests.
   const embedTextsFn = options.embedTextsFn;
 
   const getChat = db.prepare('SELECT * FROM chats WHERE id = ?');
@@ -84,8 +84,8 @@ module.exports = (db, options = {}) => {
     try {
       info = await fetchTranscriptFn(youtubeId);
     } catch (err) {
-      // Kein Untertitel-Track (auch kein automatischer): klare, nicht-
-      // technische Meldung fürs Modal; Whisper-Fallback bewusst außen vor
+      // No caption track (not even an automatic one): clear, non-technical
+      // message for the modal; Whisper fallback deliberately left out
       // (ADR-0005).
       if (err?.code === 'no-transcript') {
         return res.status(422).json({
@@ -115,8 +115,8 @@ module.exports = (db, options = {}) => {
     });
     tx();
 
-    // Lange Transkripte im Hintergrund chunken/einbetten (ADR-0006) — die
-    // erste Frage wartet nicht auf das Embedding.
+    // Chunk/embed long transcripts in the background (ADR-0006) — the
+    // first question does not wait for the embedding.
     prepareSourceInBackground(db, {
       sourceType: 'video',
       sourceId: row.id,

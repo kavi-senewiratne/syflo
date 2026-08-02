@@ -1,12 +1,12 @@
 /**
  * routes/search.js
  *
- * Web-Suche via lokales SearXNG. Das Backend ist ein dünner Proxy:
- * Frontend (oder Tool-Call vom LLM) → POST /api/search → SearXNG JSON-API.
+ * Web search via local SearXNG. The backend is a thin proxy:
+ * frontend (or tool call from the LLM) → POST /api/search → SearXNG JSON API.
  *
- * SearXNG-URL ist konfigurierbar via SEARXNG_URL (default: localhost:8888).
- * Wenn SearXNG nicht läuft, antworten wir mit 503 und einer klaren Meldung,
- * damit das LLM dem User sagen kann: "I can't reach my search backend".
+ * The SearXNG URL is configurable via SEARXNG_URL (default: localhost:8888).
+ * When SearXNG is not running, we respond with 503 and a clear message,
+ * so the LLM can tell the user: "I can't reach my search backend".
  */
 
 const express = require('express');

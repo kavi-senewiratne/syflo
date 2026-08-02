@@ -39,7 +39,7 @@ const items: TreeHighlight[] = [
   },
   {
     kind: 'chat', id: 'mh-1', color: 'orange', text: 'annealed', chatId: 'branch-1',
-    chatTitle: 'entropy bonus', messageId: 'msg-1', startOffset: 22, endOffset: 30,
+    chatTitle: 'entropy bonus', childChatId: null, messageId: 'msg-1', startOffset: 22, endOffset: 30,
     createdAt: '2026-07-19T10:00:00.000Z', updatedAt: '2026-07-19T10:00:00.000Z',
   },
 ];

@@ -6,16 +6,17 @@
  */
 
 import { useState, useRef, useEffect, useImperativeHandle, useMemo } from 'react';
-import { Loader2, Mic, MicOff, Plus, ArrowUp, ChevronDown, ChevronUp, Highlighter, Image as ImageIcon, ImagePlus, FileText, BookOpen, MessageSquareQuote, Square, TvMinimalPlay, X } from 'lucide-react';
+import { AlertCircle, Loader2, Mic, MicOff, Plus, ArrowUp, ChevronDown, Highlighter, Image as ImageIcon, ImagePlus, FileText, BookOpen, MessageSquareQuote, MessageSquarePlus, RotateCcw, Square, TvMinimalPlay, X } from 'lucide-react';
 import { MessageBubble } from './MessageBubble';
-import { InheritedContextBanner } from './InheritedContextBanner';
+import { InlineMarkdown } from './InlineMarkdown';
+import { MathText, hasMath, plainMathText } from '../MathText';
 import { AttachmentChip } from './AttachmentChip';
 import { Logo } from '../Logo';
 import { VoiceWaveform } from './VoiceWaveform';
 import { useVoiceInput } from '../../hooks/useVoiceInput';
 import { useStrings } from '../../strings';
 import { HIGHLIGHT_HEX } from '../../types';
-import type { ChatAncestor, ChatDetail, ChatSelection, ComposerQuote, HighlightColor, LocalAttachment, Message, MessageHighlight, WordPopup } from '../../types';
+import type { ChatDetail, ChatSelection, ComposerQuote, HighlightColor, LocalAttachment, Message, MessageHighlight, WordPopup } from '../../types';
 import { rangeFromOffsets } from '../../chat/highlightAnchors';
 import { deriveQuestions, currentQuestionIndex } from '../../chat/questionNav';
 import { orderMessages } from '../../chat/messageOrder';
@@ -38,7 +39,7 @@ interface Props {
   // (ADR-0005). Ohne Handler wird der Menüeintrag nicht angeboten.
   onOpenYouTubeSearch?: () => void;
   // Quellen-Banner für Bäume mit YouTube transcript — sitzt fest unter dem
-  // Header (wie das Kontext-Banner), kommt fertig komponiert vom Owner (App).
+  // Header, kommt fertig komponiert vom Owner (App).
   videoBanner?: React.ReactNode;
   // Roh-Transkript-Drawer über dem Chat-Inhalt — gleicher Slot-Mechanismus
   // wie highlightsDrawer.
@@ -62,6 +63,10 @@ interface Props {
   // wird es als Markdown-Blockquote über die Frage gestellt.
   composerQuote?: ComposerQuote | null;
   onClearComposerQuote?: () => void;
+  // /feedback als reiner Composer-Trigger (ADR-0010): öffnet den
+  // Feedback-Dialog statt eine Nachricht zu senden; Resttext nach dem
+  // Command wird als Startinhalt übernommen.
+  onOpenFeedback?: (initialText: string) => void;
   // Highlights-Drawer (mockup-highlights-overview.html, Variante A): der
   // Knopf im permanenten Header togglet; der Drawer selbst kommt als Slot
   // vom Owner (App) und legt sich über den Chat-Inhalt unterhalb des Headers.
@@ -84,10 +89,45 @@ interface Props {
   // Retry-Button der '*Failed*'-Fehlerzeile (MessageBubble reicht die
   // Nachricht hoch; App entscheidet zwischen Neu-Senden und Regenerate).
   onRetryMessage?: (message: Message) => void;
-  // Vorfahren-Pfad des aktiven Chats fürs Kontext-Banner unter dem Header
-  // (design/mockup-context-banner-variants.html §01, Variante 3a) — der
-  // geerbte Kontext wird im Chat angezeigt, der ihn empfängt.
-  ancestors?: ChatAncestor[];
+  // Guided empty state (ADR-0008, grill 12b): active cloud provider without
+  // an API key. Arrives fully composed from the owner (App, CloudSetupNotice)
+  // and renders INSTEAD of the composer row — never a silent block.
+  setupNotice?: React.ReactNode;
+  // Registry display labels per model name — resolves model names in the
+  // failover note (MessageBubble).
+  modelLabels?: Record<string, string>;
+  // Emergency retry via the local model when all cloud quotas are exhausted
+  // (ADR-0008); hasLocalModel gates the button (installed vision models).
+  onRetryLocalModel?: (message: Message) => void;
+  hasLocalModel?: boolean;
+  // Quota card v3 (mockup-quota-states): billing page of the active
+  // provider ("Limit erhöhen") and opening the composer's model picker
+  // ("Modell wechseln", too_large only).
+  billingUrl?: string | null;
+  billingUrls?: Record<string, string | null | undefined>;
+  // Receives the card's failed message — a pick that changes the model
+  // retries it immediately (auto-retry, user decision 2026-07-29).
+  onOpenModelPicker?: (message: Message) => void;
+  // Last settings change (ISO): model/provider switch or key save — quota
+  // and failReason cards older than this re-offer retry (mockup-model-flow
+  // §05; generalizes the former modelSwitchedAt).
+  settingsChangedAt?: string | null;
+  // failReason cards (mockup-model-flow §05/§11): Settings · Models exit,
+  // provider labels, the local model's name for the vision tooltip, and the
+  // one explicit named cloud exit of the local_missing card.
+  onOpenSettings?: () => void;
+  providerLabels?: Record<string, string>;
+  localModelName?: string;
+  cloudFallback?: { providerLabel: string; modelLabel: string } | null;
+  onRetryCloudModel?: (message: Message) => void;
+  // W4 billing card (cost tiers 2026-07-30): primary exit to the first
+  // FREE model — switch + auto-retry.
+  freeFallback?: { providerLabel: string; modelLabel: string } | null;
+  onRetryFreeModel?: (message: Message) => void;
+  // "Erneut senden" of the unanswered row (mockup-model-flow §10): a
+  // trailing user message without an answer and without a live stream —
+  // the handler runs the non-anchored regenerate that claims the question.
+  onResendUnanswered?: (message: Message) => void;
   // Nur für Tests: ersetzt den AudioWorklet-Recorder des Diktats durch einen
   // Fake (durchgereicht an useVoiceInput, gleiches Muster wie dort).
   voiceRecorderFactory?: Parameters<typeof useVoiceInput>[0]['recorderFactory'];
@@ -125,7 +165,26 @@ function aliasBaseFor(mimetype: string): string {
 // auto-scroll once the user manually scrolls back down.
 const AT_BOTTOM_THRESHOLD = 8;
 
-export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightClick, onSelectChat, onUploadPdf, onOpenPaperSearch, onOpenYouTubeSearch, videoBanner, transcriptDrawer, chatHighlights, onChatSelection, onHighlightContextMenu, pendingSelection, onBranchedFromClick, composerQuote, onClearComposerQuote, onToggleHighlights, highlightsOpen, highlightsDrawer, modelPicker, onStopStreaming, streamingMessageIds, onRetryMessage, ancestors, voiceRecorderFactory, ref }: Props) {
+// Rendert den Composer-Inhalt für das Highlight-Overlay: färbt ein führendes
+// "/feedback" (als vollständiges Wort) ein, der Rest bleibt normale Farbe.
+// Ein Trailing-Newline bekommt ein Zero-Width-Space angehängt — sonst zeigt
+// eine <textarea> dafür eine zusätzliche Leerzeile, ein `white-space:
+// pre-wrap`-div aber nicht (bekannte Diskrepanz bei Highlight-Overlays).
+const TRAILING_NEWLINE_FILLER = String.fromCharCode(0x200b); // zero-width space
+
+function renderComposerHighlight(text: string): React.ReactNode {
+  const match = text.match(/^\/feedback(?=\s|$)/i);
+  const rest = (match ? text.slice(match[0].length) : text) + (text.endsWith('\n') ? TRAILING_NEWLINE_FILLER : '');
+  if (!match) return rest;
+  return (
+    <>
+      <span className="text-blue-600">{match[0]}</span>
+      {rest}
+    </>
+  );
+}
+
+export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightClick, onSelectChat, onUploadPdf, onOpenPaperSearch, onOpenYouTubeSearch, videoBanner, transcriptDrawer, chatHighlights, onChatSelection, onHighlightContextMenu, pendingSelection, onBranchedFromClick, composerQuote, onClearComposerQuote, onOpenFeedback, onToggleHighlights, highlightsOpen, highlightsDrawer, modelPicker, onStopStreaming, streamingMessageIds, onRetryMessage, setupNotice, modelLabels, onRetryLocalModel, hasLocalModel, billingUrl, billingUrls, onOpenModelPicker, settingsChangedAt, onOpenSettings, providerLabels, localModelName, cloudFallback, onRetryCloudModel, freeFallback, onRetryFreeModel, onResendUnanswered, voiceRecorderFactory, ref }: Props) {
   // UI-Texte in der App language — re-rendert beim Sprachwechsel mit.
   const S = useStrings().chatArea;
   const [input, setInput] = useState('');
@@ -137,6 +196,15 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
   const [mentionIndex, setMentionIndex] = useState(0);
   // Steuert das kleine Plus-Popover-Menü ("Files and media", …) — wie bei Claude.
   const [pickerMenuOpen, setPickerMenuOpen] = useState(false);
+  // /feedback-Vorschlag (ADR-0010, design/mockup-feedback.html §2): zeigt das
+  // Menü, solange der Composer noch am Command-Wort tippt (kein Leerzeichen
+  // dahinter) — reines Autocomplete, das eigentliche Öffnen übernimmt
+  // handleSend/onOpenFeedback.
+  const showFeedbackSuggestion = !!onOpenFeedback
+    && input.length > 0
+    && input[0] === '/'
+    && !/\s/.test(input)
+    && '/feedback'.startsWith(input.toLowerCase());
   // True, solange Dateien über dem Eingabebereich schweben — zeigt das Drop-Overlay.
   const [isDraggingFiles, setIsDraggingFiles] = useState(false);
   const dragDepthRef = useRef(0);
@@ -151,6 +219,11 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // Highlight-Overlay für /feedback (Nutzerkorrektur 2026-08-01): die echte
+  // textarea bekommt transparenten Text + sichtbaren Caret, dieser Layer
+  // zeigt den kompletten Inhalt inkl. eingefärbtem Command darüber — muss
+  // Höhe und Scroll-Position exakt spiegeln, sonst verrutscht die Deckung.
+  const highlightRef = useRef<HTMLDivElement>(null);
   // Enter fiel mit laufender Transkription zusammen → Senden vormerken,
   // sobald das Transkript im Eingabefeld gelandet ist (Effekt unten).
   const pendingSendRef = useRef(false);
@@ -163,31 +236,25 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
   // Eingabefeld ragte (Nutzerkorrektur 2026-07-22).
   const chatColumnStyle = { width: '46rem', maxWidth: '100%' };
 
-  // "Branched from"-Zitat: standardmäßig auf 2 Zeilen geklemmt; der Chevron
-  // klappt den vollen Text auf. Der Chevron erscheint nur, wenn das Zitat
-  // wirklich abgeschnitten ist — gemessen per ResizeObserver, damit das auch
-  // beim Verbreitern der Chat-Spalte (Drag-Resize) stimmt.
-  const [branchQuoteExpanded, setBranchQuoteExpanded] = useState(false);
+  // "Branched from" quote in the header row (mockup-branch-header.html §01):
+  // always truncated to ONE line; a hover/focus tooltip shows the full quote
+  // (§03 — replaces the earlier chevron+dropdown, user report 2026-07-31:
+  // the click-to-expand dropdown felt like an extra component to manage,
+  // and its border-bottom link styling read as stray underscores around
+  // quote marks/math). The tooltip only mounts when the quote is actually
+  // cut — measured via ResizeObserver so it stays correct when the chat
+  // column is drag-resized.
   const [branchQuoteOverflows, setBranchQuoteOverflows] = useState(false);
   const branchQuoteRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    setBranchQuoteExpanded(false);
-  }, [chat?.id]);
-  useEffect(() => {
     const el = branchQuoteRef.current;
     if (!el) return;
-    const measure = () => {
-      // Im aufgeklappten Zustand nicht messen — sonst verschwände der
-      // Chevron und man könnte nie wieder zuklappen.
-      if (!branchQuoteExpanded) {
-        setBranchQuoteOverflows(el.scrollHeight > el.clientHeight + 1);
-      }
-    };
+    const measure = () => setBranchQuoteOverflows(el.scrollWidth - el.clientWidth > 1);
     measure();
     const ro = new ResizeObserver(measure);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [chat?.id, chat?.parent_word, branchQuoteExpanded]);
+  }, [chat?.id, chat?.parent_word]);
 
   // onTranscript wird erst beim Stoppen aufgerufen, mit dem gesammelten Text —
   // wir hängen ihn ans Eingabefeld an (oder schreiben ihn rein, wenn leer).
@@ -297,9 +364,20 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
     const ta = textareaRef.current;
     if (!ta) return;
     ta.style.height = 'auto';
-    ta.style.height = `${Math.min(Math.max(ta.scrollHeight, 44), 144)}px`;
+    const h = `${Math.min(Math.max(ta.scrollHeight, 44), 144)}px`;
+    ta.style.height = h;
+    // Highlight-Overlay bekommt exakt dieselbe Höhe — beide Layer scrollen
+    // sonst unabhängig voneinander aus dem Deckungsgleichen.
+    if (highlightRef.current) highlightRef.current.style.height = h;
   };
   useEffect(autosizeTextarea, [input]);
+  // Scroll-Sync: sobald die textarea intern scrollt (Inhalt > 144px-Deckel),
+  // muss der Highlight-Layer im selben Moment mitscrollen.
+  const syncHighlightScroll = () => {
+    if (textareaRef.current && highlightRef.current) {
+      highlightRef.current.scrollTop = textareaRef.current.scrollTop;
+    }
+  };
 
   // Auch bei Breitenänderungen neu messen (Sidebar ein-/ausklappen, Spalten-
   // Drag): der Text bricht dann anders um und die alte Höhe stimmt nicht
@@ -339,6 +417,15 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
       return;
     }
     const text = input.trim();
+    // /feedback ist ein reiner Trigger, kein Chat-Inhalt (ADR-0010): öffnet
+    // den Dialog, übernimmt den Resttext, sendet nichts an den Chat.
+    const feedbackMatch = text.match(/^\/feedback(?:\s+([\s\S]*))?$/);
+    if (feedbackMatch && onOpenFeedback) {
+      setInput('');
+      setMentionQuery(null);
+      onOpenFeedback(feedbackMatch[1]?.trim() ?? '');
+      return;
+    }
     if ((!text && attachments.length === 0) || sending || !chat) return;
     // Zitat als Markdown-Blockquote über die Frage stellen — so landet es im
     // LLM-Kontext und MessageBubble rendert es als Zitatblock in der Bubble.
@@ -387,6 +474,15 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
   useEffect(() => clearSpaceHold, [chat?.id]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    // ArrowUp (wie im Vorschlags-Menü "auswählen") oder Tab vervollständigen
+    // zu "/feedback " — Enter allein öffnet den Dialog schon (handleSend
+    // erkennt den vollen Command), das lässt nur Platz, um vorher noch Text
+    // anzuhängen.
+    if (showFeedbackSuggestion && (e.key === 'ArrowUp' || e.key === 'Tab')) {
+      e.preventDefault();
+      setInput('/feedback ');
+      return;
+    }
     // Wenn das Mention-Dropdown gerade Vorschläge zeigt, übernimmt die Tastatur
     // die Navigation: Pfeiltasten blättern, Enter wählt, Escape schließt.
     const mentionsOpen = mentionQuery !== null && filteredMentions.length > 0;
@@ -795,7 +891,12 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
         const row = el.querySelector(`[data-testid="message-row-${q.messageId}"]`);
         return row ? row.getBoundingClientRect().top - cTop + el.scrollTop : Number.POSITIVE_INFINITY;
       });
-      setActiveQuestion(currentQuestionIndex(tops, el.scrollTop + el.clientHeight / 2));
+      // Bottom clamp: fully scrolled down → the last question is current,
+      // even when a short/failed final answer keeps its top below the midline.
+      const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 2;
+      setActiveQuestion(
+        currentQuestionIndex(tops, el.scrollTop + el.clientHeight / 2, atBottom),
+      );
     };
     measure();
     el.addEventListener('scroll', measure, { passive: true });
@@ -830,24 +931,42 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
   if (!chat) {
     return (
       <div className="syflo-chat-pane flex-1 flex items-center justify-center bg-white">
-        <div className="text-center max-w-lg px-8">
+        {/* No max-width + nowrap: title and subtitle each stay on ONE line
+            (user request 2026-07-26) — the wide monospace themes wrapped
+            them awkwardly mid-sentence. */}
+        <div className="text-center px-8">
           {/* Theme-Logo über dem Titel, leicht vergrößert (Nutzerwunsch
               2026-07-22) — jedes Theme zeigt seine eigene Logo-Variante. */}
           <div className="flex justify-center mb-6" data-testid="empty-state-logo">
             <Logo scale={1.6} />
           </div>
-          <h2 className="syflo-empty-title text-[32px] font-serif text-gray-800 mb-3 tracking-tight">{S.emptyTitle}</h2>
-          <p className="text-gray-500 text-[15px] leading-relaxed">{S.emptySubtitle}</p>
+          <h2 className="syflo-empty-title whitespace-nowrap text-[32px] font-serif text-gray-800 mb-3 tracking-tight">{S.emptyTitle}</h2>
+          <p className="whitespace-nowrap text-gray-500 text-[15px] leading-relaxed">{S.emptySubtitle}</p>
         </div>
       </div>
     );
   }
 
+  // Right padding that keeps the header text clear of the absolutely
+  // positioned action buttons (question stepper + Highlights).
+  const headerActionsPad =
+    onToggleHighlights || questions.length >= 2
+      ? onToggleHighlights && questions.length >= 2
+        ? 'pr-56 @max-[30rem]:pr-16'
+        : 'pr-32 @max-[30rem]:pr-8'
+      : '';
+
+  // Clicking the quote jumps to the branch's source.
+  const handleBranchedFromActivate = () => {
+    if (onBranchedFromClick) onBranchedFromClick();
+    else onSelectChat(chat.parent_id!);
+  };
+
   return (
     <div className="syflo-chat-pane flex-1 flex flex-col bg-white overflow-hidden relative">
       {/* Header: permanent für alle Chats (Grill 2026-07-21, Entscheidung 5) —
           der Highlights-Knopf braucht einen festen Ort. Bei Branch-Chats
-          schmaler, weil das "Branched from"-Zitat den Kontext trägt. */}
+          trägt statt des Titels das "Branched from"-Zitat den Kontext. */}
       {/* @container: in schmalen Spalten macht sich der Header kompakt —
           der Titel reserviert Platz für den Highlights-Knopf (statt darunter
           zu laufen), und der Knopf wird unter 30rem zum reinen Icon
@@ -859,16 +978,71 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
       <div className="relative z-20 border-b border-gray-100 bg-white @container">
         <div className="flex justify-center">
           <div
-            className={`${chatColumnClass} ${chat.parent_word && chat.parent_id ? 'py-3' : 'py-7'}`}
+            className={`${chatColumnClass} ${chat.parent_word && chat.parent_id ? 'py-4' : 'py-7'}`}
             style={chatColumnStyle}
             data-testid="chat-header-shell"
           >
-            <h2
-              className={`font-semibold text-gray-900 break-words line-clamp-2 ${chat.parent_word && chat.parent_id ? 'text-sm' : 'text-base'} ${onToggleHighlights || questions.length >= 2 ? (onToggleHighlights && questions.length >= 2 ? 'pr-56 @max-[30rem]:pr-16' : 'pr-32 @max-[30rem]:pr-8') : ''}`}
-              title={chat.title}
-            >
-              {chat.title}
-            </h2>
+            {chat.parent_word && chat.parent_id ? (
+              /* Branch chats: the blue "Branched from …" link takes the
+                 title's place (mockup-branch-header.html §01) — title and
+                 quote were near-duplicates; the full title stays available
+                 as tooltip, in the sidebar and in the mind map. */
+              <div className={`group relative flex items-start gap-1 text-sm ${headerActionsPad}`}>
+                <span className="material-icons mt-0.5 shrink-0 text-[14px] text-gray-400">subdirectory_arrow_left</span>
+                <div
+                  ref={branchQuoteRef}
+                  className={`min-w-0 flex-1 leading-relaxed whitespace-nowrap ${hasMath(chat.parent_word) ? 'syflo-math-fade' : 'truncate'}`}
+                  data-testid="branched-from-quote"
+                  title={plainMathText(chat.title)}
+                >
+                  <span className="text-gray-400">{S.branchedFrom}</span>
+                  {/* No <button>: buttons are atomic inline blocks that
+                      cannot truncate — an inline <span> with link semantics
+                      ellipsizes cleanly. Color alone (no border/underline)
+                      marks it as a link — a border under the quote marks
+                      used to read as stray underscores (user report
+                      2026-07-27, recurred 2026-07-31 with math quotes). */}
+                  <span
+                    role="link"
+                    tabIndex={0}
+                    onClick={handleBranchedFromActivate}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        handleBranchedFromActivate();
+                      }
+                    }}
+                    className="cursor-pointer text-blue-600 hover:text-blue-800 font-medium transition-colors"
+                  >
+                    "<InlineMarkdown text={chat.parent_word} />"
+                  </span>
+                </div>
+                {/* Hover/focus tooltip replaces the old chevron+dropdown
+                    (mockup-branch-header.html §03): only mounted when the
+                    quote is actually cut, so short quotes get no unneeded
+                    affordance. Light card (bg-white/border-gray-100), NOT a
+                    dark bg-gray-900 tooltip: the matrix theme inverts the
+                    gray scale, so a dark tooltip would render light-on-white
+                    there. */}
+                {branchQuoteOverflows && (
+                  <div
+                    role="tooltip"
+                    data-testid="branched-from-tooltip"
+                    className="pointer-events-none absolute left-5 top-full z-30 mt-2 max-w-sm rounded-lg border border-gray-100 bg-white px-3 py-2 text-[12.5px] leading-relaxed text-gray-700 opacity-0 shadow-2xl transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
+                  >
+                    <span className="absolute -top-1 left-4 h-2 w-2 rotate-45 border-l border-t border-gray-100 bg-white" />
+                    "<InlineMarkdown text={chat.parent_word} />"
+                  </div>
+                )}
+              </div>
+            ) : (
+              <h2
+                className={`font-semibold text-gray-900 break-words line-clamp-2 text-base ${headerActionsPad}`}
+                title={plainMathText(chat.title)}
+              >
+                <MathText text={chat.title} />
+              </h2>
+            )}
           </div>
         </div>
         {(onToggleHighlights || questions.length >= 2) && (
@@ -898,13 +1072,8 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
         )}
       </div>
 
-      {/* Geerbter Kontext als Banner + Inline-Akkordeon (Variante 3a):
-          sitzt fest unter dem Header, die Nachrichten scrollen darunter. */}
-      {ancestors && ancestors.length > 0 && <InheritedContextBanner ancestors={ancestors} />}
-
       {/* Quellen-Banner für Bäume mit YouTube transcript (ADR-0005): sitzt
-          wie das Kontext-Banner fest unter dem Header und bleibt auch bei
-          offenem Drawer sichtbar. */}
+          fest unter dem Header und bleibt auch bei offenem Drawer sichtbar. */}
       {videoBanner}
 
       {/* Alles unterhalb des Headers in einem relativen Container, damit der
@@ -920,55 +1089,8 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
             style={chatColumnStyle}
             data-testid="chat-content-shell"
           >
-            {/* Blue hyperlink back to parent chat — shown at the top of
-                branched chats. The quote is the user's original PDF/chat
-                selection and can be a whole sentence: clamped to two lines,
-                expandable via the chevron (only shown when actually cut). */}
-            {chat.parent_word && chat.parent_id && (
-              <div className="flex w-full min-w-0 items-start gap-1.5 border-b border-gray-100 pb-3 mb-6 text-sm">
-                <span className="material-icons mt-0.5 shrink-0 text-[14px] text-gray-400">subdirectory_arrow_left</span>
-                <div
-                  ref={branchQuoteRef}
-                  className={`min-w-0 flex-1 break-words leading-relaxed ${branchQuoteExpanded ? '' : 'line-clamp-2'}`}
-                  data-testid="branched-from-quote"
-                >
-                  <span className="text-gray-400">{S.branchedFrom}</span>
-                  {/* Kein <button>: Buttons sind atomare Inline-Blöcke, die
-                      weder über Zeilen umbrechen noch sich clampen lassen —
-                      das Zitat wäre wieder einzeilig abgeschnitten. Ein
-                      inline-<span> mit Link-Semantik bricht sauber um. */}
-                  <span
-                    role="link"
-                    tabIndex={0}
-                    onClick={() =>
-                      onBranchedFromClick ? onBranchedFromClick() : onSelectChat(chat.parent_id!)
-                    }
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault();
-                        if (onBranchedFromClick) onBranchedFromClick();
-                        else onSelectChat(chat.parent_id!);
-                      }
-                    }}
-                    className="cursor-pointer text-blue-600 underline underline-offset-2 hover:text-blue-800 font-medium transition-colors"
-                  >
-                    "{chat.parent_word}"
-                  </span>
-                </div>
-                {(branchQuoteOverflows || branchQuoteExpanded) && (
-                  <button
-                    onClick={() => setBranchQuoteExpanded(v => !v)}
-                    title={branchQuoteExpanded ? S.showLess : S.showFullText}
-                    aria-expanded={branchQuoteExpanded}
-                    data-testid="branched-from-toggle"
-                    className="mt-0.5 shrink-0 rounded p-0.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
-                  >
-                    {branchQuoteExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                  </button>
-                )}
-              </div>
-            )}
-
+            {/* The "Branched from" link lives in the header row now
+                (mockup-branch-header.html §01) — no duplicate row here. */}
             {chat.messages.length === 0 && (
               <div className="w-full pt-16 text-center text-sm text-gray-400">
                 <p className="text-base font-medium text-gray-500 mb-1">{S.emptyChatTitle}</p>
@@ -1006,13 +1128,36 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
                         ? streamingMessageIds.has(msg.id)
                         : isLastAssistant && (sending || streaming)
                     }
-                    showThinkingTips={isLastAssistant}
+                    // Tips/quotes rotate under EVERY actively streaming
+                    // placeholder — a regenerate mid-list is not the last
+                    // message, but deserves the same waiting look (user
+                    // report 2026-07-25). Fallback: last assistant.
+                    showThinkingTips={
+                      streamingMessageIds ? streamingMessageIds.has(msg.id) : isLastAssistant
+                    }
                     onRetryMessage={onRetryMessage}
+                    modelLabels={modelLabels}
+                    onRetryLocalModel={onRetryLocalModel}
+                    hasLocalModel={hasLocalModel}
+                    billingUrl={billingUrl}
+                    billingUrls={billingUrls}
+                    onOpenModelPicker={onOpenModelPicker}
+                    settingsChangedAt={settingsChangedAt}
+                    onOpenSettings={onOpenSettings}
+                    providerLabels={providerLabels}
+                    localModelName={localModelName}
+                    cloudFallback={cloudFallback}
+                    onRetryCloudModel={onRetryCloudModel}
+                    freeFallback={freeFallback}
+                    onRetryFreeModel={onRetryFreeModel}
                     onWordRightClick={(word, context, x, y) =>
                       onWordRightClick({ word, context, x, y })
                     }
                     branchWords={branchWords}
                     onBranchClick={onSelectChat}
+                    // Ahead-link of the queued note (§07): jumps to the chat
+                    // whose question the queue is answering right now.
+                    onOpenChat={onSelectChat}
                     highlights={chatHighlights}
                     onChatSelection={onChatSelection}
                     onHighlightContextMenu={onHighlightContextMenu}
@@ -1024,6 +1169,37 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
                 </div>
               );
             })}
+
+            {/* Unanswered trailing question (mockup-model-flow §10): one
+                quiet row covers every silent loss — reload while queued,
+                backend restart with a full queue, background-chat stream
+                errors. Hidden while a live stream/queue owns the answer
+                (the streaming prop mirrors both sets in App). */}
+            {(() => {
+              if (!onResendUnanswered || streaming || sending || loading) return null;
+              const ordered = orderMessages(chat.messages);
+              const last = ordered[ordered.length - 1];
+              if (!last || last.role !== 'user') return null;
+              return (
+                <div
+                  data-testid="unanswered-note"
+                  className="flex flex-wrap items-center gap-2 text-[12.5px] text-gray-400"
+                  style={{ marginTop: '0.75rem' }}
+                >
+                  <AlertCircle size={13} className="shrink-0" />
+                  <span className="italic">{S.unanswered}</span>
+                  <button
+                    type="button"
+                    data-testid="resend-button"
+                    onClick={() => onResendUnanswered(last)}
+                    className="inline-flex items-center gap-1 rounded-md border border-gray-200 px-2 py-0.5 text-[12px] font-medium text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-700"
+                  >
+                    <RotateCcw size={11} className="shrink-0" />
+                    {S.resend}
+                  </button>
+                </div>
+              );
+            })()}
 
             <div ref={bottomRef} />
           </div>
@@ -1076,6 +1252,11 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
         )}
         <div className="flex justify-center">
           <div className={`${chatColumnClass} @container`} style={chatColumnStyle} data-testid="chat-input-shell">
+            {/* Guided empty state (ADR-0008): the setup card replaces the
+                whole composer row while the active cloud provider is missing
+                its API key. */}
+            {setupNotice ? setupNotice : (
+            <>
             {/* Anhang-Chips über dem Eingabefeld */}
             {attachments.length > 0 && (
               <div className="flex flex-wrap gap-2 mb-2 px-2">
@@ -1137,11 +1318,11 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
                 />
                 <div className="min-w-0 flex-1">
                   <p className="text-[12.5px] leading-relaxed text-gray-700 line-clamp-3">
-                    {composerQuote.text}
+                    <MathText text={composerQuote.text} />
                   </p>
                   <p className="mt-0.5 flex items-center gap-1 text-[11px] font-medium text-gray-400">
                     <MessageSquareQuote size={11} className="shrink-0" />
-                    <span className="truncate">{S.quoteFrom(composerQuote.sourceLabel)}</span>
+                    <span className={hasMath(composerQuote.sourceLabel) ? 'syflo-math-fade' : 'truncate'}><MathText text={S.quoteFrom(composerQuote.sourceLabel)} /></span>
                   </p>
                 </div>
                 <button
@@ -1164,9 +1345,12 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
               </div>
             )}
 
+            {/* Recording state glows in the theme's accent (blue utilities
+                are theme-token mapped) instead of a hard red — user decision
+                2026-07-25. */}
             <div className={`flex items-center gap-2 bg-white border border-gray-300 rounded-full pl-2 pr-3 py-2 shadow-sm transition-all ${
               isListening
-                ? 'border-red-300 ring-2 ring-red-100'
+                ? 'border-blue-300 ring-2 ring-blue-100'
                 : 'focus-within:border-gray-400'
             }`}>
               {/* Hidden File-Input — wird vom Plus-Button getriggert */}
@@ -1255,6 +1439,25 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
                     )}
                   </div>
                 )}
+                {/* /feedback-Vorschlag: erscheint, solange am Command-Wort
+                    getippt wird — an der oberen linken Ecke des Eingabefelds,
+                    über dem Plus-Button (design/mockup-feedback.html §2,
+                    Nutzerkorrektur 2026-08-01). */}
+                {showFeedbackSuggestion && (
+                  <div className="absolute bottom-full left-0 mb-2 z-20 bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden w-[22rem] max-w-[calc(100vw-3rem)]">
+                    <button
+                      onClick={() => { setInput(''); onOpenFeedback?.(''); }}
+                      className="w-full flex items-center gap-3 px-3 py-2.5 text-left bg-blue-50"
+                      data-testid="feedback-slash-item"
+                    >
+                      <MessageSquarePlus size={16} className="text-blue-600 shrink-0" />
+                      <span>
+                        <span className="block text-sm font-semibold text-blue-600">/feedback</span>
+                        <span className="block text-xs text-gray-500">{S.feedbackCommandDesc}</span>
+                      </span>
+                    </button>
+                  </div>
+                )}
               </div>
 
               {/* Der native Textarea-Platzhalter kann in schmalen Spalten
@@ -1262,19 +1465,38 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
                   kürzen (Chromium ignoriert text-overflow auf Textarea-
                   Platzhaltern). Darum bleibt das placeholder-Attribut nur
                   für Screenreader/Tests, unsichtbar — sichtbar ist das
-                  Overlay-Span, das sauber mit „…" kürzt. */}
+                  Overlay-Span, das sauber mit „…" kürzt.
+
+                  Highlight-Overlay für /feedback (Nutzerkorrektur 2026-08-01,
+                  zweiter Anlauf): ein doppelt gemalter Text-Zwilling sah
+                  verwaschen aus (unterschiedliches Antialiasing zweier
+                  übereinanderliegender Layer). Robuster: die echte textarea
+                  bekommt komplett transparenten Text + sichtbaren Caret: das
+                  einzige, was den Text sichtbar zeigt, ist dieser darunter
+                  liegende Layer — identische Schrift/Padding/Zeilenhöhe/
+                  Umbruch, Höhe und Scroll-Position werden aus der textarea
+                  gespiegelt (autosizeTextarea/syncHighlightScroll oben). */}
               <div className="relative flex-1 min-w-0 flex">
+                <div
+                  ref={highlightRef}
+                  aria-hidden="true"
+                  className="pointer-events-none absolute inset-0 w-full overflow-hidden px-2 py-[10px] text-[16px] leading-[1.5] whitespace-pre-wrap break-words text-gray-900"
+                  data-testid="chat-textarea-highlight"
+                >
+                  {renderComposerHighlight(input)}
+                </div>
                 <textarea
                   ref={textareaRef}
                   value={input}
                   onChange={handleInputChange}
                   onKeyDown={handleKeyDown}
                   onKeyUp={handleKeyUp}
+                  onScroll={syncHighlightScroll}
                   placeholder={isListening || isTranscribing ? '' : composerQuote ? S.placeholderAskQuote : S.placeholderAsk}
                   rows={1}
                   disabled={isBusy}
                   readOnly={isListening || isTranscribing}
-                  className="min-h-[44px] w-full min-w-0 bg-transparent px-2 py-[10px] text-[16px] text-gray-900 outline-none resize-none leading-[1.5] disabled:opacity-50 placeholder:text-transparent placeholder:whitespace-nowrap placeholder:overflow-hidden"
+                  className="relative min-h-[44px] w-full min-w-0 bg-transparent px-2 py-[10px] text-[16px] text-transparent caret-gray-900 outline-none resize-none leading-[1.5] disabled:opacity-50 placeholder:text-transparent placeholder:whitespace-nowrap placeholder:overflow-hidden"
                   data-testid="chat-textarea"
                 />
                 {!input && !isListening && (
@@ -1340,6 +1562,8 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
                 </button>
               )}
             </div>
+            </>
+            )}
           </div>
         </div>
       </div>

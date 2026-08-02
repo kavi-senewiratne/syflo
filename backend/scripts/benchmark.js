@@ -1,20 +1,20 @@
 #!/usr/bin/env node
 /**
- * scripts/benchmark.js — Latenz-Benchmark gegen das laufende Backend.
+ * scripts/benchmark.js — latency benchmark against the running backend.
  *
- * Misst pro Durchlauf, was der Nutzer spürt:
- *   - warmup_ms:  Dauer des Prefix-Warm-ups (Prefill des Paper-Kontexts)
- *   - ttft_ms:    Zeit bis zum ersten sichtbaren Token (Client-Sicht)
- *   - perf-Event: prompt_tokens / gen_tokens / tok_s aus dem Backend
+ * Measures per run what the user actually feels:
+ *   - warmup_ms:  duration of the prefix warm-up (prefill of the paper context)
+ *   - ttft_ms:    time to the first visible token (client view)
+ *   - perf event: prompt_tokens / gen_tokens / tok_s from the backend
  *
- * Der erste Durchlauf nach einem Ollama-(Neu-)Start ist der Kalt-Fall; alle
- * weiteren treffen auf den warmen KV-Cache. Für echte Kalt-Messungen Ollama
- * zwischen den Läufen neu starten.
+ * The first run after an Ollama (re)start is the cold case; all further
+ * runs hit the warm KV cache. For true cold measurements, restart Ollama
+ * between runs.
  *
  * Usage:
- *   node scripts/benchmark.js                       # frischer Wegwerf-Chat
- *   node scripts/benchmark.js --chat <id>           # bestehender Chat (z. B. mit Paper)
- *   node scripts/benchmark.js --runs 5 --think      # 5 Läufe, Thinking an
+ *   node scripts/benchmark.js                       # fresh throwaway chat
+ *   node scripts/benchmark.js --chat <id>           # existing chat (e.g. with a paper)
+ *   node scripts/benchmark.js --runs 5 --think      # 5 runs, thinking on
  *   node scripts/benchmark.js --prompt "Summarize the paper"
  */
 
@@ -36,8 +36,8 @@ function parseArgs(argv) {
   return args;
 }
 
-// Ein SSE-Stream, wie ihn POST /chats/:id/messages liefert: misst die Zeit
-// bis zum ersten delta/reasoning-Event und sammelt das perf-Event ein.
+// An SSE stream as delivered by POST /chats/:id/messages: measures the time
+// to the first delta/reasoning event and collects the perf event.
 async function sendAndMeasure(chatId, prompt, think) {
   const startedAt = Date.now();
   const res = await fetch(`${BASE}/chats/${chatId}/messages`, {
@@ -97,18 +97,18 @@ async function main() {
     if (!res.ok) throw new Error(`could not create chat: HTTP ${res.status}`);
     chatId = (await res.json()).id;
     createdChat = true;
-    console.log(`Wegwerf-Chat angelegt: ${chatId} (Tipp: --chat <id> für einen echten Paper-Chat)`);
+    console.log(`Throwaway chat created: ${chatId} (tip: --chat <id> for a real paper chat)`);
   }
 
-  console.log(`Backend: ${BASE} | Chat: ${chatId} | Läufe: ${args.runs} | Thinking: ${args.think ? 'an' : 'aus'}`);
-  console.log('Hinweis: Lauf 1 zahlt den Prefill (kalt), ab Lauf 2 sollte der KV-Cache greifen.\n');
+  console.log(`Backend: ${BASE} | Chat: ${chatId} | Runs: ${args.runs} | Thinking: ${args.think ? 'on' : 'off'}`);
+  console.log('Note: run 1 pays the prefill (cold), from run 2 on the KV cache should kick in.\n');
 
   const rows = [];
   try {
     for (let run = 1; run <= args.runs; run++) {
       const w = await warmup(chatId);
       if (w.gpu && w.gpu.vramPercent < 100) {
-        console.warn(`ACHTUNG: Modell nur zu ${w.gpu.vramPercent}% im GPU-Speicher — CPU-Offloading!`);
+        console.warn(`WARNING: model only ${w.gpu.vramPercent}% in GPU memory — CPU offloading!`);
       }
       const m = await sendAndMeasure(chatId, args.prompt, args.think);
       rows.push({
@@ -120,7 +120,7 @@ async function main() {
         'gen_tokens': m.perf ? fmt(m.perf.completionTokens) : '—',
         'tok_s': m.perf ? fmt(m.perf.tokensPerSecond) : '—',
       });
-      console.log(`Lauf ${run}: warmup ${w.ms} ms | TTFT ${fmt(m.ttftMs, ' ms')} | gesamt ${m.totalMs} ms`);
+      console.log(`Run ${run}: warmup ${w.ms} ms | TTFT ${fmt(m.ttftMs, ' ms')} | total ${m.totalMs} ms`);
     }
   } finally {
     if (createdChat) {
@@ -135,14 +135,14 @@ async function main() {
   if (ttfts.length > 1) {
     const cold = ttfts[0];
     const warm = Math.round(ttfts.slice(1).reduce((a, b) => a + b, 0) / (ttfts.length - 1));
-    console.log(`TTFT kalt (Lauf 1): ${cold} ms | TTFT warm (Ø Lauf 2+): ${warm} ms`);
+    console.log(`TTFT cold (run 1): ${cold} ms | TTFT warm (avg run 2+): ${warm} ms`);
     if (warm > cold * 0.8) {
-      console.log('Warm kaum schneller als kalt? Dann greift der KV-Cache nicht — [perf]-Warnungen im Backend-Log prüfen.');
+      console.log('Warm barely faster than cold? Then the KV cache is not kicking in — check [perf] warnings in the backend log.');
     }
   }
 }
 
 main().catch(err => {
-  console.error(`Benchmark fehlgeschlagen: ${err.message}`);
+  console.error(`Benchmark failed: ${err.message}`);
   process.exit(1);
 });

@@ -156,10 +156,10 @@ describe('PATCH /api/highlights/:hid', () => {
     expect(res.status).toBe(404);
   });
 
-  it('überlebt das Löschen des Branches über die echte Chat-Route (Issue 06)', async () => {
-    // Der zentrale "Highlight überlebt den Chat"-Vertrag. Anders als in Syflo
-    // testen wir über DELETE /api/chats/:id (den echten Lösch-Pfad), weil
-    // Syflo keine SQLite-FKs aktiviert — die Route entkoppelt explizit.
+  it('survives deleting the branch via the real chat route (Issue 06)', async () => {
+    // The central "highlight survives the chat" contract. Unlike in Syflo
+    // we test via DELETE /api/chats/:id (the real deletion path), because
+    // Syflo does not enable SQLite FKs — the route decouples explicitly.
     db.prepare(
       'INSERT INTO chats (id, title, created_at) VALUES (?, ?, ?)',
     ).run('chat-doomed', 'test', '2026-05-25T00:00:00.000Z');
@@ -173,9 +173,9 @@ describe('PATCH /api/highlights/:hid', () => {
     expect(after.body[0].chatId).toBeNull();
   });
 
-  it('entkoppelt auch Highlights von gelöschten Kind-Branches', async () => {
-    // Der rekursive Delete löscht den ganzen Teilbaum — Highlights an
-    // Kind-Chats müssen genauso entkoppelt werden wie am Wurzel-Chat.
+  it('also decouples highlights from deleted child branches', async () => {
+    // The recursive delete removes the whole subtree — highlights on
+    // child chats must be decoupled just like on the root chat.
     db.prepare(
       'INSERT INTO chats (id, title, created_at) VALUES (?, ?, ?)',
     ).run('parent-1', 'parent', '2026-05-25T00:00:00.000Z');

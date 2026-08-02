@@ -41,3 +41,26 @@ the full ~60 s source prefill again instead of a cache hit. Two coupled changes:
 2. The full-text-vs-retrieval decision (ADR-0006) no longer subtracts ancestor
    context (`sourceRoom = MAX_SYSTEM_CONTEXT_CHARS`, messages.js) — a source keeps
    the same representation across the whole tree instead of flipping modes per node.
+
+## Addendum 2026-07-26: selection surroundings for PDF-selection branches
+
+The PDF text layer flattens math notation — a selection of ℝ^m arrives as the two
+bare letters "Rm", and the branch prompt's old wording ("exploring the term … from a
+previous conversation") sent the model looking for the symbol in the wrong place
+(live incident: the model asked the user which symbol they meant).
+
+Decision (variant "capture at source", chosen over server-side reconstruction):
+
+1. The frontend already computes the selection surroundings for the popup's explain
+   call (`contextAroundSelection`, ±2 text-layer spans, ≤400 chars). "Open as new
+   chat" now passes them to `POST /api/chats`, stored as `chats.parent_context`
+   (nullable; only ever set together with `parent_word`).
+2. For branches with `parent_context` the system prompt switches to PDF-selection
+   wording: it cites the surroundings and warns that PDF extraction flattens
+   superscripts/blackboard letters, asking the model to infer the intended notation.
+3. Chat-selection branches are unchanged: `parent_word` already carries the full
+   selected passage, and "from a previous conversation" is true there.
+
+Server-side reconstruction (locating the highlight text in the cached page text) was
+rejected: fuzzy-matching flattened formula glyphs is unreliable — it would re-import
+the very extraction problem the change works around.

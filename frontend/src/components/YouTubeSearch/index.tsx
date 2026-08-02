@@ -116,7 +116,7 @@ export function YouTubeSearchModal({ onClose, onImport }: Props) {
         {/* Header */}
         <div className="flex items-center justify-between px-5 pt-4">
           <h3 id="youtube-search-title" className="flex items-center gap-2 text-[15px] font-semibold text-gray-900">
-            <TvMinimalPlay size={17} className="text-red-500" />
+            <TvMinimalPlay size={17} className="text-blue-600" />
             {S.title}
           </h3>
           <button
@@ -188,14 +188,18 @@ export function YouTubeSearchModal({ onClose, onImport }: Props) {
                     className="px-2 py-3 grid grid-cols-[auto_1fr_auto] gap-3 items-center"
                   >
                     {/* Thumbnail (Fallback: dunkle Fläche mit Play-Symbol) */}
-                    <div className="relative w-[104px] h-[58px] rounded-lg overflow-hidden bg-gray-800 shrink-0 flex items-center justify-center">
+                    {/* Media surfaces use literal colors, not theme tokens:
+                        the dark placeholder and the duration badge must look
+                        like video chrome in every theme (Matrix flips
+                        gray-800/text-white and would invert them). */}
+                    <div className="relative w-[104px] h-[58px] rounded-lg overflow-hidden bg-[#1f2937] shrink-0 flex items-center justify-center">
                       {r.thumbnail_url ? (
                         <img src={r.thumbnail_url} alt="" className="w-full h-full object-cover" />
                       ) : (
-                        <Play size={18} className="text-white/90" />
+                        <Play size={18} className="text-[#fff]/90" />
                       )}
                       {r.duration && (
-                        <span className="absolute right-1 bottom-1 text-[10px] font-medium text-white bg-gray-900/75 rounded px-1 font-mono">
+                        <span className="absolute right-1 bottom-1 text-[10px] font-medium text-[#fff] bg-black/75 rounded px-1 font-mono">
                           {r.duration}
                         </span>
                       )}

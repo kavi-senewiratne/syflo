@@ -29,8 +29,10 @@ import {
   normalizeRectsToZoom,
 } from '../../pdf/selection';
 import type { Highlight, HighlightColor, HighlightRect } from '../../types';
+import { useStrings } from '../../strings';
+import { MathText, hasMath } from '../MathText';
 
-// Captured at right-click time so the FloatingPopup can save a colored
+// Captured at mouseup time so the FloatingPopup can save a colored
 // highlight against the actual user selection (multi-line, column-aware).
 export interface PdfHighlightSelection {
   pageNumber: number;
@@ -50,11 +52,11 @@ interface Props {
   title?: string;
   // Persistent colored highlights, drawn as multi-rect overlays per page.
   highlights?: Highlight[];
-  // Right-click over a page: receives the captured selection (or null when
-  // there's no live selection), then the event bubbles to onContextMenu so
-  // the parent can open the FloatingPopup.
+  // Finishing a drag-selection inside a page (mouseup): receives the
+  // captured selection, then onSelectionFinalized fires so the parent can
+  // open the FloatingPopup — no right-click needed (user request 2026-07-31).
   onCaptureHighlight?: (sel: PdfHighlightSelection | null) => void;
-  onContextMenu?: (e: React.MouseEvent) => void;
+  onSelectionFinalized?: (point: { clientX: number; clientY: number }) => void;
   // Click an existing highlight → the parent opens the actions menu.
   onColorHighlightClick?: (highlight: Highlight, e: React.MouseEvent) => void;
   // Solange das Auswahl-Popup offen ist: das transiente Auswahl-Overlay
@@ -93,6 +95,41 @@ const HIGHLIGHT_BG_CLASS: Record<HighlightColor, string> = {
   orange: 'bg-[#FED7AA]',
 };
 
+// Which rects of a linked highlight get the "has a branch" underline. One
+// per REAL visual line, not one per rect — a genuine multi-line paragraph
+// highlight has one rect per line, roughly a full line-height apart
+// (top-gap ≈ height). A formula's sub/superscript baselines instead split
+// a SINGLE visual line into several rects only a few px apart (top-gap well
+// under half the height) — those must collapse into one underline or they
+// scatter across the glyph (user report 2026-08-01). Threshold: rects
+// within half a line-height of the previous one join its line; anything
+// further is a new line. Each line contributes its bottom-most rect.
+const EMPTY_LINKED_SET: ReadonlySet<number> = new Set();
+
+function linkedUnderlineIndices(rects: HighlightRect[]): Set<number> {
+  const linked = new Set<number>();
+  if (rects.length === 0) return linked;
+  const order = rects.map((_, i) => i).sort((a, b) => rects[a].top - rects[b].top);
+  let lineStart = order[0];
+  const flushLine = (lineIdxs: number[]) => {
+    linked.add(lineIdxs.reduce((best, i) => (rects[i].top > rects[best].top ? i : best), lineIdxs[0]));
+  };
+  let current = [order[0]];
+  for (let k = 1; k < order.length; k++) {
+    const i = order[k];
+    const sameLine = rects[i].top - rects[lineStart].top < rects[lineStart].height * 0.5;
+    if (sameLine) {
+      current.push(i);
+    } else {
+      flushLine(current);
+      current = [i];
+      lineStart = i;
+    }
+  }
+  flushLine(current);
+  return linked;
+}
+
 // Find the page wrapper that owns a DOM node (selection anchor or event
 // target). Pages carry data-testid="pdf-page-N".
 function findPageWrapper(node: Node | HTMLElement | null): HTMLElement | null {
@@ -116,13 +153,15 @@ export function PdfView({
   title,
   highlights,
   onCaptureHighlight,
-  onContextMenu,
+  onSelectionFinalized,
   onColorHighlightClick,
   keepSelectionVisible,
   ref,
 }: Props) {
   const [doc, setDoc] = useState<PdfDocumentHandle | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // UI-Texte in der App language — re-rendert beim Sprachwechsel mit.
+  const S = useStrings().pdfView;
   const [zoom, setZoom] = useState(1);
   const [currentPage, setCurrentPage] = useState(1);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -178,6 +217,44 @@ export function PdfView({
     };
   }, [pdfUrl]);
 
+  // Multi-rect highlight capture at mouseup time. Positions AND sizes are
+  // normalized to zoom=1 (the zoom-safe fix) so the highlight renders with
+  // correct geometry at every zoom level.
+  const captureHighlightFromPoint = (target: EventTarget | null): PdfHighlightSelection | null => {
+    const sel = window.getSelection?.();
+    if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return null;
+
+    // sel.toString() (the fallback when the text layer/spans can't be
+    // resolved) serializes pdf.js's per-line <br> elements as literal "\n"
+    // characters — unlike extractColumnAwareSelectionText(), which already
+    // collapses whitespace. Left unnormalized, those embedded newlines later
+    // render as forced <br/> line breaks wherever the quote flows through
+    // markdown (InlineMarkdown), breaking the "always one line" branch
+    // header/mind-map layout (user report 2026-07-31).
+    const text = extractColumnAwareSelectionText() ?? sel.toString().replace(/\s+/g, ' ');
+    if (!text || !text.trim()) return null;
+
+    const pageWrapper =
+      findPageWrapper(sel.anchorNode) ??
+      findPageWrapper(sel.focusNode) ??
+      findPageWrapper(target as HTMLElement);
+    if (!pageWrapper) return null;
+    const pageNumber = pageNumberOf(pageWrapper);
+    if (!pageNumber) return null;
+
+    const pageRect = pageWrapper.getBoundingClientRect();
+    const tight = computeTightLineRects();
+    const sourceLines: DOMRect[] = tight
+      ? tight.lines
+      : Array.from(sel.getRangeAt(0).getClientRects()).filter(
+          (r) => r.width > 0 && r.height > 0,
+        );
+    const rects: HighlightRect[] = normalizeRectsToZoom(sourceLines, pageRect, zoom);
+    if (rects.length === 0) return null;
+
+    return { pageNumber, text: text.trim(), rects };
+  };
+
   // After a drag-select inside a PDF text layer, rewrite the live Selection
   // to hug one column (two-column papers interleave columns in DOM order),
   // then capture tight per-line rects into the transient overlay. Ported
@@ -189,11 +266,10 @@ export function PdfView({
     // snappt den Selektions-Fokus im Leerraum neben Formeln auf entfernte
     // Textfluss-Positionen — nur die echten Maus-Punkte tragen die Absicht.
     const onMouseDown = (e: MouseEvent) => {
-      // Nur die LINKE Taste startet eine Auswahl. Der Rechtsklick (öffnet
-      // das Highlight-Popup über der bestehenden Auswahl) darf die Drag-
-      // Punkte des ursprünglichen Drags nicht überschreiben — sonst schnurrt
-      // das Band einer mehrzeiligen Auswahl auf die Rechtsklick-Zeile
-      // zusammen und die Highlight-Erfassung verliert Zeilen.
+      // Nur die LINKE Taste startet eine Auswahl. Ein Rechtsklick (z. B. für
+      // das native Kontextmenü) darf die Drag-Punkte der bestehenden Auswahl
+      // nicht überschreiben — sonst schnurrt das Band einer mehrzeiligen
+      // Auswahl zusammen und die Highlight-Erfassung verliert Zeilen.
       if (e.button !== 0) return;
       isMouseDownRef.current = true;
       const target = e.target as HTMLElement | null;
@@ -238,6 +314,16 @@ export function PdfView({
       // The constrain above re-adds the range, firing a selectionchange whose
       // rAF update recomputes the same rects — harmless double work, but it
       // keeps the overlay consistent when the mouseup landed off-page.
+
+      // Finishing the drag opens the FloatingPopup directly — no right-click
+      // needed (user request 2026-07-31).
+      if (rects.length > 0) {
+        const captured = captureHighlightFromPoint(e.target);
+        if (captured) {
+          onCaptureHighlight?.(captured);
+          onSelectionFinalized?.({ clientX: e.clientX, clientY: e.clientY });
+        }
+      }
     };
     container.addEventListener('mousedown', onMouseDown);
     container.addEventListener('mousemove', onMouseMove);
@@ -300,44 +386,6 @@ export function PdfView({
     };
   }, [zoom]);
 
-  // Multi-rect highlight capture at right-click time. Positions AND sizes
-  // are normalized to zoom=1 (the zoom-safe fix) so the highlight renders
-  // with correct geometry at every zoom level.
-  const captureHighlightFromEvent = (e: React.MouseEvent): PdfHighlightSelection | null => {
-    const sel = window.getSelection?.();
-    if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return null;
-
-    const text = extractColumnAwareSelectionText() ?? sel.toString();
-    if (!text || !text.trim()) return null;
-
-    const pageWrapper =
-      findPageWrapper(sel.anchorNode) ??
-      findPageWrapper(sel.focusNode) ??
-      findPageWrapper(e.target as HTMLElement);
-    if (!pageWrapper) return null;
-    const pageNumber = pageNumberOf(pageWrapper);
-    if (!pageNumber) return null;
-
-    const pageRect = pageWrapper.getBoundingClientRect();
-    const tight = computeTightLineRects();
-    const sourceLines: DOMRect[] = tight
-      ? tight.lines
-      : Array.from(sel.getRangeAt(0).getClientRects()).filter(
-          (r) => r.width > 0 && r.height > 0,
-        );
-    const rects: HighlightRect[] = normalizeRectsToZoom(sourceLines, pageRect, zoom);
-    if (rects.length === 0) return null;
-
-    return { pageNumber, text: text.trim(), rects };
-  };
-
-  const handleContextMenu = (e: React.MouseEvent) => {
-    if (onCaptureHighlight) {
-      onCaptureHighlight(captureHighlightFromEvent(e));
-    }
-    onContextMenu?.(e);
-  };
-
   const goToPage = (page: number) => {
     if (!doc) return;
     const clamped = Math.min(Math.max(page, 1), doc.numPages);
@@ -384,13 +432,13 @@ export function PdfView({
       <div className="flex items-center gap-3 px-4 py-2 bg-white border-b border-gray-200 shrink-0">
         <div className="flex items-center gap-2 min-w-0 flex-1 text-sm text-gray-700">
           <FileText size={15} className="text-gray-400 shrink-0" />
-          <span className="truncate">{title || 'PDF'}</span>
+          <span className={title && hasMath(title) ? 'syflo-math-fade' : 'truncate'}><MathText text={title || 'PDF'} /></span>
         </div>
         <div className="flex items-center gap-1 bg-gray-50 border border-gray-200 rounded-lg px-1 py-0.5">
           <button
             onClick={() => setZoom(z => Math.max(ZOOM_MIN, z - ZOOM_STEP))}
             className="w-7 h-7 flex items-center justify-center rounded-md text-gray-500 hover:text-gray-900 hover:bg-gray-100"
-            title="Zoom out"
+            title={S.zoomOut}
             data-testid="pdf-zoom-out"
           >
             <Minus size={14} />
@@ -401,7 +449,7 @@ export function PdfView({
           <button
             onClick={() => setZoom(z => Math.min(ZOOM_MAX, z + ZOOM_STEP))}
             className="w-7 h-7 flex items-center justify-center rounded-md text-gray-500 hover:text-gray-900 hover:bg-gray-100"
-            title="Zoom in"
+            title={S.zoomIn}
             data-testid="pdf-zoom-in"
           >
             <Plus size={14} />
@@ -411,7 +459,7 @@ export function PdfView({
           <button
             onClick={() => goToPage(currentPage - 1)}
             className="w-7 h-7 flex items-center justify-center rounded-md text-gray-500 hover:text-gray-900 hover:bg-gray-100"
-            title="Previous page"
+            title={S.previousPage}
             data-testid="pdf-prev-page"
           >
             <ChevronLeft size={14} />
@@ -422,7 +470,7 @@ export function PdfView({
           <button
             onClick={() => goToPage(currentPage + 1)}
             className="w-7 h-7 flex items-center justify-center rounded-md text-gray-500 hover:text-gray-900 hover:bg-gray-100"
-            title="Next page"
+            title={S.nextPage}
             data-testid="pdf-next-page"
           >
             <ChevronRight size={14} />
@@ -434,11 +482,10 @@ export function PdfView({
       <div
         ref={containerRef}
         className="flex-1 overflow-auto p-6"
-        onContextMenu={handleContextMenu}
       >
         {error && (
           <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-4 py-3 max-w-md mx-auto">
-            Could not load PDF: {error}
+            {S.loadError(error)}
           </div>
         )}
         {doc && (
@@ -513,7 +560,11 @@ function PdfPageView({
     <div
       ref={registerPage}
       data-testid={`pdf-page-${pageNumber}`}
-      className="relative bg-white rounded shadow-md w-fit"
+      // overflow-hidden: highlight overlays are absolutely positioned from
+      // STORED rects — a degenerate rect (pre-drag-band-fix data, or any
+      // future coordinate bug) must never paint past its own page onto the
+      // pane or the neighboring column (user report 2026-07-25).
+      className="relative isolate overflow-hidden bg-white rounded shadow-md w-fit"
     >
       <canvas ref={canvasRef} className="block rounded" data-testid="pdf-page-canvas" />
       {/* `textLayer` class triggers pdf.js's positioning CSS (imported in
@@ -545,27 +596,27 @@ function PdfPageView({
       ))}
       {/* Colored highlights — multi-rect (one element per line) so the
           stripe hugs the text. All four rect values scale with zoom (the
-          zoom-safe fix). Clicks open the actions menu; right-click bubbles
-          up so the FloatingPopup still opens over an existing highlight. */}
-      {highlights.map((h) =>
-        h.rects.map((r, idx) => (
+          zoom-safe fix). Click opens the actions menu. A linked chat gets an
+          underline on the bottom-most rect of EVERY real visual line
+          (linkedUnderlineIndices) — a genuine multi-line highlight shows one
+          mark per line, while a formula's baseline-split rects within one
+          line still collapse to a single mark (user reports 2026-08-01). */}
+      {highlights.map((h) => {
+        const linkedIdxs = h.chatId ? linkedUnderlineIndices(h.rects) : EMPTY_LINKED_SET;
+        return h.rects.map((r, idx) => (
           <button
             key={`${h.id}-${idx}`}
             type="button"
             data-testid={`pdf-color-highlight-${h.id}`}
             data-color={h.color}
             data-flash={flashHighlightId === h.id ? 'true' : undefined}
+            data-linked={linkedIdxs.has(idx) ? 'true' : undefined}
             title={h.text}
             onClick={(e) => {
               e.stopPropagation();
               onColorHighlightClick?.(h, e);
             }}
-            onContextMenu={(e) => {
-              // Prevent the OS-native menu but let the event bubble to the
-              // page container so the selection popup still opens.
-              e.preventDefault();
-            }}
-            className={`absolute border-0 p-0 cursor-pointer rounded-[2px] ${HIGHLIGHT_BG_CLASS[h.color]}`}
+            className={`absolute border-0 p-0 cursor-pointer rounded-[2px] ${HIGHLIGHT_BG_CLASS[h.color]} ${linkedIdxs.has(idx) ? 'border-b border-gray-900/50' : ''}`}
             style={{
               left: r.left * zoom,
               top: r.top * zoom,
@@ -577,7 +628,8 @@ function PdfPageView({
               zIndex: 4,
             }}
           />
-        )),
+        ));
+      },
       )}
       {/* Flash-Glow nach einem Drawer-Sprung: eigenes Overlay über dem
           Highlight (normaler Blend), damit der farbige Schein leuchtet, ohne

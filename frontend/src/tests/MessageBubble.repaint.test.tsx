@@ -41,6 +41,7 @@ const highlight: MessageHighlight = {
   id: 'mh1',
   messageId: 'a1',
   chatId: 'c1',
+  childChatId: null,
   startOffset: 9,
   endOffset: 23,
   text: 'clipping alone',

@@ -19,6 +19,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ChevronDown, ChevronUp, List } from 'lucide-react';
 import { useStrings } from '../../strings';
+import { MathText } from '../MathText';
 import type { QuestionEntry } from '../../chat/questionNav';
 
 interface ButtonProps {
@@ -120,7 +121,7 @@ export function QuestionNavButton({ questions, activeIndex, onJump }: ButtonProp
                       isActive ? 'font-medium text-blue-700' : 'text-gray-700'
                     }`}
                   >
-                    {q.text}
+                    <MathText text={q.text} />
                   </span>
                 </button>
               );

@@ -131,7 +131,7 @@ export function AttachmentChip({ alias, filename, mimetype, previewUrl, onRemove
           <button
             type="button"
             onClick={editable ? () => setEditing(true) : undefined}
-            className={`block w-full text-left font-semibold text-[11px] text-white truncate ${editable ? 'cursor-text hover:underline' : 'cursor-default'}`}
+            className={`block w-full text-left font-semibold text-[11px] text-[#fff] truncate ${editable ? 'cursor-text hover:underline' : 'cursor-default'}`}
             title={editable ? S.clickToRename(alias) : alias}
             tabIndex={editable ? 0 : -1}
             data-testid="attachment-alias"
@@ -145,7 +145,7 @@ export function AttachmentChip({ alias, filename, mimetype, previewUrl, onRemove
       {onRemove && (
         <button
           onClick={onRemove}
-          className="absolute top-1 right-1 w-5 h-5 flex items-center justify-center rounded-full bg-black/50 text-white hover:bg-black/70 transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
+          className="absolute top-1 right-1 w-5 h-5 flex items-center justify-center rounded-full bg-black/50 text-[#fff] hover:bg-black/70 transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
           title={S.remove}
           aria-label={S.remove}
         >

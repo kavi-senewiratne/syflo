@@ -41,14 +41,43 @@ body {
  * Chat-text highlights (design/mockup-chat-highlights-ask-in-chat.html).
  * Painted via the CSS Custom Highlight API (chat/highlightAnchors.ts) so the
  * markdown DOM stays untouched. Same five fixed product constants as the PDF
- * highlights — never themed. Text is forced dark so marks stay readable on
- * every bubble background and in dark themes.
+ * highlights — the hues are never themed. Text is forced dark so marks stay
+ * readable on every bubble background. The dark Matrix theme dims these to
+ * translucent tints (see the matrix block below) — full pastel blocks glare
+ * on the near-black phosphor surfaces (user report 2026-07-26).
+ *
+ * The hues live in variables because they are painted TWICE: as ::highlight()
+ * over prose text, and as element rules over whole KaTeX boxes (see the
+ * formula block below). One source per hue keeps the two paths identical in
+ * every theme — a theme only overrides the variables.
  */
-::highlight(syflo-chat-hl-yellow) { background-color: #FEF08A; color: #0F172A; }
-::highlight(syflo-chat-hl-green)  { background-color: #BBF7D0; color: #0F172A; }
-::highlight(syflo-chat-hl-blue)   { background-color: #BFDBFE; color: #0F172A; }
-::highlight(syflo-chat-hl-pink)   { background-color: #FBCFE8; color: #0F172A; }
-::highlight(syflo-chat-hl-orange) { background-color: #FED7AA; color: #0F172A; }
+:root {
+  --syflo-hl-yellow: #FEF08A;
+  --syflo-hl-green: #BBF7D0;
+  --syflo-hl-blue: #BFDBFE;
+  --syflo-hl-pink: #FBCFE8;
+  --syflo-hl-orange: #FED7AA;
+  --syflo-hl-ink: #0F172A;
+}
+::highlight(syflo-chat-hl-yellow) { background-color: var(--syflo-hl-yellow); color: var(--syflo-hl-ink); }
+::highlight(syflo-chat-hl-green)  { background-color: var(--syflo-hl-green);  color: var(--syflo-hl-ink); }
+::highlight(syflo-chat-hl-blue)   { background-color: var(--syflo-hl-blue);   color: var(--syflo-hl-ink); }
+::highlight(syflo-chat-hl-pink)   { background-color: var(--syflo-hl-pink);   color: var(--syflo-hl-ink); }
+::highlight(syflo-chat-hl-orange) { background-color: var(--syflo-hl-orange); color: var(--syflo-hl-ink); }
+
+/* Color-independent overlay: a highlight linked to a branched chat gets an
+   underline stacked on top of its color background — text-decoration and
+   background-color don't conflict, so both ::highlight() layers paint
+   together. currentColor follows whichever color rule above set `color`,
+   so it stays legible in every theme without a hardcoded value. Thin and
+   half-transparent (color-mix) — a solid 2px line read as too heavy next
+   to the pastel highlight (user report 2026-08-01). */
+::highlight(syflo-chat-hl-linked) {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-decoration-color: color-mix(in srgb, currentColor 55%, transparent);
+  text-underline-offset: 3px;
+}
 
 /*
  * KaTeX-Formeln in Chat-Antworten (Bug-Report 2026-07-22).
@@ -70,6 +99,13 @@ body {
  * Unlayered mit .prose-Präfix: gewinnt gegen katex.min.css (Spezifität) und
  * gegen Tailwind-Utilities (Layer) — siehe Cascade-Hinweis oben.
  */
+/* Formulas keep their own casing everywhere: mindmap badges and other
+   uppercase-styled containers must not capitalize KaTeX glyphs ($w_t$
+   would render as W_T — user report 2026-07-26). */
+.katex {
+  text-transform: none;
+}
+
 .prose .katex {
   font-size: 1.05em;
   display: inline-block;
@@ -86,6 +122,48 @@ body {
   overflow-y: hidden;
   padding: 0.25rem 0;
   margin: 0.5rem 0;
+}
+
+/*
+ * Highlighted formulas (user report 2026-08-01: "gaps between the marks, the
+ * underline isn't one line").
+ *
+ * ::highlight() paints only the inline boxes of text nodes. KaTeX puts its
+ * spacing into `margin-right` on .mbin/.mrel and into empty .mspace elements,
+ * and it stacks sub/superscripts into .vlist boxes with their own baselines —
+ * so a range-painted formula came out as striped patches with a stair-stepped
+ * underline. chat/highlightAnchors.ts therefore cuts the formula out of the
+ * ranges and tags the whole box with data-syflo-hl instead: the background is
+ * one rectangle over the padded box, the underline one line on the box's own
+ * baseline (which the inline-block shares with the surrounding prose).
+ * Same variables as the ::highlight() rules above — never diverge.
+ */
+.prose .katex[data-syflo-hl] {
+  background-color: var(--syflo-hl-mark);
+  color: var(--syflo-hl-ink);
+  border-radius: 2px;
+}
+.prose .katex[data-syflo-hl='yellow'] { --syflo-hl-mark: var(--syflo-hl-yellow); }
+.prose .katex[data-syflo-hl='green']  { --syflo-hl-mark: var(--syflo-hl-green); }
+.prose .katex[data-syflo-hl='blue']   { --syflo-hl-mark: var(--syflo-hl-blue); }
+.prose .katex[data-syflo-hl='pink']   { --syflo-hl-mark: var(--syflo-hl-pink); }
+.prose .katex[data-syflo-hl='orange'] { --syflo-hl-mark: var(--syflo-hl-orange); }
+/* Linked to a branched chat — the element twin of ::highlight(…-linked).
+   NOT text-decoration: Chromium paints no decoration across an atomic inline,
+   and .katex (like its inner .katex-html) is an inline-block — the line
+   simply vanished for the width of the formula (pixel-measured 2026-08-01).
+   A 1px background gradient spans the whole box instead. Its distance from
+   the box bottom up to the line's baseline is measured in JS and handed over
+   as --syflo-hl-underline-bottom (chat/highlightAnchors.ts); the 0.3em
+   fallback equals .prose .katex's padding-bottom, i.e. the content edge. */
+.prose .katex[data-syflo-hl-linked] {
+  background-image: linear-gradient(
+    color-mix(in srgb, currentColor 55%, transparent),
+    color-mix(in srgb, currentColor 55%, transparent)
+  );
+  background-repeat: no-repeat;
+  background-size: 100% 1px;
+  background-position: 0 calc(100% - var(--syflo-hl-underline-bottom, 0.3em));
 }
 
 /*
@@ -148,6 +226,18 @@ body {
   background-color: color-mix(in srgb, #F97316 calc(var(--syflo-flash-alpha) * 100%), transparent);
   color: color-mix(in srgb, #ffffff calc(var(--syflo-flash-alpha) * 100%), currentColor);
 }
+/* Element twin for formulas (same reason as data-syflo-hl above): a flashed
+   formula pulses as one box. --syflo-flash-alpha inherits from the flashing
+   line, so both paths fade on the same clock. */
+.prose .katex[data-syflo-hl-flash] {
+  background-color: color-mix(in srgb, var(--syflo-flash-tint) calc(var(--syflo-flash-alpha) * 100%), transparent);
+  color: color-mix(in srgb, var(--syflo-flash-ink) calc(var(--syflo-flash-alpha) * 100%), currentColor);
+}
+.prose .katex[data-syflo-hl-flash='yellow'] { --syflo-flash-tint: #FACC15; --syflo-flash-ink: #0F172A; }
+.prose .katex[data-syflo-hl-flash='green']  { --syflo-flash-tint: #22C55E; --syflo-flash-ink: #ffffff; }
+.prose .katex[data-syflo-hl-flash='blue']   { --syflo-flash-tint: #3B82F6; --syflo-flash-ink: #ffffff; }
+.prose .katex[data-syflo-hl-flash='pink']   { --syflo-flash-tint: #EC4899; --syflo-flash-ink: #ffffff; }
+.prose .katex[data-syflo-hl-flash='orange'] { --syflo-flash-tint: #F97316; --syflo-flash-ink: #ffffff; }
 
 /*
  * Flash nach einem Sprung aus dem Highlights-Drawer: pulsierender Glow in
@@ -409,13 +499,6 @@ body {
 :root[data-theme='hyrule'] .bg-green-500 {
   box-shadow: 0 0 8px rgba(184, 150, 58, 0.55);
 }
-/* design:hyrule.field-panorama — layered ridges, snow peak, grass, motes */
-:root[data-theme='hyrule'] .syflo-pdf-pane {
-  background-color: #e5dfc6;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 900' preserveAspectRatio='none'%3E%3Cpath d='M0 840 L90 760 L180 822 L290 742 L400 830 L520 770 L640 836 L760 756 L870 826 L980 748 L1080 818 L1200 780 L1200 900 L0 900 Z' fill='%23A9BC9C' opacity='.5'/%3E%3Cpath d='M960 768 L980 748 L1000 768 L990 776 L978 766 L968 776 Z' fill='%23F4F1E2' opacity='.8'/%3E%3Cpath d='M0 872 L140 820 L280 866 L430 812 L580 870 L740 824 L890 872 L1030 830 L1200 866 L1200 900 L0 900 Z' fill='%23879E77' opacity='.55'/%3E%3Crect x='0' y='884' width='1200' height='16' fill='%236F8F5C' opacity='.5'/%3E%3Cg stroke='%236F8F5C' stroke-width='2.5' stroke-linecap='round' fill='none' opacity='.5'%3E%3Cpath d='M60 884 q3 -14 8 -18'/%3E%3Cpath d='M74 884 q-2 -12 -8 -16'/%3E%3Cpath d='M120 886 q3 -12 7 -15'/%3E%3Cpath d='M1084 884 q3 -14 8 -18'/%3E%3Cpath d='M1098 884 q-2 -12 -8 -16'/%3E%3Cpath d='M1140 886 q3 -12 7 -15'/%3E%3C/g%3E%3Cg fill='%23B8963A'%3E%3Ccircle cx='90' cy='520' r='2.4' opacity='.5'/%3E%3Ccircle cx='130' cy='430' r='1.8' opacity='.4'/%3E%3Ccircle cx='70' cy='330' r='1.6' opacity='.35'/%3E%3Ccircle cx='1120' cy='480' r='2.2' opacity='.5'/%3E%3Ccircle cx='1080' cy='380' r='1.7' opacity='.4'/%3E%3Ccircle cx='1150' cy='290' r='1.5' opacity='.35'/%3E%3C/g%3E%3Cg fill='%232AA198'%3E%3Ccircle cx='110' cy='620' r='2' opacity='.45'/%3E%3Ccircle cx='1100' cy='600' r='2' opacity='.45'/%3E%3Ccircle cx='75' cy='700' r='1.6' opacity='.35'/%3E%3Ccircle cx='1135' cy='710' r='1.6' opacity='.35'/%3E%3C/g%3E%3C/svg%3E");
-  background-size: 100% 100%;
-  background-repeat: no-repeat;
-}
 /* design:hyrule.pdf-page-shadow — gold-tinted ring, cartoon offset drop */
 :root[data-theme='hyrule'] .syflo-pdf-pane .shadow-md {
   box-shadow: 0 0 0 1px rgba(158, 148, 106, 0.25), 6px 6px 0 var(--syflo-shadow-ink);
@@ -585,33 +668,17 @@ body {
 :root[data-theme='matrix'] .font-serif {
   font-family: 'Share Tech Mono', 'IBM Plex Mono', monospace;
 }
-/* design:matrix.code-rain — two rain layers of literal 1s and 0s (inline
-   SVG tiles, max fill-opacity 0.10) falling at different parallax speeds
-   over the faint column grid, behind the sidebar, chat pane and PDF desk.
-   Tile heights (360px/480px) divide the travel distances exactly → seamless
-   loop. (The mockup's opaque pdf-pane would hide the rain in the middle
-   column; the user prefers it animated — reverted 2026-07-20. Real digits
-   instead of gradient dashes: user request 2026-07-20.) */
+/* design:matrix.code-rain — the falling 1/0 rain is a shared canvas
+   (components/MatrixRain, mounted once in App.tsx) sitting behind the
+   sidebar, chat pane and PDF desk as one continuous field, not a per-pane
+   CSS background (design/mockup-matrix-home-rain.html, Variante C — user
+   decision 2026-07-30). These three just need to stay transparent so the
+   canvas underneath shows through the gaps around their real content.
+   MatrixRain.tsx handles prefers-reduced-motion and pausing itself. */
 :root[data-theme='matrix'] .syflo-sidebar,
 :root[data-theme='matrix'] .syflo-chat-pane,
 :root[data-theme='matrix'] .syflo-pdf-pane {
-  background-image:
-    url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='360' font-family='IBM Plex Mono,monospace' fill='%232BE76B'><text x='18' y='40' font-size='13' fill-opacity='0.10'>1</text><text x='92' y='86' font-size='14' fill-opacity='0.07'>0</text><text x='170' y='52' font-size='12' fill-opacity='0.09'>1</text><text x='48' y='150' font-size='13' fill-opacity='0.06'>0</text><text x='140' y='180' font-size='15' fill-opacity='0.10'>1</text><text x='200' y='230' font-size='12' fill-opacity='0.07'>0</text><text x='25' y='262' font-size='14' fill-opacity='0.08'>1</text><text x='110' y='300' font-size='12' fill-opacity='0.06'>0</text><text x='180' y='330' font-size='13' fill-opacity='0.09'>1</text></svg>"),
-    url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='300' height='480' font-family='IBM Plex Mono,monospace' fill='%232BE76B'><text x='34' y='30' font-size='10' fill-opacity='0.05'>0</text><text x='128' y='66' font-size='9' fill-opacity='0.04'>1</text><text x='236' y='44' font-size='10' fill-opacity='0.06'>0</text><text x='70' y='128' font-size='9' fill-opacity='0.04'>1</text><text x='188' y='158' font-size='10' fill-opacity='0.05'>0</text><text x='272' y='196' font-size='9' fill-opacity='0.04'>1</text><text x='20' y='236' font-size='10' fill-opacity='0.06'>1</text><text x='142' y='270' font-size='9' fill-opacity='0.04'>0</text><text x='250' y='312' font-size='10' fill-opacity='0.05'>1</text><text x='88' y='356' font-size='9' fill-opacity='0.04'>0</text><text x='204' y='398' font-size='10' fill-opacity='0.05'>1</text><text x='40' y='442' font-size='9' fill-opacity='0.04'>0</text></svg>"),
-    repeating-linear-gradient(90deg, transparent 0 18px, rgba(43, 231, 107, 0.018) 18px 20px);
-  background-size: 220px 360px, 300px 480px, auto;
-  animation: syflo-code-rain 36s linear infinite;
-}
-@keyframes syflo-code-rain {
-  from { background-position: 0 0, 0 0, 0 0; }
-  to   { background-position: 0 1080px, 0 480px, 0 0; }
-}
-@media (prefers-reduced-motion: reduce) {
-  :root[data-theme='matrix'] .syflo-sidebar,
-  :root[data-theme='matrix'] .syflo-chat-pane,
-  :root[data-theme='matrix'] .syflo-pdf-pane {
-    animation: none;
-  }
+  background-color: transparent;
 }
 /* design:matrix.vignette-grain — deep vignette + 0.05 film grain overlays */
 :root[data-theme='matrix'] body::before {
@@ -648,10 +715,9 @@ body {
 :root[data-theme='matrix'] .bg-blue-50 {
   box-shadow: inset 0 0 0 1px #0f4a1e;
 }
-/* design:matrix.pdf-page-shadow — phosphor ring, cartoon afterglow drop, darkest desk */
-:root[data-theme='matrix'] .syflo-pdf-pane {
-  background-color: #010401;
-}
+/* design:matrix.pdf-page-shadow — phosphor ring + cartoon afterglow drop
+   around the PDF page. The pane's own desk background is the shared
+   MatrixRain canvas now (design:matrix.code-rain above), not a fixed color. */
 :root[data-theme='matrix'] .syflo-pdf-pane .shadow-md {
   box-shadow: 0 0 0 1px rgba(43, 231, 107, 0.12), 6px 6px 0 var(--syflo-shadow-ink);
   border-radius: 6px;
@@ -670,6 +736,52 @@ body {
   border-radius: 3px;
   padding: 10px 14px;
   box-shadow: 4px 4px 0 var(--syflo-shadow-ink);
+}
+/* design:matrix.text-hierarchy — IBM Plex Mono only loads 400/500/600, so
+   font-weight alone can't separate headings/strong from body text (user
+   report 2026-07-31: everything reads the same). Brightness does the job
+   font-weight can't here: headings and strong step up the theme's own
+   green ramp plus a phosphor glow (design/mockup-matrix-text-readability.html,
+   variant C), instead of relying on a font-weight the font doesn't have. */
+:root[data-theme='matrix'] .prose h1,
+:root[data-theme='matrix'] .prose h2,
+:root[data-theme='matrix'] .prose h3 {
+  color: var(--color-blue-700);
+  text-shadow: 0 0 8px rgba(43, 231, 107, 0.45);
+}
+:root[data-theme='matrix'] .prose strong,
+:root[data-theme='matrix'] .prose b {
+  color: var(--color-gray-950);
+  font-weight: 600;
+  text-shadow: 0 0 6px rgba(43, 231, 107, 0.5);
+}
+/* design:matrix.destructive — the delete button: red-600 as a FILL is far too
+   bright on the phosphor surfaces (user report 2026-07-26), and text-white
+   flips to near-black here. Deep red fill, light red text, thin red ring —
+   the dark-UI destructive idiom. Unlayered rules beat the text-white and
+   hover:bg-red-700 utilities (layer order), so the markup stays the standard
+   `bg-red-600 text-white` used by every theme. text-red-600 (error text on
+   red-50 boxes) keeps the bright ramp value and is unaffected. */
+:root[data-theme='matrix'] .bg-red-600 {
+  background-color: #3f1b1b;
+  color: var(--color-red-700);
+  box-shadow: inset 0 0 0 1px var(--color-red-300);
+}
+:root[data-theme='matrix'] .bg-red-600:hover {
+  background-color: #542525;
+}
+/* Chat-text highlights on phosphor: same five hues, dimmed to translucent
+   tints; text goes bright instead of forced-dark so it reads on the dark
+   tint (user report 2026-07-26: pastels too bright in Matrix). Overriding
+   the variables covers both paint paths at once — ::highlight() over prose
+   and the element rules over KaTeX boxes. */
+:root[data-theme='matrix'] {
+  --syflo-hl-yellow: rgba(250, 204, 21, 0.28);
+  --syflo-hl-green: rgba(34, 197, 94, 0.28);
+  --syflo-hl-blue: rgba(59, 130, 246, 0.32);
+  --syflo-hl-pink: rgba(236, 72, 153, 0.28);
+  --syflo-hl-orange: rgba(249, 115, 22, 0.28);
+  --syflo-hl-ink: var(--color-gray-950);
 }
 /* design:matrix.terminal-details — phosphor caret and selection */
 :root[data-theme='matrix'] textarea,
@@ -715,6 +827,46 @@ body {
 .bg-gray-100.select-text {
   box-shadow: 4px 4px 0 var(--syflo-shadow-ink);
 }
+/* Formulas follow the active theme's text font (user request 2026-07-28):
+   KaTeX's own Times-like KaTeX_Main clashed with the themes' UI fonts in
+   titles, the sidebar and chat bubbles. `inherit` picks up whatever font
+   the theme sets on body, in every theme. Only the letter classes are
+   overridden — symbol layers (.op-symbol, .delimsizing, size fonts for
+   ∑ √ and big parens) keep KaTeX's fonts, since UI fonts lack those
+   glyphs at display sizes. .mathnormal's own italic still applies.
+   `body`-prefixed for specificity over katex.min.css, which Vite loads
+   after this file. Font-size 1.05em instead of KaTeX's 1.21em so the
+   math sits at the surrounding text's size. */
+body .katex {
+  font-family: inherit;
+  font-size: 1.05em;
+}
+body .katex .mathnormal,
+body .katex .mathit,
+body .katex .mathrm,
+body .katex .mathbf,
+body .katex .boldsymbol,
+body .katex .textrm {
+  font-family: inherit;
+}
+/* Accents (\hat, \tilde, \bar) are symbols, not letters: UI fonts draw a
+   big high caret where KaTeX's positioning expects its own flat accent
+   glyph — the hat sat ON the letter (user report 2026-07-28). */
+body .katex .accent-body {
+  font-family: KaTeX_Main, 'Times New Roman', serif;
+}
+
+/* Single-line clip for strings that contain rendered KaTeX (sidebar titles,
+   quote chips). `truncate`'s text-overflow ellipsis hides text but lets
+   KaTeX's positioned spans leak past it as stray fragments — the formula
+   looked chopped, with orphaned sub-/superscripts (user report 2026-07-27).
+   A fade-out mask clips everything uniformly instead. */
+.syflo-math-fade {
+  overflow: hidden;
+  white-space: nowrap;
+  mask-image: linear-gradient(to right, #000 calc(100% - 18px), transparent);
+}
+
 /* Mind-map nodes — sized inline in MindMap/index.tsx, all colors/borders/
    shadows here so the card follows the theme; root node reads as the bigger,
    accent-filled card */
@@ -995,7 +1147,16 @@ body {
  */
 .textLayer ::selection,
 .textLayer::selection {
-  background: transparent;
+  /* !important: must beat any theme's `::selection` override (e.g. Matrix's
+     :root[data-theme='matrix'] ::selection, which otherwise wins on
+     specificity and reintroduces the native selection paint this rule
+     exists to suppress). `color` matters too, not just `background`: the
+     span's own text is `color: transparent` (see below) so its approximate
+     sans-serif glyphs stay invisible under the canvas's real ones — a theme
+     `::selection { color: ... }` override makes them opaque again, ghosting
+     doubled text over the canvas during a drag (user report 2026-07-31). */
+  background: transparent !important;
+  color: transparent !important;
 }
 
 /* Thin scrollbar — keeps the UI clean without hiding the scrollbar entirely */

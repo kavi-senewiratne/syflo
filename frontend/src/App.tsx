@@ -14,14 +14,18 @@
  * chats (buffer in activeStreamsRef; the sidebar shows animated dots for them).
  */
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { FileText } from 'lucide-react';
 import { Sidebar } from './components/Sidebar';
+import { MatrixRain } from './components/MatrixRain';
 import { ChatArea, type ChatAreaHandle } from './components/ChatArea';
 import { ModelPicker } from './components/ChatArea/ModelPicker';
+import { CloudSetupNotice } from './components/ChatArea/CloudSetupNotice';
 import { SettingsModal, type SettingsTab } from './components/SettingsModal';
+import { FeedbackDialog } from './components/FeedbackDialog';
 import { MindMap } from './components/MindMap';
 import { ParentContextPane } from './components/ParentContextPane';
+import { MathText } from './components/MathText';
 import { PdfView, type PdfHighlightSelection, type PdfViewHandle } from './components/PdfView';
 import { HighlightActionsMenu } from './components/PdfView/HighlightActionsMenu';
 import { PaperSearchModal } from './components/PaperSearch';
@@ -34,12 +38,14 @@ import { TranscriptDrawer } from './components/TranscriptDrawer';
 import { FloatingPopup } from './components/FloatingPopup';
 import { HighlightsDrawer } from './components/HighlightsDrawer';
 import { api, StreamFailedError, TreeHasSourceError } from './api';
+import { TextSmoother } from './streaming/TextSmoother';
 import { orderMessages } from './chat/messageOrder';
+import { buildPickerGroups } from './chat/pickerGroups';
 import { useHighlights } from './hooks/useHighlights';
 import { useChatHighlights } from './hooks/useChatHighlights';
 import { contextAroundSelection } from './pdf/selection';
-import { FAILED_MARKER, INTERRUPTED_MARKER } from './types';
-import type { Chat, ChatAncestor, ChatDetail, ChatSelection, ComposerQuote, Highlight, HighlightColor, LocalAttachment, Message, MessageHighlight, OllamaModelInfo, Paper, SearchResult, SearchSource, Settings, SystemRecommendation, ToolEvent, TreeHighlight, Video, VideoSearchResult, WordPopup } from './types';
+import { CLOUD_PROVIDERS, FAILED_MARKER, INTERRUPTED_MARKER } from './types';
+import type { Chat, ChatDetail, ChatSelection, ComposerQuote, FailoverInfo, Highlight, HighlightColor, LLMProvider, LocalAttachment, Message, MessageHighlight, OllamaModelInfo, Paper, Registry, SearchResult, SearchSource, Settings, ToolEvent, TreeHighlight, Video, VideoSearchResult, WordPopup } from './types';
 
 // Ein laufender Antwort-Stream. Antworten laufen beim Chat-Wechsel im
 // Hintergrund weiter (Nutzerkorrektur 2026-07-22) — der Puffer hält den
@@ -65,20 +71,39 @@ interface ActiveStream {
   // Warteschlangen-Status des Backends: Zahl der Jobs davor, null = läuft
   // (oder war nie eingereiht). started kippt mit dem started-Event.
   queuedAhead: number | null;
+  // Queue transparency (mockup-model-flow §07): the local model that will
+  // answer this waiting question (chip on the queued note) and the chat +
+  // question the queue is answering RIGHT NOW (jump link when it is another
+  // chat). Both live only while queuedAhead does.
+  queuedModel: string | null;
+  queuedCurrent: { chatId: string; question: string } | null;
   started: boolean;
-  // Prefill-ETA (Sekunden) des laufenden Jobs — null, sobald das erste
-  // Token/Reasoning eintrifft (der Countdown-Balken verschwindet).
-  prefillEta: number | null;
+  // Visible auto-retry after a cloud provider 429 (ADR-0008) — null as soon
+  // as the next attempt delivers tokens.
+  rateLimit: { retryInSeconds: number; attempt: number; scope?: 'requests' | 'tokens'; model?: string } | null;
+  // Another provider stepped in for this answer (ADR-0008 failover). Unlike
+  // rateLimit this STAYS for the whole answer — it explains who it is from.
+  failover: FailoverInfo | null;
+  // Smooth reveal of the streamed answer text (fast cloud models would make
+  // paragraphs "pop"). Lives on the stream, not in a component, so a chat
+  // switch mid-stream loses nothing; `content` above always holds the
+  // REVEALED prefix — the persisted final text comes from the backend.
+  smoother: TextSmoother | null;
   // Retry eines persistierten '*Failed*'-Markers: es gibt keine optimistische
   // User-Blase, und ein Abbruch im Wartezustand stellt die Fehlerzeile wieder
   // her, statt Blasen zu entfernen.
   isRegenerate: boolean;
+  // Die id des ersetzten *Failed*-Markers (anchored retry). Die Restore-Pfade
+  // stellen den Marker unter DIESER id wieder her — eine Temp-id würde den
+  // nächsten Retry mit einer dem Backend unbekannten messageId losschicken.
+  regenerateOfId: string | null;
   abort: AbortController;
 }
 
 export default function App() {
   // UI-Texte in der App language — re-rendert beim Sprachwechsel mit.
-  const S = useStrings().app;
+  const STR = useStrings();
+  const S = STR.app;
   // chats: the full tree shown in the sidebar
   const [chats, setChats] = useState<Chat[]>([]);
 
@@ -106,34 +131,127 @@ export default function App() {
   // Settings-Modal (App-eigen) verwaltet die Bibliothek.
   const [settings, setSettings] = useState<Settings | null>(null);
 
-  // Installierte Vision-Modelle (Backend filtert) + Hardware-Empfehlung —
-  // beides füttert die Composer-Pille und die Settings-Bibliothek.
+  // Installierte Vision-Modelle (Backend filtert) — füttert die
+  // Composer-Pille und die Settings-Modell-Liste.
   const [ollamaModels, setOllamaModels] = useState<OllamaModelInfo[]>([]);
-  const [recommendation, setRecommendation] = useState<SystemRecommendation | null>(null);
+  // Honest local state (mockup-model-flow §02): running-with-zero-vision-
+  // models is a different situation from "not reachable".
+  const [ollamaReachable, setOllamaReachable] = useState(true);
+  // Bumped after stream errors: the picker refreshes cooldown badges and
+  // the pill dot from it (refresh moments, §03 — no polling).
+  const [modelSystemSignal, setModelSystemSignal] = useState(0);
+
+  // Model registry (ADR-0008): cloud shortlists for the composer pill.
+  // null while not loaded — the pill then shows only the active model.
+  const [registry, setRegistry] = useState<Registry | null>(null);
+
+  // Quota card v3 "Modell wechseln": every increment opens the composer's
+  // model picker drop-up (counter, so repeated clicks re-open it).
+  const [pickerOpenSignal, setPickerOpenSignal] = useState(0);
+
+  // Auto-retry after "Modell wechseln" (user decision 2026-07-29): the card
+  // that opened the picker arms its failed message here; the next pick that
+  // actually changes the model retries it immediately — one click less than
+  // pick + "Erneut versuchen". Closing the menu without a pick disarms, so
+  // later unrelated switches via the pill never resurrect an old retry.
+  const pickerRetryTargetRef = useRef<Message | null>(null);
+  const handlePickerMenuChange = useCallback((open: boolean) => {
+    if (!open) pickerRetryTargetRef.current = null;
+  }, []);
+
+  // Timestamp of the last settings change — model switch, provider switch
+  // or key save (settingsChangedAt generalizes modelSwitchedAt,
+  // mockup-model-flow §05): quota and failReason cards older than this show
+  // an enabled retry again — the new configuration may succeed where the
+  // old one failed. Transient by design, like the cards themselves.
+  const [settingsChangedAt, setSettingsChangedAt] = useState<string | null>(null);
+
+  // Display label per model name (all providers flattened) — resolves model
+  // names in the failover note. Empty while the registry is not loaded.
+  const modelLabels = useMemo(() => {
+    const map: Record<string, string> = {};
+    if (registry) {
+      for (const provider of Object.values(registry.providers)) {
+        for (const m of provider.models) map[m.name] = m.label;
+      }
+    }
+    return map;
+  }, [registry]);
+
+  // Display label per provider id — resolves the provider named by the
+  // no_key/bad_key cards (mockup-model-flow §05). Raw id as fallback.
+  const providerLabels = useMemo(() => {
+    const map: Record<string, string> = {};
+    if (registry) {
+      for (const [id, provider] of Object.entries(registry.providers)) {
+        if (provider.label) map[id] = provider.label;
+      }
+    }
+    return map;
+  }, [registry]);
+
+  // Privacy guard (mockup-model-flow §11): the ONE explicit, named cloud
+  // exit of the local_missing card — the first cloud provider with a stored
+  // key and its configured model. null hides the button entirely.
+  const cloudFallback = useMemo(() => {
+    if (!settings) return null;
+    for (const p of CLOUD_PROVIDERS) {
+      if (settings[`${p}_api_key_set`]) {
+        const model = settings[`${p}_model`];
+        return {
+          provider: p,
+          providerLabel: providerLabels[p] ?? p,
+          model,
+          modelLabel: modelLabels[model] ?? model,
+        };
+      }
+    }
+    return null;
+  }, [settings, providerLabels, modelLabels]);
+
+  // W4 billing card (cost tiers 2026-07-30): the first FREE model among the
+  // keyed cloud providers, active provider first — "Mit Gemini Flash
+  // antworten" instead of retrying a model that fails deterministically.
+  const freeFallback = useMemo(() => {
+    if (!settings || !registry) return null;
+    const order = [...CLOUD_PROVIDERS].sort((a, b) =>
+      a === settings.llm_provider ? -1 : b === settings.llm_provider ? 1 : 0,
+    );
+    for (const p of order) {
+      if (!settings[`${p}_api_key_set`]) continue;
+      const model = registry.providers[p]?.models.find(m => m.free !== false);
+      if (model) {
+        return {
+          provider: p,
+          providerLabel: providerLabels[p] ?? p,
+          model: model.name,
+          modelLabel: model.label ?? model.name,
+        };
+      }
+    }
+    return null;
+  }, [settings, registry, providerLabels]);
 
   // Settings-Modal gehört der App (der Picker und die Sidebar öffnen es).
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState<SettingsTab>('appearance');
-  const openSettings = useCallback((tab: SettingsTab) => {
+  // Optional provider preselection (W9 path chooser, 2026-07-30): each
+  // setup path lands on the matching provider card.
+  const [settingsProvider, setSettingsProvider] = useState<LLMProvider | null>(null);
+  const openSettings = useCallback((tab: SettingsTab, provider?: LLMProvider) => {
     setSettingsTab(tab);
+    setSettingsProvider(provider ?? null);
     setSettingsOpen(true);
   }, []);
+
+  // Feedback-Dialog (ADR-0010) — gehört der App wie das Settings-Modal:
+  // Sidebar-Button und /feedback-Composer-Command öffnen ihn beide.
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [feedbackInitialText, setFeedbackInitialText] = useState('');
 
   // Thinking pro Chat (Grill 2026-07-21): der Schalter gilt für den Chat,
   // bis er wieder ausgeschaltet wird — nicht global, nicht pro Nachricht.
   const [thinkByChat, setThinkByChat] = useState<Record<string, boolean>>({});
-
-  // Warnung, wenn das aktive Modell nur teilweise im GPU-Speicher liegt
-  // (CPU-Offloading = 10–20× langsamer) — gemeldet vom Prefix-Warm-up.
-  const [gpuWarning, setGpuWarning] = useState<string | null>(null);
-
-  // Wertet das Warm-up-Ergebnis aus: GPU-Warnung setzen oder aufräumen.
-  const handleWarmupResult = (r: import('./types').WarmupResult) => {
-    if (!r?.gpu) return;
-    setGpuWarning(
-      r.gpu.vramPercent < 100 ? S.gpuWarning(r.gpu.vramPercent) : null,
-    );
-  };
 
   // Laufende Streams, geschlüsselt nach tempAssistantId — mehrere pro Chat
   // möglich (Backend-FIFO). Der Stop-Button bricht alle Streams des gerade
@@ -279,13 +397,18 @@ export default function App() {
     remove: removeHighlight,
   } = useHighlights(treePaper?.id ?? null);
 
-  // Selection captured by PdfView at right-click time — read when the user
+  // Selection captured by PdfView at mouseup time — read when the user
   // picks a color or opens a branch, so the highlight can be saved even
   // though the live Selection collapses when focus moves into the popup.
   const pendingPdfSelectionRef = useRef<PdfHighlightSelection | null>(null);
   // Highlight already saved for the current popup's selection (first color
   // pick creates it; further picks recolor it; "Open as new chat" links it).
   const savedHighlightIdRef = useRef<string | null>(null);
+  // In-flight create request from a swatch click, if any — "Open as new
+  // chat" awaits this before reading savedHighlightIdRef, otherwise a click
+  // right after a swatch click reads the ref before it's set and creates a
+  // second, unlinked highlight on the same selection (reported 2026-07-31).
+  const pdfHighlightCreatePromiseRef = useRef<Promise<unknown> | null>(null);
   // Whether the open popup came from a PDF selection — only then does it
   // show the color row.
   const [popupHasPdfSelection, setPopupHasPdfSelection] = useState(false);
@@ -303,10 +426,6 @@ export default function App() {
   // No-PDF branch layout: while a branch chat is active and its tree has no
   // PDF, the parent chat renders in the center pane as read-only context.
   const [parentContext, setParentContext] = useState<ChatDetail | null>(null);
-  // Vorfahren-Pfad (Wurzel → … → Eltern) des aktiven Branches inkl. gecachter
-  // Summaries — gerendert als Kette + Karten über dem Parent-Kontext
-  // (mockup section 04).
-  const [ancestors, setAncestors] = useState<ChatAncestor[]>([]);
 
   // Message-anchored highlights, one hook instance per visible chat pane.
   const activeChatHl = useChatHighlights(activeChatId);
@@ -315,10 +434,12 @@ export default function App() {
   const hlApiFor = (chatId: string) =>
     chatId === parentContext?.id ? parentChatHl : activeChatHl;
 
-  // Selection captured from a chat bubble at right-click time — the chat twin
+  // Selection captured from a chat bubble at mouseup time — the chat twin
   // of pendingPdfSelectionRef.
   const pendingChatSelectionRef = useRef<ChatSelection | null>(null);
   const savedChatHighlightIdRef = useRef<string | null>(null);
+  // Chat twin of pdfHighlightCreatePromiseRef — same race, same fix.
+  const chatHighlightCreatePromiseRef = useRef<Promise<unknown> | null>(null);
   const [popupHasChatSelection, setPopupHasChatSelection] = useState(false);
 
   // Actions menu for an existing chat-text highlight (recolor / delete).
@@ -368,82 +489,126 @@ export default function App() {
 
   // Load the parent chat for the center context view — only when the active
   // chat is a branch and the tree has no PDF (with a PDF the center belongs
-  // to the PDF, unchanged). Die Vorfahren-Kette dagegen wird für JEDEN
-  // Branch-Chat geladen: sie füttert das Kontext-Banner in der Chat-Spalte
-  // (Variante 3a), das unabhängig vom PDF erscheint.
+  // to the PDF, unchanged).
+  //
+  // The inherited-context banner that used to sit under the chat header was
+  // dropped 2026-08-01 (user request): it read as an overloaded strip and
+  // duplicated what the center pane already shows in full. The inheritance
+  // itself is unchanged — the backend still sends the ancestor summaries with
+  // every message; only the UI that narrated it is gone.
   useEffect(() => {
     const parentId = activeChat?.parent_id;
     if (!parentId) {
       setParentContext(null);
-      setAncestors([]);
+      return;
+    }
+    if (treePaper) {
+      setParentContext(null);
       return;
     }
     let active = true;
-    if (treePaper) {
-      setParentContext(null);
-    } else {
-      api
-        .getChat(parentId)
-        .then((c) => {
-          if (active) setParentContext(c);
-        })
-        .catch(() => {
-          if (active) setParentContext(null);
-        });
-    }
-    // Fehler degradieren still zur leeren Kette (kein Banner).
     api
-      .getAncestors(activeChat.id)
-      .then((a) => {
-        if (active) setAncestors(a);
+      .getChat(parentId)
+      .then((c) => {
+        if (active) setParentContext(c);
       })
       .catch(() => {
-        if (active) setAncestors([]);
+        if (active) setParentContext(null);
       });
     return () => {
       active = false;
     };
+    // activeChat?.id stays in the deps although the fetch no longer uses it:
+    // switching back from the parent chat into the branch must re-read the
+    // parent so the center pane shows messages added in the meantime.
   }, [activeChat?.id, activeChat?.parent_id, treePaper]);
 
   // Re-fetch the sidebar tree whenever a chat is created, renamed, or deleted.
   const refreshTree = useCallback(async () => {
     const tree = await api.getTree();
     setChats(tree);
+    // The chat header reads activeChat.title, a separate state object: mirror
+    // the fresh tree title into it, or the header keeps showing the stale
+    // "New Chat" after the backend auto-titles the first answer.
+    setActiveChat(prev => {
+      if (!prev) return prev;
+      const findById = (nodes: Chat[], id: string): Chat | null => {
+        for (const n of nodes) {
+          if (n.id === id) return n;
+          const hit = n.children ? findById(n.children, id) : null;
+          if (hit) return hit;
+        }
+        return null;
+      };
+      const fresh = findById(tree, prev.id);
+      return fresh && fresh.title !== prev.title ? { ...prev, title: fresh.title } : prev;
+    });
   }, []);
 
   // Load the sidebar tree on initial render.
   useEffect(() => { refreshTree(); }, [refreshTree]);
 
-  // Modell-System beim Start: (1) Auto-Default anwenden (setzt das empfohlene
-  // Modell, falls installiert und nie manuell gewählt — Download-Gate bleibt),
-  // (2) Settings, installierte Vision-Modelle und Hardware-Empfehlung laden.
-  // Alles non-fatal — ohne Backend rendert die Pille schlicht nichts.
+  // Model system at startup: load settings, installed vision models and
+  // the model registry (ADR-0008). All non-fatal — without a backend the
+  // pill simply renders nothing. The hardware-recommendation automation was
+  // removed with the ADR-0008 amendment (frozen fallback).
   const refreshModelSystem = useCallback(async () => {
-    const [s, models, rec] = await Promise.all([
+    const [s, ollama, reg] = await Promise.all([
       api.getSettings().catch(() => null),
-      api.getOllamaModels().catch(() => []),
-      api.getSystemRecommendation().catch(() => null),
+      api.getOllamaStatus().catch(() => ({ reachable: false, models: [] as OllamaModelInfo[] })),
+      api.getRegistry().catch(() => null),
     ]);
     if (s) setSettings(s);
-    setOllamaModels(models);
-    if (rec) setRecommendation(rec);
+    setOllamaModels(ollama.models);
+    setOllamaReachable(ollama.reachable);
+    if (reg) setRegistry(reg);
   }, []);
 
+  useEffect(() => { refreshModelSystem(); }, [refreshModelSystem]);
+
+  // Refresh moment "window focus" (§03): the user may have started Ollama
+  // or pulled a model since the app lost focus — hasLocalModel and the
+  // picker's local state must not stay stale exactly when they matter.
   useEffect(() => {
-    api.applyRecommendedModel()
-      .catch(() => {})
-      .finally(() => { refreshModelSystem(); });
+    const onFocus = () => { void refreshModelSystem(); };
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
   }, [refreshModelSystem]);
 
-  // Modellwechsel aus der Composer-Pille: nur installierte Modelle, wird als
-  // manuelle Wahl gespeichert (model_source 'manual' — Automatik bleibt weg).
-  const handleSelectModel = async (name: string) => {
+  // Model switch from the grouped composer pill (mockup-model-flow §02):
+  // selecting any row switches provider AND model in one click. Ollama:
+  // installed models only. Cloud: the provider's own model field
+  // (`<provider>_model`, ADR-0008).
+  const handleSelectModel = async (provider: LLMProvider, name: string) => {
+    // Consume the armed card retry BEFORE the async write — the menu's
+    // close notification fires right after the pick and clears the ref.
+    const retryTarget = pickerRetryTargetRef.current;
+    pickerRetryTargetRef.current = null;
+    const sameAsActive =
+      settings !== null &&
+      settings.llm_provider === provider &&
+      (provider === 'ollama' ? settings.ollama_model : settings[`${provider}_model`]) === name;
+    const patch: Parameters<typeof api.updateSettings>[0] = { llm_provider: provider };
+    if (provider === 'ollama') patch.ollama_model = name;
+    else (patch as Record<string, string>)[`${provider}_model`] = name;
     try {
-      const s = await api.updateSettings({ ollama_model: name });
+      const s = await api.updateSettings(patch);
       setSettings(s);
+      // Quota/failReason cards created BEFORE this switch re-offer retry
+      // (user request 2026-07-26): the newly picked model may have budget
+      // the failed ladder did not — the card compares this stamp to its
+      // created_at.
+      setSettingsChangedAt(new Date().toISOString());
     } catch (err) {
       console.error('Failed to switch model:', err);
+      return;
     }
+    // Auto-retry (user decision 2026-07-29): a pick that reached the menu
+    // via a failure card's "Modell wechseln" retries THAT answer right away
+    // — after the settings write, so the regenerate runs on the new model.
+    // Re-picking the active model keeps the old behavior (card + enabled
+    // retry): the identical request would fail identically.
+    if (retryTarget && !sameAsActive) handleRetryMessage(retryTarget);
   };
 
   // The mindmap toggle is hidden when no chat is active. If the user was in
@@ -494,9 +659,19 @@ export default function App() {
       // existiert nur lokal (Insert passiert erst beim Job-Start) — beide
       // Blasen aus dem Puffer wiederherstellen.
       const streams = streamsForChat(id);
+      // Persist-at-enqueue (mockup-model-flow §10): a WAITING job's question
+      // now exists twice — as pending row in the GET answer AND as buffered
+      // optimistic bubble. The buffer wins (it keeps streaming seamlessly);
+      // matching pending rows are dropped from the merged view.
+      const waiting = streams.filter(s => !s.started && !s.isRegenerate);
+      const merged = waiting.length > 0
+        ? chat.messages.filter(
+            m => !(m.role === 'user' && m.pending && waiting.some(s => s.userContent === m.content)),
+          )
+        : chat.messages;
       setActiveChat(
         streams.length > 0
-          ? { ...chat, messages: [...chat.messages, ...streams.flatMap(materializeStreamMessages)] }
+          ? { ...chat, messages: [...merged, ...streams.flatMap(materializeStreamMessages)] }
           : chat,
       );
       setTreePaper(paper);
@@ -507,7 +682,7 @@ export default function App() {
       // Nicht während ein Stream in diesem Chat läuft (der Prefix ist dann
       // ohnehin heiß; das Backend lehnt Warm-ups bei belegter Warteschlange
       // ohnehin ab).
-      if (streams.length === 0) api.warmupChat(id).then(handleWarmupResult).catch(() => {});
+      if (streams.length === 0) api.warmupChat(id).catch(() => {});
     } finally {
       setLoadingChat(false);
     }
@@ -526,8 +701,15 @@ export default function App() {
       created_at: s.createdAt,
       ...(s.sources.length > 0 ? { sources: [...s.sources] } : null),
       ...(s.reasoning ? { reasoning: s.reasoning } : null),
-      ...(!s.started && s.queuedAhead !== null ? { queuedAhead: s.queuedAhead } : null),
-      ...(s.prefillEta !== null ? { prefillEta: s.prefillEta } : null),
+      ...(!s.started && s.queuedAhead !== null
+        ? {
+            queuedAhead: s.queuedAhead,
+            ...(s.queuedModel !== null ? { queuedModel: s.queuedModel } : null),
+            ...(s.queuedCurrent !== null ? { queuedCurrent: s.queuedCurrent } : null),
+          }
+        : null),
+      ...(s.rateLimit !== null ? { rateLimit: s.rateLimit } : null),
+      ...(s.failover !== null ? { failover: s.failover } : null),
     };
     if (s.started || s.isRegenerate) return [assistant];
     const user: Message = {
@@ -576,7 +758,7 @@ export default function App() {
       // 2026-07-25) läuft, während der Nutzer noch das PDF ansieht, statt
       // erst bei seiner ersten Frage.
       if (activeChatIdRef.current === activeChatId) {
-        api.warmupChat(activeChatId).then(handleWarmupResult).catch(() => {});
+        api.warmupChat(activeChatId).catch(() => {});
       }
     } catch (err) {
       if (err instanceof TreeHasSourceError) {
@@ -607,7 +789,7 @@ export default function App() {
       await refreshTree();
       // Wie beim Upload: neue Quelle = neuer Prefix → im Hintergrund wärmen.
       if (activeChatIdRef.current === activeChatId) {
-        api.warmupChat(activeChatId).then(handleWarmupResult).catch(() => {});
+        api.warmupChat(activeChatId).catch(() => {});
       }
     } catch (err) {
       if (err instanceof TreeHasSourceError) {
@@ -740,9 +922,14 @@ export default function App() {
       sources: [],
       createdAt: now,
       queuedAhead: null,
+      queuedModel: null,
+      queuedCurrent: null,
       started: false,
-      prefillEta: null,
+      rateLimit: null,
+      failover: null,
+      smoother: null,
       isRegenerate: false,
+      regenerateOfId: null,
       abort: new AbortController(),
     };
     activeStreamsRef.current.set(tempAssistantId, stream);
@@ -780,9 +967,13 @@ export default function App() {
         signal: AbortSignal;
         onThinking: () => void;
         onReasoning: (delta: string) => void;
-        onQueued: (ahead: number) => void;
+        onQueued: (
+          ahead: number,
+          info?: { model?: string; current?: { chatId: string; question: string } },
+        ) => void;
         onStarted: (userMessage: Message) => void;
-        onPrefill: (seconds: number) => void;
+        onRateLimit: (info: { retryInSeconds: number; attempt: number; scope?: 'requests' | 'tokens'; model?: string }) => void;
+        onFailover: (info: FailoverInfo) => void;
       };
     }) => Promise<{ userMessage: Message; assistantMessage: Message }>,
   ) => {
@@ -800,17 +991,30 @@ export default function App() {
       });
     };
 
+    // Smooth reveal of the content channel only (reasoning stays raw): the
+    // smoother owns `stream.content`, ticking revealed prefixes into the
+    // buffer + visible bubble. Flushed on done/error/abort below.
+    stream.smoother = new TextSmoother({
+      onReveal: (visible) => {
+        stream.content = visible;
+        patchAssistant({ content: visible });
+      },
+    });
+
     // Denk-Phase dieses Streams: Startzeitpunkt fürs "Thought for Xs"-Label.
     let thinkingStartedAt: number | null = null;
 
     try {
       const { userMessage, assistantMessage } = await start({
         onDelta: (delta) => {
-          stream.content += delta;
-          // Erstes Token = Prefill vorbei; die ETA-Zeile verschwindet mit dem
-          // Indicator, der Stream-Puffer wird trotzdem sauber gehalten.
-          if (stream.prefillEta !== null) stream.prefillEta = null;
-          patchAssistant({ content: stream.content });
+          // Tokens flowing again = the rate-limit retry succeeded.
+          if (stream.rateLimit !== null) {
+            stream.rateLimit = null;
+            patchAssistant({ rateLimit: undefined });
+          }
+          // Content is revealed smoothly — the smoother updates
+          // stream.content + the bubble via onReveal.
+          stream.smoother?.push(delta);
         },
         onToolEvent: (evt) => {
           // Tool-event from the LLM. Phase 'result' for web_search carries
@@ -823,33 +1027,64 @@ export default function App() {
           signal: stream.abort.signal,
           onThinking: () => {
             thinkingStartedAt = Date.now();
-            // Denk-Phase beginnt = Prefill vorbei.
-            if (stream.prefillEta !== null) {
-              stream.prefillEta = null;
-              patchAssistant({ prefillEta: undefined });
-            }
           },
           onReasoning: (delta) => {
             stream.reasoning += delta;
+            // Reasoning chunks flowing = the rate-limit retry succeeded.
+            if (stream.rateLimit !== null) {
+              stream.rateLimit = null;
+              patchAssistant({ reasoning: stream.reasoning, rateLimit: undefined });
+              return;
+            }
             patchAssistant({ reasoning: stream.reasoning });
           },
-          onQueued: (ahead) => {
+          onQueued: (ahead, info) => {
             stream.queuedAhead = ahead;
+            // Queue transparency (§07): the model that will answer this
+            // waiting question (a switch while waiting updates it live) and
+            // the chat+question being answered right now (jump link).
+            stream.queuedModel = info?.model ?? null;
+            stream.queuedCurrent = info?.current ?? null;
             syncStreamIndicators();
-            patchAssistant({ queuedAhead: ahead });
+            patchAssistant({
+              queuedAhead: ahead,
+              queuedModel: info?.model,
+              queuedCurrent: info?.current,
+            });
           },
-          onPrefill: (seconds) => {
-            stream.prefillEta = seconds;
-            patchAssistant({ prefillEta: seconds });
+          onRateLimit: (info) => {
+            // Cloud provider 429: the backend waits out Retry-After and tries
+            // again — the bubble shows the countdown meanwhile (same spot as
+            // the queued line).
+            stream.rateLimit = info;
+            patchAssistant({ rateLimit: info });
+          },
+          onFailover: (info) => {
+            // Another provider with a stored key steps in for this answer
+            // (limit on the active model; the global setting is unchanged).
+            // The note stays with the answer — it explains who it is from.
+            // Multi-hop ladders (A→B→C, §11): keep the ORIGINAL from/
+            // fromModel of the FIRST hop — the note must name the model the
+            // user chose, not the last intermediate hop; destination, model
+            // and reason come from the latest event.
+            const merged: FailoverInfo = stream.failover
+              ? { ...info, from: stream.failover.from, fromModel: stream.failover.fromModel }
+              : info;
+            stream.failover = merged;
+            patchAssistant({ failover: merged });
           },
           onStarted: (userMessage) => {
             // Der Job ist an der Reihe; die Frage ist jetzt persistiert.
             // Optimistische Frage durch die persistierte ersetzen (echter
             // Zeitstempel → chronologisch richtige Position hinter allen
             // inzwischen fertigen Antworten) und den Platzhalter angleichen.
+            // Anchored retry: der Platzhalter behält den Marker-Zeitstempel
+            // (seine Position), statt zur User-Frage zu springen.
             stream.started = true;
             stream.queuedAhead = null;
-            stream.createdAt = userMessage.created_at;
+            stream.queuedModel = null;
+            stream.queuedCurrent = null;
+            if (!stream.isRegenerate) stream.createdAt = userMessage.created_at;
             syncStreamIndicators();
             setActiveChat(prev => {
               if (!prev || prev.id !== chatId) return prev;
@@ -859,7 +1094,7 @@ export default function App() {
                   m.id === tempUserId
                     ? userMessage
                     : m.id === tempAssistantId
-                      ? { ...m, created_at: userMessage.created_at, queuedAhead: undefined }
+                      ? { ...m, created_at: stream.createdAt, queuedAhead: undefined, queuedModel: undefined, queuedCurrent: undefined }
                       : m,
                 ),
               };
@@ -867,6 +1102,12 @@ export default function App() {
           },
         },
       });
+
+      // Stream done: drain what is still buffered AT THE PACED RATE before
+      // the swap below — an instant flush here bypassed the smoothing for
+      // very fast models (Groq delivers everything before the first ticks;
+      // live report 2026-07-26). Errors/aborts below still flush instantly.
+      await stream.smoother?.finish();
 
       // Replace the temporary messages with the real persisted ones from the
       // server — only if this chat is still on screen (a re-select merged the
@@ -881,6 +1122,7 @@ export default function App() {
           ...(stream.sources.length > 0 ? { sources: stream.sources } : null),
           ...(thoughtForSeconds !== undefined ? { thoughtForSeconds } : null),
           ...(stream.reasoning ? { reasoning: stream.reasoning } : null),
+          ...(stream.failover !== null ? { failover: stream.failover } : null),
         };
         const drop = new Set([tempUserId, tempAssistantId, userMessage.id, assistantMessage.id]);
         const filtered = prev.messages.filter(m => !drop.has(m.id));
@@ -895,16 +1137,38 @@ export default function App() {
       // wenn der Nutzer diesen Chat noch ansieht — sonst würde der Warm-up
       // den Prefix des inzwischen aktiven Chats verdrängen (1 KV-Slot!).
       if (activeChatIdRef.current === chatId) {
-        api.warmupChat(chatId).then(handleWarmupResult).catch(() => {});
+        api.warmupChat(chatId).catch(() => {});
       }
     } catch (err) {
+      // Stop the reveal timer FIRST: the *Failed*/*Interrupted* patches below
+      // must not be overwritten by a late reveal tick.
+      stream.smoother?.flush();
       if (err instanceof DOMException && err.name === 'AbortError') {
         if (!stream.started) {
           // Abbruch im Wartezustand: das Backend hat nichts persistiert —
           // die Frage gilt als nie gestellt. Beim Retry eines persistierten
-          // Fehlers bleibt stattdessen die Fehlerzeile stehen.
+          // Fehlers bleibt stattdessen die Fehlerzeile stehen — unter ihrer
+          // ORIGINAL-id: der alte Marker existiert serverseitig noch (der
+          // Job startete nie), und nur mit echter id trifft der nächste
+          // Retry-Klick eine dem Backend bekannte messageId.
           if (stream.isRegenerate) {
-            patchAssistant({ content: FAILED_MARKER, reasoning: undefined, sources: undefined, queuedAhead: undefined });
+            setActiveChat(prev => {
+              if (!prev || prev.id !== chatId) return prev;
+              return {
+                ...prev,
+                messages: prev.messages.map(m =>
+                  m.id === tempAssistantId
+                    ? {
+                        id: stream.regenerateOfId ?? tempAssistantId,
+                        chat_id: chatId,
+                        role: 'assistant' as const,
+                        content: FAILED_MARKER,
+                        created_at: stream.createdAt,
+                      }
+                    : m,
+                ),
+              };
+            });
           } else {
             setActiveChat(prev => {
               if (!prev || prev.id !== chatId) return prev;
@@ -918,7 +1182,7 @@ export default function App() {
           // Stop-Button (Nutzerentscheid 2026-07-22): der Teiltext wird
           // verworfen, es bleibt nur die "Interrupted"-Markierung — das
           // Backend persistiert denselben Marker.
-          patchAssistant({ content: INTERRUPTED_MARKER, reasoning: undefined, sources: undefined, queuedAhead: undefined });
+          patchAssistant({ content: INTERRUPTED_MARKER, reasoning: undefined, sources: undefined, queuedAhead: undefined, queuedModel: undefined, queuedCurrent: undefined, rateLimit: undefined });
           refreshTree().catch(() => {});
           // Der Marker ersetzt die halb generierte Antwort — der KV-Zustand
           // im Slot passt nicht mehr zur Historie, und das Hybrid-Modell
@@ -927,13 +1191,17 @@ export default function App() {
           // (82–103 s gemessen, 2026-07-25). Deshalb wie nach normalen
           // Antworten wärmen, solange der Chat noch angezeigt wird.
           if (activeChatIdRef.current === chatId) {
-            api.warmupChat(chatId).then(handleWarmupResult).catch(() => {});
+            api.warmupChat(chatId).catch(() => {});
           }
         }
       } else if (err instanceof StreamFailedError && err.assistantMessage) {
         // Das Backend hat Frage + '*Failed*'-Marker persistiert: Temps durch
         // die persistierten Nachrichten ersetzen — die Fehlerzeile trägt den
-        // Retry-Button und überlebt Reloads.
+        // Retry-Button und überlebt Reloads. failedUser wird IMMER wieder
+        // eingefügt: das Drop-Set entfernt eine schon vorhandene Kopie per
+        // id, Weglassen wäre also nie nötig — und ließ beim Regenerate die
+        // Frage verschwinden, sobald das Fehler-Payload sie mitlieferte
+        // (Live-Regression 2026-07-25).
         const failedUser = err.userMessage;
         const failedAssistant = err.assistantMessage;
         setActiveChat(prev => {
@@ -944,21 +1212,65 @@ export default function App() {
           const filtered = prev.messages.filter(m => !drop.has(m.id));
           return {
             ...prev,
-            messages: [...filtered, ...(failedUser && !stream.isRegenerate ? [failedUser] : []), failedAssistant],
+            messages: [
+              ...filtered,
+              ...(failedUser ? [failedUser] : []),
+              // quotaExhausted (+ retryAt) transient anheften: die Fehler-
+              // zeile bietet dann den Notfall-Weg übers lokale Modell an und
+              // taktet ihren Retry-Button nach retryAt (ADR-0008). failReason
+              // (+ Provider/Modell) wählt die ehrliche Karte statt der
+              // generischen Zeile (mockup-model-flow §05).
+              {
+                ...failedAssistant,
+                // failProvider rides along for quota errors too (§08): the
+                // "Raise limit" link targets the provider that hit the limit.
+                ...(err.quotaExhausted ? { quotaExhausted: true, retryAt: err.retryAt, quotaReason: err.quotaReason, failProvider: err.failProvider } : null),
+                ...(err.failReason ? { failReason: err.failReason, failProvider: err.failProvider, failModel: err.failModel } : null),
+              },
+            ],
           };
         });
         console.error('Failed to generate answer:', err);
         // Auch der persistierte '*Failed*'-Marker ändert die Historie —
         // gleicher Cache-Bruch wie beim Stop-Button (siehe oben).
         if (activeChatIdRef.current === chatId) {
-          api.warmupChat(chatId).then(handleWarmupResult).catch(() => {});
+          api.warmupChat(chatId).catch(() => {});
         }
+      } else if (!(err instanceof StreamFailedError) && stream.started && stream.content) {
+        // Connection drop MID-ANSWER (mockup-model-flow §09): the backend's
+        // catch-all persisted *Interrupted* — render the interrupted row
+        // (its retry reconciles via non-anchored regenerate), never a failed
+        // row whose anchored retry would 409 forever.
+        patchAssistant({ content: INTERRUPTED_MARKER, reasoning: undefined, sources: undefined, queuedAhead: undefined, queuedModel: undefined, queuedCurrent: undefined, rateLimit: undefined });
+        console.error('Stream dropped mid-answer:', err);
       } else {
-        // Netzwerk-/Clientfehler ohne persistierte Spur: lokale Fehlerzeile
-        // mit Retry — nichts verschwindet mehr stumm (Vorfall 2026-07-24).
-        patchAssistant({ content: FAILED_MARKER, reasoning: undefined, sources: undefined, queuedAhead: undefined });
+        // Netzwerk-/Clientfehler ohne persistierte Spur: lokale Fehlerzeile —
+        // nichts verschwindet mehr stumm (Vorfall 2026-07-24). Fehler, die
+        // der Client selbst erkennt (fetch-Rejection, Stream ohne Events),
+        // bekommen failReason 'network' — die einzige Karte, deren Retry
+        // ehrlich ist (mockup-model-flow §05 C; das Backend sendet 'network'
+        // nie selbst).
+        patchAssistant({
+          content: FAILED_MARKER,
+          reasoning: undefined,
+          sources: undefined,
+          queuedAhead: undefined,
+          queuedModel: undefined,
+          queuedCurrent: undefined,
+          rateLimit: undefined,
+          ...(err instanceof StreamFailedError
+            ? {
+                ...(err.quotaExhausted ? { quotaExhausted: true, retryAt: err.retryAt, quotaReason: err.quotaReason, failProvider: err.failProvider } : null),
+                ...(err.failReason ? { failReason: err.failReason, failProvider: err.failProvider, failModel: err.failModel } : null),
+              }
+            : { failReason: 'network' as const }),
+        });
         console.error('Failed to send message:', err);
       }
+      // Quota/availability likely changed — refresh cooldown badges, the
+      // pill dot and hasLocalModel (refresh moment "after an error", §03).
+      setModelSystemSignal(v => v + 1);
+      void refreshModelSystem();
     } finally {
       // Nur den EIGENEN Eintrag entfernen — der Chat kann weitere Streams haben.
       activeStreamsRef.current.delete(tempAssistantId);
@@ -970,7 +1282,10 @@ export default function App() {
   // (lokaler Sendefehler, temp-ID) → komplett neu senden. Die Frage ist
   // persistiert ('*Failed*'-Marker vom Backend) → regenerate, damit die
   // Frage nicht dupliziert wird.
-  const handleRetryMessage = (failed: Message) => {
+  // provider 'ollama' = Notfall-Fallback (ADR-0008): DIESE eine Antwort
+  // läuft übers lokale Modell, die Einstellungen bleiben unberührt. Nur für
+  // persistierte Marker sinnvoll — der Temp-Zweig sendet normal neu.
+  const handleRetryMessage = (failed: Message, provider?: 'ollama') => {
     const chat = activeChat;
     if (!chat) return;
     const chatId = chat.id;
@@ -993,8 +1308,11 @@ export default function App() {
 
     // Frage ist persistiert → Fehlerzeile weicht einem frischen Platzhalter,
     // das Backend erzeugt die Antwort neu (und räumt den Marker weg).
+    // Anchored retry: Platzhalter UND spätere Antwort übernehmen den
+    // Zeitstempel des Markers — orderMessages hält sie damit exakt an
+    // seiner Position (nie mehr unter der falschen Frage).
     const tempAssistantId = `temp-assistant-${crypto.randomUUID()}`;
-    const now = new Date().toISOString();
+    const anchorCreatedAt = failed.created_at;
     const stream: ActiveStream = {
       chatId,
       tempUserId: `temp-user-${crypto.randomUUID()}`,
@@ -1003,11 +1321,16 @@ export default function App() {
       content: '',
       reasoning: '',
       sources: [],
-      createdAt: now,
+      createdAt: anchorCreatedAt,
       queuedAhead: null,
+      queuedModel: null,
+      queuedCurrent: null,
       started: false,
-      prefillEta: null,
+      rateLimit: null,
+      failover: null,
+      smoother: null,
       isRegenerate: true,
+      regenerateOfId: failed.id.startsWith('temp-') ? null : failed.id,
       abort: new AbortController(),
     };
     activeStreamsRef.current.set(tempAssistantId, stream);
@@ -1018,14 +1341,106 @@ export default function App() {
             ...prev,
             messages: [
               ...prev.messages.filter(m => m.id !== failed.id),
-              { id: tempAssistantId, chat_id: chatId, role: 'assistant', content: '', created_at: now },
+              { id: tempAssistantId, chat_id: chatId, role: 'assistant', content: '', created_at: anchorCreatedAt },
             ],
           }
         : prev,
     );
 
     void runMessageStream(stream, (h) =>
-      api.regenerateMessage(chatId, h.onDelta, h.onToolEvent, {
+      // Temp-ids (lokal wiederhergestellte Marker) kennt das Backend nicht —
+      // dann ohne Anker regenerieren (letzte Frage, altes Verhalten).
+      api.regenerateMessage(chatId, stream.regenerateOfId ?? undefined, h.onDelta, h.onToolEvent, {
+        think: thinkByChat[chatId] || undefined,
+        ...(provider ? { provider } : {}),
+        ...h.opts,
+      }),
+    );
+  };
+
+  // Named cloud exit of the local_missing card (mockup-model-flow §11):
+  // switch the settings to the keyed cloud provider + its model (same write
+  // as the pill switch — the regenerate override only allows 'ollama'),
+  // then retry THIS answer anchored. Leaving private mode is the user's
+  // explicit, informed click — never an automatic hop.
+  const handleRetryCloudModel = async (failed: Message) => {
+    if (!cloudFallback) return;
+    try {
+      const s = await api.updateSettings({
+        llm_provider: cloudFallback.provider,
+        [`${cloudFallback.provider}_model`]: cloudFallback.model,
+      });
+      setSettings(s);
+      setSettingsChangedAt(new Date().toISOString());
+    } catch (err) {
+      console.error('Failed to switch to the cloud model:', err);
+      return;
+    }
+    handleRetryMessage(failed);
+  };
+
+  // W4 billing card: switch to the first free model, then retry this answer
+  // — same write path as the cloud exit above.
+  const handleRetryFreeModel = async (failed: Message) => {
+    if (!freeFallback) return;
+    try {
+      const s = await api.updateSettings({
+        llm_provider: freeFallback.provider,
+        [`${freeFallback.provider}_model`]: freeFallback.model,
+      });
+      setSettings(s);
+      setSettingsChangedAt(new Date().toISOString());
+    } catch (err) {
+      console.error('Failed to switch to the free model:', err);
+      return;
+    }
+    handleRetryMessage(failed);
+  };
+
+  // "Erneut senden" of the unanswered row (mockup-model-flow §10): the
+  // trailing question is already persisted (pending or answerless) — a
+  // NON-anchored regenerate claims it server-side and answers in place.
+  const handleResendUnanswered = (question: Message) => {
+    const chat = activeChat;
+    if (!chat) return;
+    const chatId = chat.id;
+    const tempAssistantId = `temp-assistant-${crypto.randomUUID()}`;
+    const now = new Date().toISOString();
+    const stream: ActiveStream = {
+      chatId,
+      tempUserId: `temp-user-${crypto.randomUUID()}`,
+      tempAssistantId,
+      userContent: question.content,
+      content: '',
+      reasoning: '',
+      sources: [],
+      createdAt: now,
+      queuedAhead: null,
+      queuedModel: null,
+      queuedCurrent: null,
+      started: false,
+      rateLimit: null,
+      failover: null,
+      smoother: null,
+      isRegenerate: true,
+      regenerateOfId: null,
+      abort: new AbortController(),
+    };
+    activeStreamsRef.current.set(tempAssistantId, stream);
+    syncStreamIndicators();
+    setActiveChat(prev =>
+      prev && prev.id === chatId
+        ? {
+            ...prev,
+            messages: [
+              ...prev.messages,
+              { id: tempAssistantId, chat_id: chatId, role: 'assistant', content: '', created_at: now },
+            ],
+          }
+        : prev,
+    );
+    void runMessageStream(stream, (h) =>
+      api.regenerateMessage(chatId, undefined, h.onDelta, h.onToolEvent, {
         think: thinkByChat[chatId] || undefined,
         ...h.opts,
       }),
@@ -1034,9 +1449,45 @@ export default function App() {
 
   // Stop-Button im Composer: bricht alle Streams des SICHTBAREN Chats ab
   // (laufende UND wartende) — Hintergrund-Streams anderer Chats laufen weiter.
+  // Stop while QUEUED (mockup-model-flow §10): the question was persisted at
+  // enqueue, and an explicit stop "counts as never asked" — the pending row
+  // must go too. The queued SSE contract carries no message id, so the
+  // trailing pending rows are matched by content after a refetch.
   const handleStopStreaming = () => {
     if (!activeChatId) return;
-    streamsForChat(activeChatId).forEach(s => s.abort.abort());
+    const chatId = activeChatId;
+    const stopped = streamsForChat(chatId);
+    stopped.forEach(s => s.abort.abort());
+    const canceled = stopped.filter(s => !s.started && !s.isRegenerate);
+    if (canceled.length === 0) return;
+    const contents = new Set(canceled.map(s => s.userContent));
+    void api
+      .getChat(chatId)
+      .then(chat => {
+        const ordered = orderMessages(chat.messages);
+        const doomed: Message[] = [];
+        for (let i = ordered.length - 1; i >= 0; i--) {
+          const m = ordered[i];
+          if (m.role !== 'user' || !m.pending) break;
+          if (contents.has(m.content)) doomed.push(m);
+        }
+        return Promise.all(doomed.map(m => api.deleteMessage(chatId, m.id).then(() => m.id)));
+      })
+      .then(deletedIds => {
+        // Falls die Pending-Zeilen inzwischen im State liegen (Chat-Wechsel
+        // während des Wartens), verschwinden sie auch aus der Ansicht.
+        if (deletedIds.length === 0) return;
+        const drop = new Set(deletedIds);
+        setActiveChat(prev =>
+          prev && prev.id === chatId
+            ? { ...prev, messages: prev.messages.filter(m => !drop.has(m.id)) }
+            : prev,
+        );
+      })
+      .catch(() => {
+        /* backend unreachable — the pending row stays and renders the
+           unanswered row after the next load (§10), never a silent loss */
+      });
   };
 
   // Fetch an explanation for a right-clicked word and show the floating popup.
@@ -1054,8 +1505,9 @@ export default function App() {
     await openPopupWithExplanation(wordPopup);
   };
 
-  // Right-click with a live selection in a chat bubble (right pane or parent
-  // context pane): open the popup with the color row + "Ask in chat".
+  // Finishing a drag-selection in a chat bubble (right pane or parent
+  // context pane, mouseup — no right-click needed, user request
+  // 2026-07-31): open the popup with the color row + "Ask in chat".
   const handleChatSelection = (sel: ChatSelection, context: string, x: number, y: number) => {
     pendingPdfSelectionRef.current = null;
     savedHighlightIdRef.current = null;
@@ -1089,12 +1541,13 @@ export default function App() {
     }
   };
 
-  // Right-click over the PDF: PdfView already captured the selection into
-  // pendingPdfSelectionRef (its onCaptureHighlight fires before this). Open
-  // the popup with the selected text; the definition uses the surrounding
-  // lines as context (Issue 06), not just the selection itself.
-  const handlePdfContextMenu = (e: React.MouseEvent) => {
-    e.preventDefault();
+  // Finishing a drag-selection over the PDF (mouseup, no right-click
+  // needed — user request 2026-07-31): PdfView already captured the
+  // selection into pendingPdfSelectionRef (its onCaptureHighlight fires
+  // before this). Open the popup with the selected text; the definition
+  // uses the surrounding lines as context (Issue 06), not just the
+  // selection itself.
+  const handlePdfSelectionFinalized = (point: { clientX: number; clientY: number }) => {
     const sel = pendingPdfSelectionRef.current;
     if (!sel) return; // no live selection — nothing to define or highlight
     savedHighlightIdRef.current = null;
@@ -1105,8 +1558,8 @@ export default function App() {
     void openPopupWithExplanation({
       word: sel.text,
       context: contextAroundSelection(sel.text),
-      x: e.clientX,
-      y: e.clientY,
+      x: point.clientX,
+      y: point.clientY,
     });
   };
 
@@ -1128,14 +1581,20 @@ export default function App() {
         await hlApiFor(sel.chatId).recolor(saved, color);
         return;
       }
-      const created = await hlApiFor(sel.chatId).create({
+      const createPromise = hlApiFor(sel.chatId).create({
         messageId: sel.messageId,
         color,
         text: sel.text,
         startOffset: sel.startOffset,
         endOffset: sel.endOffset,
       });
-      if (created) savedChatHighlightIdRef.current = created.id;
+      chatHighlightCreatePromiseRef.current = createPromise;
+      try {
+        const created = await createPromise;
+        if (created) savedChatHighlightIdRef.current = created.id;
+      } finally {
+        chatHighlightCreatePromiseRef.current = null;
+      }
       return;
     }
     const saved = savedHighlightIdRef.current;
@@ -1145,27 +1604,43 @@ export default function App() {
     }
     const sel = pendingPdfSelectionRef.current;
     if (!sel) return;
-    const created = await createHighlight({
+    const createPromise = createHighlight({
       color,
       text: sel.text,
       pageNumber: sel.pageNumber,
       rects: sel.rects,
     });
-    if (created) savedHighlightIdRef.current = created.id;
+    pdfHighlightCreatePromiseRef.current = createPromise;
+    try {
+      const created = await createPromise;
+      if (created) savedHighlightIdRef.current = created.id;
+    } finally {
+      pdfHighlightCreatePromiseRef.current = null;
+    }
   };
 
   // Create a child chat branched from the word shown in the popup, then open
   // it. When the popup came from a PDF selection (Slice 06), also save a
   // highlight in the active color linked to the new branch — or link the
   // highlight a swatch click already created.
-  const handleOpenChildChat = async (word: string) => {
+  const handleOpenChildChat = async (word: string, context?: string) => {
     if (!activeChatId) return;
     const fromPdf = popupHasPdfSelection;
     const sel = pendingPdfSelectionRef.current;
+    // A swatch click just before this one may still be creating the
+    // highlight — wait for it to settle so `saved` below reflects it instead
+    // of reading the ref before it's set (which used to create a second,
+    // unlinked highlight on the same selection).
+    if (pdfHighlightCreatePromiseRef.current) {
+      await pdfHighlightCreatePromiseRef.current.catch(() => null);
+    }
     const saved = savedHighlightIdRef.current;
     // For chat selections, branch from the chat the selection lives in — that
     // can be the parent-context pane, not just the active chat.
     const chatSel = pendingChatSelectionRef.current;
+    if (chatHighlightCreatePromiseRef.current) {
+      await chatHighlightCreatePromiseRef.current.catch(() => null);
+    }
     const savedChatHl = savedChatHighlightIdRef.current;
     const parentId = popupHasChatSelection && chatSel ? chatSel.chatId : activeChatId;
 
@@ -1175,7 +1650,18 @@ export default function App() {
     // error in its body, same pattern as the explainWord failure above.
     let child: Awaited<ReturnType<typeof api.createChat>>;
     try {
-      child = await api.createChat(S.aboutChatTitle(word), parentId, word);
+      // PDF-selection branches persist the selection's surroundings
+      // (decision 2026-07-26): the text layer flattens math notation
+      // ("Rm" for R^m), only the surrounding lines make the term
+      // interpretable for the model. Chat branches don't need it —
+      // parent_word already carries the full selected passage.
+      // Provisional title: keeps the $…$ math source — every title render
+      // site goes through <MathText> now (2026-07-26), so "$V$" shows as
+      // rendered math in the sidebar/header/mindmap instead of raw LaTeX.
+      child = await api.createChat(
+        S.aboutChatTitle(word), parentId, word,
+        fromPdf && context ? context : undefined,
+      );
     } catch (err) {
       const msg = err instanceof Error ? err.message : S.unknownError;
       setExplanation(S.couldNotCreateChat(msg));
@@ -1209,14 +1695,20 @@ export default function App() {
       } else if (chatSel && !savedChatHl) {
         // Mockup Sektion 03: "The selection that spawned the branch stays
         // visibly highlighted in the parent." Ohne vorherigen Swatch-Klick
-        // wird die Selektion in der aktiven Farbe markiert.
+        // wird die Selektion in der aktiven Farbe markiert, direkt verlinkt
+        // mit dem neuen Branch.
         await hlApiFor(chatSel.chatId).create({
           messageId: chatSel.messageId,
           color: activeColor,
           text: chatSel.text,
           startOffset: chatSel.startOffset,
           endOffset: chatSel.endOffset,
+          childChatId: child.id,
         });
+      } else if (chatSel && savedChatHl) {
+        // Ein Swatch-Klick hat die Markierung schon angelegt — jetzt
+        // nachträglich mit dem neuen Branch verknüpfen.
+        await hlApiFor(chatSel.chatId).linkChat(savedChatHl, child.id);
       }
       await refreshTree();
       await handleSelectChat(child.id);
@@ -1320,6 +1812,12 @@ export default function App() {
     if (menu) await hlApiFor(menu.highlight.chatId).remove(menu.highlight.id);
   };
 
+  const handleChatMenuOpenChat = async () => {
+    const menu = chatHighlightMenu;
+    setChatHighlightMenu(null);
+    if (menu?.highlight.childChatId) await handleSelectChat(menu.highlight.childChatId);
+  };
+
   // ─── Highlights-Drawer (mockup-highlights-overview.html, Variante A) ──────
 
   // Rechtsklick auf eine Drawer-Karte → dasselbe HighlightActionsMenu wie im
@@ -1343,6 +1841,14 @@ export default function App() {
   const handleDrawerJump = (item: TreeHighlight) => {
     if (item.kind === 'pdf') {
       pdfViewRef.current?.scrollToHighlight(item.id);
+      return;
+    }
+    // Branch layout (no PDF, parent context in the center pane): a card
+    // pointing into the parent chat scrolls the visible center pane instead
+    // of switching chats — the drawer stays open, target and list remain
+    // visible side by side (user correction 2026-07-29).
+    if (parentContext && item.chatId === parentContext.id) {
+      setParentScrollTarget({ chatId: item.chatId, messageId: item.messageId });
       return;
     }
     // Panel-Modus (kein PDF/Parent-Kontext, Highlights als rechte Spalte):
@@ -1378,46 +1884,54 @@ export default function App() {
     }
   }, [activeChat]);
 
-  // Klick auf das "Branched from"-Zitat: nicht nur zum Elternchat wechseln,
-  // sondern punktgenau zur Quelle des Branches springen (Nutzerkorrektur
-  // 2026-07-22) — wie die Drawer-Sprünge: scrollen + aufblinken.
-  //   PDF-Branch:  das verlinkte PDF-Highlight (chatId = dieser Chat).
-  //   Chat-Branch: das beim Branchen erzeugte Highlight im Elternchat,
-  //                gefunden über den Zitat-Text (parent_word).
-  //   Ohne Treffer (z. B. Highlight gelöscht): schlichter Wechsel wie bisher.
+  // Click on the "Branched from" quote: jump precisely to the branch's
+  // source (user correction 2026-07-22) — while keeping the branch chat
+  // open on the right (user correction 2026-07-29): in both tree layouts
+  // the source is already visible in the center pane, so switching chats
+  // would only dissolve the three-column layout.
+  //   PDF branch:  the linked PDF highlight scrolls the PDF alongside.
+  //   Chat branch: the highlight created on branching scrolls the parent
+  //                context pane (found via the quote text, parent_word).
+  //   Without a visible center pane or without a match (e.g. highlight
+  //   deleted): plain switch to the parent chat as before.
   const handleBranchedFromClick = async () => {
     const chat = activeChat;
     if (!chat?.parent_id) return;
     const parentId = chat.parent_id;
     const linkedPdfHighlight = highlights.find((h) => h.chatId === chat.id);
-    if (linkedPdfHighlight) {
-      await handleSelectChat(parentId);
+    if (linkedPdfHighlight && treePaper) {
       pdfViewRef.current?.scrollToHighlight(linkedPdfHighlight.id);
       return;
     }
+    let match: MessageHighlight | undefined;
     try {
       const parentHighlights = await api.listMessageHighlights(parentId);
       const quote = chat.parent_word?.trim();
-      const match = quote
+      match = quote
         ? parentHighlights.find((h) => h.text.trim() === quote)
         : undefined;
-      if (match) {
-        pendingChatScrollRef.current = {
-          chatId: parentId,
-          messageId: match.messageId,
-          startOffset: match.startOffset,
-          endOffset: match.endOffset,
-          color: match.color,
-        };
-      }
     } catch {
-      /* Backend nicht erreichbar — dann wenigstens den Chat wechseln */
+      /* Backend unreachable — at least switch to the parent chat below */
+    }
+    if (match && parentContext?.id === parentId) {
+      setParentScrollTarget({ chatId: parentId, messageId: match.messageId });
+      return;
+    }
+    if (match) {
+      pendingChatScrollRef.current = {
+        chatId: parentId,
+        messageId: match.messageId,
+        startOffset: match.startOffset,
+        endOffset: match.endOffset,
+        color: match.color,
+      };
     }
     await handleSelectChat(parentId);
   };
 
   return (
-    <div className="flex h-screen overflow-hidden bg-white">
+    <div className="flex h-screen overflow-hidden bg-white relative isolate">
+      <MatrixRain />
       {/* Sidebar: chat list, new chat button, and mind map toggle */}
       <Sidebar
         chats={chats}
@@ -1429,6 +1943,7 @@ export default function App() {
         viewMode={viewMode}
         onToggleView={() => setViewMode(v => v === 'chat' ? 'mindmap' : 'chat')}
         onOpenSettings={openSettings}
+        onOpenFeedback={() => { setFeedbackInitialText(''); setFeedbackOpen(true); }}
         collapsed={sidebarCollapsed}
         onToggleCollapsed={toggleSidebar}
         streamingChatIds={streamingChatIds}
@@ -1474,7 +1989,7 @@ export default function App() {
               title={treePaper.title ?? undefined}
               highlights={highlights}
               onCaptureHighlight={(sel) => { pendingPdfSelectionRef.current = sel; }}
-              onContextMenu={handlePdfContextMenu}
+              onSelectionFinalized={handlePdfSelectionFinalized}
               onColorHighlightClick={(h, e) =>
                 setHighlightMenu({ highlight: h, x: e.clientX, y: e.clientY })
               }
@@ -1534,7 +2049,26 @@ export default function App() {
               streaming={activeChatId ? streamingChatIds.has(activeChatId) || queuedChatIds.has(activeChatId) : false}
               streamingMessageIds={streamingMessageIds}
               onSendMessage={handleSendMessage}
+              onOpenFeedback={(initialText) => { setFeedbackInitialText(initialText); setFeedbackOpen(true); }}
               onRetryMessage={handleRetryMessage}
+              onRetryLocalModel={(m) => handleRetryMessage(m, 'ollama')}
+              hasLocalModel={ollamaModels.length > 0}
+              billingUrl={settings ? registry?.providers[settings.llm_provider]?.billingUrl ?? null : null}
+              billingUrls={registry ? Object.fromEntries(Object.entries(registry.providers).map(([id, p]) => [id, p.billingUrl ?? null])) : undefined}
+              onOpenModelPicker={(m) => {
+                pickerRetryTargetRef.current = m;
+                setPickerOpenSignal((s) => s + 1);
+              }}
+              settingsChangedAt={settingsChangedAt}
+              onOpenSettings={() => openSettings('model')}
+              providerLabels={providerLabels}
+              localModelName={settings?.ollama_model}
+              cloudFallback={cloudFallback}
+              onRetryCloudModel={(m) => void handleRetryCloudModel(m)}
+              freeFallback={freeFallback}
+              onRetryFreeModel={(m) => void handleRetryFreeModel(m)}
+              onResendUnanswered={handleResendUnanswered}
+              modelLabels={modelLabels}
               onWordRightClick={handleWordRightClick}
               onSelectChat={handleSelectChat}
               onBranchedFromClick={handleBranchedFromClick}
@@ -1560,21 +2094,41 @@ export default function App() {
               onToggleHighlights={() => setHighlightsOpen((o) => !o)}
               highlightsOpen={highlightsOpen}
               onStopStreaming={handleStopStreaming}
-              ancestors={ancestors}
+              setupNotice={
+                // Guided empty state (ADR-0008, grill decision 12b): active
+                // cloud provider without a key — the card replaces the
+                // composer instead of blocking silently.
+                settings && settings.llm_provider !== 'ollama' &&
+                !settings[`${settings.llm_provider}_api_key_set`] ? (
+                  <CloudSetupNotice onOpenSettings={(p) => openSettings('model', p)} />
+                ) : undefined
+              }
               modelPicker={
-                settings?.llm_provider === 'ollama' && activeChatId ? (
+                settings && activeChatId ? (
                   <ModelPicker
-                    activeModel={settings.ollama_model}
-                    models={ollamaModels}
-                    recommendedModel={recommendation?.recommendedModel ?? null}
-                    onSelectModel={handleSelectModel}
+                    activeProvider={settings.llm_provider}
+                    activeModel={
+                      settings.llm_provider === 'ollama'
+                        ? settings.ollama_model
+                        : settings[`${settings.llm_provider}_model`]
+                    }
+                    groups={buildPickerGroups(settings, registry, ollamaModels, {
+                      free: STR.modelPicker.freeGroup,
+                      paid: STR.modelPicker.paidGroup,
+                      local: STR.modelPicker.localGroup,
+                    })}
+                    ollamaReachable={ollamaReachable}
+                    cloudCount={CLOUD_PROVIDERS.filter(p => settings[`${p}_api_key_set`]).length}
+                    onSelectModel={(provider, name) => void handleSelectModel(provider, name)}
                     think={Boolean(thinkByChat[activeChatId])}
                     onToggleThink={() =>
                       setThinkByChat(prev => ({ ...prev, [activeChatId]: !prev[activeChatId] }))
                     }
                     onOpenSettings={() => openSettings('model')}
                     disabled={streamingChatIds.has(activeChatId)}
-                    gpuWarning={gpuWarning}
+                    openSignal={pickerOpenSignal}
+                    refreshSignal={modelSystemSignal}
+                    onMenuOpenChange={handlePickerMenuChange}
                   />
                 ) : null
               }
@@ -1627,7 +2181,9 @@ export default function App() {
               {S.newTreeLead}{' '}
               {S.newTreeAskPrefix}
               <span className="font-medium text-gray-800">
-                {pendingAttach.kind === 'file' ? pendingAttach.file.name : pendingAttach.title}
+                {pendingAttach.kind === 'file'
+                  ? pendingAttach.file.name
+                  : <MathText text={pendingAttach.title} />}
               </span>
               {S.newTreeAskSuffix}
             </p>
@@ -1651,22 +2207,25 @@ export default function App() {
         </div>
       )}
 
-      {/* Settings-Modal — App-eigen, damit Sidebar-Zahnrad UND Composer-Pille
-          es öffnen können. onSaved hält die Pille synchron; nach Downloads/
-          Löschungen in der Bibliothek wird das Modell-System neu geladen. */}
+      {/* Settings modal — owned by App so both the sidebar gear and the
+          composer pill can open it. onSaved keeps the pill in sync; closing
+          re-fetches the model system (models may have been pulled/removed
+          via the terminal meanwhile). */}
       <SettingsModal
         open={settingsOpen}
         onClose={() => { setSettingsOpen(false); refreshModelSystem(); }}
-        onSaved={setSettings}
-        initialTab={settingsTab}
-        recommendation={recommendation}
-        onLibraryChanged={async () => {
-          // Nach einem Download darf die Automatik greifen (nur bei
-          // model_source 'auto' — manuelle Wahl gewinnt immer).
-          await api.applyRecommendedModel().catch(() => {});
-          await refreshModelSystem();
+        onSaved={(s) => {
+          setSettings(s);
+          // A key save or provider change re-arms the cards' retry — the
+          // same rule as after a pill model switch (mockup-model-flow §05).
+          setSettingsChangedAt(new Date().toISOString());
         }}
+        initialTab={settingsTab}
+        initialProvider={settingsProvider ?? undefined}
       />
+
+      {/* Feedback dialog — sidebar button + /feedback composer command. */}
+      <FeedbackDialog open={feedbackOpen} onClose={() => setFeedbackOpen(false)} initialText={feedbackInitialText} />
 
       {/* Floating popup: appears near the right-clicked word with its explanation.
           For PDF selections it also shows the highlight color row. */}
@@ -1713,18 +2272,22 @@ export default function App() {
         />
       )}
 
-      {/* Actions menu for an existing chat-text highlight: recolor / delete.
-          chatId: null hides "Open linked chat" — chat highlights don't link
-          to branches (the message itself lives in a chat already). */}
+      {/* Actions menu for an existing chat-text highlight: recolor / delete /
+          open linked chat. chatId here is the menu's generic "linked branch"
+          slot — fed from childChatId, NOT MessageHighlight.chatId (the
+          containing chat, always set). */}
       {chatHighlightMenu && (
         <HighlightActionsMenu
-          highlight={{ color: chatHighlightMenu.highlight.color, chatId: null }}
+          highlight={{
+            color: chatHighlightMenu.highlight.color,
+            chatId: chatHighlightMenu.highlight.childChatId,
+          }}
           x={chatHighlightMenu.x}
           y={chatHighlightMenu.y}
           onClose={() => setChatHighlightMenu(null)}
           onChangeColor={handleChatMenuChangeColor}
           onDelete={handleChatMenuDelete}
-          onOpenChat={() => setChatHighlightMenu(null)}
+          onOpenChat={handleChatMenuOpenChat}
         />
       )}
     </div>

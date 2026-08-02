@@ -15,6 +15,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { ChevronRight, ChevronDown, Clock, FileText, TvMinimalPlay } from 'lucide-react';
 import { useStrings } from '../../strings';
+import { MathText, hasMath, plainMathText } from '../MathText';
 import type { Chat } from '../../types';
 
 interface Props {
@@ -31,6 +32,34 @@ interface Props {
   // Chats, deren Fragen noch in der Backend-Warteschlange stehen (FIFO,
   // ein Ollama-Slot) — ihre Zeilen zeigen die kleine Uhr statt der Punkte.
   queuedChatIds?: Set<string>;
+  // Ids auf dem Pfad von der Wurzel zum aktiven Chat (inklusive des aktiven
+  // Chats selbst) — die Trunk/Elbow-Segmente, die zu einem dieser Ids
+  // hinführen, werden eingefärbt (design/mockup-tree-path-highlight.html,
+  // Variante B).
+  activePathIds?: Set<string>;
+}
+
+// Connector-line thickness that is always a whole number of device pixels.
+// A plain 1px line at a fractional zoom factor (Cmd +/- makes
+// devicePixelRatio e.g. 2.2) paints as 2 device pixels in some places and 3
+// in others depending on where it lands, so the tree lines look thicker in
+// spots. floor(dpr)/dpr CSS pixels snap every segment to the same width —
+// flooring (not rounding) picks the thinner of the two candidate widths, so
+// the lines never get bulkier than at 100% zoom (user correction 2026-07-29).
+function hairlinePx(): number {
+  const dpr = window.devicePixelRatio || 1;
+  return Math.max(1, Math.floor(dpr)) / dpr;
+}
+
+// Zoom changes devicePixelRatio and fires a window resize — recompute then.
+function useHairline(): number {
+  const [px, setPx] = useState(hairlinePx);
+  useEffect(() => {
+    const update = () => setPx(hairlinePx());
+    window.addEventListener('resize', update);
+    return () => window.removeEventListener('resize', update);
+  }, []);
+  return px;
 }
 
 // Drei hüpfende Mini-Punkte (kompakte Variante der Chat-Ladepunkte) — zeigt
@@ -68,7 +97,7 @@ export function QueuedClock() {
   );
 }
 
-function TreeNode({ chat, activeChatId, renamingId, onSelect, onContextMenu, onRenameSubmit, onRenameCancel, streamingChatIds, queuedChatIds }: {
+function TreeNode({ chat, activeChatId, renamingId, onSelect, onContextMenu, onRenameSubmit, onRenameCancel, streamingChatIds, queuedChatIds, activePathIds }: {
   chat: Chat;
   activeChatId: string | null;
   renamingId: string | null;
@@ -78,17 +107,32 @@ function TreeNode({ chat, activeChatId, renamingId, onSelect, onContextMenu, onR
   onRenameCancel: () => void;
   streamingChatIds?: Set<string>;
   queuedChatIds?: Set<string>;
+  activePathIds?: Set<string>;
 }) {
   const [expanded, setExpanded] = useState(true);
+  const hairline = useHairline();
   const hasChildren = chat.children && chat.children.length > 0;
   const isActive = chat.id === activeChatId;
   const isRenaming = chat.id === renamingId;
 
+  // At most one child can sit on the path to the active chat — index of that
+  // child, or -1. The colored run below only reaches down to that child's
+  // elbow; see the connector block for why the rest must stay neutral.
+  const pathChildIndex = activePathIds && hasChildren
+    ? chat.children!.findIndex(c => activePathIds.has(c.id))
+    : -1;
+
   return (
     <div>
-      {/* Chat row */}
+      {/* Chat row.
+          relative + z-[1] lifts the row above the connector spans, which are
+          absolutely positioned siblings and would otherwise paint on top of
+          it: the elbow reaches 6px past the row's left edge and drew a line
+          straight into the selected (or hovered) pill. Stacked this way the
+          line simply ends at the pill instead (user report 2026-08-01) —
+          rows without a background still show the full elbow as before. */}
       <div
-        className={`flex items-center gap-2 px-2.5 py-1.5 mb-0.5 rounded-md cursor-pointer transition-colors text-sm ${
+        className={`relative z-[1] flex items-center gap-2 px-2.5 py-1.5 mb-0.5 rounded-md cursor-pointer transition-colors text-sm ${
           isActive
             ? 'bg-blue-50 text-blue-700'
             : 'text-gray-700 hover:bg-gray-100 hover:text-gray-900'
@@ -98,18 +142,20 @@ function TreeNode({ chat, activeChatId, renamingId, onSelect, onContextMenu, onR
           e.preventDefault();
           onContextMenu(chat.id, e.clientX, e.clientY);
         }}
-        title={isRenaming ? undefined : chat.title}
+        title={isRenaming ? undefined : plainMathText(chat.title)}
       >
-        {/* Expand/collapse chevron for nodes with children */}
-        {hasChildren ? (
+        {/* Expand/collapse chevron — only for nodes that have children.
+            A leaf gets NO placeholder: the reserved 13px slot left an empty
+            gap inside the row's pill, so leaf titles now start at the row's
+            own padding instead (user request 2026-08-01). Titles of leaves and
+            of parents therefore no longer align — that is the intent. */}
+        {hasChildren && (
           <button
             onClick={e => { e.stopPropagation(); setExpanded(!expanded); }}
             className="shrink-0 text-gray-400 hover:text-gray-700"
           >
             {expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
           </button>
-        ) : (
-          <span className="w-[13px] shrink-0" />
         )}
 
         {/* Chat title — replaced by an inline input while this row is being renamed */}
@@ -124,7 +170,7 @@ function TreeNode({ chat, activeChatId, renamingId, onSelect, onContextMenu, onR
           // sonst ist die Zeilenhöhe nicht ganzzahlig (32,5625px) und die
           // 1-px-Baumlinien darunter rutschen pro Zeile auf andere Subpixel —
           // manche Linien wirkten dadurch dicker (Nutzer-Screenshot 2026-07-23).
-          <span className="flex-1 truncate text-[13px] leading-[18px]">{chat.title}</span>
+          <span className={`flex-1 text-[13px] leading-[18px] ${hasMath(chat.title) ? 'syflo-math-fade' : 'truncate'}`}><MathText text={chat.title} /></span>
         )}
 
         {/* Laufende Hintergrund-Antwort (Punkte) oder wartende Frage (Uhr) */}
@@ -171,17 +217,51 @@ function TreeNode({ chat, activeChatId, renamingId, onSelect, onContextMenu, onR
         <div className="relative pl-[22px]">
           {chat.children!.map((child, i) => {
             const isLast = i === chat.children!.length - 1;
+            // Highlight of the connector that links the active chat back to
+            // this row (design/mockup-tree-path-highlight.html, variant B).
+            // A trunk segment is anchored in a child's wrapper but belongs to
+            // the PARENT's spine: for a non-last sibling it spans that child's
+            // whole subtree so the following siblings can hang off it. So the
+            // run that actually leads to the on-path child is: every earlier
+            // sibling's trunk in full, plus the on-path child's own trunk down
+            // to its elbow. Everything below that elbow serves the later
+            // siblings and must keep the neutral color — coloring it painted a
+            // green line past unrelated rows (user report 2026-08-01).
+            const isPathChild = i === pathChildIndex;
+            const carriesPath = pathChildIndex !== -1 && i <= pathChildIndex;
+            const pathWidth = hairline * 2;
             return (
-              <div key={child.id} className="relative">
-                <span
-                  data-testid={isLast ? 'tree-trunk-end' : 'tree-trunk'}
-                  className="absolute w-px bg-slate-300 pointer-events-none"
-                  style={isLast ? { left: -8, top: -2, height: 18 } : { left: -8, top: -2, bottom: 0 }}
-                />
+              <div key={child.id} className="relative" data-testid="tree-child">
+                {isPathChild && !isLast ? (
+                  <>
+                    <span
+                      data-testid="tree-trunk-path"
+                      className="absolute pointer-events-none bg-blue-400"
+                      style={{ left: -8, top: -2, height: 18, width: pathWidth }}
+                    />
+                    <span
+                      data-testid="tree-trunk"
+                      className="absolute pointer-events-none bg-slate-300"
+                      style={{ left: -8, top: 16, bottom: 0, width: hairline }}
+                    />
+                  </>
+                ) : (
+                  <span
+                    data-testid={isLast ? 'tree-trunk-end' : 'tree-trunk'}
+                    className={`absolute pointer-events-none ${carriesPath ? 'bg-blue-400' : 'bg-slate-300'}`}
+                    style={
+                      isLast
+                        ? { left: -8, top: -2, height: 18, width: carriesPath ? pathWidth : hairline }
+                        : { left: -8, top: -2, bottom: 0, width: carriesPath ? pathWidth : hairline }
+                    }
+                  />
+                )}
+                {/* Only the on-path child's elbow turns — an earlier sibling
+                    carries the vertical run but its own row is off the path. */}
                 <span
                   data-testid="tree-elbow"
-                  className="absolute h-px bg-slate-300 pointer-events-none"
-                  style={{ left: -8, top: 16, width: 14 }}
+                  className={`absolute pointer-events-none ${isPathChild ? 'bg-blue-400' : 'bg-slate-300'}`}
+                  style={{ left: -8, top: 16, width: 14, height: isPathChild ? pathWidth : hairline }}
                 />
                 <TreeNode
                   chat={child}
@@ -193,6 +273,7 @@ function TreeNode({ chat, activeChatId, renamingId, onSelect, onContextMenu, onR
                   onRenameCancel={onRenameCancel}
                   streamingChatIds={streamingChatIds}
                   queuedChatIds={queuedChatIds}
+                  activePathIds={activePathIds}
                 />
               </div>
             );
@@ -240,7 +321,7 @@ export function RenameInput({ initial, onSubmit, onCancel }: {
   );
 }
 
-export function ChatTree({ chats, activeChatId, renamingId, onSelect, onContextMenu, onRenameSubmit, onRenameCancel, streamingChatIds, queuedChatIds }: Props) {
+export function ChatTree({ chats, activeChatId, renamingId, onSelect, onContextMenu, onRenameSubmit, onRenameCancel, streamingChatIds, queuedChatIds, activePathIds }: Props) {
   return (
     <div>
       {chats.map(chat => (
@@ -255,6 +336,7 @@ export function ChatTree({ chats, activeChatId, renamingId, onSelect, onContextM
           onRenameCancel={onRenameCancel}
           streamingChatIds={streamingChatIds}
           queuedChatIds={queuedChatIds}
+          activePathIds={activePathIds}
         />
       ))}
     </div>

@@ -69,6 +69,26 @@ describe('math rendering in chat messages', () => {
     expect(container.querySelector('.katex-display')).not.toBeNull();
   });
 
+  it('leaves $$…$$ blocks containing an environment untouched (screenshot 2026-07-25)', () => {
+    // The display-promotion rule used to match INSIDE `$$…$$` (the inner
+    // `$x = …$` slice has no dollar/newline), leaving two stray `$` that
+    // swallowed the following list items into a katex-error span.
+    const { container } = renderContent(
+      '1. **Eingabevektor $x$:**\n' +
+        '   $$x = \\begin{pmatrix} C(w_{t-1}) \\\\ C(w_{t-2}) \\end{pmatrix} \\in \\mathbb{R}^{km}$$\n' +
+        '2. **Hidden-Layer:**\n' +
+        '   $$o = d + Hx \\in \\mathbb{R}^h$$\n' +
+        '   Die Aktivierungsfunktion $\\tanh(z)$ beschneidet Werte auf $(-1, 1)$.',
+    );
+
+    expect(container.querySelector('.katex-error')).toBeNull();
+    // All four formulas render as math (single-line $$…$$ renders inline),
+    // and the prose stays prose instead of being swallowed into a formula.
+    expect(container.querySelectorAll('.katex').length).toBeGreaterThanOrEqual(4);
+    expect(container.textContent).toContain('beschneidet Werte auf');
+    expect(container.textContent).not.toContain('$$');
+  });
+
   it('keeps small inline math inline', () => {
     const { container } = renderContent('Runs in $O(n^2)$ time.');
 

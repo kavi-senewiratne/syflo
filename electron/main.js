@@ -7,7 +7,7 @@
 //    lädt http://localhost:3001. Das Backend liefert dort auch das gebaute
 //    Frontend aus (SYFLO_FRONTEND_DIR) — same-origin, damit die relativen
 //    /api-Aufrufe des Frontends ohne Proxy funktionieren.
-const { app, BrowserWindow, dialog, ipcMain } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, shell } = require('electron');
 const { spawn, execFile } = require('child_process');
 const path = require('path');
 const http = require('http');
@@ -124,6 +124,21 @@ async function createWindow() {
     },
   });
   win.once('ready-to-show', () => win.show());
+
+  // Links in LLM-generated markdown must never open arbitrary web content
+  // inside the app shell: new windows are denied and handed to the system
+  // browser; in-window navigation is confined to the app's own origins.
+  const isAppUrl = (url) => url.startsWith(BACKEND_URL) || url.startsWith(DEV_URL);
+  const isWebUrl = (url) => /^https?:\/\//.test(url);
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (isWebUrl(url) && !isAppUrl(url)) shell.openExternal(url);
+    return { action: 'deny' };
+  });
+  win.webContents.on('will-navigate', (event, url) => {
+    if (isAppUrl(url)) return;
+    event.preventDefault();
+    if (isWebUrl(url)) shell.openExternal(url);
+  });
 
   if (app.isPackaged) {
     spawnBackend();

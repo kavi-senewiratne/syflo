@@ -21,6 +21,7 @@ describe('Sidebar', () => {
     viewMode: 'chat' as const,
     onToggleView: vi.fn(),
     onOpenSettings: vi.fn(),
+    onOpenFeedback: vi.fn(),
     collapsed: false,
     onToggleCollapsed: vi.fn(),
   };
@@ -48,6 +49,18 @@ describe('Sidebar', () => {
     expect(screen.queryByText(/Active model/i)).not.toBeInTheDocument();
     fireEvent.click(screen.getByLabelText('Open settings'));
     expect(defaultProps.onOpenSettings).toHaveBeenCalledWith('appearance');
+  });
+
+  it('opens the feedback dialog from the expanded footer button', () => {
+    render(<Sidebar {...defaultProps} />);
+    fireEvent.click(screen.getByLabelText('Send feedback'));
+    expect(defaultProps.onOpenFeedback).toHaveBeenCalled();
+  });
+
+  it('opens the feedback dialog from the collapsed rail button', () => {
+    render(<Sidebar {...defaultProps} collapsed />);
+    fireEvent.click(screen.getByLabelText('Send feedback'));
+    expect(defaultProps.onOpenFeedback).toHaveBeenCalled();
   });
 
   it('does not show child chats in default flat view', () => {

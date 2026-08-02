@@ -72,4 +72,11 @@ describe('currentQuestionIndex (Scroll-Spy)', () => {
   it('ohne Fragen gibt es keinen Index', () => {
     expect(currentQuestionIndex([], 100)).toBe(-1);
   });
+
+  // Screenshot case 2026-07-25: last answer failed (tiny error row), so the
+  // last question's top never crossed the midline — stepper stuck at 20/21.
+  it('bottom clamp: scrolled to the bottom, the last question is current', () => {
+    expect(currentQuestionIndex([0, 100, 200], 150, true)).toBe(2);
+    expect(currentQuestionIndex([], 100, true)).toBe(-1);
+  });
 });

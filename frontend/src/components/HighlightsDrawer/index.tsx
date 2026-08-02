@@ -12,6 +12,10 @@
  *   - Klick springt zum Highlight (Callback), Rechtsklick öffnet das
  *     bestehende HighlightActionsMenu (Callback — der Owner rendert es)
  *   - Esc schließt
+ * Correction (2026-07-31): aktiver Chip weicht vom Mockup ab — statt
+ * hartem bg-gray-900/text-white (in Matrix invertiert die Gray-Rampe,
+ * dadurch schlechter Kontrast) jetzt bg-blue-50/text-blue-700 wie
+ * ChatArea's Highlights-Toggle; adaptiert so in allen 5 Themes.
  *
  * Daten kommen aus useTreeHighlights (immer aktuell durch Invalidierung aus
  * den CRUD-Hooks); Labels global aus useLabels — eine Umbenennung irgendwo
@@ -23,27 +27,32 @@ import { FileText, Highlighter, MessageSquare, X } from 'lucide-react';
 import { useTreeHighlights } from '../../hooks/useTreeHighlights';
 import { useLabels } from '../../hooks/useLabels';
 import { useStrings } from '../../strings';
+import { MathText, hasMath } from '../MathText';
 import { HIGHLIGHT_COLORS } from '../../types';
 import type { HighlightColor, TreeHighlight } from '../../types';
 
-// Satte Punkt-Farben für Chips und Gruppenköpfe (Mockup: --hl-*-deep).
+// Deep dot colors for chips and group headers (mockup: --hl-*-deep). Literal
+// hex values, NOT token classes: the themes remap blue-*/green-* etc. (Matrix
+// turns blue-600 phosphor green, Mushroom turns it red), but a highlight's
+// identity color is a fixed product constant. Same deep tones as
+// HIGHLIGHT_GLOW_HEX in PdfView.
 const DOT_BG: Record<HighlightColor, string> = {
-  yellow: 'bg-yellow-600',
-  green: 'bg-green-600',
-  blue: 'bg-blue-600',
-  pink: 'bg-pink-600',
-  orange: 'bg-orange-600',
+  yellow: 'bg-[#CA8A04]',
+  green: 'bg-[#16A34A]',
+  blue: 'bg-[#2563EB]',
+  pink: 'bg-[#DB2777]',
+  orange: 'bg-[#EA580C]',
 };
 
-// Farbbalken links auf jeder Karte. Eigene Map mit wörtlichen Klassen —
-// Tailwind erkennt nur vollständige Klassennamen im Quelltext, kein
-// `before:${…}`-Kompositum.
+// Color bar on the left edge of each card. Its own map with literal class
+// names — Tailwind only picks up complete class names in the source, no
+// `before:${…}` composition.
 const BAR_BG: Record<HighlightColor, string> = {
-  yellow: 'before:bg-yellow-600',
-  green: 'before:bg-green-600',
-  blue: 'before:bg-blue-600',
-  pink: 'before:bg-pink-600',
-  orange: 'before:bg-orange-600',
+  yellow: 'before:bg-[#CA8A04]',
+  green: 'before:bg-[#16A34A]',
+  blue: 'before:bg-[#2563EB]',
+  pink: 'before:bg-[#DB2777]',
+  orange: 'before:bg-[#EA580C]',
 };
 
 interface Props {
@@ -107,8 +116,8 @@ export function HighlightsDrawer({ chatId, onClose, onJump, onItemContextMenu, v
       data-testid="highlights-drawer"
       className={
         variant === 'panel'
-          ? 'flex h-full w-full flex-col bg-white border-l border-gray-200'
-          : 'absolute inset-0 z-20 flex flex-col bg-white shadow-[-10px_0_28px_rgba(15,23,42,0.10)]'
+          ? 'flex h-full w-full flex-col overflow-hidden bg-white border-l border-gray-200'
+          : 'absolute inset-0 z-20 flex flex-col overflow-hidden bg-white shadow-[-10px_0_28px_rgba(15,23,42,0.10)]'
       }
     >
       <div className="border-b border-gray-100 px-4 pt-4 pb-3">
@@ -133,11 +142,11 @@ export function HighlightsDrawer({ chatId, onClose, onJump, onItemContextMenu, v
             onClick={() => setSelected(new Set())}
             className={`rounded-full border px-2.5 py-0.5 text-[11.5px] font-medium transition-colors ${
               selected.size === 0
-                ? 'border-gray-900 bg-gray-900 text-white'
+                ? 'border-blue-100 bg-blue-50 text-blue-700'
                 : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
             }`}
           >
-            {S.all} <span className={selected.size === 0 ? 'text-white/70' : 'text-gray-400'}>{items.length}</span>
+            {S.all} <span className={selected.size === 0 ? 'text-blue-400' : 'text-gray-400'}>{items.length}</span>
           </button>
           {HIGHLIGHT_COLORS.map((color) => {
             const active = selected.has(color);
@@ -149,12 +158,12 @@ export function HighlightsDrawer({ chatId, onClose, onJump, onItemContextMenu, v
                 onClick={() => toggleColor(color)}
                 className={`flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11.5px] font-medium transition-colors ${
                   active
-                    ? 'border-gray-900 bg-gray-900 text-white'
+                    ? 'border-blue-100 bg-blue-50 text-blue-700'
                     : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
                 }`}
               >
                 <span className={`h-2 w-2 rounded-full ${DOT_BG[color]}`} />
-                {labels[color]} <span className={active ? 'text-white/70' : 'text-gray-400'}>{counts[color]}</span>
+                {labels[color]} <span className={active ? 'text-blue-400' : 'text-gray-400'}>{counts[color]}</span>
               </button>
             );
           })}
@@ -188,11 +197,17 @@ export function HighlightsDrawer({ chatId, onClose, onJump, onItemContextMenu, v
                 }}
                 className={`relative mb-2 w-full rounded-lg border border-gray-100 bg-white py-2.5 pl-4 pr-3 text-left transition-all hover:-translate-y-px hover:border-gray-200 hover:shadow-sm before:absolute before:bottom-2.5 before:left-1.5 before:top-2.5 before:w-[3px] before:rounded-sm before:opacity-55 before:content-[''] ${BAR_BG[item.color]}`}
               >
-                <span className="line-clamp-2 block text-xs leading-normal text-gray-700">{item.text}</span>
-                <span className="mt-1.5 flex items-center gap-1.5 text-[10.5px] font-medium text-gray-400">
-                  {item.kind === 'pdf' ? <FileText size={10} /> : <MessageSquare size={10} />}
-                  {item.kind === 'pdf' ? S.pdfSource(item.pageNumber) : S.chatSource(item.chatTitle)}
-                  <span className="ml-auto font-normal">{formatDay(item.createdAt, S.dateLocale)}</span>
+                <span className="line-clamp-2 block text-xs leading-normal text-gray-700"><MathText text={item.text} /></span>
+                <span className="mt-1.5 flex min-w-0 items-center gap-1.5 text-[10.5px] font-medium text-gray-400">
+                  {item.kind === 'pdf' ? <FileText size={10} className="shrink-0" /> : <MessageSquare size={10} className="shrink-0" />}
+                  {item.kind === 'pdf' ? (
+                    <span className="truncate">{S.pdfSource(item.pageNumber)}</span>
+                  ) : (
+                    <span className={`min-w-0 ${hasMath(item.chatTitle) ? 'syflo-math-fade' : 'truncate'}`}>
+                      <MathText text={S.chatSource(item.chatTitle)} />
+                    </span>
+                  )}
+                  <span className="ml-auto shrink-0 font-normal">{formatDay(item.createdAt, S.dateLocale)}</span>
                 </span>
               </button>
             ))}

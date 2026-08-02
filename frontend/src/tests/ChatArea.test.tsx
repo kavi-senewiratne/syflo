@@ -2,6 +2,7 @@ import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createRef } from 'react';
 import { ChatArea, type ChatAreaHandle } from '../components/ChatArea';
+import { CloudSetupNotice } from '../components/ChatArea/CloudSetupNotice';
 import type { ChatDetail } from '../types';
 
 const mockChat: ChatDetail = {
@@ -52,6 +53,81 @@ describe('ChatArea', () => {
     fireEvent.change(textarea, { target: { value: 'Hello!' } });
     fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false });
     await waitFor(() => expect(defaultProps.onSendMessage).toHaveBeenCalledWith('Hello!', []));
+  });
+
+  it('opens the feedback dialog on /feedback instead of sending a message', async () => {
+    const onOpenFeedback = vi.fn();
+    render(<ChatArea chat={mockChat} loading={false} {...defaultProps} onOpenFeedback={onOpenFeedback} />);
+    const textarea = screen.getByPlaceholderText(/Ask anything/i);
+    fireEvent.change(textarea, { target: { value: '/feedback the picker closes too fast' } });
+    fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false });
+
+    await waitFor(() => expect(onOpenFeedback).toHaveBeenCalledWith('the picker closes too fast'));
+    expect(defaultProps.onSendMessage).not.toHaveBeenCalled();
+    expect(textarea).toHaveValue('');
+  });
+
+  it('shows the /feedback suggestion while typing the command word, and opens the dialog on click', async () => {
+    const onOpenFeedback = vi.fn();
+    render(<ChatArea chat={mockChat} loading={false} {...defaultProps} onOpenFeedback={onOpenFeedback} />);
+    const textarea = screen.getByPlaceholderText(/Ask anything/i);
+
+    fireEvent.change(textarea, { target: { value: '/fee' } });
+    const suggestion = screen.getByTestId('feedback-slash-item');
+    expect(suggestion).toBeInTheDocument();
+
+    fireEvent.click(suggestion);
+    expect(onOpenFeedback).toHaveBeenCalledWith('');
+    expect(textarea).toHaveValue('');
+  });
+
+  it('completes to "/feedback " on ArrowUp while the suggestion is shown', () => {
+    render(<ChatArea chat={mockChat} loading={false} {...defaultProps} onOpenFeedback={vi.fn()} />);
+    const textarea = screen.getByPlaceholderText(/Ask anything/i);
+
+    fireEvent.change(textarea, { target: { value: '/fee' } });
+    fireEvent.keyDown(textarea, { key: 'ArrowUp' });
+
+    expect(textarea).toHaveValue('/feedback ');
+  });
+
+  it('highlights the typed "/feedback" word inside the input itself, even after the suggestion popover is gone', () => {
+    render(<ChatArea chat={mockChat} loading={false} {...defaultProps} onOpenFeedback={vi.fn()} />);
+    const textarea = screen.getByPlaceholderText(/Ask anything/i);
+
+    fireEvent.change(textarea, { target: { value: '/feedback ishlj' } });
+
+    const overlay = screen.getByTestId('chat-textarea-highlight');
+    expect(overlay).toHaveTextContent('/feedback ishlj');
+    expect(overlay.querySelector('span')).toHaveTextContent('/feedback');
+    expect(screen.queryByTestId('feedback-slash-item')).not.toBeInTheDocument();
+  });
+
+  it('does not highlight a word that only starts with /feedback without a boundary', () => {
+    render(<ChatArea chat={mockChat} loading={false} {...defaultProps} onOpenFeedback={vi.fn()} />);
+    const textarea = screen.getByPlaceholderText(/Ask anything/i);
+
+    fireEvent.change(textarea, { target: { value: '/feedbackxyz' } });
+
+    expect(screen.getByTestId('chat-textarea-highlight').querySelector('span')).toBeNull();
+  });
+
+  it('hides the /feedback suggestion once a space is typed (arguments started)', () => {
+    render(<ChatArea chat={mockChat} loading={false} {...defaultProps} onOpenFeedback={vi.fn()} />);
+    const textarea = screen.getByPlaceholderText(/Ask anything/i);
+
+    fireEvent.change(textarea, { target: { value: '/feedback hi' } });
+    expect(screen.queryByTestId('feedback-slash-item')).not.toBeInTheDocument();
+  });
+
+  it('opens the feedback dialog with empty text for bare /feedback', async () => {
+    const onOpenFeedback = vi.fn();
+    render(<ChatArea chat={mockChat} loading={false} {...defaultProps} onOpenFeedback={onOpenFeedback} />);
+    const textarea = screen.getByPlaceholderText(/Ask anything/i);
+    fireEvent.change(textarea, { target: { value: '/feedback' } });
+    fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false });
+
+    await waitFor(() => expect(onOpenFeedback).toHaveBeenCalledWith(''));
   });
 
   it('does not send empty message', async () => {
@@ -187,41 +263,64 @@ describe('ChatArea', () => {
     expect(screen.getByText('Hello there')).toBeInTheDocument();
   });
 
-  it('clamps a long branched-from quote and expands it via the chevron', async () => {
-    // jsdom hat kein Layout — Overflow (scrollHeight > clientHeight) muss
-    // gemockt werden, damit der Chevron erscheint.
+  it('truncates a long branched-from quote in the header and mounts a hover tooltip with the full text', async () => {
+    // jsdom has no layout — horizontal overflow (scrollWidth > clientWidth)
+    // must be mocked for the tooltip to mount.
     const scrollSpy = vi
-      .spyOn(HTMLElement.prototype, 'scrollHeight', 'get')
-      .mockReturnValue(60);
+      .spyOn(HTMLElement.prototype, 'scrollWidth', 'get')
+      .mockReturnValue(600);
     const clientSpy = vi
-      .spyOn(HTMLElement.prototype, 'clientHeight', 'get')
-      .mockReturnValue(40);
+      .spyOn(HTMLElement.prototype, 'clientWidth', 'get')
+      .mockReturnValue(400);
     try {
       const longWord =
         'establishes a new single-model state-of-the-art BLEU score of 41.8 after training for 3.5 days on eight GPUs';
       const childChat = { ...mockChat, parent_word: longWord, parent_id: '0' };
       render(<ChatArea chat={childChat} loading={false} {...defaultProps} />);
 
-      // Standardmäßig geklemmt, Chevron sichtbar
+      // The header line stays truncated; the tooltip mounts with the full quote.
       const quote = screen.getByTestId('branched-from-quote');
-      expect(quote.className).toContain('line-clamp-2');
-      const toggle = await screen.findByTestId('branched-from-toggle');
-
-      // Aufklappen entfernt das Clamp, Zuklappen bringt es zurück
-      fireEvent.click(toggle);
-      expect(screen.getByTestId('branched-from-quote').className).not.toContain('line-clamp-2');
-      fireEvent.click(screen.getByTestId('branched-from-toggle'));
-      expect(screen.getByTestId('branched-from-quote').className).toContain('line-clamp-2');
+      expect(quote.className).toContain('truncate');
+      const tooltip = await screen.findByTestId('branched-from-tooltip');
+      expect(tooltip.textContent).toContain(longWord);
+      expect(screen.getByTestId('branched-from-quote').className).toContain('truncate');
+      // No chevron/dropdown to toggle anymore — the tooltip is CSS-driven
+      // (group-hover/group-focus-within), always mounted once overflowing.
+      expect(screen.queryByTestId('branched-from-toggle')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('branched-from-dropdown')).not.toBeInTheDocument();
     } finally {
       scrollSpy.mockRestore();
       clientSpy.mockRestore();
     }
   });
 
-  it('shows no chevron when the branched-from quote fits', () => {
+  it('does not mount the tooltip when the quote fits on one line', () => {
     const childChat = { ...mockChat, parent_word: 'quantum', parent_id: '0' };
     render(<ChatArea chat={childChat} loading={false} {...defaultProps} />);
-    expect(screen.queryByTestId('branched-from-toggle')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('branched-from-tooltip')).not.toBeInTheDocument();
+  });
+
+  it('keeps a branched-from quote on one line even with an embedded hard line break (2026-07-31)', () => {
+    // PDF selections falling back to the browser's raw sel.toString() can
+    // carry markdown hard-break syntax (line ending in 2+ spaces before \n)
+    // from pdf.js's per-line <br> elements — that used to render as a real
+    // <br/>, breaking the header out of its single-line layout.
+    const childChat = { ...mockChat, parent_word: 'Berechnung der Varianz  \nUnter der Annahme', parent_id: '0' };
+    render(<ChatArea chat={childChat} loading={false} {...defaultProps} />);
+    const quote = screen.getByTestId('branched-from-quote');
+    expect(quote.querySelector('br')).toBeNull();
+    expect(quote.textContent).toContain('Berechnung der Varianz');
+    expect(quote.textContent).toContain('Unter der Annahme');
+  });
+
+  it('renders math in the branched-from quote as KaTeX instead of raw LaTeX (2026-07-26)', () => {
+    const childChat = { ...mockChat, parent_word: 'Energie $E(w_t)$ erklärt', parent_id: '0' };
+    render(<ChatArea chat={childChat} loading={false} {...defaultProps} />);
+    const quote = screen.getByTestId('branched-from-quote');
+    // The formula renders as a KaTeX element; the raw delimiters disappear.
+    expect(quote.querySelector('.katex')).not.toBeNull();
+    expect(quote.textContent).not.toContain('$E(w_t)$');
+    expect(quote.textContent).toContain('Energie');
   });
 
   it('uses the same spacing between all message bubbles', () => {
@@ -624,5 +723,51 @@ describe('ChatArea', () => {
       expect(screen.getByTestId('video-banner-slot')).toBeInTheDocument();
       expect(screen.getByTestId('transcript-drawer-slot')).toBeInTheDocument();
     });
+  });
+});
+
+// ─── Geführter Leerzustand (ADR-0008, Grill 12b) ─────────────────────────────
+
+describe('ChatArea – setupNotice ersetzt den Composer', () => {
+  it('rendert die Notiz statt der Composer-Zeile', () => {
+    render(
+      <ChatArea
+        chat={mockChat}
+        loading={false}
+        {...defaultProps}
+        setupNotice={<div data-testid="setup-notice-slot" />}
+      />,
+    );
+    expect(screen.getByTestId('setup-notice-slot')).toBeInTheDocument();
+    expect(screen.queryByTestId('chat-textarea')).not.toBeInTheDocument();
+  });
+
+  it('rendert ohne setupNotice die normale Composer-Zeile', () => {
+    render(<ChatArea chat={mockChat} loading={false} {...defaultProps} />);
+    expect(screen.getByTestId('chat-textarea')).toBeInTheDocument();
+  });
+});
+
+describe('CloudSetupNotice', () => {
+  // W9 (mockup-model-cost-tiers, 2026-07-30): the notice is a PATH chooser
+  // — a fresh install has every provider, so the card offers the three ways
+  // (free / own account / fully private) instead of naming one provider.
+  // No cost badges: the row titles carry the tier.
+  it('bietet die drei Wege an und öffnet Settings mit passender Vorauswahl', () => {
+    const onOpenSettings = vi.fn();
+    render(<CloudSetupNotice onOpenSettings={onOpenSettings} />);
+
+    const notice = screen.getByTestId('cloud-setup-notice');
+    expect(notice).toHaveTextContent('Start for free');
+    expect(notice).toHaveTextContent('Gemini Flash or Groq');
+    expect(notice).toHaveTextContent('Use your own account');
+    expect(notice).toHaveTextContent('Fully private');
+
+    fireEvent.click(screen.getByTestId('setup-path-free'));
+    expect(onOpenSettings).toHaveBeenLastCalledWith('gemini');
+    fireEvent.click(screen.getByTestId('setup-path-paid'));
+    expect(onOpenSettings).toHaveBeenLastCalledWith('openai');
+    fireEvent.click(screen.getByTestId('setup-path-local'));
+    expect(onOpenSettings).toHaveBeenLastCalledWith('ollama');
   });
 });

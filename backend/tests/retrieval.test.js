@@ -1,9 +1,9 @@
 /**
  * tests/retrieval.test.js
  *
- * Retrieval-Modus für lange Quellen (ADR-0006): Absatz-Chunking mit
- * Sektions-Headern, Embedding-Cache in source_chunks, Kosinus-Top-k in
- * Dokument-Reihenfolge und das stabile Paper-Skeleton für den Prompt-Prefix.
+ * Retrieval mode for long sources (ADR-0006): paragraph chunking with
+ * section headers, embedding cache in source_chunks, cosine top-k in
+ * document order and the stable paper skeleton for the prompt prefix.
  */
 
 const path = require('path');
@@ -19,7 +19,7 @@ const {
 
 const TEST_DB_PATH = path.join(__dirname, 'retrieval_test.db');
 
-// Baut einen Paper-artigen Text: nummerierte Sektionen mit mehreren Absätzen.
+// Builds a paper-like text: numbered sections with multiple paragraphs.
 function paperText() {
   const para = (s) =>
     `${s} This paragraph talks about transformers and attention in enough ` +
@@ -45,12 +45,12 @@ describe('chunkText', () => {
     const chunks = chunkText(text, { targetChars: 300 });
 
     expect(chunks.length).toBeGreaterThan(1);
-    // Jeder Absatz des Originals taucht in genau einem Chunk auf (kein
-    // Verlust, keine Zerschneidung mitten im Absatz).
+    // Every paragraph of the original appears in exactly one chunk (no
+    // loss, no cutting in the middle of a paragraph).
     for (const para of text.split('\n\n')) {
       expect(chunks.filter((c) => c.text.includes(para))).toHaveLength(1);
     }
-    // Chunks tragen ihre Dokument-Position.
+    // Chunks carry their document position.
     expect(chunks.map((c) => c.index)).toEqual(chunks.map((_, i) => i));
   });
 
@@ -66,21 +66,21 @@ describe('chunkText', () => {
   it('respects the target size but never splits a paragraph across chunks', () => {
     const chunks = chunkText(paperText(), { targetChars: 300 });
     for (const c of chunks) {
-      // Ein einzelner Absatz darf das Ziel überschreiten — mehr als ein
-      // Absatz Überhang aber nicht.
+      // A single paragraph may exceed the target — but not more than one
+      // paragraph of overhang.
       expect(c.text.length).toBeLessThan(300 + 200);
     }
   });
 
   it('splits a single oversized paragraph at sentence boundaries with overlap', () => {
     const sentence = 'This is a long sentence about scaling laws and data. ';
-    const huge = sentence.repeat(40).trim(); // ~2200 Zeichen, EIN Absatz
+    const huge = sentence.repeat(40).trim(); // ~2200 chars, ONE paragraph
     const chunks = chunkText(huge, { targetChars: 600, maxChars: 800 });
 
     expect(chunks.length).toBeGreaterThan(1);
     for (const c of chunks) expect(c.text.length).toBeLessThanOrEqual(800);
-    // Überlappung: der Anfang jedes Folge-Chunks wiederholt das Ende des
-    // vorherigen (letzter Satz), damit kein Gedanke an der Schnittkante reißt.
+    // Overlap: the beginning of each subsequent chunk repeats the end of the
+    // previous one (last sentence) so no thought is torn at the cut edge.
     for (let i = 1; i < chunks.length; i += 1) {
       const prevEnd = chunks[i - 1].text.slice(-sentence.trim().length);
       expect(chunks[i].text.startsWith(prevEnd)).toBe(true);
@@ -94,7 +94,7 @@ describe('chunkText', () => {
   });
 });
 
-// ─── embedTexts: Ollamas native Embedding-API ────────────────────────────────
+// ─── embedTexts: Ollama's native embedding API ───────────────────────────────
 
 describe('embedTexts', () => {
   const realFetch = global.fetch;
@@ -111,7 +111,7 @@ describe('embedTexts', () => {
     expect(vecs).toEqual([[0.1, 0.2], [0.3, 0.4]]);
     const [url, init] = global.fetch.mock.calls[0];
     expect(String(url)).toBe('http://localhost:11434/api/embed');
-    expect(JSON.parse(init.body)).toEqual({ model: 'nomic-embed-text', input: ['first', 'second'] });
+    expect(JSON.parse(init.body)).toEqual({ model: require('../retrieval').EMBEDDING_MODEL, input: ['first', 'second'] });
   });
 
   it('throws when the embedding model is unavailable (callers degrade)', async () => {
@@ -124,7 +124,7 @@ describe('embedTexts', () => {
   });
 });
 
-// ─── ensureSourceChunks + retrieveChunks: der SQLite-Vektor-Cache ────────────
+// ─── ensureSourceChunks + retrieveChunks: the SQLite vector cache ────────────
 
 describe('source chunk cache and retrieval', () => {
   let db;
@@ -139,7 +139,7 @@ describe('source chunk cache and retrieval', () => {
     if (fs.existsSync(TEST_DB_PATH)) fs.unlinkSync(TEST_DB_PATH);
   });
 
-  // Deterministische Fake-Embeddings: Achse 0 = "attention", Achse 1 = "banana".
+  // Deterministic fake embeddings: axis 0 = "attention", axis 1 = "banana".
   const fakeEmbed = jest.fn(async (texts) =>
     texts.map((t) => [t.includes('attention') ? 1 : 0, t.includes('banana') ? 1 : 0])
   );
@@ -166,7 +166,7 @@ describe('source chunk cache and retrieval', () => {
       chunkOpts: { targetChars: 60 },
     });
     expect(again).toBe(3);
-    expect(fakeEmbed).toHaveBeenCalledTimes(1); // Cache-Treffer, kein Re-Embedding
+    expect(fakeEmbed).toHaveBeenCalledTimes(1); // cache hit, no re-embedding
 
     const rows = db
       .prepare("SELECT * FROM source_chunks WHERE source_type = 'paper' AND source_id = 'p1' ORDER BY chunk_index")
@@ -205,16 +205,16 @@ describe('source chunk cache and retrieval', () => {
       query: 'how does attention work?', k: 2, embedFn: fakeEmbed,
     });
 
-    // Die beiden attention-Chunks gewinnen — und stehen in Dokument-
-    // Reihenfolge (Index 0 vor Index 2), nicht nach Score sortiert.
+    // The two attention chunks win — and appear in document order
+    // (index 0 before index 2), not sorted by score.
     expect(hits.map((h) => h.text)).toEqual([ATTENTION_PARA, SECOND_ATTENTION_PARA]);
     expect(hits.map((h) => h.index)).toEqual([0, 2]);
   });
 
   it('throws when the embedder returns unusable vectors (callers fall back to truncation)', async () => {
-    // Ein erreichbarer, aber kaputter Embedding-Endpoint (leere Antwort)
-    // darf NICHT als Erfolg durchgehen — sonst liegen Chunks ohne Vektoren
-    // in der DB und das Retrieval liefert stumm Unsinn.
+    // A reachable but broken embedding endpoint (empty response)
+    // must NOT pass as success — otherwise chunks without vectors sit
+    // in the DB and retrieval silently returns nonsense.
     const brokenEmbed = jest.fn(async () => []);
     await expect(
       ensureSourceChunks(db, { sourceType: 'paper', sourceId: 'p1', text: TEXT, embedFn: brokenEmbed })
@@ -231,20 +231,20 @@ describe('source chunk cache and retrieval', () => {
   });
 });
 
-// ─── buildSkeleton: der stabile Prompt-Prefix für den Retrieval-Modus ────────
+// ─── buildSkeleton: the stable prompt prefix for retrieval mode ──────────────
 
 describe('buildSkeleton', () => {
   it('keeps the beginning (title/abstract), the section outline and the end (conclusion)', () => {
     const text = paperText();
     const skeleton = buildSkeleton(text, { headChars: 200, tailChars: 150 });
 
-    // Anfang: Titel + Abstract.
+    // Beginning: title + abstract.
     expect(skeleton).toContain('Attention Is All You Need');
-    // Gliederung: alle erkannten Sektions-Überschriften.
+    // Outline: all recognized section headings.
     expect(skeleton).toContain('1 Introduction');
     expect(skeleton).toContain('2 Model Architecture');
     expect(skeleton).toContain('5 Conclusion');
-    // Ende: die Conclusion selbst.
+    // End: the conclusion itself.
     expect(skeleton).toContain('Attention alone suffices.');
   });
 
@@ -252,5 +252,70 @@ describe('buildSkeleton', () => {
     const huge = Array.from({ length: 2000 }, (_, i) => `Paragraph ${i} about scaling.`).join('\n\n');
     const skeleton = buildSkeleton(huge, { headChars: 3000, tailChars: 2500 });
     expect(skeleton.length).toBeLessThan(8000);
+  });
+});
+
+// ─── Model stamp (ADR-0008 slice 6 / ADR-0006 addendum) ──────────────────────
+// Vectors from different embedding models are not comparable. The chunk
+// cache therefore carries the model that built it — a mismatch (model
+// switch) rebuilds the cache automatically instead of silently returning
+// nonsense.
+
+describe('embedding model stamp', () => {
+  const fakeEmbed = () => {
+    const fn = jest.fn(async (texts) => texts.map(() => [1, 0, 0]));
+    return fn;
+  };
+
+  let db;
+  beforeEach(() => {
+    if (fs.existsSync(TEST_DB_PATH)) fs.unlinkSync(TEST_DB_PATH);
+    db = createDb(TEST_DB_PATH);
+  });
+  afterEach(() => {
+    db.close();
+    if (fs.existsSync(TEST_DB_PATH)) fs.unlinkSync(TEST_DB_PATH);
+  });
+
+  it('uses bge-m3 as the embedding model (multilingual, benchmark 2026-07-25)', () => {
+    expect(require('../retrieval').EMBEDDING_MODEL).toBe('bge-m3');
+  });
+
+  it('stamps every cached chunk with the embedding model', async () => {
+    const embedFn = fakeEmbed();
+    await ensureSourceChunks(db, {
+      sourceType: 'paper', sourceId: 'p1', text: paperText(), embedFn,
+    });
+    const rows = db.prepare('SELECT DISTINCT embedding_model FROM source_chunks').all();
+    expect(rows).toEqual([{ embedding_model: require('../retrieval').EMBEDDING_MODEL }]);
+  });
+
+  it('rebuilds the cache when the stamp does not match the current model', async () => {
+    const embedFn = fakeEmbed();
+    const text = paperText();
+    await ensureSourceChunks(db, { sourceType: 'paper', sourceId: 'p1', text, embedFn });
+    expect(embedFn).toHaveBeenCalledTimes(1);
+
+    // Same text, same hash → pure cache hit, no re-embedding.
+    await ensureSourceChunks(db, { sourceType: 'paper', sourceId: 'p1', text, embedFn });
+    expect(embedFn).toHaveBeenCalledTimes(1);
+
+    // Cache (simulated) still stems from the old model → rebuild.
+    db.prepare("UPDATE source_chunks SET embedding_model = 'nomic-embed-text'").run();
+    await ensureSourceChunks(db, { sourceType: 'paper', sourceId: 'p1', text, embedFn });
+    expect(embedFn).toHaveBeenCalledTimes(2);
+    const rows = db.prepare('SELECT DISTINCT embedding_model FROM source_chunks').all();
+    expect(rows).toEqual([{ embedding_model: require('../retrieval').EMBEDDING_MODEL }]);
+  });
+
+  it('ignores stale chunks from another model at retrieval time', async () => {
+    const embedFn = fakeEmbed();
+    await ensureSourceChunks(db, { sourceType: 'paper', sourceId: 'p1', text: paperText(), embedFn });
+    db.prepare("UPDATE source_chunks SET embedding_model = 'nomic-embed-text'").run();
+
+    const hits = await retrieveChunks(db, {
+      sourceType: 'paper', sourceId: 'p1', query: 'attention', embedFn,
+    });
+    expect(hits).toEqual([]);
   });
 });

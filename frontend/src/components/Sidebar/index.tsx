@@ -14,10 +14,11 @@
  * Hovering shows the full chat title as a native tooltip.
  */
 
-import { useState, useEffect, useRef } from 'react';
-import { SquarePen, GitBranch, ArrowLeft, Pencil, Trash2, FileText, PanelLeftClose, PanelLeftOpen, Settings as SettingsIcon, TvMinimalPlay } from 'lucide-react';
+import { useState, useEffect, useRef, useMemo } from 'react';
+import { SquarePen, GitBranch, ArrowLeft, Pencil, Trash2, FileText, PanelLeftClose, PanelLeftOpen, Settings as SettingsIcon, TvMinimalPlay, MessageSquarePlus } from 'lucide-react';
 import { ChatTree, QueuedClock, RenameInput, StreamingDots } from './ChatTree';
 import { groupChatsByDate } from './groupChatsByDate';
+import { MathText, hasMath, plainMathText } from '../MathText';
 import { useStrings } from '../../strings';
 import { Logo } from '../Logo';
 import type { SettingsTab } from '../SettingsModal';
@@ -30,6 +31,20 @@ function findChatById(chats: Chat[], id: string): Chat | null {
     if (c.children) {
       const inChildren = findChatById(c.children, id);
       if (inChildren) return inChildren;
+    }
+  }
+  return null;
+}
+
+// Ids from the root down to `id` (inclusive) — used to color the tree
+// connectors that trace the active chat back to its root
+// (design/mockup-tree-path-highlight.html, variant B).
+function findPathToId(chats: Chat[], id: string): string[] | null {
+  for (const c of chats) {
+    if (c.id === id) return [c.id];
+    if (c.children) {
+      const sub = findPathToId(c.children, id);
+      if (sub) return [c.id, ...sub];
     }
   }
   return null;
@@ -56,6 +71,9 @@ interface Props {
   // aktive Modell zeigt die Composer-Pille — die Sidebar hat keine
   // Modell-Box mehr (mockup-model-picker.html, Sektion 01).
   onOpenSettings: (tab: SettingsTab) => void;
+  // Öffnet den Feedback-Dialog (ADR-0010) — Button in der Rail und im
+  // ausgeklappten Footer, direkt über dem Settings-Zahnrad.
+  onOpenFeedback: () => void;
   // Whether the sidebar is collapsed to a slim rail, plus the toggle.
   collapsed: boolean;
   onToggleCollapsed: () => void;
@@ -74,7 +92,7 @@ function subtreeStreams(chat: Chat, ids?: Set<string>): boolean {
   return (chat.children ?? []).some(c => subtreeStreams(c, ids));
 }
 
-export function Sidebar({ chats, activeChatId, onSelect, onNewChat, onDelete, onRename, viewMode, onToggleView, onOpenSettings, collapsed, onToggleCollapsed, streamingChatIds, queuedChatIds }: Props) {
+export function Sidebar({ chats, activeChatId, onSelect, onNewChat, onDelete, onRename, viewMode, onToggleView, onOpenSettings, onOpenFeedback, collapsed, onToggleCollapsed, streamingChatIds, queuedChatIds }: Props) {
   // UI-Texte in der App language — re-rendert beim Sprachwechsel mit.
   const S = useStrings().sidebar;
   const [expandedRootId, setExpandedRootId] = useState<string | null>(null);
@@ -85,6 +103,12 @@ export function Sidebar({ chats, activeChatId, onSelect, onNewChat, onDelete, on
 
   const expandedRoot = expandedRootId ? chats.find(c => c.id === expandedRootId) ?? null : null;
   const pendingDeleteChat = pendingDeleteId ? findChatById(chats, pendingDeleteId) : null;
+
+  const activePathIds = useMemo(() => {
+    if (!activeChatId) return undefined;
+    const path = findPathToId(chats, activeChatId);
+    return path ? new Set(path) : undefined;
+  }, [chats, activeChatId]);
 
   // Nutzer-Report 2026-07-22: Nach dem Erstellen eines neuen Chats (Root wie
   // Branch) soll die Sidebar direkt dessen Baum zeigen, damit neu erstellte
@@ -171,13 +195,21 @@ export function Sidebar({ chats, activeChatId, onSelect, onNewChat, onDelete, on
         >
           <SquarePen size={16} />
         </button>
-        {/* Settings pinned to the bottom of the rail — same entry point as the
-            expanded sidebar's bottom-left gear */}
+        {/* Feedback + Settings pinned to the bottom of the rail — same entry
+            points as the expanded sidebar's bottom-left footer (ADR-0010). */}
+        <button
+          onClick={onOpenFeedback}
+          title={S.feedback}
+          aria-label={S.openFeedback}
+          className="mt-auto p-2 rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-100 transition-colors"
+        >
+          <MessageSquarePlus size={16} />
+        </button>
         <button
           onClick={() => openSettings('appearance')}
           title={S.settings}
           aria-label={S.openSettings}
-          className="mt-auto p-2 rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-100 transition-colors"
+          className="mt-1 p-2 rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-100 transition-colors"
         >
           <SettingsIcon size={16} />
         </button>
@@ -272,7 +304,7 @@ export function Sidebar({ chats, activeChatId, onSelect, onNewChat, onDelete, on
             <div className="px-6 pt-6 pb-2">
               <h3 className="text-base font-semibold text-gray-900 mb-1.5">{S.deleteChatTitle}</h3>
               <p className="text-sm text-gray-500 leading-relaxed">
-                {S.deleteChatBody(pendingDeleteChat.title)}
+                <MathText text={S.deleteChatBody(pendingDeleteChat.title)} />
               </p>
               {deleteError && (
                 <p className="mt-3 text-sm text-red-600 bg-red-50 px-3 py-2 rounded-md border border-red-100">
@@ -324,6 +356,7 @@ export function Sidebar({ chats, activeChatId, onSelect, onNewChat, onDelete, on
               onRenameCancel={() => setRenamingId(null)}
               streamingChatIds={streamingChatIds}
               queuedChatIds={queuedChatIds}
+              activePathIds={activePathIds}
             />
           </>
         ) : (
@@ -352,7 +385,7 @@ export function Sidebar({ chats, activeChatId, onSelect, onNewChat, onDelete, on
                         e.preventDefault();
                         openContextMenu(chat.id, e.clientX, e.clientY);
                       }}
-                      title={isRenaming ? undefined : chat.title}
+                      title={isRenaming ? undefined : plainMathText(chat.title)}
                       className={`flex items-center gap-2.5 px-2.5 py-1.5 rounded-md cursor-pointer transition-colors ${
                         isActive
                           ? 'bg-blue-50 text-blue-700'
@@ -366,7 +399,7 @@ export function Sidebar({ chats, activeChatId, onSelect, onNewChat, onDelete, on
                           onCancel={() => setRenamingId(null)}
                         />
                       ) : (
-                        <span className="flex-1 truncate text-[13px]">{chat.title}</span>
+                        <span className={`flex-1 text-[13px] ${hasMath(chat.title) ? 'syflo-math-fade' : 'truncate'}`}><MathText text={chat.title} /></span>
                       )}
                       {/* Laufende Antwort (Punkte) oder wartende Frage (Uhr)
                           in diesem Baum (Root oder Kind) */}
@@ -407,6 +440,15 @@ export function Sidebar({ chats, activeChatId, onSelect, onNewChat, onDelete, on
           das aktive Modell zeigt die Composer-Pille, der Provider-Status lebt
           in deren Menü-Fußzeile. */}
       <div className="border-t border-gray-100 px-3 py-3">
+        <button
+          onClick={onOpenFeedback}
+          title={S.feedback}
+          aria-label={S.openFeedback}
+          className="flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs font-medium text-gray-500 hover:text-gray-900 hover:bg-gray-100 transition-colors"
+        >
+          <MessageSquarePlus size={15} />
+          {S.feedback}
+        </button>
         <button
           onClick={() => openSettings('appearance')}
           title={S.settings}

@@ -15,7 +15,6 @@
   "type": "commonjs",
   "dependencies": {
     "better-sqlite3": "^12.8.0",
-    "cors": "^2.8.6",
     "dotenv": "^17.4.0",
     "express": "^5.2.1",
     "fast-xml-parser": "^5.10.0",

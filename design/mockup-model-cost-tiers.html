@@ -1,0 +1,928 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Syflo · Free vs paid models — Variant B (chosen)</title>
+<style>
+  /* ============================================================
+     Free vs paid models, round 1.
+     Pain point (2026-07-30): the provider card says KOSTENLOS /
+     NUTZUNGSBASIERT as if cost were a property of the provider.
+     But Gemini has BOTH: Flash has a free tier (20 req/day),
+     Pro has NO free quota at all (0/0 without billing). The
+     badge therefore lies whenever a provider mixes tiers.
+     Three variants below move the truth to where it lives:
+     the model (× billing status). Same variable vocabulary as
+     mockup-settings-reorg; default Basic palette.
+     ============================================================ */
+
+  :root {
+    --bg-app: #EEF0F3;
+    --surface: #FFFFFF;
+    --surface-2: #F9FAFB;
+    --text-strong: #111827;
+    --text-default: #374151;
+    --text-muted: #9CA3AF;
+    --border: #E5E7EB;
+    --accent: #2563EB;
+    --accent-hover: #1D4ED8;
+    --accent-contrast: #FFFFFF;
+    --accent-soft: #EFF6FF;
+    --accent-2: #34D399;
+    --danger: #DC2626;
+    --danger-soft: #FEF2F2;
+    --warn: #B45309;
+    --warn-soft: #FFFBEB;
+    --ok: #15803D;
+    --ok-soft: #F0FDF4;
+    --radius-s: 8px;
+    --radius-m: 12px;
+    --radius-l: 16px;
+    --border-w: 1px;
+    --shadow: 0 1px 3px rgba(17, 24, 39, 0.08);
+    --shadow-lg: 0 10px 30px rgba(17, 24, 39, 0.10), 0 2px 8px rgba(17, 24, 39, 0.06);
+    --font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    --font-meta: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: var(--font-ui);
+    background: var(--bg-app);
+    color: var(--text-default);
+    -webkit-font-smoothing: antialiased;
+    padding: 40px 32px 80px;
+  }
+
+  .ic { width: 14px; height: 14px; stroke: currentColor; stroke-width: 2;
+        stroke-linecap: round; stroke-linejoin: round; fill: none; flex-shrink: 0; display: block; }
+  .ic.sm { width: 12px; height: 12px; }
+  .ic.xs { width: 10px; height: 10px; }
+
+  /* ---------- page chrome ---------- */
+  .page-head { max-width: 1480px; margin: 0 auto 36px; }
+  .page-head h1 {
+    font-size: 22px; font-weight: 700; color: var(--text-strong);
+    letter-spacing: -0.01em; margin-bottom: 6px;
+  }
+  .page-head p { font-size: 14px; color: var(--text-default); max-width: 900px; line-height: 1.55; }
+  .page-head p strong { color: var(--text-strong); }
+
+  .variant { max-width: 1480px; margin: 0 auto 56px; }
+  .variant-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 6px; flex-wrap: wrap; }
+  .variant-badge {
+    font-family: var(--font-meta); font-size: 12px; font-weight: 700;
+    background: var(--text-strong); color: var(--surface);
+    padding: 3px 9px; border-radius: 6px; letter-spacing: 0.06em;
+  }
+  .variant-head h2 { font-size: 17px; font-weight: 700; color: var(--text-strong); }
+  .variant-head .idea { font-size: 13.5px; color: var(--text-muted); max-width: 900px; }
+
+  .stage {
+    background:
+      radial-gradient(circle at 1px 1px, rgba(17,24,39,0.07) 1px, transparent 0);
+    background-size: 18px 18px;
+    background-color: #E3E6EB;
+    border: var(--border-w) solid var(--border);
+    border-radius: var(--radius-l);
+    padding: 36px 28px;
+    display: flex; gap: 32px; flex-wrap: wrap; align-items: flex-start; justify-content: center;
+  }
+  .state { display: flex; flex-direction: column; gap: 10px; align-items: center; }
+  .state-label {
+    font-family: var(--font-meta); font-size: 11px; font-weight: 600;
+    color: var(--text-muted); letter-spacing: 0.08em; text-transform: uppercase;
+  }
+
+  /* ---------- pros / cons ---------- */
+  .notes { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 14px; }
+  @media (max-width: 760px) { .notes { grid-template-columns: 1fr; } }
+  .note-col {
+    background: var(--surface); border: var(--border-w) solid var(--border);
+    border-radius: var(--radius-m); padding: 14px 16px;
+  }
+  .note-col h4 {
+    font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em;
+    margin-bottom: 8px;
+  }
+  .note-col.pros h4 { color: var(--ok); }
+  .note-col.cons h4 { color: var(--warn); }
+  .note-col ul { list-style: none; }
+  .note-col li {
+    font-size: 13px; line-height: 1.5; padding-left: 14px; position: relative; margin-bottom: 5px;
+  }
+  .note-col li::before {
+    content: ''; position: absolute; left: 0; top: 8px;
+    width: 5px; height: 5px; border-radius: 50%; background: var(--border);
+  }
+  .note-col.pros li::before { background: var(--accent-2); }
+  .note-col.cons li::before { background: #F59E0B; }
+
+  /* ---------- settings panel shell (Model tab, cropped) ---------- */
+  .panel {
+    width: 440px; background: var(--surface);
+    border: var(--border-w) solid var(--border); border-radius: var(--radius-m);
+    box-shadow: var(--shadow-lg); padding: 20px 20px 22px;
+    display: flex; flex-direction: column; gap: 18px;
+  }
+  .step-label {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--text-strong); margin-bottom: 8px;
+  }
+  .step-num {
+    width: 18px; height: 18px; border-radius: 50%;
+    background: var(--text-strong); color: var(--surface);
+    font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center;
+  }
+
+  .prov-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .prov-card {
+    position: relative; border: var(--border-w) solid var(--border); border-radius: var(--radius-s);
+    background: var(--surface-2); padding: 10px 12px; cursor: default;
+  }
+  .prov-card.selected { background: var(--accent-soft); border-color: #BFDBFE; }
+  .prov-card .p-name { font-size: 13.5px; font-weight: 600; color: var(--text-strong); margin-bottom: 4px; }
+  .prov-card.selected .p-name { color: var(--accent-hover); }
+  .p-badges { position: absolute; top: 7px; right: 8px; }
+
+  .badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 10px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
+    padding: 2px 7px; border-radius: 999px;
+    background: #F3F4F6; color: #4B5563;
+  }
+  .badge.ok    { background: var(--ok-soft);    color: var(--ok); }
+  .badge.warn  { background: var(--warn-soft);  color: var(--warn); }
+  .badge.active-dot { color: var(--ok); background: transparent; padding: 0; font-size: 9px; letter-spacing: 0.08em; }
+  .badge.active-dot::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--ok); }
+
+  .mixed-badges { display: inline-flex; gap: 4px; }
+
+  /* ---------- model rows / dropdown ---------- */
+  .mock-select {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    border: var(--border-w) solid var(--border); border-radius: var(--radius-s);
+    background: var(--surface); padding: 9px 12px; font-size: 13.5px; color: var(--text-strong);
+  }
+  .mock-select .val { display: flex; align-items: center; gap: 8px; min-width: 0; }
+
+  .dropdown {
+    border: var(--border-w) solid var(--border); border-radius: var(--radius-s);
+    background: var(--surface); box-shadow: var(--shadow-lg);
+    overflow: hidden; margin-top: 6px;
+  }
+  .dd-group {
+    font-family: var(--font-meta); font-size: 10px; font-weight: 700;
+    letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-muted);
+    background: var(--surface-2); border-bottom: var(--border-w) solid var(--border);
+    padding: 6px 12px; display: flex; align-items: center; gap: 6px;
+  }
+  .dd-group:not(:first-child) { border-top: var(--border-w) solid var(--border); }
+  .dd-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    padding: 9px 12px; font-size: 13.5px; color: var(--text-strong);
+  }
+  .dd-row + .dd-row { border-top: var(--border-w) solid var(--surface-2); }
+  .dd-row.selected { background: var(--accent-soft); }
+  .dd-row.locked { color: var(--text-muted); background: repeating-linear-gradient(-45deg, transparent 0 8px, rgba(17,24,39,0.015) 8px 16px); }
+  .dd-row .m-name { display: flex; align-items: center; gap: 8px; min-width: 0; font-weight: 500; }
+  .dd-row .m-meta { font-size: 11px; color: var(--text-muted); font-weight: 400; }
+  .dd-tags { display: flex; align-items: center; gap: 5px; flex-shrink: 0; }
+
+  .field-note { font-size: 11.5px; color: var(--text-muted); line-height: 1.5; margin-top: 7px; }
+  .field-note a { color: var(--accent); text-decoration: none; }
+
+  /* radio list (variant B) */
+  .radio-list { border: var(--border-w) solid var(--border); border-radius: var(--radius-s); overflow: hidden; }
+  .rl-group {
+    font-family: var(--font-meta); font-size: 10px; font-weight: 700;
+    letter-spacing: 0.1em; text-transform: uppercase;
+    background: var(--surface-2); border-bottom: var(--border-w) solid var(--border);
+    padding: 6px 12px; display: flex; align-items: center; justify-content: space-between; gap: 6px;
+  }
+  .rl-group:not(:first-child) { border-top: var(--border-w) solid var(--border); }
+  .rl-group .g-left { display: flex; align-items: center; gap: 6px; }
+  .rl-group.free .g-left { color: var(--ok); }
+  .rl-group.paid .g-left { color: var(--warn); }
+  .rl-group .g-note { font-size: 9px; color: var(--text-muted); letter-spacing: 0.04em; font-weight: 600; }
+  .rl-row {
+    display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+    font-size: 13.5px; color: var(--text-strong);
+  }
+  .rl-row + .rl-row { border-top: var(--border-w) solid var(--surface-2); }
+  .rl-row.selected { background: var(--accent-soft); }
+  .rl-row.locked { color: var(--text-muted); }
+  .rl-radio {
+    width: 15px; height: 15px; border-radius: 50%; border: 1.5px solid var(--border); flex-shrink: 0;
+    background: var(--surface);
+  }
+  .rl-row.selected .rl-radio { border-color: var(--accent); box-shadow: inset 0 0 0 3.5px var(--surface), inset 0 0 0 10px var(--accent); }
+  .rl-main { flex: 1; min-width: 0; }
+  .rl-name { font-weight: 500; display: flex; align-items: center; gap: 7px; }
+  .rl-sub { font-size: 11px; color: var(--text-muted); margin-top: 1px; }
+  /* Right-hand data column: original compact layout (user decision
+     2026-07-30 round 3) — bar and text sit adjacent as one chip at the
+     row's right end; no fixed column. */
+  .rl-right {
+    flex-shrink: 0; font-family: var(--font-meta); font-size: 11px; color: var(--text-muted);
+  }
+
+  /* quota meter chip */
+  .quota-chip {
+    display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0;
+    font-family: var(--font-meta); font-size: 10.5px; color: var(--text-muted);
+  }
+  .quota-chip.pk { font-size: 10px; }
+  .quota-bar { width: 44px; height: 4px; border-radius: 2px; background: var(--border); overflow: hidden; flex-shrink: 0; }
+  .quota-chip.pk .quota-bar { width: 34px; }
+  .quota-bar i { display: block; height: 100%; background: var(--ok); border-radius: 2px; }
+  .quota-bar.hot i { background: var(--danger); }
+
+  /* ---------- chat pane (workflow section) — same skeleton as
+     mockup-quota-states.html so the cards stay 1:1 comparable ---------- */
+  .chat-pane {
+    width: 400px; background: var(--surface); border: var(--border-w) solid var(--border);
+    border-radius: 10px; overflow: hidden; box-shadow: var(--shadow); position: relative;
+  }
+  .chat-msgs { padding: 16px 16px 18px; display: flex; flex-direction: column; gap: 12px; }
+  .bubble-user { align-self: flex-end; background: var(--accent); color: white; font-size: 11.5px; line-height: 1.5; padding: 7px 10px; border-radius: 12px 12px 4px 12px; max-width: 88%; }
+  .fail-card { display: flex; flex-direction: column; align-items: flex-start; gap: 9px; font-size: 11.5px; color: #6B7280; }
+  .fail-line { display: flex; align-items: center; gap: 7px; }
+  .fail-line .msg { font-style: italic; }
+  .info-line { display: flex; align-items: center; gap: 6px; font-size: 10.5px; color: var(--text-muted); }
+  .btn-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .cbtn {
+    display: inline-flex; align-items: center; gap: 5px;
+    border: var(--border-w) solid var(--border); border-radius: 7px; background: var(--surface);
+    padding: 3px 10px; font-size: 11px; font-weight: 500; color: #6B7280;
+    font-family: inherit; cursor: pointer;
+  }
+  .cbtn.primaryish { border-color: #DBEAFE; background: var(--accent-soft); color: var(--accent-hover); font-weight: 600; }
+  .footnote { font-size: 10px; color: var(--text-muted); }
+  .annot { width: 400px; margin-top: 12px; font-size: 11px; line-height: 1.55; color: var(--text-muted); }
+  .annot strong { color: var(--text-default); }
+  .annot code { font-family: var(--font-meta); font-size: 10px; background: #F3F4F6; border-radius: 4px; padding: 1px 5px; }
+
+  /* in-chat model picker (workflow state 2) */
+  .picker { width: 300px; background: var(--surface); border: var(--border-w) solid var(--border); border-radius: 10px; box-shadow: var(--shadow-lg); overflow: hidden; }
+  .picker .group-head { font-size: 9.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted); padding: 8px 12px 4px; display: flex; align-items: center; gap: 5px; }
+  .picker .group + .group { border-top: var(--border-w) solid var(--border); }
+  .picker .group { padding-bottom: 6px; }
+  .picker .item { display: flex; align-items: center; gap: 8px; padding: 7px 12px; font-size: 12px; color: var(--text-strong); }
+  .picker .item .name { flex: 1; min-width: 0; font-weight: 500; }
+  .picker .item .sub { display: block; font-size: 10px; color: var(--text-muted); margin-top: 1px; font-weight: 400; }
+  .picker .item.cooling, .picker .item.locked { color: var(--text-muted); }
+  .picker .check { color: var(--accent); }
+
+  /* billing switch (variant C) */
+  .billing-box {
+    border: var(--border-w) solid var(--border); border-radius: var(--radius-s);
+    background: var(--surface-2); padding: 10px 12px;
+    display: flex; align-items: flex-start; gap: 10px;
+  }
+  .switch { width: 30px; height: 18px; border-radius: 999px; background: var(--border); position: relative; flex-shrink: 0; margin-top: 1px; }
+  .switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--surface); box-shadow: var(--shadow); }
+  .switch.on { background: var(--accent); }
+  .switch.on::after { left: 14px; }
+  .billing-box .b-title { font-size: 13px; font-weight: 600; color: var(--text-strong); }
+  .billing-box .b-sub { font-size: 11.5px; color: var(--text-muted); line-height: 1.5; margin-top: 2px; }
+  .billing-box .b-sub a { color: var(--accent); text-decoration: none; }
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute">
+  <defs>
+    <symbol id="i-chevron-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
+    <symbol id="i-zap" viewBox="0 0 24 24"><path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/></symbol>
+    <symbol id="i-gem" viewBox="0 0 24 24"><path d="M6 3h12l4 6-10 13L2 9Z"/><path d="M11 3 8 9l4 13 4-13-3-6"/><path d="M2 9h20"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 21v-5h5"/></symbol>
+    <symbol id="i-credit-card" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></symbol>
+    <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></symbol>
+  </defs>
+</svg>
+
+<header class="page-head">
+  <h1>Free vs paid models — Variant B (chosen 2026-07-30)</h1>
+  <p>
+    Pain point: the provider card said <strong>KOSTENLOS</strong> or <strong>NUTZUNGSBASIERT</strong> as if
+    cost were a property of the provider — but Gemini has <strong>both</strong>: Flash has a free tier
+    (20 requests/day), Flash Lite a generous one (500/day), and Pro has <strong>no free quota at all</strong>
+    (0/0 without billing). <strong>Decision:</strong> grouped model list (Variant B) in Settings, tier-grouped
+    picker W2b in the chat. Variants A/C and the discarded picker options were removed from this file
+    2026-07-30. Prerequisite: registry gains per-model <code>free</code>/<code>freeQuota</code> and Gemini Pro
+    is corrected to <code>free:&nbsp;false</code>.
+  </p>
+</header>
+
+<!-- ================================================================
+     VARIANT B · GROUPED MODEL LIST
+     ================================================================ -->
+<section class="variant">
+  <div class="variant-head">
+    <span class="variant-badge">B</span>
+    <h2>Grouped model list</h2>
+    <span class="idea">The dropdown becomes a visible radio list with two labelled groups: “Free tier” (with live quota meters fed by GET /api/quota-cooldowns + usage) and “Requires billing”. The provider card drops its cost badge entirely — cost lives only in step 2. Providers whose models are all in one group show a single group header.</span>
+  </div>
+
+  <div class="stage">
+
+    <!-- B · state 1: Gemini, two groups -->
+    <div class="state">
+      <span class="state-label">Gemini — free group + paid group, live quota</span>
+      <div class="panel">
+        <div>
+          <div class="step-label"><span class="step-num">1</span>Provider</div>
+          <div class="prov-grid">
+            <div class="prov-card selected">
+              <div class="p-badges"><span class="badge active-dot">Aktiv</span></div>
+              <div class="p-name">Gemini</div>
+              <span class="badge">Cloud</span>
+            </div>
+            <div class="prov-card">
+              <div class="p-name">Groq</div>
+              <span class="badge">Cloud</span>
+            </div>
+          </div>
+        </div>
+        <div>
+          <div class="step-label"><span class="step-num">2</span>Model</div>
+          <div class="radio-list">
+            <div class="rl-group free">
+              <span class="g-left"><svg class="ic xs"><use href="#i-check"/></svg>Free tier</span>
+              <span class="g-note">resets 02:00</span>
+            </div>
+            <div class="rl-row selected">
+              <span class="rl-radio"></span>
+              <span class="rl-main">
+                <span class="rl-name">Gemini Flash</span>
+                <span class="rl-sub">fast, 1M context</span>
+              </span>
+              <span class="quota-chip"><span class="quota-bar hot"><i style="width:85%"></i></span>17/20 today</span>
+            </div>
+            <div class="rl-row">
+              <span class="rl-radio"></span>
+              <span class="rl-main">
+                <span class="rl-name">Gemini Flash Lite</span>
+                <span class="rl-sub">light tasks, titles &amp; summaries</span>
+              </span>
+              <span class="quota-chip"><span class="quota-bar"><i style="width:8%"></i></span>42/500 today</span>
+            </div>
+            <div class="rl-group paid">
+              <span class="g-left"><svg class="ic xs"><use href="#i-credit-card"/></svg>Requires billing</span>
+              <span class="g-note">pay per use</span>
+            </div>
+            <div class="rl-row locked">
+              <span class="rl-radio"></span>
+              <span class="rl-main">
+                <span class="rl-name">Gemini Pro <svg class="ic xs"><use href="#i-lock"/></svg></span>
+                <span class="rl-sub">deep reasoning — no free quota</span>
+              </span>
+              <span class="rl-right">$1.25 / MTok</span>
+            </div>
+          </div>
+          <p class="field-note">Free quotas are per Google project and reset at 02:00. Models under
+            “Requires billing” fail until billing is enabled. <a href="#">Set up billing</a></p>
+        </div>
+      </div>
+    </div>
+
+    <!-- B · state 2: Groq, single group -->
+    <div class="state">
+      <span class="state-label">Groq — all models free, one group</span>
+      <div class="panel">
+        <div>
+          <div class="step-label"><span class="step-num">2</span>Model</div>
+          <div class="radio-list">
+            <div class="rl-group free">
+              <span class="g-left"><svg class="ic xs"><use href="#i-check"/></svg>Free tier</span>
+              <span class="g-note">resets 02:00</span>
+            </div>
+            <div class="rl-row selected">
+              <span class="rl-radio"></span>
+              <span class="rl-main">
+                <span class="rl-name">GPT-OSS 120B</span>
+                <span class="rl-sub">strong all-rounder</span>
+              </span>
+              <span class="quota-chip"><span class="quota-bar"><i style="width:12%"></i></span>3/25 today</span>
+            </div>
+            <div class="rl-row">
+              <span class="rl-radio"></span>
+              <span class="rl-main">
+                <span class="rl-name">Llama 3.3 70B</span>
+                <span class="rl-sub">versatile</span>
+              </span>
+              <span class="quota-chip"><span class="quota-bar"><i style="width:4%"></i></span>1/25 today</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="notes">
+    <div class="note-col pros">
+      <h4>Pros</h4>
+      <ul>
+        <li>The free/paid split is structural, not a badge — impossible to misread.</li>
+        <li>Live quota meters answer “how much do I have left today?” right in the picker (data already exists for the quota badges).</li>
+        <li>Provider cards get simpler, not busier — the misleading provider-level badge disappears.</li>
+      </ul>
+    </div>
+    <div class="note-col cons">
+      <h4>Cons</h4>
+      <ul>
+        <li>Biggest diff: replaces the dropdown with a new radio-list component in the settings flow.</li>
+        <li>Takes more vertical space — with many models the Model tab scrolls.</li>
+        <li>Quota meters need the usage endpoint wired into the settings modal (extra fetch + refresh logic).</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ================================================================
+     VARIANT B · FULL WORKFLOW
+     What the user actually experiences across a day: fresh quota,
+     quota burned down, quota gone, and the Pro-without-billing error.
+     Chat cards reuse the built quota-states design (mockup-quota-states
+     §04/§06) — only the copy for the new 'billing' cause is new.
+     ================================================================ -->
+<section class="variant">
+  <div class="variant-head">
+    <span class="variant-badge">B·W</span>
+    <h2>Variant B — full workflow</h2>
+    <span class="idea">Ten scenarios. W1: free limit exhausted in settings — the meter is full and shows when it comes back. W2: the same truth in the in-chat picker (built 2026-07-26), now with B’s groups. W3: sending anyway → the built daily-limit card, unchanged. W4: Gemini Pro without billing → a NEW card — today this error is misclassified as “daily” and promises a 02:00 comeback that never happens. W5: provider without a saved key — static quotas instead of meters. W6: per-minute limits — picker badge + built §05 countdown card, never the settings meter. W7: whole free tier gone — no special UI, failover + W3 carry it. W8: Groq-style token limits — no meter, plain Free badge.</span>
+  </div>
+
+  <div class="stage">
+
+    <!-- W1: settings, Flash exhausted -->
+    <div class="state">
+      <span class="state-label">W1 · Settings — Flash used up, Lite still open</span>
+      <div class="panel">
+        <div>
+          <div class="step-label"><span class="step-num">2</span>Model</div>
+          <div class="radio-list">
+            <div class="rl-group free">
+              <span class="g-left"><svg class="ic xs"><use href="#i-check"/></svg>Free tier</span>
+              <span class="g-note">resets 02:00</span>
+            </div>
+            <div class="rl-row selected">
+              <span class="rl-radio"></span>
+              <span class="rl-main">
+                <span class="rl-name">Gemini Flash</span>
+                <span class="rl-sub">fast, 1M context</span>
+              </span>
+              <span class="quota-chip" style="color:var(--danger)"><span class="quota-bar hot"><i style="width:100%"></i></span>20/20 · 6h 12m</span>
+            </div>
+            <div class="rl-row">
+              <span class="rl-radio"></span>
+              <span class="rl-main">
+                <span class="rl-name">Gemini Flash Lite</span>
+                <span class="rl-sub">light tasks, titles &amp; summaries</span>
+              </span>
+              <span class="quota-chip"><span class="quota-bar"><i style="width:9%"></i></span>46/500 today</span>
+            </div>
+            <div class="rl-group paid">
+              <span class="g-left"><svg class="ic xs"><use href="#i-credit-card"/></svg>Requires billing</span>
+              <span class="g-note">pay per use</span>
+            </div>
+            <div class="rl-row locked">
+              <span class="rl-radio"></span>
+              <span class="rl-main">
+                <span class="rl-name">Gemini Pro <svg class="ic xs"><use href="#i-lock"/></svg></span>
+                <span class="rl-sub">deep reasoning — no free quota</span>
+              </span>
+              <span class="rl-right">$1.25 / MTok</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="annot"><strong>Rule:</strong> an exhausted free row stays selectable — the limit
+      is a state of the day, not of the model. The meter turns red at 100%, the chip appends a live
+      countdown to the reset (no absolute clock time in the row) (from the same cooldown memory the picker badges read via
+      <code>GET /api/quota-cooldowns</code>).</p>
+    </div>
+
+    <!-- W2: in-chat picker — three categorization options, because SEVERAL
+         providers mix free and paid models (Gemini today; OpenAI/Claude
+         gain free promos, Groq gains paid tiers). -->
+    <div class="state">
+      <span class="state-label">W2b · Tier groups + usage — CHOSEN 2026-07-30</span>
+      <div class="picker">
+        <div class="group">
+          <div class="group-head" style="color:var(--ok)"><svg class="ic xs"><use href="#i-check"/></svg>Kostenlos</div>
+          <div class="item">
+            <svg class="ic sm"><use href="#i-zap"/></svg>
+            <span class="name">Flash Lite
+              <span class="sub">Gemini</span>
+            </span>
+            <span class="quota-chip pk"><span class="quota-bar"><i style="width:9%"></i></span>46/500</span>
+            <svg class="ic sm check"><use href="#i-check"/></svg>
+          </div>
+          <div class="item">
+            <svg class="ic sm"><use href="#i-zap"/></svg>
+            <span class="name">GPT-OSS 120B
+              <span class="sub">Groq</span>
+            </span>
+          </div>
+          <div class="item cooling">
+            <svg class="ic sm"><use href="#i-zap"/></svg>
+            <span class="name">Flash
+              <span class="sub">Gemini</span>
+            </span>
+            <span class="quota-chip pk" style="color:var(--danger)"><span class="quota-bar hot"><i style="width:100%"></i></span>6h 12m</span>
+          </div>
+        </div>
+        <div class="group">
+          <div class="group-head" style="color:var(--warn)"><svg class="ic xs"><use href="#i-credit-card"/></svg>Kostenpflichtig</div>
+          <div class="item">
+            <svg class="ic sm"><use href="#i-gem"/></svg>
+            <span class="name">gpt-4o-mini
+              <span class="sub">OpenAI</span>
+            </span>
+          </div>
+          <div class="item locked">
+            <svg class="ic sm"><use href="#i-lock"/></svg>
+            <span class="name">Pro
+              <span class="sub">Gemini · Abrechnung nötig</span>
+            </span>
+          </div>
+        </div>
+        <div class="group">
+          <div class="group-head">Lokal</div>
+          <div class="item">
+            <svg class="ic sm"><use href="#i-refresh"/></svg>
+            <span class="name">qwen3.5:9b
+              <span class="sub">läuft auf diesem Gerät</span>
+            </span>
+          </div>
+        </div>
+      </div>
+      <p class="annot"><strong>CHOSEN (user, 2026-07-30), now with usage:</strong> free rows
+      carry the same bar + used/limit chip as the settings list (compact: 34px bar, fraction
+      right-aligned). Exhausted rows swap the fraction for a live countdown to the reset. Groq rows show
+      no chip — token limits aren’t request-shaped (W8 rule). Data: the picker already fetches
+      quota cooldowns; the usage counts ride along in the same payload.</p>
+    </div>
+
+    <!-- W3: daily-limit card (unchanged, built) -->
+    <div class="state">
+      <span class="state-label">W3 · Sent anyway — built daily card, unchanged</span>
+      <div class="chat-pane">
+        <div class="chat-msgs">
+          <div class="bubble-user">Und wie groß war das Trainingsset?</div>
+          <div class="fail-card">
+            <div class="fail-line">
+              <svg class="ic sm"><use href="#i-info"/></svg>
+              <span class="msg">Das Tageskontingent der Cloud-Modelle ist aufgebraucht.</span>
+            </div>
+            <div class="info-line">
+              <svg class="ic xs"><use href="#i-refresh"/></svg>
+              Voraussichtlich wieder verfügbar ab ca. 02:00 Uhr.
+            </div>
+            <div class="btn-row">
+              <button class="cbtn primaryish">Mit lokalem Modell antworten</button>
+              <button class="cbtn">Limit erhöhen</button>
+            </div>
+            <div class="footnote">Das lokale Modell kann deutlich langsamer sein.</div>
+          </div>
+        </div>
+      </div>
+      <p class="annot"><strong>Unchanged</strong> — this is the built §04 card from
+      mockup-quota-states (copy v2, no retry button, reset clock, local model as primary
+      way out). Variant B adds nothing here; the failover ladder has already tried Flash
+      Lite before this card ever appears.</p>
+    </div>
+
+    <!-- W4: Pro without billing — NEW card -->
+    <div class="state">
+      <span class="state-label">W4 · Gemini Pro without billing — NEW card</span>
+      <div class="chat-pane">
+        <div class="chat-msgs">
+          <div class="bubble-user">Erkläre die Attention-Formel im Detail.</div>
+          <div class="fail-card">
+            <div class="fail-line">
+              <svg class="ic sm"><use href="#i-lock"/></svg>
+              <span class="msg">Gemini Pro hat ohne Abrechnung kein Kontingent.</span>
+            </div>
+            <div class="btn-row">
+              <button class="cbtn primaryish">
+                <svg class="ic xs"><use href="#i-zap"/></svg>
+                Mit Gemini Flash antworten
+              </button>
+              <button class="cbtn" title="Bezahlter Plan bei Google — dein API-Key in Syflo bleibt derselbe.">Abrechnung einrichten</button>
+            </div>
+            <div class="footnote">Flash Lite und das lokale Modell stehen ebenfalls im Modell-Menü.</div>
+          </div>
+        </div>
+      </div>
+      <p class="annot"><strong>Why a new card:</strong> today Google’s “limit: 0” 429 matches the
+      <code>per_day</code> classifier in <code>quota.js</code>, so the user sees the W3 card —
+      which promises a 02:00 comeback that never happens (live confusion 2026-07-30). Backend:
+      detect quota <em>value 0</em> in the 429 details → new <code>quotaReason: 'billing'</code>,
+      no <code>retryAt</code>, no cooldown entry (pointless to remember). The primary button
+      switches the model AND auto-retries — same mechanic as the picker-choice-from-card
+      decision (2026-07-29).</p>
+    </div>
+
+    <!-- W5: no API key yet -->
+    <div class="state">
+      <span class="state-label">W5 · No API key yet — meters hidden</span>
+      <div class="panel">
+        <div>
+          <div class="step-label"><span class="step-num">2</span>Model</div>
+          <div class="radio-list">
+            <div class="rl-group free">
+              <span class="g-left"><svg class="ic xs"><use href="#i-check"/></svg>Free tier</span>
+              <span class="g-note">resets 02:00</span>
+            </div>
+            <div class="rl-row selected">
+              <span class="rl-radio"></span>
+              <span class="rl-main">
+                <span class="rl-name">Gemini Flash</span>
+                <span class="rl-sub">fast, 1M context</span>
+              </span>
+              <span class="rl-right">20 / Tag</span>
+            </div>
+            <div class="rl-row">
+              <span class="rl-radio"></span>
+              <span class="rl-main">
+                <span class="rl-name">Gemini Flash Lite</span>
+                <span class="rl-sub">light tasks, titles &amp; summaries</span>
+              </span>
+              <span class="rl-right">500 / Tag</span>
+            </div>
+            <div class="rl-group paid">
+              <span class="g-left"><svg class="ic xs"><use href="#i-credit-card"/></svg>Requires billing</span>
+              <span class="g-note">pay per use</span>
+            </div>
+            <div class="rl-row locked">
+              <span class="rl-radio"></span>
+              <span class="rl-main">
+                <span class="rl-name">Gemini Pro <svg class="ic xs"><use href="#i-lock"/></svg></span>
+                <span class="rl-sub">deep reasoning — no free quota</span>
+              </span>
+              <span class="rl-right">$1.25 / MTok</span>
+            </div>
+          </div>
+        </div>
+        <div>
+          <div class="step-label"><span class="step-num">3</span>API key
+            <span class="badge warn">missing</span>
+          </div>
+          <div class="mock-select">
+            <span class="val" style="color:var(--text-muted)">AIza…</span>
+          </div>
+          <p class="field-note">Get a free key at <a href="#">aistudio.google.com/apikey</a> —
+            Activate stays disabled until a key is saved.</p>
+        </div>
+      </div>
+      <p class="annot"><strong>Rule:</strong> without a key there is no usage yet — the live
+      meters are replaced by the static registry quota (“20 / Tag”). Groups and locks render
+      exactly as later, so the list doesn’t reflow the moment a key is saved.</p>
+    </div>
+
+    <!-- W6: minute rate limit -->
+    <div class="state">
+      <span class="state-label">W6 · Minute limit — short cooldown, picker only</span>
+      <div class="picker">
+        <div class="group">
+          <div class="group-head" style="color:var(--ok)"><svg class="ic xs"><use href="#i-check"/></svg>Free tier</div>
+          <div class="item cooling">
+            <svg class="ic sm"><use href="#i-zap"/></svg>
+            <span class="name">Gemini Flash
+              <span class="sub">Minutenlimit erreicht</span>
+            </span>
+            <span class="badge">54 s</span>
+          </div>
+          <div class="item">
+            <svg class="ic sm"><use href="#i-zap"/></svg>
+            <span class="name">Gemini Flash Lite
+              <span class="sub">454 Anfragen übrig heute</span>
+            </span>
+            <svg class="ic sm check"><use href="#i-check"/></svg>
+          </div>
+        </div>
+      </div>
+      <p class="annot"><strong>Rule:</strong> per-minute cooldowns (5 RPM) are too short for the
+      settings meters — they surface only as the existing countdown badge in the picker and the
+      built §05 countdown card in the chat (disabled button with live seconds, built
+      2026-07-26). The settings W1 meter shows <em>daily</em> state only.</p>
+    </div>
+
+    <!-- W7: all free models exhausted -->
+    <div class="state">
+      <span class="state-label">W7 · Whole free tier gone — local is the way out</span>
+      <div class="panel">
+        <div>
+          <div class="step-label"><span class="step-num">2</span>Model</div>
+          <div class="radio-list">
+            <div class="rl-group free">
+              <span class="g-left"><svg class="ic xs"><use href="#i-check"/></svg>Free tier</span>
+              <span class="g-note">resets 02:00</span>
+            </div>
+            <div class="rl-row selected">
+              <span class="rl-radio"></span>
+              <span class="rl-main">
+                <span class="rl-name">Gemini Flash</span>
+                <span class="rl-sub">fast, 1M context</span>
+              </span>
+              <span class="quota-chip" style="color:var(--danger)"><span class="quota-bar hot"><i style="width:100%"></i></span>20/20 · 6h 12m</span>
+            </div>
+            <div class="rl-row">
+              <span class="rl-radio"></span>
+              <span class="rl-main">
+                <span class="rl-name">Gemini Flash Lite</span>
+                <span class="rl-sub">light tasks, titles &amp; summaries</span>
+              </span>
+              <span class="quota-chip" style="color:var(--danger)"><span class="quota-bar hot"><i style="width:100%"></i></span>500/500 · 6h 12m</span>
+            </div>
+            <div class="rl-group paid">
+              <span class="g-left"><svg class="ic xs"><use href="#i-credit-card"/></svg>Requires billing</span>
+              <span class="g-note">pay per use</span>
+            </div>
+            <div class="rl-row locked">
+              <span class="rl-radio"></span>
+              <span class="rl-main">
+                <span class="rl-name">Gemini Pro <svg class="ic xs"><use href="#i-lock"/></svg></span>
+                <span class="rl-sub">deep reasoning — no free quota</span>
+              </span>
+              <span class="rl-right">$1.25 / MTok</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="annot"><strong>No special UI:</strong> both meters full is self-explanatory.
+      Sending now walks the failover ladder (other keyed providers → all exhausted → the built
+      W3 daily card, whose primary button is the local model). Nothing new to build for this
+      state.</p>
+    </div>
+
+    <!-- W8: quota not request-shaped (Groq TPM) -->
+    <div class="state">
+      <span class="state-label">W8 · Quota isn’t request-shaped — no meter</span>
+      <div class="panel">
+        <div>
+          <div class="step-label"><span class="step-num">2</span>Model</div>
+          <div class="radio-list">
+            <div class="rl-group free">
+              <span class="g-left"><svg class="ic xs"><use href="#i-check"/></svg>Free tier</span>
+              <span class="g-note">token limits</span>
+            </div>
+            <div class="rl-row selected">
+              <span class="rl-radio"></span>
+              <span class="rl-main">
+                <span class="rl-name">GPT-OSS 120B</span>
+                <span class="rl-sub">strong all-rounder</span>
+              </span>
+              <span class="badge ok">Free</span>
+            </div>
+            <div class="rl-row">
+              <span class="rl-radio"></span>
+              <span class="rl-main">
+                <span class="rl-name">Llama 3.3 70B</span>
+                <span class="rl-sub">versatile</span>
+              </span>
+              <span class="badge ok">Free</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="annot"><strong>Rule:</strong> a meter renders only when the registry has a
+      <code>requestsPerDay</code> quota. Groq’s binding limit is tokens per minute (the 8k-TPM
+      “Failed” cause, 2026-07-24) — a request counter would suggest a safety that doesn’t
+      exist, so these rows show a plain Free badge and the group note says “token limits”.
+      Cooldowns still appear as W6-style badges when a TPM 429 hits.</p>
+    </div>
+
+    <!-- W9: first start, no key — the CloudSetupNotice becomes a path
+         chooser: ALL providers, not just the active one (user feedback
+         2026-07-30) -->
+    <div class="state">
+      <span class="state-label">W9 · First start — choose a path, not a provider</span>
+      <div class="chat-pane">
+        <div class="chat-msgs">
+          <div class="fail-card" style="border: 1px solid #DBEAFE; background: #EFF6FF99; border-radius: 12px; padding: 14px; width: 100%; color: var(--text-default)">
+            <div class="fail-line" style="align-items: flex-start">
+              <svg class="ic sm" style="color: var(--accent); margin-top: 2px"><use href="#i-info"/></svg>
+              <span>
+                <strong style="display:block; color: var(--text-strong); font-size: 12.5px; margin-bottom: 3px">In etwa einer Minute startklar</strong>
+                <span style="font-size: 11.5px; line-height: 1.5">Antworten kommen von einem
+                KI-Modell deiner Wahl — über deinen eigenen API-Key oder komplett lokal.</span>
+              </span>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 6px; width: 100%">
+              <button class="cbtn" style="width: 100%; padding: 8px 10px; border-color: #BFDBFE; background: var(--surface)">
+                <span style="display: flex; align-items: center; gap: 7px; color: var(--text-strong); font-weight: 600">
+                  <svg class="ic sm" style="color: var(--accent)"><use href="#i-zap"/></svg>
+                  Kostenlos starten
+                  <span style="font-weight: 400; color: var(--text-muted)">Gemini Flash oder Groq</span>
+                </span>
+              </button>
+              <button class="cbtn" style="width: 100%; padding: 8px 10px; background: var(--surface)">
+                <span style="display: flex; align-items: center; gap: 7px; color: var(--text-strong); font-weight: 600">
+                  <svg class="ic sm" style="color: var(--text-muted)"><use href="#i-gem"/></svg>
+                  Eigenes Konto nutzen
+                  <span style="font-weight: 400; color: var(--text-muted)">OpenAI, Claude, Gemini Pro</span>
+                </span>
+              </button>
+              <button class="cbtn" style="width: 100%; padding: 8px 10px; background: var(--surface)">
+                <span style="display: flex; align-items: center; gap: 7px; color: var(--text-strong); font-weight: 600">
+                  <svg class="ic sm" style="color: var(--text-muted)"><use href="#i-refresh"/></svg>
+                  Komplett privat
+                  <span style="font-weight: 400; color: var(--text-muted)">lokales Modell, ohne Konto</span>
+                </span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="annot"><strong>Redesign (user feedback 2026-07-30):</strong> the current
+      CloudSetupNotice names only the ACTIVE provider (“…kommen von Gemini”) — but a fresh
+      install has them all. The card now offers the three PATHS with their cost tier; each row
+      opens Settings with the matching provider group preselected (free tier → Gemini,
+      pay per use → provider choice, private → Ollama guide). Fixes the copy bug too: the old
+      CTA promised a “kostenlosen API-Key” even for OpenAI/Claude.</p>
+    </div>
+
+    <!-- W10: the dual-tier explainer — same model can be free AND paid -->
+    <div class="state">
+      <span class="state-label">W10 · “Free AND paid?” — one tooltip, one sentence</span>
+      <div class="panel" style="overflow: visible">
+        <div>
+          <div class="step-label"><span class="step-num">2</span>Model</div>
+          <div class="radio-list" style="overflow: visible">
+            <div class="rl-group free" style="position: relative">
+              <span class="g-left"><svg class="ic xs"><use href="#i-check"/></svg>Free tier
+                <svg class="ic xs" style="color: var(--text-muted)"><use href="#i-info"/></svg>
+              </span>
+              <span class="g-note">resets 02:00</span>
+              <span style="position: absolute; left: 10px; top: 26px; z-index: 5; width: 300px;
+                           background: var(--text-strong); color: var(--surface);
+                           border-radius: 8px; padding: 9px 11px; font-size: 11px; line-height: 1.5;
+                           font-family: var(--font-ui); font-weight: 400; letter-spacing: 0;
+                           text-transform: none; box-shadow: var(--shadow-lg)">
+                Kostenlos heißt: ein kleines Tageskontingent von Google, ohne Kreditkarte.
+                Richtest du später eine Abrechnung ein, läuft dasselbe Modell einfach weiter —
+                dann pro Nutzung bezahlt. Dein API-Key bleibt derselbe.
+              </span>
+            </div>
+            <div class="rl-row selected">
+              <span class="rl-radio"></span>
+              <span class="rl-main">
+                <span class="rl-name">Gemini Flash</span>
+                <span class="rl-sub">fast, 1M context</span>
+              </span>
+              <span class="quota-chip"><span class="quota-bar"><i style="width:15%"></i></span>3/20 today</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="annot"><strong>Principle:</strong> the list answers “what can I use right
+      now?” — the tooltip answers “what does free MEAN?”, and only when asked (hover/tap on
+      the info icon in the group header). The sentence names the mental model once: the tier
+      belongs to your KEY, not to the model. No permanent text in the list.</p>
+    </div>
+
+  </div>
+
+  <div class="notes">
+    <div class="note-col pros">
+      <h4>Scope if approved</h4>
+      <ul>
+        <li>Registry: Pro → <code style="font-family:var(--font-meta);font-size:11px">free: false</code>, Flash quota 10 RPM / 20 RPD, add Flash Lite (500 RPD) + prices.</li>
+        <li>Settings: radio-list with tier groups + quota meters (W1) replaces the model dropdown for cloud providers.</li>
+        <li>Picker: tier group headers + remaining-quota subline (W2) on the existing grouped picker.</li>
+        <li>Backend: <code style="font-family:var(--font-meta);font-size:11px">quotaReason: 'billing'</code> for limit-0 429s; usage/quota read-out for the meters.</li>
+        <li>Chat: new W4 card; W3 stays as built.</li>
+      </ul>
+    </div>
+    <div class="note-col cons">
+      <h4>Open questions</h4>
+      <ul>
+        <li>Should an exhausted free model auto-deselect (jump to Flash Lite) or stay selected, as mocked (W1)?</li>
+        <li>Do the W1 meters need live refresh while the modal is open, or is fetch-on-open enough?</li>
+        <li>Local models: show a “Lokal” group in settings too, or keep Ollama as a separate provider card only?</li>
+      </ul>
+    </div>
+    <div class="note-col">
+      <h4 style="color:var(--text-muted)">Checked, no UI needed</h4>
+      <ul>
+        <li>413 request-too-large and Interrupted: existing cards, cause is size/abort, not cost — untouched.</li>
+        <li>Model retired by provider (404): failover reason today; row simply disappears with the next registry refresh.</li>
+        <li>Explain popup + title/summary side calls: share the same cooldown memory — no own UI, they just skip cooling models.</li>
+        <li>Queue: cloud sends run parallel (2026-07-25 decision); quota errors per message land as W3/W4/§05 cards.</li>
+        <li>Midnight reset: meters simply read fresh usage — no transition state.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+</body>
+</html>

@@ -30,6 +30,8 @@ beforeEach(() => {
 
   if (fs.existsSync(TEST_DB_PATH)) fs.unlinkSync(TEST_DB_PATH);
   db = createDb(TEST_DB_PATH);
+  // This suite tests the local path — bypass the cloud default (ADR-0008).
+  require('../llm').setSetting(db, 'llm_provider', 'ollama');
   app = createApp(db);
 });
 

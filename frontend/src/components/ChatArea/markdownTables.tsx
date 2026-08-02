@@ -7,8 +7,8 @@
  * steht — Kopfzeile und Spalten wirken horizontal wie vertikal verrutscht
  * (Report 2026-07-24). Die Ausricht-Syntax aus Markdown (:---:) kommt als
  * align-Prop an und wird als Inline-Style durchgereicht, damit sie die
- * Utility-Klassen schlägt. Geteilt zwischen MessageBubble und
- * InheritedContextBanner, die dieselbe Markdown-Pipeline fahren.
+ * Utility-Klassen schlägt. Von MessageBubble benutzt und für jede weitere
+ * Stelle gedacht, die dieselbe Markdown-Pipeline fährt.
  *
  * Trennlinien als gedimmtes currentColor statt border-gray-*: die Themes
  * (mushroom-kingdom, ink-blue) färben alle grauen Border-Utilities auf

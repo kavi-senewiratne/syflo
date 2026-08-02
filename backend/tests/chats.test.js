@@ -108,8 +108,8 @@ describe('GET /api/chats/tree', () => {
     expect(res.body.length).toBeGreaterThan(0);
   });
 
-  // Sidebar-Wunsch 2026-07-24: neueste Root-Chats oben. Die Branch-Reihenfolge
-  // innerhalb eines Baums bleibt aufsteigend — sie speist die Baumlinien.
+  // Sidebar request 2026-07-24: newest root chats on top. The branch order
+  // within a tree stays ascending — it feeds the tree lines.
   it('returns roots newest-first while branches stay in creation order', async () => {
     const ins = db.prepare(
       'INSERT INTO chats (id, title, parent_id, parent_word, created_at) VALUES (?, ?, ?, ?, ?)'

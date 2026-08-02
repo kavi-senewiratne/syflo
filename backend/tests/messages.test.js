@@ -55,6 +55,8 @@ beforeEach(() => {
 
   if (fs.existsSync(TEST_DB_PATH)) fs.unlinkSync(TEST_DB_PATH);
   db = createDb(TEST_DB_PATH);
+  // This suite tests the local path — bypass the cloud default (ADR-0008).
+  require('../llm').setSetting(db, 'llm_provider', 'ollama');
   app = createApp(db);
 });
 
@@ -63,14 +65,14 @@ afterEach(() => {
   if (fs.existsSync(TEST_DB_PATH)) fs.unlinkSync(TEST_DB_PATH);
 });
 
-// ─── Prefix-Warm-up (POST /api/chats/:chatId/messages/warmup) ───────────────
-// Öffnet der Nutzer einen Chat, liest das Modell den (Paper-)Kontext schon
-// einmal ein — die erste echte Frage trifft dann auf einen warmen KV-Cache.
+// ─── Prefix warm-up (POST /api/chats/:chatId/messages/warmup) ───────────────
+// When the user opens a chat, the model reads in the (paper) context once
+// already — the first real question then hits a warm KV cache.
 
 describe('POST /api/chats/:chatId/messages/warmup', () => {
   const realFetch = global.fetch;
   beforeEach(() => {
-    // extendOllamaKeepAlive spricht die native Ollama-API — hier gemockt.
+    // extendOllamaKeepAlive talks to the native Ollama API — mocked here.
     global.fetch = jest.fn().mockResolvedValue({ ok: true, json: async () => ({}) });
   });
   afterEach(() => { global.fetch = realFetch; });
@@ -85,14 +87,14 @@ describe('POST /api/chats/:chatId/messages/warmup', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.warmed).toBe(true);
-    // 1-Token-Prefill mit demselben Prefix wie eine echte Nachricht:
-    // System-Prompt + komplette Historie, Denken aus.
+    // 1-token prefill with the same prefix as a real message:
+    // system prompt + full history, thinking off.
     const call = mockCreate.mock.calls[0][0];
     expect(call.max_tokens).toBe(1);
     expect(call.reasoning_effort).toBe('none');
     expect(call.messages[0].role).toBe('system');
     expect(call.messages.at(-1)).toMatchObject({ role: 'user', content: 'What is attention?' });
-    // TTL-Verlängerung über die native API (keep_alive wird von /v1 ignoriert).
+    // TTL extension via the native API (keep_alive is ignored by /v1).
     const keepAliveCall = global.fetch.mock.calls.find(c => String(c[0]).endsWith('/api/generate'));
     expect(keepAliveCall).toBeDefined();
     expect(JSON.parse(keepAliveCall[1].body)).toMatchObject({ keep_alive: '1h', prompt: '' });
@@ -104,12 +106,12 @@ describe('POST /api/chats/:chatId/messages/warmup', () => {
   });
 
   it('aborts an in-flight warm-up as soon as a real message arrives', async () => {
-    // Warm-up ist Vorleistung — er darf eine echte Frage nie blockieren.
-    // Gemessen 2026-07-21: ohne Abbruch wartete die Frage bis zu ~40 s
-    // (Paper-Prefill) in Ollamas Warteschlange.
+    // Warm-up is advance work — it must never block a real question.
+    // Measured 2026-07-21: without aborting, the question waited up to
+    // ~40 s (paper prefill) in Ollama's queue.
     const chat = await request(app).post('/api/chats').send({ title: 'Busy' });
 
-    // Der Warm-up hängt (simulierter langer Paper-Prefill) bis zum Abort.
+    // The warm-up hangs (simulated long paper prefill) until the abort.
     let warmupSignal;
     mockCreate.mockImplementationOnce((_payload, opts) => {
       warmupSignal = opts?.signal;
@@ -128,7 +130,7 @@ describe('POST /api/chats/:chatId/messages/warmup', () => {
     expect(warmupSignal).toBeDefined();
     expect(warmupSignal.aborted).toBe(false);
 
-    // Echte Nachricht → Warm-up muss sofort abgebrochen werden.
+    // Real message → the warm-up must be aborted immediately.
     mockCreate.mockResolvedValueOnce(makeStream(['Quick answer']));
     mockCreate.mockResolvedValueOnce({ choices: [{ message: { content: 'Title' } }] });
     const msgRes = await request(app)
@@ -166,26 +168,6 @@ describe('POST /api/chats/:chatId/messages/warmup', () => {
     await first;
     expect(firstSignal.aborted).toBe(true);
     expect(second.body.warmed).toBe(true);
-  });
-
-  it('reports partial GPU residency (ollama /api/ps) in the warm-up result', async () => {
-    // size_vram < size heißt CPU-Offloading — die UI zeigt dann eine Warnung.
-    global.fetch = jest.fn().mockImplementation((url) => {
-      if (String(url).endsWith('/api/ps')) {
-        return Promise.resolve({
-          ok: true,
-          json: async () => ({ models: [{ name: 'qwen3.5:9b', size: 1000, size_vram: 620 }] }),
-        });
-      }
-      return Promise.resolve({ ok: true, json: async () => ({}) });
-    });
-    const chat = await request(app).post('/api/chats').send({ title: 'GPU' });
-    mockCreate.mockResolvedValue({ choices: [{ message: { content: 'x' } }] });
-
-    const res = await request(app).post(`/api/chats/${chat.body.id}/messages/warmup`);
-
-    expect(res.body.warmed).toBe(true);
-    expect(res.body.gpu).toEqual({ vramPercent: 62, sizeBytes: 1000, vramBytes: 620 });
   });
 
   it('does nothing for cloud providers — there is no local cache to warm', async () => {
@@ -327,8 +309,8 @@ describe('POST /api/chats/:chatId/messages – streaming', () => {
   });
 
   it('reports latency metrics as a perf event and requests token usage', async () => {
-    // Der usage-Chunk kommt als letzter Chunk mit leerem choices-Array
-    // (stream_options.include_usage) — daraus entsteht das perf-Event.
+    // The usage chunk arrives as the last chunk with an empty choices array
+    // (stream_options.include_usage) — the perf event is built from it.
     mockCreate.mockResolvedValueOnce({
       [Symbol.asyncIterator]: async function* () {
         yield { choices: [{ delta: { content: 'Hi' } }] };
@@ -354,8 +336,8 @@ describe('POST /api/chats/:chatId/messages – streaming', () => {
   });
 
   it('keeps the already-streamed partial answer when the stream aborts', async () => {
-    // Der Stop-Button bricht die Upstream-Anfrage ab — das SDK wirft dann
-    // einen AbortError mitten im Stream. Was schon da ist, bleibt erhalten.
+    // The stop button aborts the upstream request — the SDK then throws an
+    // AbortError mid-stream. Whatever is already there is preserved.
     mockCreate.mockResolvedValueOnce({
       [Symbol.asyncIterator]: async function* () {
         yield { choices: [{ delta: { content: 'Partial' } }] };
@@ -372,7 +354,7 @@ describe('POST /api/chats/:chatId/messages – streaming', () => {
       .send({ content: 'Hello' })
       .buffer(true);
 
-    // Der Client-Abbruch wird per AbortSignal an das SDK durchgereicht.
+    // The client abort is passed through to the SDK via AbortSignal.
     expect(mockCreate.mock.calls[0][1].signal).toBeInstanceOf(AbortSignal);
 
     const events = parseSSE(res.text);
@@ -407,9 +389,9 @@ describe('POST /api/chats/:chatId/messages – streaming', () => {
   });
 
   it('title generation reuses the conversation prompt prefix instead of evicting it', async () => {
-    // Ollama hat nur EINEN Cache-Slot (Vision-Modelle: Parallel:1). Ein
-    // Standalone-Titel-Prompt würde den Paper-Prefix verdrängen; deshalb
-    // muss der Titel-Aufruf byte-identisch mit dem Gesprächs-Prefix beginnen.
+    // Ollama has only ONE cache slot (vision models: Parallel:1). A
+    // standalone title prompt would evict the paper prefix; that is why
+    // the title call must start byte-identical to the conversation prefix.
     mockCreate.mockResolvedValueOnce(makeStream(['The answer']));
     mockCreate.mockResolvedValueOnce({ choices: [{ message: { content: 'Neat Title' } }] });
 
@@ -440,11 +422,47 @@ describe('POST /api/chats/:chatId/messages – streaming', () => {
     const chatRes = await request(app).get(`/api/chats/${chatId}`);
     expect(chatRes.body.title).toBe('Auto Generated Title');
   });
+
+  it('titles a branch chat after the selected passage, not the first question (2026-07-26)', async () => {
+    // Branch with a marked passage as parent_word. (The parent chat has no
+    // messages here, so branch creation triggers no summary warm-up call.)
+    const branch = await request(app).post('/api/chats').send({
+      title: 'About: Energie',
+      parent_id: chatId,
+      parent_word: 'Die Energie $E(w_t)$ vereinfacht den Umgang mit Out-of-Vocabulary-Wörtern.',
+    });
+    await new Promise(r => setTimeout(r, 25));
+
+    mockCreate.mockResolvedValueOnce(makeStream(['Reply']));
+    mockCreate.mockResolvedValueOnce({ choices: [{ message: { content: 'Energie und OOV' } }] });
+
+    await request(app)
+      .post(`/api/chats/${branch.body.id}/messages`)
+      .send({ content: 'Kannst du mir alle Details erklären?' })
+      .buffer(true);
+
+    // The title instruction (last message of the title call) asks for a
+    // summary of the passage and quotes it verbatim. (On the Ollama path the
+    // call still carries the conversation prefix for the KV cache — the
+    // instruction at the end is what steers the summary.)
+    const titleCall = mockCreate.mock.calls.find(c =>
+      c[0].messages.some(m => typeof m.content === 'string' && m.content.includes('selected passage'))
+    );
+    expect(titleCall).toBeDefined();
+    const instruction = titleCall[0].messages[titleCall[0].messages.length - 1].content;
+    expect(instruction).toContain('summarizes the following selected passage');
+    expect(instruction).toContain('Die Energie $E(w_t)$');
+    expect(instruction).not.toContain('Kannst du mir alle Details');
+
+    const chatRes = await request(app).get(`/api/chats/${branch.body.id}`);
+    expect(chatRes.body.title).toBe('Energie und OOV');
+  });
 });
 
-// ─── Prompt-Prefix-Stabilität (KV-Cache) ─────────────────────────────────────
-// Ollamas Prefix-Cache greift nur, wenn Warm-up und echte Anfrage byte-
-// identisch beginnen — inklusive Paper-Text, Historie und Tool-Definitionen.
+// ─── Prompt prefix stability (KV cache) ──────────────────────────────────────
+// Ollama's prefix cache only hits when the warm-up and the real request
+// start byte-identically — including paper text, history, and tool
+// definitions.
 
 describe('prompt prefix stability between warm-up and real message', () => {
   const realFetch = global.fetch;
@@ -479,8 +497,8 @@ describe('prompt prefix stability between warm-up and real message', () => {
       .buffer(true);
     const realCall = mockCreate.mock.calls[1][0];
 
-    // Byte-identischer Prefix: gleiche Tools, gleiche Messages — die echte
-    // Anfrage hängt nur die neue User-Nachricht ans Ende.
+    // Byte-identical prefix: same tools, same messages — the real request
+    // only appends the new user message at the end.
     expect(realCall.tools).toEqual(warmupCall.tools);
     expect(realCall.messages.slice(0, -1)).toEqual(warmupCall.messages);
     expect(realCall.messages.at(-1)).toEqual({ role: 'user', content: 'Second question' });
@@ -527,6 +545,57 @@ describe('POST /api/chats/:chatId/messages – parent context', () => {
     const systemMessage = branchCall[0].messages.find(m => m.role === 'system');
     expect(systemMessage.content).toContain('quantum');
     expect(systemMessage.content).toContain('Parent question');
+    // Chat-selection branch: no PDF wording, no math-flattening note.
+    expect(systemMessage.content).toContain('from a previous conversation');
+    expect(systemMessage.content).not.toContain('PDF source');
+  });
+
+  it('uses the PDF-selection wording with the surroundings when parent_context is set (decision 2026-07-26)', async () => {
+    const parent = await request(app).post('/api/chats').send({ title: 'Paper chat' });
+    mockCreate.mockResolvedValueOnce(makeStream(['Parent reply']));
+    mockCreate.mockResolvedValueOnce({ choices: [{ message: { content: 'Parent Title' } }] });
+    await request(app)
+      .post(`/api/chats/${parent.body.id}/messages`)
+      .send({ content: 'Parent question' })
+      .buffer(true);
+
+    // Branch from a PDF selection: the text layer flattened R^m to "Rm";
+    // the frontend sends the surrounding text-layer lines along.
+    mockCreate.mockResolvedValueOnce({ choices: [{ message: { content: 'Parent summary.' } }] });
+    const child = await request(app).post('/api/chats').send({
+      title: 'About: Rm',
+      parent_id: parent.body.id,
+      parent_word: 'Rm',
+      parent_context: 'wird durch eine Matrix C der Dimension |V| × m in einen Merkmalsvektor C(i) ∈ Rm umgewandelt',
+    });
+    await new Promise(r => setTimeout(r, 25));
+
+    mockCreate.mockResolvedValueOnce(makeStream(['Child reply']));
+    mockCreate.mockResolvedValueOnce({ choices: [{ message: { content: 'Child Title' } }] });
+
+    await request(app)
+      .post(`/api/chats/${child.body.id}/messages`)
+      .send({ content: 'Was bedeutet dieses Symbol?' })
+      .buffer(true);
+
+    const branchCall = mockCreate.mock.calls.find(c =>
+      c[0].messages.some(m => m.role === 'system' && m.content.includes('PDF source'))
+    );
+    expect(branchCall).toBeDefined();
+    const systemMessage = branchCall[0].messages.find(m => m.role === 'system');
+    expect(systemMessage.content).toContain('selected "Rm" inside the tree\'s PDF source');
+    expect(systemMessage.content).toContain('Merkmalsvektor C(i)');
+    expect(systemMessage.content).toContain('flattens math notation');
+    expect(systemMessage.content).not.toContain('from a previous conversation');
+  });
+
+  it('ignores parent_context on chats without a parent_word', async () => {
+    const res = await request(app).post('/api/chats').send({
+      title: 'Root',
+      parent_context: 'should be dropped',
+    });
+    const row = db.prepare('SELECT parent_context FROM chats WHERE id = ?').get(res.body.id);
+    expect(row.parent_context).toBeNull();
   });
 });
 
@@ -650,8 +719,8 @@ describe('POST /api/chats/:chatId/messages – paper context', () => {
   });
 });
 
-// ─── Latenz-Log (perf) am echten Endpoint ────────────────────────────────────
-// Die [perf]-Zeile trägt Modus/Cache/Quellengröße; Gesprächsinhalte NIE.
+// ─── Latency log (perf) on the real endpoint ─────────────────────────────────
+// The [perf] line carries mode/cache/source size; conversation content NEVER.
 
 describe('POST /api/chats/:chatId/messages – perf logging', () => {
   let logSpy;
@@ -677,26 +746,26 @@ describe('POST /api/chats/:chatId/messages – perf logging', () => {
 
     const perfLine = logSpy.mock.calls.map((c) => String(c[0])).find((l) => l.startsWith('[perf]'));
     expect(perfLine).toBeDefined();
-    expect(perfLine).toContain('mode=none'); // Chat ohne Quelle
-    expect(perfLine).toContain('cache=cold'); // erste Frage
+    expect(perfLine).toContain('mode=none'); // chat without a source
+    expect(perfLine).toContain('cache=cold'); // first question
     expect(perfLine).toContain('prompt_tokens=1200');
-    // Datenschutz: die Frage selbst darf NIE im Log stehen.
+    // Privacy: the question itself must NEVER appear in the log.
     expect(perfLine).not.toContain(SECRET);
   });
 });
 
-// ─── Retrieval-Modus für lange Quellen (ADR-0006) ────────────────────────────
-// Papers, die das Kontextfenster sprengen, werden nicht mehr stumpf gekappt:
-// der System-Prompt bekommt ein stabiles Skeleton (Anfang + Gliederung +
-// Ende), und pro Frage wandern die passendsten Chunks als eigener Block
-// HINTER die Historie — der KV-Cache-Prefix bleibt byte-identisch.
+// ─── Retrieval mode for long sources (ADR-0006) ──────────────────────────────
+// Papers that blow the context window are no longer bluntly truncated:
+// the system prompt gets a stable skeleton (start + outline + end), and
+// per question the best-matching chunks go in as their own block AFTER
+// the history — the KV-cache prefix stays byte-identical.
 
 describe('POST /api/chats/:chatId/messages – retrieval mode for long papers', () => {
   const FACT_PARA =
     'Rotary positional encodings twist query and key vectors by an angle proportional to position.';
 
-  // > MAX_SYSTEM_CONTEXT_CHARS (~40k), FACT_PARA tief in der Mitte — weit
-  // hinter dem Skeleton-Anfang und vor dem Skeleton-Ende.
+  // > MAX_SYSTEM_CONTEXT_CHARS (~40k), FACT_PARA deep in the middle — far
+  // behind the skeleton start and before the skeleton end.
   function longPaperText() {
     const paras = Array.from(
       { length: 520 },
@@ -706,8 +775,8 @@ describe('POST /api/chats/:chatId/messages – retrieval mode for long papers', 
     return paras.join('\n\n');
   }
 
-  // Deterministische Fake-Embeddings: nur der FACT-Absatz (und die Frage
-  // danach) zeigen auf Achse 0.
+  // Deterministic fake embeddings: only the FACT paragraph (and the
+  // question about it) point along axis 0.
   const fakeEmbed = jest.fn(async (texts) =>
     texts.map((t) => (t.includes('positional encodings') ? [1, 0] : [0, 1]))
   );
@@ -741,12 +810,12 @@ describe('POST /api/chats/:chatId/messages – retrieval mode for long papers', 
 
     const call = mockCreate.mock.calls[0][0];
     const system = call.messages[0];
-    // Skeleton statt Volltext im System-Prompt …
+    // Skeleton instead of full text in the system prompt …
     expect(system.content).toContain('PAPER SKELETON START');
     expect(system.content).not.toContain('PAPER TEXT START');
-    // … der FACT-Absatz aus der Dokument-Mitte steht NICHT im Prefix …
+    // … the FACT paragraph from the middle of the document is NOT in the prefix …
     expect(system.content).not.toContain(FACT_PARA);
-    // … sondern im Auszugs-Block direkt vor der User-Nachricht.
+    // … but in the excerpts block directly before the user message.
     const excerpts = call.messages.at(-2);
     expect(excerpts.role).toBe('system');
     expect(excerpts.content).toContain('EXCERPTS');
@@ -755,7 +824,7 @@ describe('POST /api/chats/:chatId/messages – retrieval mode for long papers', 
       role: 'user',
       content: 'Explain rotary positional encodings',
     });
-    // Chunks liegen persistent in source_chunks (einmalig eingebettet).
+    // Chunks live persistently in source_chunks (embedded once).
     const n = db.prepare("SELECT COUNT(*) AS n FROM source_chunks WHERE source_id = 'paper-long'").get().n;
     expect(n).toBeGreaterThan(5);
   });
@@ -779,8 +848,8 @@ describe('POST /api/chats/:chatId/messages – retrieval mode for long papers', 
         .buffer(true);
       const realCall = mockCreate.mock.calls[1][0];
 
-      // Der Warm-up-Prompt ist exakt der Prefix der echten Anfrage — nur
-      // Auszugs-Block und neue Frage kommen hinten dazu.
+      // The warm-up prompt is exactly the prefix of the real request —
+      // only the excerpts block and the new question are appended.
       expect(realCall.messages.slice(0, warmupCall.messages.length)).toEqual(warmupCall.messages);
       expect(realCall.messages.length).toBe(warmupCall.messages.length + 2);
     } finally {
@@ -804,7 +873,7 @@ describe('POST /api/chats/:chatId/messages – retrieval mode for long papers', 
       .send({ content: 'Explain rotary positional encodings' })
       .buffer(true);
 
-    // Kein Retrieval — aber der Chat funktioniert wie vor ADR-0006.
+    // No retrieval — but the chat works as it did before ADR-0006.
     const call = mockCreate.mock.calls[0][0];
     const system = call.messages[0];
     expect(system.content).toContain('PAPER TEXT START');
@@ -836,9 +905,9 @@ describe('POST /api/chats/:chatId/messages – retrieval mode for long papers', 
   });
 });
 
-// ─── Sprachspiegelung (Grill-Entscheidung 2026-07-23) ────────────────────────
-// Antwort, Titel und Summaries folgen der Sprache des Nutzers — Deutsch rein,
-// Deutsch raus; gemischte Nachrichten → dominante Sprache.
+// ─── Language mirroring (grill decision 2026-07-23) ──────────────────────────
+// Answer, title, and summaries follow the user's language — German in,
+// German out; mixed messages → dominant language.
 
 describe('POST /api/chats/:chatId/messages – language mirroring', () => {
   let chatId;
@@ -858,7 +927,7 @@ describe('POST /api/chats/:chatId/messages – language mirroring', () => {
       .buffer(true);
 
     const systemMessage = mockCreate.mock.calls[0][0].messages.find((m) => m.role === 'system');
-    // Hochzahlen/Formeln gehören in $…$ (rendert als 10^{50}), rohe ^/_ sind verboten.
+    // Exponents/formulas belong in $…$ (renders as 10^{50}); raw ^/_ are forbidden.
     expect(systemMessage.content).toMatch(/\$…\$|\$\\dots\$|inline math|\$10\^\{50\}\$/i);
     expect(systemMessage.content).toMatch(/exponent|superscript|\^/);
   });
@@ -892,10 +961,10 @@ describe('POST /api/chats/:chatId/messages – language mirroring', () => {
   });
 });
 
-// ─── Custom instructions (Grill 2026-07-23) ──────────────────────────────────
-// Nutzer-Freitext aus den Settings, der jedem Chat-System-Prompt mitgegeben
-// wird — mit explizitem Vorrang vor den eingebauten Stilregeln. Gilt NUR für
-// Chat-Antworten (+ Warm-up, gleicher Prefix!), nicht für Titel.
+// ─── Custom instructions (grill 2026-07-23) ──────────────────────────────────
+// User free text from the settings that is attached to every chat system
+// prompt — with explicit precedence over the built-in style rules. Applies
+// ONLY to chat replies (+ warm-up, same prefix!), not to titles.
 
 describe('POST /api/chats/:chatId/messages – custom instructions', () => {
   const { setSetting } = require('../llm');
@@ -919,7 +988,7 @@ describe('POST /api/chats/:chatId/messages – custom instructions', () => {
 
     const system = systemMessageOf(mockCreate.mock.calls[0]);
     expect(system.content).toContain('Correct my German after every answer.');
-    // Vorrang-Rahmung: Nutzer-Anweisungen schlagen die eingebauten Stilregeln.
+    // Precedence framing: user instructions beat the built-in style rules.
     expect(system.content).toMatch(/take precedence over the style rules above/i);
   });
 
@@ -942,11 +1011,11 @@ describe('POST /api/chats/:chatId/messages – custom instructions', () => {
   });
 
   it('keeps the cloud title prompt free of custom instructions (scope: chat replies only)', async () => {
-    // Scope-Entscheidung (Grill 2026-07-23): Titel bleiben unberührt. Auf
-    // Ollama teilt der Titel-Aufruf ABSICHTLICH den Gesprächs-Prefix (ein
-    // KV-Slot, Messung 2026-07-21) — dort fährt der Block als Cache-Ballast
-    // mit, die Titel-Anweisung am Ende regiert. Nur der Cloud-Pfad hat einen
-    // eigenen Mini-Prompt, und der muss sauber bleiben.
+    // Scope decision (grill 2026-07-23): titles stay untouched. On Ollama
+    // the title call INTENTIONALLY shares the conversation prefix (one KV
+    // slot, measurement 2026-07-21) — there the block rides along as cache
+    // ballast, and the title instruction at the end rules. Only the cloud
+    // path has its own mini prompt, and that one must stay clean.
     setSetting(db, 'custom_instructions', 'Correct my German after every answer.');
     setSetting(db, 'llm_provider', 'openai');
     setSetting(db, 'openai_api_key', 'sk-test');
@@ -964,9 +1033,10 @@ describe('POST /api/chats/:chatId/messages – custom instructions', () => {
 
     await sendMessage();
 
-    // Letzte Nachricht des Titel-Aufrufs ist die Titel-Anweisung — der davor
-    // liegende Prefix (inkl. Custom-Instructions-Block) ist identisch mit dem
-    // Gesprächs-Prompt, sonst verdrängt der Titel den teuren KV-Prefix.
+    // The last message of the title call is the title instruction — the
+    // preceding prefix (incl. the custom-instructions block) is identical
+    // to the conversation prompt, otherwise the title evicts the expensive
+    // KV prefix.
     const titleCall = mockCreate.mock.calls[1];
     const streamCall = mockCreate.mock.calls[0];
     expect(titleCall[0].messages.at(-1).content).toMatch(/title/i);
@@ -991,11 +1061,11 @@ describe('POST /api/chats/:chatId/messages – custom instructions', () => {
   });
 });
 
-// ─── Sende-Warteschlange, Fehler-Marker und Regenerate (2026-07-24) ─────────
-// Ollama hat einen KV-Slot: gleichzeitige Fragen laufen FIFO durch eine
-// Backend-Warteschlange (User-Insert erst beim Dequeue → Antwort 1 steht in
-// Frage 2s Kontext). Fehler persistieren einen '*Failed*'-Marker statt stumm
-// zu verschwinden; /regenerate beantwortet die letzte Frage neu ohne Duplikat.
+// ─── Send queue, failure marker, and regenerate (2026-07-24) ─────────────────
+// Ollama has one KV slot: concurrent questions run FIFO through a backend
+// queue (user insert only at dequeue → answer 1 is in question 2's
+// context). Errors persist a '*Failed*' marker instead of vanishing
+// silently; /regenerate re-answers the last question without duplicating it.
 
 describe('POST /api/chats/:chatId/messages – send queue', () => {
   const realFetch = global.fetch;
@@ -1004,8 +1074,8 @@ describe('POST /api/chats/:chatId/messages – send queue', () => {
   });
   afterEach(() => { global.fetch = realFetch; });
 
-  // Chat mit Historie + eigenem Titel: msgCount > 2 ⇒ keine Titel-Aufrufe,
-  // die die mockCreate-Zählung verwässern würden.
+  // Chat with history + its own title: msgCount > 2 ⇒ no title calls
+  // that would dilute the mockCreate count.
   async function seedChatWithHistory() {
     const chat = await request(app).post('/api/chats').send({ title: 'Queue Test' });
     const insert = db.prepare(
@@ -1019,7 +1089,7 @@ describe('POST /api/chats/:chatId/messages – send queue', () => {
   it('answers concurrent questions strictly in order, with answer 1 in question 2\'s context', async () => {
     const chatId = await seedChatWithHistory();
 
-    // Antwort 1 hängt an einem Gate, bis Frage 2 eingereiht ist.
+    // Answer 1 hangs on a gate until question 2 is enqueued.
     let releaseFirst;
     const gate = new Promise(r => { releaseFirst = r; });
     mockCreate.mockImplementationOnce(() => ({
@@ -1043,21 +1113,21 @@ describe('POST /api/chats/:chatId/messages – send queue', () => {
     const events1 = parseSSE(res1.text);
     const events2 = parseSSE(res2.text);
 
-    // Frage 2 hat gewartet (queued-Event mit einem Job davor) und dann ein
-    // started-Event mit ihrer jetzt persistierten Frage bekommen.
+    // Question 2 waited (queued event with one job ahead) and then got a
+    // started event with its now-persisted question.
     expect(events2.find(e => e.queued)?.queued.ahead).toBe(1);
     const started2 = events2.find(e => e.started);
     expect(started2.userMessage.content).toBe('Second?');
     expect(events1.find(e => e.done).assistantMessage.content).toBe('Answer one');
     expect(events2.find(e => e.done).assistantMessage.content).toBe('Answer two');
 
-    // Frage 2s Kontext enthält Frage 1 UND Antwort 1 (deshalb die FIFO-Regel).
+    // Question 2's context contains question 1 AND answer 1 (hence the FIFO rule).
     const call2Messages = mockCreate.mock.calls[1][0].messages;
     const texts = call2Messages.map(m => m.content);
     expect(texts).toContain('First?');
     expect(texts).toContain('Answer one');
 
-    // DB-Reihenfolge: Antwort 1 steht VOR Frage 2.
+    // DB order: answer 1 comes BEFORE question 2.
     const rows = db.prepare(
       'SELECT role, content FROM messages WHERE chat_id = ? ORDER BY created_at ASC, id ASC'
     ).all(chatId);
@@ -1082,8 +1152,8 @@ describe('POST /api/chats/:chatId/messages – send queue', () => {
       .send({ content: 'Slow?' }).buffer(true).then(r => r);
     await new Promise(r => setTimeout(r, 50));
 
-    // Warm-up während der laufenden Frage: abgelehnt, statt sich in Ollamas
-    // Schlange zu stellen und den Prefix des antwortenden Chats zu verdrängen.
+    // Warm-up while a question is running: rejected instead of lining up
+    // in Ollama's queue and evicting the answering chat's prefix.
     const warmup = await request(app).post(`/api/chats/${chatId}/messages/warmup`);
     expect(warmup.body).toEqual({ warmed: false, reason: 'busy' });
 
@@ -1099,13 +1169,13 @@ describe('POST /api/chats/:chatId/messages – send queue', () => {
       .send({ content: 'Doomed?' }).buffer(true);
     const events = parseSSE(res.text);
 
-    // Fehler-Event trägt die persistierte Frage + den Marker fürs Frontend.
+    // The error event carries the persisted question + the marker for the frontend.
     const errEvent = events.find(e => e.error);
     expect(errEvent.error).toBe('Ollama exploded');
     expect(errEvent.userMessage.content).toBe('Doomed?');
     expect(errEvent.assistantMessage.content).toBe('*Failed*');
 
-    // Beides in der DB: die Frage bleibt erhalten, der Marker überlebt Reloads.
+    // Both in the DB: the question is preserved, the marker survives reloads.
     const rows = db.prepare(
       'SELECT role, content FROM messages WHERE chat_id = ? ORDER BY created_at ASC, id ASC'
     ).all(chatId);
@@ -1141,7 +1211,7 @@ describe('POST /api/chats/:chatId/messages/regenerate', () => {
       .send({}).buffer(true);
     const events = parseSSE(res.text);
 
-    // started/done tragen die BESTEHENDE Frage (gleiche id, kein Duplikat).
+    // started/done carry the EXISTING question (same id, no duplicate).
     expect(events.find(e => e.started).userMessage.id).toBe('q1');
     expect(events.find(e => e.done).assistantMessage.content).toBe('Recovered answer');
 
@@ -1152,8 +1222,8 @@ describe('POST /api/chats/:chatId/messages/regenerate', () => {
     expect(rows.some(r => r.content === '*Failed*')).toBe(false);
     expect(rows.at(-1).content).toBe('Recovered answer');
 
-    // Kontext: die Frage geht als letzte User-Nachricht ins Modell, der
-    // Marker taucht nirgends auf.
+    // Context: the question goes into the model as the last user message,
+    // the marker appears nowhere.
     const callMessages = mockCreate.mock.calls[0][0].messages;
     expect(callMessages.at(-1)).toMatchObject({ role: 'user', content: 'Unlucky question' });
     expect(callMessages.some(m => String(m.content).includes('*Failed*'))).toBe(false);
@@ -1191,5 +1261,1276 @@ describe('POST /api/chats/:chatId/messages/regenerate', () => {
   it('returns 404 for an unknown chat', async () => {
     const res = await request(app).post('/api/chats/nope/messages/regenerate').send({});
     expect(res.status).toBe(404);
+  });
+});
+
+// ─── Vision gate (ADR-0008 slice 3) ──────────────────────────────────────────
+// Text-only cloud models (e.g. Groq gpt-oss-120b) may be selectable, but
+// image attachments must fail with a clear hint — never silent dropping.
+
+describe('vision gate for text-only cloud models', () => {
+  const PNG = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+    'base64'
+  );
+
+  function useGroq() {
+    const { setSetting } = require('../llm');
+    setSetting(db, 'llm_provider', 'groq');
+    setSetting(db, 'groq_api_key', 'gsk-test');
+    setSetting(db, 'groq_model', 'openai/gpt-oss-120b');
+  }
+
+  it('rejects an image attachment with a clear hint instead of dropping it', async () => {
+    useGroq();
+    const chat = await request(app).post('/api/chats').send({ title: 'Vision' });
+
+    const res = await request(app)
+      .post(`/api/chats/${chat.body.id}/messages`)
+      .field('text', 'What does this figure show?')
+      .attach('files', PNG, { filename: 'figure.png', contentType: 'image/png' });
+
+    const events = parseSSE(res.text);
+    const errorEvent = events.find((e) => e.error);
+    expect(errorEvent).toBeDefined();
+    expect(errorEvent.error).toMatch(/image|bild/i);
+    expect(errorEvent.error).toMatch(/gpt-oss-120b/);
+    // No model call: the image must never be dropped silently.
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it('still answers plain text questions on the same model', async () => {
+    useGroq();
+    mockCreate.mockResolvedValueOnce(makeStream(['Sure.']));
+    // Title generation (cloud path, non-streaming)
+    mockCreate.mockResolvedValueOnce({ choices: [{ message: { content: 'Title' } }] });
+    const chat = await request(app).post('/api/chats').send({ title: 'Vision' });
+
+    const res = await request(app)
+      .post(`/api/chats/${chat.body.id}/messages`)
+      .field('text', 'Just text, no image.');
+
+    const events = parseSSE(res.text);
+    expect(events.find((e) => e.done)).toBeDefined();
+    expect(events.find((e) => e.error)).toBeUndefined();
+  });
+});
+
+// ─── 429 handling (ADR-0008 slice 5) ─────────────────────────────────────────
+// Cloud free tiers throttle. Per-minute limits: visible auto-retry in the
+// queue (respect Retry-After). Daily limits: fail immediately with a
+// switch-provider hint — waiting until midnight helps nobody.
+
+describe('cloud rate limits (429)', () => {
+  function useGemini() {
+    const { setSetting } = require('../llm');
+    setSetting(db, 'llm_provider', 'gemini');
+    setSetting(db, 'gemini_api_key', 'AIza-test');
+  }
+
+  function err429(message, retryAfter) {
+    const e = new Error(message);
+    e.status = 429;
+    if (retryAfter !== undefined) e.headers = { 'retry-after': String(retryAfter) };
+    return e;
+  }
+
+  it('switches instantly on a per-minute 429 when a sibling model is free — no waiting', async () => {
+    useGemini();
+    mockCreate
+      .mockRejectedValueOnce(err429('Rate limit exceeded, slow down', 0)) // flash limited
+      .mockResolvedValueOnce(makeStream(['Recovered.']))                  // pro answers at once
+      .mockResolvedValueOnce({ choices: [{ message: { content: 'Title' } }] });
+    const chat = await request(app).post('/api/chats').send({ title: 'RL' });
+
+    const res = await request(app)
+      .post(`/api/chats/${chat.body.id}/messages`)
+      .send({ content: 'hello' });
+
+    const events = parseSSE(res.text);
+    // No countdown, no waiting: an immediate failover to the sibling model.
+    // The ladder only gambles on FREE-tier siblings (cost tiers 2026-07-30):
+    // Pro has no free quota, so the candidate is Flash Lite.
+    expect(events.find((e) => e.rateLimit)).toBeUndefined();
+    expect(events.find((e) => e.failover).failover).toMatchObject({
+      fromModel: 'gemini-flash-latest', model: 'gemini-flash-lite-latest',
+    });
+    expect(events.find((e) => e.done)).toBeDefined();
+    expect(events.find((e) => e.error)).toBeUndefined();
+  });
+
+  it('waits with a visible countdown only when ALL candidates are limited', async () => {
+    useGemini();
+    mockCreate
+      .mockRejectedValueOnce(err429('Rate limit exceeded', 0)) // flash limited → failover
+      .mockRejectedValueOnce(err429('Rate limit exceeded', 0)) // pro limited too → nobody left
+      .mockResolvedValueOnce(makeStream(['Recovered.']))       // pro succeeds after the wait
+      .mockResolvedValueOnce({ choices: [{ message: { content: 'Title' } }] });
+    const chat = await request(app).post('/api/chats').send({ title: 'RL' });
+
+    const res = await request(app)
+      .post(`/api/chats/${chat.body.id}/messages`)
+      .send({ content: 'hello' });
+
+    const events = parseSSE(res.text);
+    expect(events.find((e) => e.failover)).toBeDefined();
+    const rl = events.find((e) => e.rateLimit);
+    expect(rl).toBeDefined();
+    // Variant C (mockup-quota-states §10): the event names WHICH minute
+    // limit bit and on which model, for the precise wait row.
+    expect(rl.rateLimit.scope).toBe('requests');
+    expect(typeof rl.rateLimit.model).toBe('string');
+    expect(events.find((e) => e.done)).toBeDefined();
+    expect(events.find((e) => e.error)).toBeUndefined();
+  });
+
+  it('fails fast with a switch-provider hint when the daily quota is gone', async () => {
+    useGemini();
+    mockCreate.mockRejectedValue(
+      err429('Quota exceeded for metric generate_requests_per_model_per_day')
+    );
+    const chat = await request(app).post('/api/chats').send({ title: 'RL' });
+
+    const res = await request(app)
+      .post(`/api/chats/${chat.body.id}/messages`)
+      .send({ content: 'hello' });
+
+    const events = parseSSE(res.text);
+    const errorEvent = events.find((e) => e.error);
+    expect(errorEvent).toBeDefined();
+    expect(errorEvent.error).toMatch(/daily|Tages/i);
+    expect(errorEvent.error).toMatch(/switch|wechsel/i);
+    // No retry on a daily limit, but the FREE sibling of the same provider
+    // (Flash Lite, separate quota) is tried once before giving up. Pro is
+    // never gambled on: without billing it fails deterministically
+    // (cost tiers 2026-07-30).
+    expect(mockCreate).toHaveBeenCalledTimes(2);
+    expect(mockCreate.mock.calls.map((c) => c[0].model)).toEqual([
+      'gemini-flash-latest',
+      'gemini-flash-lite-latest',
+    ]);
+  });
+
+  it('classifies a zero-limit 429 as billing: no retry time, no failover gamble', async () => {
+    useGemini();
+    const { setSetting } = require('../llm');
+    setSetting(db, 'gemini_model', 'gemini-pro-latest');
+    // Google's limit-0 shape: the free tier of this model is literally zero.
+    mockCreate.mockRejectedValue(
+      err429('You exceeded your current quota, please check your plan and billing details. ' +
+        '"quotaId":"GenerateRequestsPerDayPerProjectPerModel-FreeTier","quotaValue":"0"')
+    );
+    const chat = await request(app).post('/api/chats').send({ title: 'RL' });
+
+    const res = await request(app)
+      .post(`/api/chats/${chat.body.id}/messages`)
+      .send({ content: 'hello' });
+
+    const events = parseSSE(res.text);
+    const errorEvent = events.find((e) => e.error);
+    expect(errorEvent).toBeDefined();
+    expect(errorEvent.quotaReason).toBe('billing');
+    // Not a daily limit: it does not come back at midnight, so no clock.
+    expect(errorEvent.retryAt).toBeUndefined();
+    expect(errorEvent.failProvider).toBe('gemini');
+    expect(errorEvent.failModel).toBe('gemini-pro-latest');
+    // The user picked Pro deliberately — switching is THEIR call (W4 card),
+    // not an automatic ladder move.
+    expect(events.find((e) => e.failover)).toBeUndefined();
+    expect(mockCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it('gives up with *Failed* after three rate-limited attempts', async () => {
+    useGemini();
+    mockCreate.mockRejectedValue(err429('Rate limit exceeded', 0));
+    const chat = await request(app).post('/api/chats').send({ title: 'RL' });
+
+    const res = await request(app)
+      .post(`/api/chats/${chat.body.id}/messages`)
+      .send({ content: 'hello' });
+
+    const events = parseSSE(res.text);
+    expect(events.find((e) => e.error)).toBeDefined();
+    // One attempt on the active model (then instant failover), three waited
+    // attempts on the sibling — only then *Failed*.
+    expect(mockCreate).toHaveBeenCalledTimes(4);
+  });
+});
+
+// ─── Automatic provider failover (user requests 2026-07-25, two rounds) ─────
+// Limits are PER MODEL, so failover first tries the other models of the SAME
+// provider (same key), then other providers. Models that reported a daily
+// quota are remembered (until UTC midnight) and skipped proactively — no
+// re-running into known walls; per-minute exhaustion cools down for 90 s.
+
+describe('automatic provider failover on quota exhaustion', () => {
+  const dailyQuotaError = () =>
+    Object.assign(new Error('Quota exceeded for metric generate_requests_per_model_per_day'), { status: 429 });
+
+  function useGroqAndGemini() {
+    const { setSetting } = require('../llm');
+    setSetting(db, 'llm_provider', 'groq');
+    setSetting(db, 'groq_api_key', 'gsk-test');
+    setSetting(db, 'gemini_api_key', 'AIza-test');
+  }
+
+  async function send(text = 'hello') {
+    const chat = await request(app).post('/api/chats').send({ title: 'FO' });
+    const res = await request(app)
+      .post(`/api/chats/${chat.body.id}/messages`)
+      .send({ content: text });
+    return parseSSE(res.text);
+  }
+
+  it('fails over to another model of the SAME provider first (limits are per model)', async () => {
+    useGroqAndGemini();
+    mockCreate
+      .mockRejectedValueOnce(dailyQuotaError())               // groq gpt-oss: daily gone
+      .mockResolvedValueOnce(makeStream(['From Llama.']))     // groq llama answers
+      .mockResolvedValueOnce({ choices: [{ message: { content: 'Title' } }] });
+
+    const events = await send();
+
+    const failover = events.find((e) => e.failover);
+    expect(failover.failover).toMatchObject({
+      from: 'groq', to: 'groq',
+      fromModel: 'openai/gpt-oss-120b', model: 'llama-3.3-70b-versatile',
+    });
+    expect(events.find((e) => e.done).assistantMessage.content).toBe('From Llama.');
+    // The answer call went to the sibling model.
+    expect(mockCreate.mock.calls[1][0].model).toBe('llama-3.3-70b-versatile');
+  });
+
+  it('remembers exhausted models and skips them proactively on the next message', async () => {
+    useGroqAndGemini();
+    // Message 1: gpt-oss daily-quota → llama answers.
+    mockCreate
+      .mockRejectedValueOnce(dailyQuotaError())
+      .mockResolvedValueOnce(makeStream(['From Llama.']))
+      .mockResolvedValueOnce({ choices: [{ message: { content: 'Title' } }] });
+    await send();
+
+    // Message 2: gpt-oss must NOT be tried again — first call goes straight
+    // to llama, with a failover notice but zero wasted requests.
+    mockCreate.mockClear();
+    mockCreate
+      .mockResolvedValueOnce(makeStream(['Still Llama.']))
+      .mockResolvedValueOnce({ choices: [{ message: { content: 'Title' } }] });
+    const events = await send('again');
+
+    expect(mockCreate.mock.calls[0][0].model).toBe('llama-3.3-70b-versatile');
+    expect(events.find((e) => e.failover)).toBeDefined();
+    expect(events.find((e) => e.done).assistantMessage.content).toBe('Still Llama.');
+  });
+
+  it('walks through providers and fails with the switch hint only when ALL candidates are exhausted', async () => {
+    useGroqAndGemini();
+    mockCreate.mockRejectedValue(dailyQuotaError()); // everyone is out of quota
+
+    const events = await send();
+
+    // Tried: groq gpt-oss + groq llama + gemini flash + gemini flash lite
+    // = 4 calls. Gemini Pro is paid-only and never gambled on (2026-07-30).
+    expect(mockCreate.mock.calls.map((c) => c[0].model)).toEqual([
+      'openai/gpt-oss-120b',
+      'llama-3.3-70b-versatile',
+      'gemini-flash-latest',
+      'gemini-flash-lite-latest',
+    ]);
+    expect(events.find((e) => e.error).error).toMatch(/switch/i);
+  });
+
+  it('keeps the global setting untouched after a failover', async () => {
+    useGroqAndGemini();
+    mockCreate
+      .mockRejectedValueOnce(dailyQuotaError())
+      .mockResolvedValueOnce(makeStream(['ok']))
+      .mockResolvedValueOnce({ choices: [{ message: { content: 'Title' } }] });
+    await send();
+
+    const settings = await request(app).get('/api/settings');
+    expect(settings.body.llm_provider).toBe('groq');
+    expect(settings.body.groq_model).toBe('openai/gpt-oss-120b');
+  });
+
+  it('skips text-only candidates when the question carries an image', async () => {
+    const { setSetting } = require('../llm');
+    setSetting(db, 'llm_provider', 'groq');
+    setSetting(db, 'groq_api_key', 'gsk-test');
+    setSetting(db, 'groq_model', 'llama-3.3-70b-versatile');
+    setSetting(db, 'gemini_api_key', 'AIza-test');
+    // Active groq model is text-only + image attached → vision gate skips
+    // BOTH text-only groq models; the candidate is the free vision-capable
+    // Gemini Flash.
+    mockCreate
+      .mockResolvedValueOnce(makeStream(['From Gemini.']))
+      .mockResolvedValueOnce({ choices: [{ message: { content: 'Title' } }] });
+    const PNG = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+      'base64'
+    );
+    const chat = await request(app).post('/api/chats').send({ title: 'FO' });
+
+    const res = await request(app)
+      .post(`/api/chats/${chat.body.id}/messages`)
+      .field('text', 'what is in this figure?')
+      .attach('files', PNG, { filename: 'fig.png', contentType: 'image/png' });
+
+    const events = parseSSE(res.text);
+    expect(events.find((e) => e.failover).failover).toMatchObject({ to: 'gemini' });
+    expect(events.find((e) => e.done).assistantMessage.content).toBe('From Gemini.');
+  });
+
+  it('never silently switches an image question onto a PAID vision model', async () => {
+    const { setSetting } = require('../llm');
+    setSetting(db, 'llm_provider', 'groq');
+    setSetting(db, 'groq_api_key', 'gsk-test');
+    setSetting(db, 'groq_model', 'llama-3.3-70b-versatile');
+    setSetting(db, 'openai_api_key', 'sk-test');
+    // Only paid vision candidates exist (OpenAI). Spending money unasked is
+    // worse than a clear card (cost tiers 2026-07-30) — the no-vision hint
+    // surfaces and OpenAI is never called.
+    const PNG = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+      'base64'
+    );
+    const chat = await request(app).post('/api/chats').send({ title: 'FO' });
+
+    const res = await request(app)
+      .post(`/api/chats/${chat.body.id}/messages`)
+      .field('text', 'what is in this figure?')
+      .attach('files', PNG, { filename: 'fig.png', contentType: 'image/png' });
+
+    const events = parseSSE(res.text);
+    const errorEvent = events.find((e) => e.error);
+    expect(errorEvent.failReason).toBe('no_vision');
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+});
+
+// ─── Failover rebuilds the prompt for the candidate (fix 2026-07-29) ─────────
+// The prompt used to be built ONCE, sized to the ACTIVE model's budget cap,
+// and shipped verbatim to every failover candidate. A Gemini-sized full-text
+// prompt (32k cap) hit Groq's 8k cap as a deterministic 413 on every Groq
+// model, and the card claimed "too large for the cloud limits" although a
+// Groq-sized prompt (retrieval mode) would have fit — proven live 2026-07-29
+// by a manual switch-to-Groq retry that answered fine.
+
+describe('failover rebuilds the prompt for the candidate model', () => {
+  const dailyQuotaError = () =>
+    Object.assign(new Error('Quota exceeded for metric generate_requests_per_model_per_day'), { status: 429 });
+
+  const FACT_PARA =
+    'The rotary positional encodings rotate query and key vectors by position-dependent angles.';
+  // ~50k chars: full text under Gemini's 32k-token cap (~97k chars), far
+  // beyond Groq's 8k-token cap (~10.5k chars) and the local window (~40k).
+  function longPaperText() {
+    const paras = Array.from(
+      { length: 520 },
+      (_, i) => `Paragraph ${i} discussing unrelated background material in sufficient detail to fill space.`
+    );
+    paras[260] = FACT_PARA;
+    return paras.join('\n\n');
+  }
+  const fakeEmbed = jest.fn(async (texts) =>
+    texts.map((t) => (t.includes('positional encodings') ? [1, 0] : [0, 1]))
+  );
+
+  function paperApp() {
+    return createApp(db, {
+      messages: {
+        extractPdfTextFn: jest.fn().mockResolvedValue(longPaperText()),
+        embedTextsFn: fakeEmbed,
+      },
+    });
+  }
+
+  function bindPaper(chatId) {
+    db.prepare(
+      'INSERT INTO papers (id, title, uploaded_at, pdf_path, status) VALUES (?, ?, ?, ?, ?)'
+    ).run('paper-budget', 'RoFormer', new Date().toISOString(), '/fake/long.pdf', 'ready');
+    db.prepare('UPDATE chats SET paper_id = ? WHERE id = ?').run('paper-budget', chatId);
+  }
+
+  it('re-sizes a Gemini full-text prompt to Groq\'s budget instead of shipping it verbatim', async () => {
+    const { setSetting } = require('../llm');
+    setSetting(db, 'llm_provider', 'gemini');
+    setSetting(db, 'gemini_api_key', 'AIza-test');
+    setSetting(db, 'groq_api_key', 'gsk-test');
+    const app2 = paperApp();
+    const chat = await request(app2).post('/api/chats').send({ title: 'Budget' });
+    bindPaper(chat.body.id);
+    mockCreate
+      .mockRejectedValueOnce(dailyQuotaError())              // gemini flash: daily gone
+      .mockRejectedValueOnce(dailyQuotaError())              // gemini pro: daily gone
+      .mockResolvedValueOnce(makeStream(['From Groq.']))     // groq answers
+      .mockResolvedValueOnce({ choices: [{ message: { content: 'Title' } }] });
+
+    const res = await request(app2)
+      .post(`/api/chats/${chat.body.id}/messages`)
+      .send({ content: 'Explain rotary positional encodings' })
+      .buffer(true);
+    const events = parseSSE(res.text);
+
+    // Gemini got the full text — the paper fits ITS budget.
+    expect(mockCreate.mock.calls[0][0].messages[0].content).toContain('PAPER TEXT START');
+    // Groq gets a prompt rebuilt for ITS budget: skeleton + excerpts.
+    const groqCall = mockCreate.mock.calls[2][0];
+    expect(groqCall.model).toBe('openai/gpt-oss-120b');
+    expect(groqCall.messages[0].content).toContain('PAPER SKELETON START');
+    expect(groqCall.messages[0].content).not.toContain('PAPER TEXT START');
+    // Hard bound: the whole rebuilt prompt stays under Groq's 8k-token cap
+    // (chars/3.5 is the repo's own conservative token estimate).
+    const totalChars = groqCall.messages.reduce(
+      (n, m) => n + (typeof m.content === 'string' ? m.content.length : 0), 0
+    );
+    expect(totalChars).toBeLessThan(8000 * 3.5);
+    // The user gets an answer — not a too_large card.
+    expect(events.find((e) => e.done).assistantMessage.content).toBe('From Groq.');
+    expect(events.find((e) => e.error)).toBeUndefined();
+  });
+
+  it('sizes the one-off local regenerate to the LOCAL budget, not the cloud one', async () => {
+    const { setSetting } = require('../llm');
+    setSetting(db, 'llm_provider', 'gemini');
+    setSetting(db, 'gemini_api_key', 'AIza-test');
+    const app2 = paperApp();
+    const chatId = 'chat-local-budget';
+    db.prepare('INSERT INTO chats (id, title, created_at) VALUES (?, ?, ?)')
+      .run(chatId, 'EX', '2026-07-29T10:00:00.000Z');
+    bindPaper(chatId);
+    db.prepare('INSERT INTO messages (id, chat_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)')
+      .run('q1', chatId, 'user', 'Explain rotary positional encodings', '2026-07-29T10:00:01.000Z');
+    db.prepare('INSERT INTO messages (id, chat_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)')
+      .run('f1', chatId, 'assistant', '*Failed*', '2026-07-29T10:00:02.000Z');
+    mockCreate.mockResolvedValueOnce(makeStream(['Local answer.']));
+
+    const res = await request(app2)
+      .post(`/api/chats/${chatId}/messages/regenerate`)
+      .send({ messageId: 'f1', provider: 'ollama' });
+    const events = parseSSE(res.text);
+
+    expect(events.find((e) => e.done).assistantMessage.content).toBe('Local answer.');
+    // The 50k-char paper exceeds the local window (~40k chars) — the local
+    // one-off must get the retrieval prompt, never Gemini's full text.
+    const call = mockCreate.mock.calls[0][0];
+    expect(call.model).toBe('qwen3.5:9b');
+    expect(call.messages[0].content).toContain('PAPER SKELETON START');
+    expect(call.messages[0].content).not.toContain('PAPER TEXT START');
+  });
+});
+
+// ─── Anchored regenerate (user report 2026-07-25) ───────────────────────────
+// With the send queue, several questions can fail in a row. "Try again" must
+// answer ITS question — with the history up to that question — and the new
+// answer (or a fresh *Failed*) must take the old marker's position, not the
+// end of the chat. Otherwise retried answers land under the wrong question.
+
+describe('anchored regenerate for mid-chat failed markers', () => {
+  const FAILED = '*Failed*';
+
+  function seedChatWithTwoFailedExchanges() {
+    const { setSetting } = require('../llm');
+    setSetting(db, 'llm_provider', 'ollama');
+    const chatId = 'chat-anchored';
+    db.prepare('INSERT INTO chats (id, title, created_at) VALUES (?, ?, ?)')
+      .run(chatId, 'Anchored', '2026-07-25T10:00:00.000Z');
+    const rows = [
+      ['q1', 'user', 'first question', '2026-07-25T10:00:01.000Z'],
+      ['f1', 'assistant', FAILED, '2026-07-25T10:00:02.000Z'],
+      ['q2', 'user', 'second question', '2026-07-25T10:00:03.000Z'],
+      ['f2', 'assistant', FAILED, '2026-07-25T10:00:04.000Z'],
+    ];
+    for (const [id, role, content, ts] of rows) {
+      db.prepare('INSERT INTO messages (id, chat_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)')
+        .run(id, chatId, role, content, ts);
+    }
+    return chatId;
+  }
+
+  it('answers ITS question in place — history stops at that question', async () => {
+    const chatId = seedChatWithTwoFailedExchanges();
+    mockCreate.mockResolvedValueOnce(makeStream(['Answer to the first.']));
+
+    const res = await request(app)
+      .post(`/api/chats/${chatId}/messages/regenerate`)
+      .send({ messageId: 'f1' });
+    expect(parseSSE(res.text).find((e) => e.done)).toBeDefined();
+
+    // The model saw the history only UP TO the first question — the second
+    // exchange must not leak into the context of the first answer.
+    const sent = mockCreate.mock.calls[0][0].messages.map((m) => m.content).join('\n');
+    expect(sent).toContain('first question');
+    expect(sent).not.toContain('second question');
+
+    // Position: the answer replaces the marker — order stays Q1, A1, Q2, F2.
+    const chat = await request(app).get(`/api/chats/${chatId}`);
+    expect(chat.body.messages.map((m) => m.content)).toEqual([
+      'first question',
+      'Answer to the first.',
+      'second question',
+      FAILED,
+    ]);
+  });
+
+  it('keeps the position even when the retry fails again', async () => {
+    const chatId = seedChatWithTwoFailedExchanges();
+    mockCreate.mockRejectedValue(new Error('boom'));
+
+    const res = await request(app)
+      .post(`/api/chats/${chatId}/messages/regenerate`)
+      .send({ messageId: 'f1' });
+    expect(parseSSE(res.text).find((e) => e.error)).toBeDefined();
+
+    const chat = await request(app).get(`/api/chats/${chatId}`);
+    expect(chat.body.messages.map((m) => m.content)).toEqual([
+      'first question',
+      FAILED,
+      'second question',
+      FAILED,
+    ]);
+  });
+
+  it('still regenerates the LAST question when no messageId is sent (legacy)', async () => {
+    const chatId = seedChatWithTwoFailedExchanges();
+    mockCreate
+      .mockResolvedValueOnce(makeStream(['Answer to the second.']))
+      .mockResolvedValueOnce({ choices: [{ message: { content: 'Title' } }] });
+
+    const res = await request(app)
+      .post(`/api/chats/${chatId}/messages/regenerate`)
+      .send({});
+    expect(parseSSE(res.text).find((e) => e.done)).toBeDefined();
+
+    const chat = await request(app).get(`/api/chats/${chatId}`);
+    expect(chat.body.messages.map((m) => m.content)).toEqual([
+      'first question',
+      FAILED,
+      'second question',
+      'Answer to the second.',
+    ]);
+  });
+});
+
+// ─── Model-unavailable failover (edge case found live 2026-07-25) ───────────
+// Google retired the 2.5 models for NEW accounts: a valid key gets HTTP 404
+// "no longer available to new users". That must trigger the same failover as
+// an exhausted quota — not a bare *Failed*.
+
+describe('failover when the model itself is unavailable (404)', () => {
+  it('falls over to the next candidate on a model-unavailable 404', async () => {
+    const { setSetting } = require('../llm');
+    setSetting(db, 'llm_provider', 'gemini');
+    setSetting(db, 'gemini_api_key', 'AIza-test');
+    setSetting(db, 'groq_api_key', 'gsk-test');
+    mockCreate
+      .mockRejectedValueOnce(Object.assign(
+        new Error('This model models/gemini-flash-latest is no longer available to new users.'),
+        { status: 404 }
+      ))
+      .mockRejectedValueOnce(Object.assign(
+        new Error('This model models/gemini-pro-latest is no longer available to new users.'),
+        { status: 404 }
+      ))
+      .mockResolvedValueOnce(makeStream(['From Groq instead.']))
+      .mockResolvedValueOnce({ choices: [{ message: { content: 'Title' } }] });
+    const chat = await request(app).post('/api/chats').send({ title: '404' });
+
+    const res = await request(app)
+      .post(`/api/chats/${chat.body.id}/messages`)
+      .send({ content: 'hello' });
+
+    const events = parseSSE(res.text);
+    expect(events.find((e) => e.failover)).toBeDefined();
+    expect(events.find((e) => e.done).assistantMessage.content).toBe('From Groq instead.');
+    expect(events.find((e) => e.error)).toBeUndefined();
+  });
+});
+
+// ─── Local emergency fallback (user request 2026-07-25) ─────────────────────
+// When ALL cloud candidates are exhausted, the error announces it
+// (quotaExhausted flag), and the retry button may answer ONCE via the local
+// model — without touching the stored settings.
+
+describe('local emergency fallback when every cloud quota is gone', () => {
+  const dailyQuotaError = () =>
+    Object.assign(new Error('Quota exceeded for metric generate_requests_per_model_per_day'), { status: 429 });
+
+  it('flags the error event when all candidates are exhausted', async () => {
+    const { setSetting } = require('../llm');
+    setSetting(db, 'llm_provider', 'gemini');
+    setSetting(db, 'gemini_api_key', 'AIza-test');
+    mockCreate.mockRejectedValue(dailyQuotaError());
+    const chat = await request(app).post('/api/chats').send({ title: 'EX' });
+
+    const res = await request(app)
+      .post(`/api/chats/${chat.body.id}/messages`)
+      .send({ content: 'hello' });
+
+    const errorEvent = parseSSE(res.text).find((e) => e.error);
+    expect(errorEvent.quotaExhausted).toBe(true);
+    // retryAt = earliest cooldown expiry (mockup-quota-states §04): a daily
+    // limit cools until UTC midnight, so the timestamp lies in the future.
+    expect(new Date(errorEvent.retryAt).getTime()).toBeGreaterThan(Date.now());
+    // quotaReason picks the precise card copy (mockup-quota-states v3).
+    expect(errorEvent.quotaReason).toBe('daily');
+  });
+
+  it('reports cooling models on GET /api/quota-cooldowns for the picker badges', async () => {
+    const { setSetting } = require('../llm');
+    setSetting(db, 'llm_provider', 'gemini');
+    setSetting(db, 'gemini_api_key', 'AIza-test');
+    mockCreate.mockRejectedValue(dailyQuotaError());
+    const chat = await request(app).post('/api/chats').send({ title: 'EX' });
+    await request(app)
+      .post(`/api/chats/${chat.body.id}/messages`)
+      .send({ content: 'hello' });
+
+    const res = await request(app).get('/api/quota-cooldowns');
+    expect(res.status).toBe(200);
+    expect(res.body.cooldowns.length).toBeGreaterThan(0);
+    const entry = res.body.cooldowns.find((c) => c.provider === 'gemini');
+    expect(entry).toBeDefined();
+    expect(new Date(entry.until).getTime()).toBeGreaterThan(Date.now());
+  });
+
+  it('regenerates once via the local model when provider "ollama" is requested', async () => {
+    const { setSetting } = require('../llm');
+    setSetting(db, 'llm_provider', 'gemini');
+    setSetting(db, 'gemini_api_key', 'AIza-test');
+    const chatId = 'chat-local-fb';
+    db.prepare('INSERT INTO chats (id, title, created_at) VALUES (?, ?, ?)')
+      .run(chatId, 'EX', '2026-07-25T10:00:00.000Z');
+    db.prepare('INSERT INTO messages (id, chat_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)')
+      .run('q1', chatId, 'user', 'the question', '2026-07-25T10:00:01.000Z');
+    db.prepare('INSERT INTO messages (id, chat_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)')
+      .run('f1', chatId, 'assistant', '*Failed*', '2026-07-25T10:00:02.000Z');
+    mockCreate.mockResolvedValueOnce(makeStream(['Local answer.']));
+
+    const res = await request(app)
+      .post(`/api/chats/${chatId}/messages/regenerate`)
+      .send({ messageId: 'f1', provider: 'ollama' });
+
+    const events = parseSSE(res.text);
+    expect(events.find((e) => e.done).assistantMessage.content).toBe('Local answer.');
+    // The one-off answer used the local model — no key, local baseURL…
+    expect(mockCreate.mock.calls[0][0].model).toBe('qwen3.5:9b');
+    // …and the stored settings stayed on gemini.
+    const settings = await request(app).get('/api/settings');
+    expect(settings.body.llm_provider).toBe('gemini');
+  });
+
+  it('rejects provider overrides other than ollama', async () => {
+    const chatId = 'chat-local-fb2';
+    db.prepare('INSERT INTO chats (id, title, created_at) VALUES (?, ?, ?)')
+      .run(chatId, 'EX', '2026-07-25T10:00:00.000Z');
+    db.prepare('INSERT INTO messages (id, chat_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)')
+      .run('f1', chatId, 'assistant', '*Failed*', '2026-07-25T10:00:02.000Z');
+
+    const res = await request(app)
+      .post(`/api/chats/${chatId}/messages/regenerate`)
+      .send({ messageId: 'f1', provider: 'openai' });
+    expect(res.status).toBe(400);
+  });
+});
+
+// ─── failReason — honest cards for swallowed errors (mockup-model-flow §05/§06) ─
+// no_key / bad_key / no_vision were persisted as bare '*Failed*' markers; the
+// UI could only render the generic row with a retry that fails identically.
+// The SSE error and the persisted marker now carry the machine-readable cause.
+
+describe('failReason for swallowed errors', () => {
+  it('no_key: reports failReason + provider on the error event and persists it', async () => {
+    const { setSetting } = require('../llm');
+    setSetting(db, 'llm_provider', 'gemini'); // no gemini_api_key set
+    const chat = await request(app).post('/api/chats').send({ title: 'NK' });
+
+    const res = await request(app)
+      .post(`/api/chats/${chat.body.id}/messages`)
+      .send({ content: 'hello' });
+
+    const errorEvent = parseSSE(res.text).find((e) => e.error);
+    expect(errorEvent.failReason).toBe('no_key');
+    expect(errorEvent.failProvider).toBe('gemini');
+    // The marker keeps the cause so the card survives a reload (§06).
+    const marker = db.prepare(
+      "SELECT * FROM messages WHERE chat_id = ? AND role = 'assistant'"
+    ).get(chat.body.id);
+    expect(marker.content).toBe('*Failed*');
+    expect(marker.fail_reason).toBe('no_key');
+    // GET returns the column for the reload path.
+    const loaded = await request(app).get(`/api/chats/${chat.body.id}`);
+    const row = loaded.body.messages.find((m) => m.role === 'assistant');
+    expect(row.fail_reason).toBe('no_key');
+  });
+});
+
+describe('failReason for swallowed errors — no_vision and bad_key', () => {
+  const PNG = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+    'base64'
+  );
+
+  it('no_vision: names the model on the error event and persists the cause', async () => {
+    const { setSetting } = require('../llm');
+    setSetting(db, 'llm_provider', 'groq');
+    setSetting(db, 'groq_api_key', 'gsk-test');
+    setSetting(db, 'groq_model', 'openai/gpt-oss-120b'); // vision: false
+    const chat = await request(app).post('/api/chats').send({ title: 'NV' });
+
+    const res = await request(app)
+      .post(`/api/chats/${chat.body.id}/messages`)
+      .field('text', 'What does this figure show?')
+      .attach('files', PNG, { filename: 'figure.png', contentType: 'image/png' });
+
+    const errorEvent = parseSSE(res.text).find((e) => e.error);
+    expect(errorEvent.failReason).toBe('no_vision');
+    expect(errorEvent.failModel).toBe('openai/gpt-oss-120b');
+    const marker = db.prepare(
+      "SELECT * FROM messages WHERE chat_id = ? AND role = 'assistant'"
+    ).get(chat.body.id);
+    expect(marker.fail_reason).toBe('no_vision');
+  });
+
+  it('bad_key: a 401 mid-use (key revoked after saving) is classified, not generic', async () => {
+    const { setSetting } = require('../llm');
+    setSetting(db, 'llm_provider', 'gemini');
+    setSetting(db, 'gemini_api_key', 'AIza-revoked');
+    mockCreate.mockRejectedValue(Object.assign(new Error('Invalid API key'), { status: 401 }));
+    const chat = await request(app).post('/api/chats').send({ title: 'BK' });
+
+    const res = await request(app)
+      .post(`/api/chats/${chat.body.id}/messages`)
+      .send({ content: 'hello' });
+
+    const errorEvent = parseSSE(res.text).find((e) => e.error);
+    expect(errorEvent.failReason).toBe('bad_key');
+    expect(errorEvent.failProvider).toBe('gemini');
+    const marker = db.prepare(
+      "SELECT * FROM messages WHERE chat_id = ? AND role = 'assistant'"
+    ).get(chat.body.id);
+    expect(marker.fail_reason).toBe('bad_key');
+  });
+});
+
+// ─── Interrupted gets an exit (mockup-model-flow §09) ────────────────────────
+// '*Interrupted*' was a dead end: no retry in the UI and the regenerate
+// endpoint accepted only '*Failed*'. Any accidental stop, reload mid-answer
+// or connection drop forced the user to re-type the question.
+
+describe('regenerate accepts *Interrupted* markers', () => {
+  it('anchored: re-answers the question above an *Interrupted* marker in place', async () => {
+    const chatId = 'chat-int-1';
+    db.prepare('INSERT INTO chats (id, title, created_at) VALUES (?, ?, ?)')
+      .run(chatId, 'INT', '2026-07-26T10:00:00.000Z');
+    db.prepare('INSERT INTO messages (id, chat_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)')
+      .run('q1', chatId, 'user', 'the question', '2026-07-26T10:00:01.000Z');
+    db.prepare('INSERT INTO messages (id, chat_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)')
+      .run('i1', chatId, 'assistant', '*Interrupted*', '2026-07-26T10:00:02.000Z');
+    mockCreate.mockResolvedValueOnce(makeStream(['Full answer this time.']));
+    mockCreate.mockResolvedValueOnce({ choices: [{ message: { content: 'Title' } }] });
+
+    const res = await request(app)
+      .post(`/api/chats/${chatId}/messages/regenerate`)
+      .send({ messageId: 'i1' });
+
+    const events = parseSSE(res.text);
+    expect(events.find((e) => e.done).assistantMessage.content).toBe('Full answer this time.');
+    // The marker is gone; the replacement takes its slot.
+    const rows = db.prepare(
+      "SELECT * FROM messages WHERE chat_id = ? AND role = 'assistant'"
+    ).all(chatId);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].created_at).toBe('2026-07-26T10:00:02.000Z');
+  });
+
+  it('non-anchored: a trailing *Interrupted* also counts (post-drop reconciliation)', async () => {
+    const chatId = 'chat-int-2';
+    db.prepare('INSERT INTO chats (id, title, created_at) VALUES (?, ?, ?)')
+      .run(chatId, 'INT', '2026-07-26T10:00:00.000Z');
+    db.prepare('INSERT INTO messages (id, chat_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)')
+      .run('q1', chatId, 'user', 'the question', '2026-07-26T10:00:01.000Z');
+    db.prepare('INSERT INTO messages (id, chat_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)')
+      .run('i1', chatId, 'assistant', '*Interrupted*', '2026-07-26T10:00:02.000Z');
+    mockCreate.mockResolvedValueOnce(makeStream(['Recovered.']));
+    mockCreate.mockResolvedValueOnce({ choices: [{ message: { content: 'Title' } }] });
+
+    const res = await request(app)
+      .post(`/api/chats/${chatId}/messages/regenerate`)
+      .send({});
+
+    const events = parseSSE(res.text);
+    expect(events.find((e) => e.done).assistantMessage.content).toBe('Recovered.');
+  });
+});
+
+describe('abort during a rate-limit wait', () => {
+  it('persists *Interrupted*, not *Failed* — the UI already says "Unterbrochen"', async () => {
+    // Audit 2 (2026-07-26): stop during the 429 sleep hit the generic catch
+    // and persisted *Failed*; after a reload the row silently flipped from
+    // "Unterbrochen" to a failed row. One abort = one truth: *Interrupted*.
+    const { setSetting } = require('../llm');
+    setSetting(db, 'llm_provider', 'gemini');
+    setSetting(db, 'gemini_api_key', 'AIza-test');
+    const err429 = Object.assign(new Error('Rate limit exceeded'), {
+      status: 429, headers: { 'retry-after': '2' },
+    });
+    mockCreate.mockRejectedValue(err429);
+    const chat = await request(app).post('/api/chats').send({ title: 'ABRL' });
+
+    const req = request(app)
+      .post(`/api/chats/${chat.body.id}/messages`)
+      .send({ content: 'hello' });
+    setTimeout(() => req.abort(), 300); // both candidates 429'd; job sleeps
+    await req.catch(() => { /* aborted by us */ });
+    await new Promise((r) => setTimeout(r, 250)); // let the job finish persisting
+
+    const saved = db.prepare(
+      "SELECT content, fail_reason FROM messages WHERE chat_id = ? AND role = 'assistant'"
+    ).all(chat.body.id);
+    expect(saved).toHaveLength(1);
+    expect(saved[0].content).toBe('*Interrupted*');
+    expect(saved[0].fail_reason).toBeNull();
+  });
+});
+
+// ─── Nothing gets lost — persist at enqueue (mockup-model-flow §10) ──────────
+// The user message used to be persisted only at dequeue; a reload while
+// waiting deleted the question WITHOUT TRACE. Now it is persisted as
+// pending=1 at enqueue: a disconnect keeps it (silent-loss protection),
+// only an explicit DELETE (the stop button on a queued job) removes it.
+
+describe('persist at enqueue', () => {
+  const realFetch = global.fetch;
+  beforeEach(() => {
+    global.fetch = jest.fn().mockResolvedValue({ ok: true, json: async () => ({}) });
+  });
+  afterEach(() => { global.fetch = realFetch; });
+
+  function hangingFirstAnswer() {
+    let release;
+    const gate = new Promise((r) => { release = r; });
+    mockCreate.mockImplementationOnce(() => ({
+      [Symbol.asyncIterator]: async function* () {
+        await gate;
+        yield { choices: [{ delta: { content: 'Answer one' } }] };
+        yield { choices: [{ delta: {} }] };
+      },
+    }));
+    return () => release();
+  }
+
+  it('a queued question survives a client disconnect as a pending row', async () => {
+    const chatA = await request(app).post('/api/chats').send({ title: 'A' });
+    const chatB = await request(app).post('/api/chats').send({ title: 'B' });
+    const release = hangingFirstAnswer();
+    mockCreate.mockResolvedValue({ choices: [{ message: { content: 'Title' } }] });
+
+    const p1 = request(app).post(`/api/chats/${chatA.body.id}/messages`)
+      .send({ content: 'Slow?' }).buffer(true).then((r) => r);
+    await new Promise((r) => setTimeout(r, 50));
+    const req2 = request(app).post(`/api/chats/${chatB.body.id}/messages`)
+      .send({ content: 'Will I survive a reload?' });
+    const p2 = req2.then((r) => r, () => null);
+    await new Promise((r) => setTimeout(r, 50));
+
+    try {
+      // While queued, the question is already in the DB — marked pending.
+      const queuedRow = db.prepare(
+        "SELECT * FROM messages WHERE chat_id = ? AND role = 'user'"
+      ).get(chatB.body.id);
+      expect(queuedRow).toBeDefined();
+      expect(queuedRow.pending).toBe(1);
+    } finally {
+      req2.abort(); // reload/close while waiting
+      await p2;
+      await new Promise((r) => setTimeout(r, 50));
+      release();
+      await p1;
+    }
+
+    // The question is still there; it never ran (no answer, still pending).
+    const rows = db.prepare('SELECT * FROM messages WHERE chat_id = ?').all(chatB.body.id);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].content).toBe('Will I survive a reload?');
+    expect(rows[0].pending).toBe(1);
+    expect(mockCreate.mock.calls.every((c) => {
+      const texts = (c[0].messages || []).map((m) => (typeof m.content === 'string' ? m.content : '')).join(' ');
+      return !texts.includes('Will I survive a reload?');
+    })).toBe(true);
+  });
+
+  it('DELETE on a pending question removes it — explicit stop counts as never asked', async () => {
+    const chatA = await request(app).post('/api/chats').send({ title: 'A' });
+    const chatB = await request(app).post('/api/chats').send({ title: 'B' });
+    const release = hangingFirstAnswer();
+    mockCreate.mockResolvedValue({ choices: [{ message: { content: 'Title' } }] });
+
+    const p1 = request(app).post(`/api/chats/${chatA.body.id}/messages`)
+      .send({ content: 'Slow?' }).buffer(true).then((r) => r);
+    await new Promise((r) => setTimeout(r, 50));
+    const req2 = request(app).post(`/api/chats/${chatB.body.id}/messages`)
+      .send({ content: 'Cancel me.' });
+    const p2 = req2.then((r) => r, () => null);
+    await new Promise((r) => setTimeout(r, 50));
+
+    try {
+      const queuedRow = db.prepare(
+        "SELECT * FROM messages WHERE chat_id = ? AND role = 'user'"
+      ).get(chatB.body.id);
+      expect(queuedRow).toBeDefined();
+      const del = await request(app).delete(`/api/chats/${chatB.body.id}/messages/${queuedRow.id}`);
+      expect(del.status).toBe(200);
+    } finally {
+      req2.abort();
+      await p2;
+      release();
+      await p1;
+    }
+
+    expect(db.prepare('SELECT * FROM messages WHERE chat_id = ?').all(chatB.body.id)).toHaveLength(0);
+  });
+
+  it('DELETE refuses non-pending messages', async () => {
+    const chatId = 'chat-del-guard';
+    db.prepare('INSERT INTO chats (id, title, created_at) VALUES (?, ?, ?)')
+      .run(chatId, 'G', '2026-07-26T10:00:00.000Z');
+    db.prepare('INSERT INTO messages (id, chat_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)')
+      .run('m1', chatId, 'user', 'answered question', '2026-07-26T10:00:01.000Z');
+
+    const del = await request(app).delete(`/api/chats/${chatId}/messages/m1`);
+    expect(del.status).toBe(409);
+    expect(db.prepare('SELECT * FROM messages WHERE chat_id = ?').all(chatId)).toHaveLength(1);
+  });
+});
+
+// ─── Privacy guard — failover never leaves Lokal silently (§11) ──────────────
+// Audit 2 (2026-07-26): a missing/mistyped local model 404'd and the ladder
+// silently shipped the question INCLUDING paper context to a keyed cloud
+// provider, mislabeled as a quota failover, with a 24 h redirect. The local
+// provider is a privacy promise: automatic failover never crosses it.
+
+describe('privacy guard for the local provider', () => {
+  it('local model missing: fails with local_missing instead of going to the cloud', async () => {
+    const { setSetting } = require('../llm');
+    setSetting(db, 'llm_provider', 'ollama');
+    setSetting(db, 'gemini_api_key', 'AIza-test'); // a keyed cloud provider exists
+    mockCreate.mockRejectedValue(Object.assign(
+      new Error('model "qwen3.5:9b" not found, try pulling it first'), { status: 404 }
+    ));
+    const chat = await request(app).post('/api/chats').send({ title: 'PG' });
+
+    const res = await request(app)
+      .post(`/api/chats/${chat.body.id}/messages`)
+      .send({ content: 'private question about my paper' });
+
+    const events = parseSSE(res.text);
+    expect(events.find((e) => e.failover)).toBeUndefined(); // NEVER local→cloud
+    const errorEvent = events.find((e) => e.error);
+    expect(errorEvent.failReason).toBe('local_missing');
+    expect(errorEvent.failModel).toBe('qwen3.5:9b');
+    // Exactly one upstream attempt — the question never reached the cloud.
+    expect(mockCreate).toHaveBeenCalledTimes(1);
+    const marker = db.prepare(
+      "SELECT * FROM messages WHERE chat_id = ? AND role = 'assistant'"
+    ).get(chat.body.id);
+    expect(marker.fail_reason).toBe('local_missing');
+  });
+
+  it('re-pulled model works immediately — no lingering 24 h cooldown', async () => {
+    const { setSetting } = require('../llm');
+    setSetting(db, 'llm_provider', 'ollama');
+    mockCreate.mockRejectedValueOnce(Object.assign(
+      new Error('model "qwen3.5:9b" not found, try pulling it first'), { status: 404 }
+    ));
+    const chat = await request(app).post('/api/chats').send({ title: 'PG2' });
+    await request(app).post(`/api/chats/${chat.body.id}/messages`).send({ content: 'fails' });
+
+    // "ollama pull" happened — the very next question must reach the model.
+    mockCreate.mockResolvedValueOnce(makeStream(['Back again.']));
+    mockCreate.mockResolvedValueOnce({ choices: [{ message: { content: 'Title' } }] });
+    const res = await request(app)
+      .post(`/api/chats/${chat.body.id}/messages`)
+      .send({ content: 'works now?' });
+
+    const events = parseSSE(res.text);
+    expect(events.find((e) => e.failover)).toBeUndefined();
+    expect(events.find((e) => e.done)?.assistantMessage.content).toBe('Back again.');
+  });
+
+  it('Ollama down: fails with local_unreachable instead of the generic row', async () => {
+    const { setSetting } = require('../llm');
+    setSetting(db, 'llm_provider', 'ollama');
+    mockCreate.mockRejectedValue(new Error('Connection error.'));
+    const chat = await request(app).post('/api/chats').send({ title: 'PG3' });
+
+    const res = await request(app)
+      .post(`/api/chats/${chat.body.id}/messages`)
+      .send({ content: 'hello' });
+
+    const errorEvent = parseSSE(res.text).find((e) => e.error);
+    expect(errorEvent.failReason).toBe('local_unreachable');
+    expect(parseSSE(res.text).find((e) => e.failover)).toBeUndefined();
+  });
+});
+
+// ─── Honest retryAt + billing provider (§08) ─────────────────────────────────
+// retryAt was the global minimum over ALL cooldowns: a sibling's 90 s minute
+// cooldown put daily cards below the 5-minute threshold — daily copy with a
+// contradictory 90 s countdown and no clock line. The daily card's clock now
+// comes from DAILY cooldowns only, and the error names the provider that hit
+// the limit so "Limit erhöhen" opens the right billing page.
+
+describe('honest retryAt per quota reason', () => {
+  function err429(message) {
+    return Object.assign(new Error(message), { status: 429, headers: { 'retry-after': '0' } });
+  }
+
+  it('daily error: retryAt comes from the daily cooldown, not a sibling 90 s one', async () => {
+    const { setSetting } = require('../llm');
+    setSetting(db, 'llm_provider', 'gemini');
+    setSetting(db, 'gemini_api_key', 'AIza-test');
+    mockCreate
+      .mockRejectedValueOnce(err429('Rate limit exceeded, slow down'))          // flash: minute → 90 s
+      .mockRejectedValue(err429('Quota exceeded for generate_requests_per_day')); // pro: daily → midnight
+
+    const chat = await request(app).post('/api/chats').send({ title: 'HR' });
+    const res = await request(app)
+      .post(`/api/chats/${chat.body.id}/messages`)
+      .send({ content: 'hello' });
+
+    const errorEvent = parseSSE(res.text).find((e) => e.error);
+    expect(errorEvent.quotaReason).toBe('daily');
+    // Honest clock: UTC midnight (the daily reset), NOT flash's 90 s cooldown.
+    expect(new Date(errorEvent.retryAt).getTime()).toBeGreaterThan(Date.now() + 10 * 60 * 1000);
+    // Billing link target: the provider whose limit actually hit.
+    expect(errorEvent.failProvider).toBe('gemini');
+  });
+});
+
+// ─── Queue split — cloud parallel, local FIFO (§07, decided 2026-07-25) ──────
+// The FIFO exists for Ollama's single KV slot. Cloud providers rate-limit
+// server-side — serializing a sub-second Gemini question behind a minutes-
+// long local generation was pure wait. Cloud jobs now bypass the queue.
+
+describe('queue split: cloud parallel, local FIFO', () => {
+  const realFetch = global.fetch;
+  beforeEach(() => {
+    global.fetch = jest.fn().mockResolvedValue({ ok: true, json: async () => ({}) });
+  });
+  afterEach(() => { global.fetch = realFetch; });
+
+  function gatedStream(text) {
+    let release;
+    const gate = new Promise((r) => { release = r; });
+    const stream = {
+      [Symbol.asyncIterator]: async function* () {
+        await gate;
+        yield { choices: [{ delta: { content: text } }] };
+        yield { choices: [{ delta: {} }] };
+      },
+    };
+    return { stream, release: () => release() };
+  }
+
+  it('two cloud questions run in parallel — no queued event, no waiting', async () => {
+    const { setSetting } = require('../llm');
+    setSetting(db, 'llm_provider', 'gemini');
+    setSetting(db, 'gemini_api_key', 'AIza-test');
+    const slow = gatedStream('Slow cloud answer');
+    // Title calls resolve instantly; the gated stream is only the FIRST call.
+    mockCreate.mockImplementationOnce(() => slow.stream);
+    mockCreate.mockImplementation((payload) =>
+      payload.stream === undefined
+        ? Promise.resolve({ choices: [{ message: { content: 'Title' } }] })
+        : makeStream(['Fast cloud answer']));
+
+    const chatA = await request(app).post('/api/chats').send({ title: 'CA' });
+    const chatB = await request(app).post('/api/chats').send({ title: 'CB' });
+
+    const p1 = request(app).post(`/api/chats/${chatA.body.id}/messages`)
+      .send({ content: 'Slow?' }).buffer(true).then((r) => r);
+    await new Promise((r) => setTimeout(r, 50));
+    const p2 = request(app).post(`/api/chats/${chatB.body.id}/messages`)
+      .send({ content: 'Fast?' }).buffer(true).then((r) => r);
+    // Race against a timeout so a serialized (= broken) B fails instead of
+    // deadlocking the test: B must finish while A is still generating.
+    const res2 = await Promise.race([
+      p2,
+      new Promise((r) => setTimeout(() => r(null), 1500)),
+    ]);
+
+    try {
+      expect(res2).not.toBeNull();
+      const events2 = parseSSE(res2.text);
+      expect(events2.find((e) => e.queued)).toBeUndefined();
+      expect(events2.find((e) => e.done)).toBeDefined();
+    } finally {
+      slow.release();
+      await p1;
+      await p2;
+    }
+  });
+
+  it('a cloud question does not wait behind a running local generation', async () => {
+    const { setSetting } = require('../llm');
+    const slow = gatedStream('Slow local answer');
+    mockCreate.mockImplementationOnce(() => slow.stream);
+    mockCreate.mockImplementation(() => makeStream(['Cloud answer']));
+
+    const chatA = await request(app).post('/api/chats').send({ title: 'LA' });
+    const chatB = await request(app).post('/api/chats').send({ title: 'LB' });
+
+    const p1 = request(app).post(`/api/chats/${chatA.body.id}/messages`)
+      .send({ content: 'Slow local?' }).buffer(true).then((r) => r);
+    await new Promise((r) => setTimeout(r, 50));
+
+    setSetting(db, 'llm_provider', 'gemini');
+    setSetting(db, 'gemini_api_key', 'AIza-test');
+    const p2 = request(app).post(`/api/chats/${chatB.body.id}/messages`)
+      .send({ content: 'Cloud now?' }).buffer(true).then((r) => r);
+    const res2 = await Promise.race([
+      p2,
+      new Promise((r) => setTimeout(() => r(null), 1500)),
+    ]);
+
+    try {
+      expect(res2).not.toBeNull();
+      const events2 = parseSSE(res2.text);
+      expect(events2.find((e) => e.queued)).toBeUndefined();
+      expect(events2.find((e) => e.done)).toBeDefined();
+    } finally {
+      slow.release();
+      await p1;
+      await p2;
+      setSetting(db, 'llm_provider', 'ollama');
+    }
+  });
+
+  it('queued events name the waiting model and the question currently answering', async () => {
+    const slow = gatedStream('Answer one');
+    mockCreate.mockImplementationOnce(() => slow.stream);
+    mockCreate.mockImplementation(() => makeStream(['Answer two']));
+
+    const chatA = await request(app).post('/api/chats').send({ title: 'QA' });
+    const chatB = await request(app).post('/api/chats').send({ title: 'QB' });
+
+    const p1 = request(app).post(`/api/chats/${chatA.body.id}/messages`)
+      .send({ content: 'Which LoRA rank did they use?' }).buffer(true).then((r) => r);
+    await new Promise((r) => setTimeout(r, 50));
+    const p2 = request(app).post(`/api/chats/${chatB.body.id}/messages`)
+      .send({ content: 'Queued one' }).buffer(true).then((r) => r);
+    await new Promise((r) => setTimeout(r, 50));
+
+    slow.release();
+    const [, res2] = await Promise.all([p1, p2]);
+
+    const queued = parseSSE(res2.text).find((e) => e.queued)?.queued;
+    expect(queued.ahead).toBe(1);
+    // The chip: which model will answer this waiting question.
+    expect(queued.model).toBe('qwen3.5:9b');
+    // The link target: the chat whose question is being answered right now.
+    expect(queued.current).toMatchObject({ chatId: chatA.body.id });
+    expect(queued.current.question).toContain('Which LoRA rank');
+  });
+});
+
+describe('queue split: settings kick + prompt hygiene', () => {
+  const realFetch = global.fetch;
+  beforeEach(() => {
+    global.fetch = jest.fn().mockResolvedValue({ ok: true, json: async () => ({}) });
+  });
+  afterEach(() => { global.fetch = realFetch; });
+
+  it('switching to a cloud provider releases waiting local questions immediately', async () => {
+    const { setSetting } = require('../llm');
+    setSetting(db, 'gemini_api_key', 'AIza-test');
+    let release;
+    const gate = new Promise((r) => { release = r; });
+    mockCreate.mockImplementationOnce(() => ({
+      [Symbol.asyncIterator]: async function* () {
+        await gate;
+        yield { choices: [{ delta: { content: 'Slow local' } }] };
+        yield { choices: [{ delta: {} }] };
+      },
+    }));
+    mockCreate.mockImplementation(() => makeStream(['Cloud answer']));
+
+    const chatA = await request(app).post('/api/chats').send({ title: 'KA' });
+    const chatB = await request(app).post('/api/chats').send({ title: 'KB' });
+    const p1 = request(app).post(`/api/chats/${chatA.body.id}/messages`)
+      .send({ content: 'Slow?' }).buffer(true).then((r) => r);
+    await new Promise((r) => setTimeout(r, 50));
+    const p2 = request(app).post(`/api/chats/${chatB.body.id}/messages`)
+      .send({ content: 'Waiting…' }).buffer(true).then((r) => r);
+    await new Promise((r) => setTimeout(r, 50));
+
+    // The user switches to Gemini — the waiting question must start NOW
+    // (cloud never queues), not after the slow local answer.
+    await request(app).put('/api/settings').send({ llm_provider: 'gemini' });
+    const res2 = await Promise.race([
+      p2,
+      new Promise((r) => setTimeout(() => r(null), 1500)),
+    ]);
+
+    try {
+      expect(res2).not.toBeNull();
+      expect(parseSSE(res2.text).find((e) => e.done)).toBeDefined();
+    } finally {
+      release();
+      await p1;
+      await p2;
+      const { setSetting: ss } = require('../llm');
+      ss(db, 'llm_provider', 'ollama');
+    }
+  });
+
+  it('failed and interrupted markers never reach the model prompt', async () => {
+    const chatId = 'chat-hygiene';
+    db.prepare('INSERT INTO chats (id, title, created_at) VALUES (?, ?, ?)')
+      .run(chatId, 'HY', '2026-07-26T10:00:00.000Z');
+    const ins = db.prepare('INSERT INTO messages (id, chat_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)');
+    ins.run('q1', chatId, 'user', 'First question', '2026-07-26T10:00:01.000Z');
+    ins.run('f1', chatId, 'assistant', '*Failed*', '2026-07-26T10:00:02.000Z');
+    ins.run('q2', chatId, 'user', 'Second question', '2026-07-26T10:00:03.000Z');
+    ins.run('i1', chatId, 'assistant', '*Interrupted*', '2026-07-26T10:00:04.000Z');
+    ins.run('q3', chatId, 'user', 'Third question', '2026-07-26T10:00:05.000Z');
+    ins.run('a3', chatId, 'assistant', 'A real answer', '2026-07-26T10:00:06.000Z');
+    mockCreate.mockResolvedValueOnce(makeStream(['Fine.']));
+
+    await request(app).post(`/api/chats/${chatId}/messages`).send({ content: 'Now?' });
+
+    const sent = mockCreate.mock.calls[0][0].messages
+      .map((m) => (typeof m.content === 'string' ? m.content : ''))
+      .join('\n');
+    expect(sent).not.toContain('*Failed*');
+    expect(sent).not.toContain('*Interrupted*');
+    expect(sent).toContain('A real answer');
+  });
+
+  it('branch ancestor transcripts drop markers and pending questions', async () => {
+    const parentId = 'chat-parent-hy';
+    db.prepare('INSERT INTO chats (id, title, created_at) VALUES (?, ?, ?)')
+      .run(parentId, 'P', '2026-07-26T10:00:00.000Z');
+    const ins = db.prepare('INSERT INTO messages (id, chat_id, role, content, created_at, pending) VALUES (?, ?, ?, ?, ?, ?)');
+    ins.run('p1', parentId, 'user', 'Parent question', '2026-07-26T10:00:01.000Z', 0);
+    ins.run('p2', parentId, 'assistant', 'Parent answer', '2026-07-26T10:00:02.000Z', 0);
+    ins.run('p3', parentId, 'assistant', '*Failed*', '2026-07-26T10:00:03.000Z', 0);
+    ins.run('p4', parentId, 'user', 'Still queued', '2026-07-26T10:00:04.000Z', 1);
+    const child = await request(app).post('/api/chats')
+      .send({ title: 'C', parent_id: parentId, parent_word: 'answer' });
+    mockCreate.mockResolvedValueOnce(makeStream(['Child answer.']));
+    mockCreate.mockResolvedValue({ choices: [{ message: { content: 'Title' } }] });
+
+    await request(app).post(`/api/chats/${child.body.id}/messages`).send({ content: 'Explain.' });
+
+    // The summary refresh fires in the background too — pick the chat call
+    // (its system prompt carries the branch intro).
+    const chatCall = mockCreate.mock.calls.find((c) =>
+      String(c[0].messages[0]?.content || '').includes('exploring the term'));
+    const system = chatCall[0].messages[0].content;
+    expect(system).toContain('Parent answer');
+    expect(system).not.toContain('*Failed*');
+    expect(system).not.toContain('Still queued');
   });
 });

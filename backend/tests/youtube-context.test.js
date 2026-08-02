@@ -30,11 +30,13 @@ beforeEach(() => {
   OpenAI.mockImplementation(() => ({
     chat: { completions: { create: mockCreate } },
   }));
-  // extendOllamaKeepAlive spricht die native Ollama-API — hier gemockt.
+  // extendOllamaKeepAlive talks to the native Ollama API — mocked here.
   global.fetch = jest.fn().mockResolvedValue({ ok: true, json: async () => ({}) });
 
   if (fs.existsSync(TEST_DB_PATH)) fs.unlinkSync(TEST_DB_PATH);
   db = createDb(TEST_DB_PATH);
+  // This suite tests the local path — bypass the cloud default (ADR-0008).
+  require('../llm').setSetting(db, 'llm_provider', 'ollama');
 });
 
 afterEach(() => {
@@ -74,7 +76,7 @@ async function warmupSystemPrompt(app, chatId) {
 }
 
 describe('chat title in a video tree', () => {
-  // Simuliert die Streaming-Antwort des Modells (Muster aus messages.test.js).
+  // Simulates the model's streaming response (pattern from messages.test.js).
   function makeStream(words) {
     return {
       [Symbol.asyncIterator]: async function* () {

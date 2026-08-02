@@ -7,6 +7,9 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': 'http://localhost:3001',
+      // Attachment display URLs — same-origin in dev, matching the packaged
+      // app; the backend accepts local Hosts only (DNS-rebinding guard).
+      '/uploads': 'http://localhost:3001',
     },
   },
 })

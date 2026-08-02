@@ -200,11 +200,11 @@ describe('POST /api/papers/from-url', () => {
     expect(ftp.status).toBe(400);
   });
 
-  it('lädt das PDF, bindet es an den Tree-Root und antwortet 201 ready', async () => {
+  it('downloads the PDF, binds it to the tree root and responds 201 ready', async () => {
     db.prepare('INSERT INTO chats (id, title, parent_id, created_at) VALUES (?, ?, ?, ?)').run(
       'child-1', 'branch', chatId, '2026-07-12T00:00:00.000Z',
     );
-    // Import aus einem Branch heraus — muss trotzdem am ROOT landen (ADR-0002).
+    // Import from within a branch — must still land on the ROOT (ADR-0002).
     const res = await request(app)
       .post('/api/papers/from-url')
       .send({ url: 'https://arxiv.org/abs/1706.03762', title: 'Attention Is All You Need', chat_id: 'child-1' });
@@ -213,19 +213,19 @@ describe('POST /api/papers/from-url', () => {
     expect(res.body.status).toBe('ready');
     expect(res.body.title).toBe('Attention Is All You Need');
     expect(res.body.pdf_url).toMatch(/^\/api\/papers\/.+\/pdf$/);
-    // /abs/-URL wurde zur /pdf/-URL normalisiert.
+    // The /abs/ URL was normalized to the /pdf/ URL.
     expect(mockUrlFetchFn).toHaveBeenCalledWith(
       'https://arxiv.org/pdf/1706.03762.pdf',
       expect.anything(),
     );
     const root = db.prepare('SELECT paper_id FROM chats WHERE id = ?').get(chatId);
     expect(root.paper_id).toBe(res.body.id);
-    // Die Datei liegt auf der Platte.
+    // The file is on disk.
     const paperRow = db.prepare('SELECT pdf_path FROM papers WHERE id = ?').get(res.body.id);
     expect(fs.existsSync(paperRow.pdf_path)).toBe(true);
   });
 
-  it('antwortet 409 tree-has-source, ohne einen Download zu starten (ADR-0002/0005)', async () => {
+  it('responds 409 tree-has-source without starting a download (ADR-0002/0005)', async () => {
     db.prepare(
       "INSERT INTO papers (id, uploaded_at, pdf_path, status) VALUES ('p-existing', '2026-07-12T00:00:00.000Z', '/dev/null', 'ready')",
     ).run();
@@ -248,7 +248,7 @@ describe('POST /api/papers/from-url', () => {
     expect(res.status).toBe(404);
   });
 
-  it('probiert fallback_urls durch, wenn der Publisher die primäre URL blockt', async () => {
+  it('tries fallback_urls one by one when the publisher blocks the primary URL', async () => {
     mockUrlFetchFn
       .mockResolvedValueOnce({
         ok: false, status: 403,
@@ -272,7 +272,7 @@ describe('POST /api/papers/from-url', () => {
     expect(mockUrlFetchFn.mock.calls[1][0]).toBe('https://arxiv.org/pdf/1711.00000.pdf');
   });
 
-  it('folgt citation_pdf_url aus einer akademischen HTML-Landing-Page', async () => {
+  it('follows citation_pdf_url from an academic HTML landing page', async () => {
     mockUrlFetchFn
       .mockResolvedValueOnce({
         ok: true, status: 200,
@@ -297,7 +297,7 @@ describe('POST /api/papers/from-url', () => {
     expect(mockUrlFetchFn.mock.calls[1][0]).toBe('https://pub.example.com/real.pdf');
   });
 
-  it('routet eine nicht-akademische HTML-Antwort auf 422 not-a-paper', async () => {
+  it('routes a non-academic HTML response to 422 not-a-paper', async () => {
     mockUrlFetchFn.mockResolvedValueOnce({
       ok: true, status: 200,
       headers: { get: (k) => (k.toLowerCase() === 'content-type' ? 'text/html; charset=utf-8' : null) },
@@ -314,7 +314,7 @@ describe('POST /api/papers/from-url', () => {
     expect(res.body.message).toMatch(/doesn.t lead to a research paper/i);
   });
 
-  it('meldet Publisher-Block (502) mit Handlungsanleitung bei akademischen Signalen', async () => {
+  it('reports a publisher block (502) with action guidance when academic signals are present', async () => {
     mockUrlFetchFn
       .mockResolvedValueOnce({
         ok: true, status: 200,

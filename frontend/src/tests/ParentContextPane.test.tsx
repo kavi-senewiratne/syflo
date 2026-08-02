@@ -1,10 +1,10 @@
 /**
  * ParentContextPane.test.tsx
  *
- * Seit 2026-07-22 zeigt die Pane NUR den Elternchat (read-only) — die
- * Vorfahren-Karten sind in die Chat-Spalte umgezogen (InheritedContextBanner,
- * siehe InheritedContextBanner.test.tsx). Hier bleiben: wörtliches Rendern
- * des Elternchats und der Scroll zur Ursprungs-Nachricht.
+ * Seit 2026-07-22 zeigt die Pane NUR den Elternchat (read-only); die
+ * Vorfahren-Karten zogen damals in ein Banner der Chat-Spalte um und sind
+ * 2026-08-01 ganz entfallen. Hier bleiben: wörtliches Rendern des
+ * Elternchats und der Scroll zur Ursprungs-Nachricht.
  */
 
 import { render, screen } from '@testing-library/react';
@@ -48,7 +48,7 @@ describe('ParentContextPane', () => {
     expect(screen.getByText('What is attention exactly?')).toBeInTheDocument();
   });
 
-  it('zeigt KEINE Vorfahren-Karten mehr (umgezogen ins Kontext-Banner)', () => {
+  it('zeigt KEINE Vorfahren-Karten mehr (2026-08-01 ersatzlos entfallen)', () => {
     render(<ParentContextPane chat={makeParentChat()} {...noopProps} />);
     expect(screen.queryByTestId('ancestor-chainline')).not.toBeInTheDocument();
     expect(screen.queryByTestId(/ancestor-card-/)).not.toBeInTheDocument();

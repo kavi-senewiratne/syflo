@@ -1,6 +1,5 @@
 require('dotenv').config();
 const express = require('express');
-const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
 const { createDb } = require('./database');
@@ -14,50 +13,87 @@ fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 
 function createApp(db, options = {}) {
   const app = express();
-  app.use(cors());
+  // No CORS layer on purpose: every legitimate client is same-origin (Vite
+  // proxies /api in dev, Electron loads the backend origin directly), so
+  // browsers must NOT be granted cross-origin access to chats and settings.
   app.use(express.json());
 
-  // Hochgeladene Dateien für das Frontend bereitstellen
-  // (Bilder/Dokumente in alten Nachrichten anzeigen)
-  app.use('/uploads', express.static(UPLOADS_DIR));
+  // DNS-rebinding guard: a malicious site can point its own hostname at
+  // 127.0.0.1 and bypass same-origin checks — the Host header is the tell.
+  const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
+  app.use((req, res, next) => {
+    const hostname = (req.headers.host || '').replace(/:\d+$/, '');
+    if (!LOCAL_HOSTS.has(hostname)) {
+      return res.status(403).json({ error: 'forbidden host' });
+    }
+    next();
+  });
+
+  // Serve uploaded files for the frontend
+  // (display images/documents in old messages). Forced download headers:
+  // an uploaded HTML file must never execute same-origin with the app
+  // (<img> rendering is unaffected by Content-Disposition).
+  app.use('/uploads', express.static(UPLOADS_DIR, {
+    setHeaders: (res) => {
+      res.setHeader('Content-Disposition', 'attachment');
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+    },
+  }));
 
   app.use('/api/chats', require('./routes/chats')(db));
-  // options.messages: z. B. { extractPdfTextFn } — injizierbar für Tests.
+  // options.messages: e.g. { extractPdfTextFn } — injectable for tests.
   const messagesRouter = require('./routes/messages')(db, UPLOADS_DIR, options.messages);
   app.use('/api/chats/:chatId/messages', messagesRouter);
-  // explain teilt den Gesprächskontext-Builder des Chats (KV-Prefix-Sharing,
-  // 2026-07-25): eine Wort-Erklärung trifft so Ollamas Cache, statt den
-  // einzigen KV-Slot mit einem Standalone-Prompt zu verdrängen.
+  // Quota-cooldown snapshot for the model-picker badges (mockup-quota-states
+  // §06). The map lives in the messages router — the only place quotas are
+  // learned — so this is just a read-through.
+  app.get('/api/quota-cooldowns', (req, res) => {
+    res.json({ cooldowns: messagesRouter.getQuotaCooldowns() });
+  });
+  // explain shares the chat's conversation-context builder (KV prefix
+  // sharing, 2026-07-25): a word explanation thus hits Ollama's cache
+  // instead of evicting the single KV slot with a standalone prompt.
+  // It also shares the chat's quota memory (2026-07-28): a definition that
+  // hits a limit fails over along the same candidate ladder, and known
+  // walls are skipped by both routes.
   app.use('/api/explain', require('./routes/explain')(db, {
     buildSystemAndHistory: messagesRouter.buildSystemAndHistory,
+    isQuotaCoolingDown: messagesRouter.isQuotaCoolingDown,
+    markQuotaCooldown: messagesRouter.markQuotaCooldown,
   }));
-  // options.papers: z. B. { extractPdfTextFn, embedTextsFn } — injizierbar für Tests.
+  // options.papers: e.g. { extractPdfTextFn, embedTextsFn } — injectable for tests.
   app.use('/api/papers', require('./routes/papers')(db, UPLOADS_DIR, options.papers));
-  // options.youtube: { searchVideosFn, fetchTranscriptFn } — injizierbar für Tests.
+  // options.youtube: { searchVideosFn, fetchTranscriptFn } — injectable for tests.
   app.use('/api/youtube', require('./routes/youtube')(db, options.youtube));
-  // Highlights + Labels: Pfade wie /api/papers/:id/highlights und
-  // /api/highlight-labels leben in einem Router, daher Mount auf /api.
+  // Highlights + labels: paths like /api/papers/:id/highlights and
+  // /api/highlight-labels live in one router, hence mounted on /api.
   app.use('/api', require('./routes/highlights')(db));
-  // Chat-Text-Highlights: /api/chats/:id/message-highlights und
-  // /api/message-highlights/:id teilen sich einen Router → Mount auf /api.
+  // Chat text highlights: /api/chats/:id/message-highlights and
+  // /api/message-highlights/:id share one router → mounted on /api.
   app.use('/api', require('./routes/message-highlights')(db));
-  // Baum-weite Highlight-Übersicht für den Highlights-Drawer:
-  // /api/chats/:id/tree-highlights → Mount auf /api.
+  // Tree-wide highlight overview for the highlights drawer:
+  // /api/chats/:id/tree-highlights → mounted on /api.
   app.use('/api', require('./routes/tree-highlights')(db));
-  app.use('/api/settings', require('./routes/settings')(db, { system: options.system }));
-  // options.transcribe: { manager } — injizierbar für Tests (Fake-Whisper).
+  app.use('/api/settings', require('./routes/settings')(db, {
+    // Provider switches release waiting local questions whose provider is
+    // now cloud (mockup-model-flow §07).
+    onLLMSettingsChanged: () => messagesRouter.reevaluateQueue(),
+  }));
+  // options.transcribe: { manager } — injectable for tests (fake whisper).
   app.use('/api/transcribe', require('./routes/transcribe')(options.transcribe));
   app.use('/api/search', require('./routes/search')());
-  // options.system: { totalmem, platform } — injizierbar für Tests.
-  app.use('/api/system', require('./routes/system')(options.system));
+  // options.system: { totalmem, platform } — injectable for tests.
+  app.use('/api/usage', require('./routes/usage')(db));
+  // options.feedback: { sendFn } — injectable for tests (real default posts to Web3Forms).
+  app.use('/api/feedback', require('./routes/feedback')(db, options.feedback));
 
-  // Gepackte Desktop-App (Electron): das gebaute Frontend same-origin
-  // ausliefern, damit die relativen /api-Aufrufe ohne Proxy funktionieren.
-  // Nach den API-Routen gemountet, damit /api und /uploads Vorrang behalten.
+  // Packaged desktop app (Electron): serve the built frontend same-origin
+  // so the relative /api calls work without a proxy.
+  // Mounted after the API routes so /api and /uploads keep precedence.
   const frontendDir = options.frontendDir ?? process.env.SYFLO_FRONTEND_DIR;
   if (frontendDir) {
     app.use(express.static(frontendDir));
-    // SPA-Fallback: unbekannte Nicht-API-Pfade bekommen die index.html
+    // SPA fallback: unknown non-API paths get the index.html
     app.get(/^\/(?!api\/|uploads\/).*/, (req, res) => {
       res.sendFile(path.join(frontendDir, 'index.html'));
     });
@@ -75,7 +111,9 @@ if (require.main === module) {
   const db = createDb();
   const app = createApp(db);
   const PORT = process.env.PORT || 3001;
-  app.listen(PORT, () => {
+  // Loopback only: Syflo is a single-user local app — other devices on the
+  // network must not reach chats, uploads, or stored keys.
+  app.listen(PORT, '127.0.0.1', () => {
     console.log(`Syflo backend running on http://localhost:${PORT}`);
   });
 }

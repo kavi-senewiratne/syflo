@@ -1,9 +1,9 @@
 /**
  * tests/perf-log.test.js
  *
- * Latenz-Instrumentierung (2026-07-24): pro Antwort eine erweiterte [perf]-
- * Zeile plus — hinter einem Schalter — eine auswertbare perf.jsonl. Reine
- * Metriken, NIE Gesprächsinhalte; nichts landet in der Datenbank.
+ * Latency instrumentation (2026-07-24): per answer one extended [perf]
+ * line plus — behind a switch — an analyzable perf.jsonl. Pure
+ * metrics, NEVER conversation content; nothing lands in the database.
  */
 
 const {
@@ -26,6 +26,7 @@ const SAMPLE = {
   completionTokens: 49,
   tokensPerSecond: 23.4,
   totalMs: 14535,
+  finishReason: 'stop',
 };
 
 describe('buildPerfRecord', () => {
@@ -44,12 +45,13 @@ describe('buildPerfRecord', () => {
       genTokens: 49,
       tokS: 23.4,
       totalMs: 14535,
+      finish: 'stop',
     });
   });
 
   it('NEVER copies conversation content, even if handed some', () => {
-    // Datenschutz-Garantie: die Funktion baut den Datensatz aus einer festen
-    // Feldliste — beliebige Zusatzfelder (Frage, Antwort) dürfen nie durchsickern.
+    // Privacy guarantee: the function builds the record from a fixed field
+    // list — arbitrary extra fields (question, answer) must never leak through.
     const rec = buildPerfRecord({
       ...SAMPLE,
       question: 'What is the secret in section 7?',

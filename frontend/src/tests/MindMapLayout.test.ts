@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildLayout } from '../components/MindMap';
+import { buildLayout, findRoot } from '../components/MindMap';
 import type { Chat } from '../types';
 
 const mk = (id: string, children: Chat[] = [], parent_id: string | null = null): Chat => ({
@@ -115,5 +115,33 @@ describe('MindMap radial layout', () => {
     // The fixed radial layout should put descendants at varying y (or at least
     // not all on the same horizontal line as the root).
     expect(uniqueYs.size).toBeGreaterThan(1);
+  });
+});
+
+describe('findRoot', () => {
+  // Two trees: the newer one first (like the sidebar sorts them), so a failed
+  // lookup that falls back to the first root would return the WRONG tree.
+  const grandchild = mk('training', [], 'mha');
+  const mha = mk('mha', [grandchild], 'attention');
+  const attentionRoot = mk('attention', [mha]);
+  const marioRoot = mk('mario');
+  const chats = [marioRoot, attentionRoot];
+
+  it('finds the root for the root itself', () => {
+    expect(findRoot(chats, 'attention')?.id).toBe('attention');
+  });
+
+  it('finds the root for a direct child', () => {
+    expect(findRoot(chats, 'mha')?.id).toBe('attention');
+  });
+
+  it('finds the root for a branch two levels deep (bug 2026-07-28)', () => {
+    // Regression: only direct children were checked, so the map fell back to
+    // the first root (the wrong tree) when a deep branch was active.
+    expect(findRoot(chats, 'training')?.id).toBe('attention');
+  });
+
+  it('returns null for an unknown chat id', () => {
+    expect(findRoot(chats, 'nope')).toBeNull();
   });
 });

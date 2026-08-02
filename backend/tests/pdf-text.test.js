@@ -19,6 +19,8 @@ let db;
 beforeEach(() => {
   if (fs.existsSync(TEST_DB_PATH)) fs.unlinkSync(TEST_DB_PATH);
   db = createDb(TEST_DB_PATH);
+  // This suite tests the local path — bypass the cloud default (ADR-0008).
+  require('../llm').setSetting(db, 'llm_provider', 'ollama');
 });
 
 afterEach(() => {
@@ -84,9 +86,9 @@ describe('getTreePaperContext', () => {
   });
 
   it('re-extracts caches that were truncated by the old 40k cap', async () => {
-    // Vor dem Retrieval-Modus wurde schon beim Extrahieren gekappt — solche
-    // Caches enden mit dem Marker und müssen einmalig neu extrahiert werden,
-    // damit lange Papers vollständig in der DB liegen.
+    // Before retrieval mode, text was already capped at extraction time — such
+    // caches end with the marker and must be re-extracted once so that long
+    // papers are stored in the DB in full.
     insertPaper('p1', 'OLD HEAD OF PAPER\n[… paper text truncated]');
     insertChat('root', null, 'p1');
     const extractFn = jest.fn().mockResolvedValue('FULL RE-EXTRACTED TEXT');
@@ -106,19 +108,19 @@ describe('getTreePaperContext', () => {
 
     const ctx = await getTreePaperContext(db, 'root', extractFn);
 
-    // Besser der alte, gekappte Text als gar keiner.
+    // Better the old, truncated text than none at all.
     expect(ctx.text).toBe('OLD HEAD OF PAPER\n[… paper text truncated]');
   });
 });
 
 describe('extractPdfText', () => {
   it('extracts long PDFs in full — no 40k-char truncation', async () => {
-    // Retrieval-Modus-Grundlage: die DB hält den VOLLTEXT; Budgets gelten
-    // erst beim Prompt-Bau (messages.js), nicht bei der Extraktion.
-    // Eine Zeile pro Tj — PDF-Strings haben ein Längen-Limit, ein einzelner
-    // 54k-String würde still verworfen.
+    // Retrieval-mode foundation: the DB holds the FULL TEXT; budgets apply
+    // only at prompt-build time (messages.js), not at extraction.
+    // One line per Tj — PDF strings have a length limit, a single
+    // 54k string would be silently dropped.
     const line = 'Scaling laws for neural language models on long documents.';
-    const pdf = buildMinimalPdf(Array.from({ length: 900 }, () => line)); // ~54k Zeichen
+    const pdf = buildMinimalPdf(Array.from({ length: 900 }, () => line)); // ~54k chars
     const tmp = path.join(os.tmpdir(), `syflo-pdftext-long-${process.pid}.pdf`);
     fs.writeFileSync(tmp, pdf);
     try {
@@ -155,8 +157,8 @@ function buildMinimalPdf(text) {
     pages.push(lines.slice(i, i + LINES_PER_PAGE));
   }
 
-  // Objekt-Layout: 1=Catalog, 2=Pages, 3=Font, danach pro Seite ein
-  // Page-Objekt gefolgt von seinem Content-Stream.
+  // Object layout: 1=Catalog, 2=Pages, 3=Font, then per page one
+  // Page object followed by its content stream.
   const objects = [null, null, '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>'];
   const kids = [];
   pages.forEach((pageLines) => {

@@ -178,6 +178,36 @@ describe('ChatTree – connector lines', () => {
     expect(end.style.height).not.toBe('');
   });
 
+  it('snaps line thickness to whole device pixels at fractional zoom', () => {
+    const original = window.devicePixelRatio;
+    Object.defineProperty(window, 'devicePixelRatio', { value: 2.2, configurable: true });
+    try {
+      render(<ChatTree chats={nestedChats} {...baseProps} />);
+      // 1 CSS px would be 2.2 device px — snapped per element to 2 or 3 and
+      // therefore visibly uneven; floor(dpr)/dpr paints 2 device px everywhere.
+      const expected = `${Math.floor(2.2) / 2.2}px`;
+      expect(screen.getByTestId('tree-trunk-end').style.width).toBe(expected);
+      expect(screen.getByTestId('tree-elbow').style.height).toBe(expected);
+    } finally {
+      Object.defineProperty(window, 'devicePixelRatio', { value: original, configurable: true });
+    }
+  });
+
+  it('recomputes the line thickness when zoom changes (resize event)', () => {
+    const original = window.devicePixelRatio;
+    Object.defineProperty(window, 'devicePixelRatio', { value: 1, configurable: true });
+    try {
+      render(<ChatTree chats={nestedChats} {...baseProps} />);
+      expect(screen.getByTestId('tree-elbow').style.height).toBe('1px');
+      Object.defineProperty(window, 'devicePixelRatio', { value: 1.5, configurable: true });
+      fireEvent(window, new Event('resize'));
+      // floor(1.5) = 1 device px — the thinner snap, never the bulkier one.
+      expect(screen.getByTestId('tree-elbow').style.height).toBe(`${Math.floor(1.5) / 1.5}px`);
+    } finally {
+      Object.defineProperty(window, 'devicePixelRatio', { value: original, configurable: true });
+    }
+  });
+
   it('hides the children’s connector lines when the parent is collapsed', () => {
     render(<ChatTree chats={nestedChats} {...baseProps} />);
     const chevron = screen.getAllByRole('button').find(btn =>
@@ -186,6 +216,91 @@ describe('ChatTree – connector lines', () => {
     fireEvent.click(chevron!);
     expect(screen.queryByTestId(/tree-trunk/)).not.toBeInTheDocument();
     expect(screen.queryByTestId('tree-elbow')).not.toBeInTheDocument();
+  });
+});
+
+describe('ChatTree – path highlight (design/mockup-tree-path-highlight.html, variant B)', () => {
+  const deepChats: Chat[] = [
+    {
+      id: '1', title: 'Root', parent_id: null, parent_word: null, created_at: '',
+      children: [
+        {
+          id: '2', title: 'On path', parent_id: '1', parent_word: null, created_at: '',
+          children: [
+            { id: '3', title: 'Active leaf', parent_id: '2', parent_word: null, created_at: '', children: [] },
+          ],
+        },
+        { id: '4', title: 'Off path', parent_id: '1', parent_word: null, created_at: '', children: [] },
+      ],
+    },
+  ];
+
+  const fullPath = new Set(['1', '2', '3']);
+
+  it('colors the elbow of every node on the path to the active chat', () => {
+    render(<ChatTree chats={deepChats} {...baseProps} activeChatId="3" activePathIds={fullPath} />);
+    // 'On path' hangs off the root, 'Active leaf' hangs off 'On path' — both
+    // elbows together trace the chain from the root down to the active chat.
+    const colored = screen.getAllByTestId('tree-elbow').filter(e => e.className.includes('bg-blue-400'));
+    expect(colored.length).toBe(2);
+  });
+
+  it('does NOT color the elbow of a sibling that is off the path', () => {
+    render(<ChatTree chats={deepChats} {...baseProps} activeChatId="3" activePathIds={fullPath} />);
+    const offPathElbow = screen.getByText('Off path').closest('[data-testid="tree-child"]')?.querySelector('[data-testid="tree-elbow"]');
+    expect(offPathElbow?.className).toContain('bg-slate-300');
+  });
+
+  it('stops the colored trunk at the on-path child’s elbow — the rest carries later siblings', () => {
+    // Regression (user report 2026-08-01): 'On path' is not the last sibling,
+    // so its trunk segment continues past its own subtree down to 'Off path'.
+    // Coloring the whole segment drew a line beside unrelated rows.
+    render(<ChatTree chats={deepChats} {...baseProps} activeChatId="3" activePathIds={fullPath} />);
+    const wrapper = screen.getByText('On path').closest('[data-testid="tree-child"]')!;
+    const colored = wrapper.querySelector('[data-testid="tree-trunk-path"]') as HTMLElement;
+    const remainder = wrapper.querySelector('[data-testid="tree-trunk"]') as HTMLElement;
+    // colored piece ends at the elbow (top -2, height 18 → y = 16)
+    expect(colored.style.height).toBe('18px');
+    expect(colored.style.bottom).toBe('');
+    // the continuation below it stays neutral and runs to the wrapper's end
+    expect(remainder.className).toContain('bg-slate-300');
+    expect(remainder.style.top).toBe('16px');
+    expect(remainder.style.bottom).toBe('0px');
+  });
+
+  it('colors an earlier sibling’s trunk in full — it is the run down to the on-path child', () => {
+    const laterChild: Chat[] = [
+      {
+        id: '1', title: 'Root', parent_id: null, parent_word: null, created_at: '',
+        children: [
+          { id: '2', title: 'Before', parent_id: '1', parent_word: null, created_at: '', children: [] },
+          { id: '3', title: 'Active', parent_id: '1', parent_word: null, created_at: '', children: [] },
+        ],
+      },
+    ];
+    render(<ChatTree chats={laterChild} {...baseProps} activeChatId="3" activePathIds={new Set(['1', '3'])} />);
+    const beforeTrunk = screen.getByText('Before').closest('[data-testid="tree-child"]')?.querySelector('[data-testid="tree-trunk"]');
+    expect(beforeTrunk?.className).toContain('bg-blue-400');
+    // …but its own elbow points at an off-path row, so it stays neutral
+    const beforeElbow = screen.getByText('Before').closest('[data-testid="tree-child"]')?.querySelector('[data-testid="tree-elbow"]');
+    expect(beforeElbow?.className).toContain('bg-slate-300');
+  });
+
+  it('stacks the chat row above the connectors so no line runs into the pill', () => {
+    // Regression (user report 2026-08-01): the elbow overshoots the row's left
+    // edge by 6px, so on the selected row it was drawn inside the rounded pill.
+    render(<ChatTree chats={deepChats} {...baseProps} activeChatId="3" activePathIds={fullPath} />);
+    const activeRow = screen.getByText('Active leaf').closest('div');
+    expect(activeRow?.className).toContain('relative');
+    expect(activeRow?.className).toContain('z-[1]');
+  });
+
+  it('does not color any connector without activePathIds', () => {
+    render(<ChatTree chats={deepChats} {...baseProps} activeChatId="3" />);
+    expect(screen.queryByTestId('tree-trunk-path')).not.toBeInTheDocument();
+    screen.getAllByTestId(/tree-trunk|tree-elbow/).forEach(line => {
+      expect(line.className).toContain('bg-slate-300');
+    });
   });
 });
 

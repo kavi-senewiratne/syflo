@@ -1,23 +1,23 @@
 /**
  * retrieval.js
  *
- * Retrieval-Modus für lange Quellen (ADR-0006): Papers/Transkripte, die das
- * Kontextfenster sprengen, werden nicht mehr stumpf abgeschnitten. Stattdessen
- * wird die Quelle einmalig in Absatz-Chunks zerlegt und eingebettet
- * (source_chunks), und pro Frage wandern nur die passendsten Chunks in den
- * Prompt — hinter der Historie, damit der stabile Prefix (System-Prompt +
- * Skeleton + Historie) für Ollamas KV-Cache byte-identisch bleibt.
+ * Retrieval mode for long sources (ADR-0006): papers/transcripts that blow
+ * the context window are no longer bluntly cut off. Instead, the source is
+ * split once into paragraph chunks and embedded (source_chunks), and per
+ * question only the best-matching chunks go into the prompt — behind the
+ * history, so the stable prefix (system prompt + skeleton + history) stays
+ * byte-identical for Ollama's KV cache.
  */
 
-// Ziel-Chunkgröße ~800 Tokens (Grill 2026-07-24): groß genug für einen
-// zusammenhängenden Gedanken, klein genug für punktgenaues Retrieval.
+// Target chunk size ~800 tokens (grill 2026-07-24): big enough for a
+// coherent thought, small enough for pinpoint retrieval.
 const CHUNK_TARGET_CHARS = 2800;
-// Harte Obergrenze für einen einzelnen Chunk — nur riesige Einzel-Absätze
-// werden an Satzgrenzen (mit 1-Satz-Überlappung) zerteilt.
+// Hard upper limit for a single chunk — only huge single paragraphs are
+// split at sentence boundaries (with a 1-sentence overlap).
 const CHUNK_MAX_CHARS = 4000;
 
-// Sektions-Überschriften wissenschaftlicher Texte: nummeriert ("2.3 Results")
-// oder eines der üblichen Schlüsselwörter als eigene kurze Zeile.
+// Section headings of scientific texts: numbered ("2.3 Results") or one of
+// the usual keywords as its own short line.
 const HEADING_KEYWORDS =
   /^(abstract|introduction|background|related work|methods?|methodology|model(s)? architecture|experiments?|evaluation|results?|discussion|limitations|conclusions?|acknowledg(e)?ments?|references|appendix)\b/i;
 
@@ -27,9 +27,9 @@ function isHeading(paragraph) {
   return HEADING_KEYWORDS.test(paragraph);
 }
 
-// Zerteilt EINEN übergroßen Absatz an Satzgrenzen in Stücke ≤ targetChars,
-// mit dem jeweils letzten Satz als Überlappung — kein Gedanke reißt an der
-// Schnittkante.
+// Splits ONE oversized paragraph at sentence boundaries into pieces
+// ≤ targetChars, with the respective last sentence as overlap — no thought
+// tears at the cut edge.
 function splitOversizedParagraph(paragraph, targetChars) {
   const sentences = (paragraph.match(/[^.!?]+[.!?]+(?:\s+|$)|[^.!?]+$/g) || [paragraph]).map(
     (s) => s.trim()
@@ -52,10 +52,10 @@ function splitOversizedParagraph(paragraph, targetChars) {
 }
 
 /**
- * Zerlegt einen Quelltext in Retrieval-Chunks an Absatzgrenzen.
- * Jeder Chunk trägt die zuletzt gesehene Sektions-Überschrift (heading),
- * damit das Modell weiß, aus welchem Teil des Dokuments ein Auszug stammt.
- * Rückgabe: [{ index, heading, text }] in Dokument-Reihenfolge.
+ * Splits a source text into retrieval chunks at paragraph boundaries.
+ * Every chunk carries the most recently seen section heading (heading) so
+ * the model knows which part of the document an excerpt comes from.
+ * Returns: [{ index, heading, text }] in document order.
  */
 function chunkText(text, opts = {}) {
   const targetChars = opts.targetChars ?? CHUNK_TARGET_CHARS;
@@ -80,7 +80,7 @@ function chunkText(text, opts = {}) {
   };
 
   for (const para of paragraphs) {
-    // Riesen-Absatz: Puffer abschließen und an Satzgrenzen zerteilen.
+    // Giant paragraph: close the buffer and split at sentence boundaries.
     if (para.length > maxChars) {
       flush();
       for (const piece of splitOversizedParagraph(para, targetChars)) {
@@ -101,19 +101,20 @@ function chunkText(text, opts = {}) {
   return chunks;
 }
 
-// Embedding-Modell (Grill 2026-07-24): klein (~300 MB), läuft neben dem
-// Chat-Modell, ohne dessen KV-Cache zu verdrängen. start.command pullt es
-// im Hintergrund; fehlt es, werfen wir — Aufrufer degradieren auf die alte
-// Volltext-Kürzung.
-const EMBEDDING_MODEL = 'nomic-embed-text';
+// Embedding model: bge-m3 (switch 2026-07-25, ADR-0006 addendum) — multi-
+// lingual so German questions hit English paper chunks (benchmark:
+// DE↔EN top-5 Jaccard 0.73 vs. 0.19 with nomic-embed-text). Runs locally
+// next to the chat model as before; if it is missing, we throw — callers
+// degrade to the old full-text truncation.
+const EMBEDDING_MODEL = 'bge-m3';
 
-// Batch-Größe pro /api/embed-Aufruf — hält einzelne Requests klein, ohne
-// pro Chunk einen HTTP-Roundtrip zu zahlen.
+// Batch size per /api/embed call — keeps individual requests small without
+// paying an HTTP roundtrip per chunk.
 const EMBED_BATCH_SIZE = 32;
 
 /**
- * Bettet Texte über Ollamas native Embedding-API ein.
- * Rückgabe: ein Vektor (number[]) pro Eingabetext, in Reihenfolge.
+ * Embeds texts via Ollama's native embedding API.
+ * Returns: one vector (number[]) per input text, in order.
  */
 async function embedTexts(texts, { model = EMBEDDING_MODEL } = {}) {
   const vectors = [];
@@ -129,7 +130,7 @@ async function embedTexts(texts, { model = EMBEDDING_MODEL } = {}) {
       try {
         const body = await res.json();
         if (body && body.error) detail = body.error;
-      } catch (_) { /* Status reicht */ }
+      } catch (_) { /* status is enough */ }
       throw new Error(`Embedding with ${model} failed: ${detail}`);
     }
     const data = await res.json();
@@ -138,8 +139,8 @@ async function embedTexts(texts, { model = EMBEDDING_MODEL } = {}) {
   return vectors;
 }
 
-// Billiger, stabiler Hash des Quelltexts — erkennt Re-Extraktionen (z. B.
-// alte 40k-gekappte Caches), damit die Chunks dann neu gebaut werden.
+// Cheap, stable hash of the source text — detects re-extractions (e.g. old
+// 40k-truncated caches) so the chunks then get rebuilt.
 function hashText(text) {
   return require('crypto').createHash('sha1').update(text).digest('hex');
 }
@@ -166,25 +167,27 @@ function cosineSimilarity(a, b) {
 }
 
 /**
- * Stellt sicher, dass eine Quelle (Paper/Video) gechunkt und eingebettet in
- * source_chunks liegt. Idempotent über den Text-Hash: unveränderter Text ist
- * ein reiner Cache-Treffer, geänderter Text (Re-Extraktion) baut neu.
- * Rückgabe: Anzahl der Chunks. Wirft, wenn das Embedding fehlschlägt.
+ * Ensures a source (paper/video) is chunked and embedded in source_chunks.
+ * Idempotent via the text hash: unchanged text is a pure cache hit, changed
+ * text (re-extraction) rebuilds.
+ * Returns: number of chunks. Throws when embedding fails.
  */
 async function ensureSourceChunks(db, { sourceType, sourceId, text, embedFn = embedTexts, chunkOpts }) {
   const hash = hashText(text);
+  // Cache hit only when text AND embedding model match — chunks of another
+  // model are worthless (incompatible vector space) and get replaced.
   const existing = db
     .prepare(
-      'SELECT COUNT(*) AS n FROM source_chunks WHERE source_type = ? AND source_id = ? AND text_hash = ?'
+      'SELECT COUNT(*) AS n FROM source_chunks WHERE source_type = ? AND source_id = ? AND text_hash = ? AND embedding_model = ?'
     )
-    .get(sourceType, sourceId, hash);
+    .get(sourceType, sourceId, hash, EMBEDDING_MODEL);
   if (existing.n > 0) return existing.n;
 
   const chunks = chunkText(text, chunkOpts);
   const vectors = await embedFn(chunks.map((c) => (c.heading ? `${c.heading}\n${c.text}` : c.text)));
-  // Erreichbarer, aber kaputter Embedding-Endpoint (leere/fehlende Vektoren)
-  // ist KEIN Erfolg — sonst läge die Quelle mit unbrauchbaren Embeddings im
-  // Cache und das Retrieval lieferte stumm Unsinn.
+  // A reachable but broken embedding endpoint (empty/missing vectors) is
+  // NOT a success — otherwise the source would sit in the cache with
+  // unusable embeddings and retrieval would silently return nonsense.
   const usable =
     Array.isArray(vectors) &&
     vectors.length === chunks.length &&
@@ -195,12 +198,12 @@ async function ensureSourceChunks(db, { sourceType, sourceId, text, embedFn = em
 
   const insert = db.prepare(
     `INSERT INTO source_chunks
-       (id, source_type, source_id, chunk_index, heading, content, embedding, text_hash, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+       (id, source_type, source_id, chunk_index, heading, content, embedding, text_hash, embedding_model, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   );
   const now = new Date().toISOString();
   db.transaction(() => {
-    // Veraltete Chunks (anderer Hash) ersetzen.
+    // Replace outdated chunks (different hash).
     db.prepare('DELETE FROM source_chunks WHERE source_type = ? AND source_id = ?').run(
       sourceType,
       sourceId
@@ -215,6 +218,7 @@ async function ensureSourceChunks(db, { sourceType, sourceId, text, embedFn = em
         c.text,
         embeddingToBuffer(vectors[i]),
         hash,
+        EMBEDDING_MODEL,
         now
       );
     });
@@ -223,17 +227,18 @@ async function ensureSourceChunks(db, { sourceType, sourceId, text, embedFn = em
 }
 
 /**
- * Die k passendsten Chunks einer Quelle für eine Frage — per Kosinus-
- * Ähnlichkeit über alle gespeicherten Embeddings (JS reicht: ~100–200
- * Chunks pro Quelle), zurückgegeben in DOKUMENT-Reihenfolge, damit die
- * Auszüge im Prompt wie ein roter Faden durchs Paper lesen.
+ * The k best-matching chunks of a source for a question — via cosine
+ * similarity over all stored embeddings (JS suffices: ~100–200 chunks per
+ * source), returned in DOCUMENT order so the excerpts in the prompt read
+ * like a connecting thread through the paper.
  */
 async function retrieveChunks(db, { sourceType, sourceId, query, k = RETRIEVE_K, embedFn = embedTexts }) {
+  // Only chunks of the current model — foreign vectors would be number salad.
   const rows = db
     .prepare(
-      'SELECT chunk_index, heading, content, embedding FROM source_chunks WHERE source_type = ? AND source_id = ?'
+      'SELECT chunk_index, heading, content, embedding FROM source_chunks WHERE source_type = ? AND source_id = ? AND embedding_model = ?'
     )
-    .all(sourceType, sourceId);
+    .all(sourceType, sourceId, EMBEDDING_MODEL);
   if (rows.length === 0) return [];
 
   const [queryVec] = await embedFn([query]);
@@ -247,23 +252,23 @@ async function retrieveChunks(db, { sourceType, sourceId, query, k = RETRIEVE_K,
   return scored.slice(0, k).sort((a, b) => a.index - b.index);
 }
 
-// Wie viele Chunks pro Frage in den Prompt wandern (Grill 2026-07-24).
-// 8 → 5 (Nachtrag 2026-07-25): Der Excerpt-Block ist der einzige Teil, der
-// im Retrieval-Modus pro Frage neu prefillt wird. k=5 spart ~1,3k Tokens
-// (~4 s auf dem M4 Pro, gemessen ~300 tok/s Prefill) pro Folgefrage;
-// Überblicksfragen fängt ohnehin das Skeleton ab, nicht die Chunks.
+// How many chunks per question go into the prompt (grill 2026-07-24).
+// 8 → 5 (addendum 2026-07-25): The excerpt block is the only part that is
+// re-prefilled per question in retrieval mode. k=5 saves ~1.3k tokens
+// (~4 s on the M4 Pro, measured ~300 tok/s prefill) per follow-up question;
+// overview questions are caught by the skeleton anyway, not the chunks.
 const RETRIEVE_K = 5;
 
-// Größen des stabilen Skeletons: Anfang (Titel + Abstract) und Ende
-// (Conclusion) — die Teile, die man für fast jede Frage braucht.
+// Sizes of the stable skeleton: beginning (title + abstract) and end
+// (conclusion) — the parts needed for almost every question.
 const SKELETON_HEAD_CHARS = 3000;
 const SKELETON_TAIL_CHARS = 2500;
 
 /**
- * Das stabile Grundgerüst einer langen Quelle für den System-Prompt:
- * Anfang (Titel/Abstract), Gliederung aller erkannten Sektionen, Ende
- * (Conclusion). Bleibt pro Quelle byte-identisch — der KV-Cache-Prefix
- * überlebt jede Frage.
+ * The stable skeleton of a long source for the system prompt:
+ * beginning (title/abstract), outline of all detected sections, end
+ * (conclusion). Stays byte-identical per source — the KV cache prefix
+ * survives every question.
  */
 function buildSkeleton(text, opts = {}) {
   const headChars = opts.headChars ?? SKELETON_HEAD_CHARS;
@@ -275,12 +280,12 @@ function buildSkeleton(text, opts = {}) {
     .map((p) => p.trim())
     .filter(Boolean);
   const headings = paragraphs.filter(isHeading);
-  // Gliederung deckeln — pathologische Texte (jede Zeile "heading-artig")
-  // dürfen das Skeleton nicht sprengen.
+  // Cap the outline — pathological texts (every line "heading-like") must
+  // not blow up the skeleton.
   const outline = headings.slice(0, 40);
 
-  // Anfang/Ende an Absatzgrenzen einrasten — halbe Sätze verwirren das
-  // Modell mehr, als ein paar Zeichen weniger kosten.
+  // Snap beginning/end to paragraph boundaries — half sentences confuse the
+  // model more than a few fewer characters cost.
   const takeParagraphs = (list, budget) => {
     const taken = [];
     let len = 0;
@@ -304,11 +309,11 @@ function buildSkeleton(text, opts = {}) {
 }
 
 /**
- * Fire-and-forget-Vorbereitung einer frisch importierten Quelle: Text laden
- * (bei Papers: extrahieren + cachen) und — nur wenn er den Volltext-Modus
- * sprengen würde — chunken + einbetten. So wartet die erste Frage weder auf
- * die Extraktion noch auf das Embedding; der Lazy-Pfad beim Prompt-Bau
- * (messages.js) bleibt das Sicherheitsnetz. Fehler sind nie fatal.
+ * Fire-and-forget preparation of a freshly imported source: load the text
+ * (for papers: extract + cache) and — only if it would blow the full-text
+ * mode — chunk + embed. That way the first question waits neither for the
+ * extraction nor for the embedding; the lazy path during prompt building
+ * (messages.js) remains the safety net. Errors are never fatal.
  */
 function prepareSourceInBackground(db, { sourceType, sourceId, loadText, embedFn, thresholdChars }) {
   const threshold =
@@ -325,7 +330,7 @@ function prepareSourceInBackground(db, { sourceType, sourceId, loadText, embedFn
       });
     } catch (err) {
       console.warn(
-        `[retrieval] Hintergrund-Vorbereitung für ${sourceType} ${sourceId} fehlgeschlagen: ${err.message}`
+        `[retrieval] Background preparation for ${sourceType} ${sourceId} failed: ${err.message}`
       );
     }
   });

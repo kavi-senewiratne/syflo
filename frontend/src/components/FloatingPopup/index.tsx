@@ -29,6 +29,7 @@ import type { HighlightColor, WordPopup } from '../../types';
 import { HIGHLIGHT_COLORS } from '../../types';
 import { useLabels } from '../../hooks/useLabels';
 import { useStrings } from '../../strings';
+import { MathText, clipMathText, hasMath, plainMathText } from '../MathText';
 
 interface Props {
   popup: WordPopup | null;
@@ -220,8 +221,10 @@ export function FloatingPopup({
   const wordCount = popup.word.trim().split(/\s+/).length;
   const isPhrase = wordCount > 3 || popup.word.length > 60;
   const collapsed = isPhrase && !expanded;
+  // clipMathText: a plain slice could cut through a $…$ span and the
+  // dangling `$` would swallow the rest of the heading once rendered.
   const headerText =
-    collapsed && popup.word.length > 60 ? popup.word.slice(0, 60) + '…' : popup.word;
+    collapsed && popup.word.length > 60 ? clipMathText(popup.word, 60) : popup.word;
 
   return (
     <div
@@ -249,16 +252,16 @@ export function FloatingPopup({
             <button
               type="button"
               onClick={() => setExpanded((v) => !v)}
-              title={expanded ? S.collapse : popup.word}
+              title={expanded ? S.collapse : plainMathText(popup.word)}
               aria-expanded={expanded}
               className={`font-semibold text-sm text-gray-900 text-left w-full hover:text-blue-600 transition-colors ${
-                collapsed ? 'truncate' : 'break-words'
+                collapsed ? (hasMath(popup.word) ? 'syflo-math-fade' : 'truncate') : 'break-words'
               }`}
             >
-              "{headerText}"
+              "<MathText text={headerText} />"
             </button>
           ) : (
-            <p className="font-semibold text-sm text-gray-900 break-words">"{headerText}"</p>
+            <p className="font-semibold text-sm text-gray-900 break-words">"<MathText text={headerText} />"</p>
           )}
         </div>
         <div className="shrink-0 flex items-center gap-0.5 -mr-1 -mt-0.5">
@@ -289,7 +292,7 @@ export function FloatingPopup({
             <span>{S.loadingDefinition}</span>
           </div>
         ) : (
-          <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">{explanation}</p>
+          <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap"><MathText text={explanation} /></p>
         )}
       </div>
 

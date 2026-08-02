@@ -48,6 +48,7 @@ function chatRowToItem(row) {
     text: row.text,
     chatId: row.chat_id,
     chatTitle: row.chat_title,
+    childChatId: row.child_chat_id,
     messageId: row.message_id,
     startOffset: row.start_offset,
     endOffset: row.end_offset,
@@ -98,14 +99,14 @@ module.exports = (db) => {
         `WITH RECURSIVE tree(id, sort_path) AS (
            SELECT id, '' FROM chats WHERE id = ?
            UNION ALL
-           -- Pre-order depth-first: der Pfad-String eines Kindes beginnt mit
-           -- dem des Elternteils, ISO-Timestamps sind fix lang → lexikalische
-           -- Sortierung = Baum-Reihenfolge (Geschwister nach created_at).
+           -- Pre-order depth-first: a child's path string starts with its
+           -- parent's, ISO timestamps have fixed length → lexicographic
+           -- sorting = tree order (siblings by created_at).
            SELECT c.id, tree.sort_path || c.created_at || '/' || c.id
              FROM chats c JOIN tree ON c.parent_id = tree.id
          )
          SELECT mh.id, mh.color, mh.text, mh.start_offset, mh.end_offset,
-                mh.created_at, mh.updated_at,
+                mh.child_chat_id, mh.created_at, mh.updated_at,
                 m.id AS message_id, m.chat_id, c.title AS chat_title
            FROM message_highlights mh
            JOIN messages m ON m.id = mh.message_id

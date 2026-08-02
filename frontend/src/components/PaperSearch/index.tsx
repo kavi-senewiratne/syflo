@@ -24,6 +24,7 @@ import {
 import { api } from '../../api';
 import { allCandidatesBlocked } from './blockedHosts';
 import { useStrings } from '../../strings';
+import { MathText } from '../MathText';
 import type { SearchResult } from '../../types';
 
 type Availability = 'open' | 'manual' | 'paywalled';
@@ -211,7 +212,8 @@ export function PaperSearchModal({ onClose, onImport }: Props) {
                     className="px-2 py-3 grid grid-cols-[1fr_auto] gap-4 items-center"
                   >
                     <div className="min-w-0">
-                      <h4 className="text-sm font-semibold text-gray-900 leading-tight">{r.title}</h4>
+                      {/* arXiv titles routinely carry $…$ math (audit 2026-07-28) */}
+                      <h4 className="text-sm font-semibold text-gray-900 leading-tight"><MathText text={r.title} /></h4>
                       <p className="text-xs text-gray-500 mt-0.5 truncate">
                         {r.authors.slice(0, 3).join(', ')}
                         {r.authors.length > 3 ? ' et al.' : ''}

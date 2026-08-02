@@ -25,6 +25,7 @@ function rowToHighlight(row) {
     id: row.id,
     messageId: row.message_id,
     chatId: row.chat_id,
+    childChatId: row.child_chat_id,
     startOffset: row.start_offset,
     endOffset: row.end_offset,
     text: row.text,
@@ -38,7 +39,7 @@ function loadHighlight(db, mhid) {
   return db
     .prepare(
       `SELECT mh.id, mh.message_id, mh.start_offset, mh.end_offset, mh.text,
-              mh.color, mh.created_at, mh.updated_at, m.chat_id
+              mh.color, mh.child_chat_id, mh.created_at, mh.updated_at, m.chat_id
          FROM message_highlights mh
          JOIN messages m ON m.id = mh.message_id
         WHERE mh.id = ?`,
@@ -58,7 +59,7 @@ module.exports = (db) => {
     const rows = db
       .prepare(
         `SELECT mh.id, mh.message_id, mh.start_offset, mh.end_offset, mh.text,
-                mh.color, mh.created_at, mh.updated_at, m.chat_id
+                mh.color, mh.child_chat_id, mh.created_at, mh.updated_at, m.chat_id
            FROM message_highlights mh
            JOIN messages m ON m.id = mh.message_id
           WHERE m.chat_id = ?
@@ -73,7 +74,7 @@ module.exports = (db) => {
   // word inside it).
   router.post('/chats/:chatId/message-highlights', (req, res) => {
     const { chatId } = req.params;
-    const { messageId, color, text, startOffset, endOffset } = req.body || {};
+    const { messageId, color, text, startOffset, endOffset, childChatId } = req.body || {};
 
     if (!ALLOWED_COLORS.has(color)) {
       return res
@@ -98,37 +99,64 @@ module.exports = (db) => {
       return res.status(400).json({ error: 'message does not belong to this chat' });
     }
 
+    // If a child chat is linked, verify it exists. Otherwise the FK throws.
+    if (childChatId) {
+      const chat = db.prepare('SELECT id FROM chats WHERE id = ?').get(childChatId);
+      if (!chat) return res.status(404).json({ error: 'chat not found' });
+    }
+
     const mhid = randomUUID();
     const now = new Date().toISOString();
     db.prepare(
       `INSERT INTO message_highlights
-         (id, message_id, start_offset, end_offset, text, color, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).run(mhid, messageId, startOffset, endOffset, text, color, now, now);
+         (id, message_id, start_offset, end_offset, text, color, child_chat_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(mhid, messageId, startOffset, endOffset, text, color, childChatId || null, now, now);
 
     res.status(201).json(rowToHighlight(loadHighlight(db, mhid)));
   });
 
-  // PATCH: recolor only. Offsets and text are "where the highlight is" —
-  // moving it means delete + re-create, same policy as PDF highlights.
+  // PATCH: change color or (un)link a child chat. Offsets and text are
+  // "where the highlight is" — moving it means delete + re-create, same
+  // policy as PDF highlights.
   router.patch('/message-highlights/:mhid', (req, res) => {
     const { mhid } = req.params;
-    const { color } = req.body || {};
+    const { color, childChatId } = req.body || {};
     const existing = loadHighlight(db, mhid);
     if (!existing) return res.status(404).json({ error: 'highlight not found' });
 
-    if (!ALLOWED_COLORS.has(color)) {
+    if (color !== undefined && !ALLOWED_COLORS.has(color)) {
       return res
         .status(400)
         .json({ error: `color must be one of ${[...ALLOWED_COLORS].join(', ')}` });
     }
+    // childChatId === null is meaningful (unlink), so we distinguish
+    // "absent" from "explicit null". When present and not null, verify the
+    // chat exists.
+    if (childChatId !== undefined && childChatId !== null) {
+      const chat = db.prepare('SELECT id FROM chats WHERE id = ?').get(childChatId);
+      if (!chat) return res.status(404).json({ error: 'chat not found' });
+    }
 
     const now = new Date().toISOString();
-    db.prepare('UPDATE message_highlights SET color = ?, updated_at = ? WHERE id = ?').run(
-      color,
-      now,
-      mhid,
-    );
+    const fields = [];
+    const values = [];
+    if (color !== undefined) {
+      fields.push('color = ?');
+      values.push(color);
+    }
+    if (childChatId !== undefined) {
+      fields.push('child_chat_id = ?');
+      values.push(childChatId);
+    }
+    if (fields.length === 0) {
+      return res.status(400).json({ error: 'no editable fields provided' });
+    }
+    fields.push('updated_at = ?');
+    values.push(now);
+    values.push(mhid);
+
+    db.prepare(`UPDATE message_highlights SET ${fields.join(', ')} WHERE id = ?`).run(...values);
     res.json(rowToHighlight(loadHighlight(db, mhid)));
   });
 

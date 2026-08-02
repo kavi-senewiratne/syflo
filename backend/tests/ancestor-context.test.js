@@ -29,6 +29,8 @@ beforeEach(() => {
 
   if (fs.existsSync(TEST_DB_PATH)) fs.unlinkSync(TEST_DB_PATH);
   db = createDb(TEST_DB_PATH);
+  // This suite tests the local path — bypass the cloud default (ADR-0008).
+  require('../llm').setSetting(db, 'llm_provider', 'ollama');
 });
 
 afterEach(() => {
@@ -95,14 +97,14 @@ describe('ensureChatSummary', () => {
     expect(row.summary).toBe('Chat about attention weighing token relevance.');
     expect(row.summary_last_message_id).toBe(lastId);
 
-    // Hintergrund-Summaries dürfen nie eine Denk-Phase auslösen.
+    // Background summaries must never trigger a thinking phase.
     expect(mockCreate.mock.calls[0][0].reasoning_effort).toBe('none');
   });
 
   it('instructs the summarizer to write in the language of the summarized chat', async () => {
-    // Sprachspiegelung (Grill 2026-07-23): Summaries sind UI-sichtbar
-    // (Ahnenketten-Karten, „Display = Prompt", ADR-0003) — eine englische
-    // Zusammenfassung eines deutschen Chats stünde befremdlich in der UI.
+    // Language mirroring (grill 2026-07-23): summaries are UI-visible
+    // (ancestor-chain cards, "Display = Prompt", ADR-0003) — an English
+    // summary of a German chat would look out of place in the UI.
     insertChat({ id: 'c1', title: 'Transformer' });
     insertMessage('c1', 'user', 'Was ist Attention?');
     insertMessage('c1', 'assistant', 'Attention gewichtet Token-Relevanz.');
@@ -148,9 +150,9 @@ describe('ensureChatSummary', () => {
   });
 
   it('allowStale: returns the stale summary immediately and refreshes it in the background', async () => {
-    // Latenzkritischer Pfad (Nachricht senden): nie auf die Summary-
-    // Generierung warten — der stale Cache antwortet sofort, und die
-    // Erneuerung läuft im Hintergrund für die nächste Anfrage.
+    // Latency-critical path (sending a message): never wait for summary
+    // generation — the stale cache answers immediately, and the refresh
+    // runs in the background for the next request.
     insertChat({ id: 'c1' });
     insertMessage('c1', 'user', 'Hello');
     mockSummaryReply('Old summary.');
@@ -163,7 +165,7 @@ describe('ensureChatSummary', () => {
     expect(stale).toBe('Old summary.');
     expect(mockCreate).toHaveBeenCalledTimes(1);
 
-    // Hintergrund-Erneuerung ausrollen lassen, dann ist der Cache frisch.
+    // Let the background refresh play out, then the cache is fresh.
     await new Promise(r => setTimeout(r, 25));
     const row = db.prepare('SELECT summary FROM chats WHERE id = ?').get('c1');
     expect(row.summary).toBe('Fresh summary with new fact.');
@@ -282,10 +284,10 @@ describe('applyContextBudget', () => {
     expect(out.parentTranscript).toHaveLength(500);
   });
 
-  // Reihenfolge gedreht 2026-07-25 (vorher: Quelle zuerst gekürzt): Die
-  // Quelle ist der teuerste, im ganzen Baum byte-identisch geteilte
-  // Prompt-Präfix — sie wird zuletzt angetastet, damit der KV-Cache des
-  // Eltern-Prefills beim Branchen weiterverwendet werden kann.
+  // Order flipped 2026-07-25 (previously: source trimmed first): the
+  // source is the most expensive prompt prefix, shared byte-identically
+  // across the whole tree — it is touched last so the KV cache of the
+  // parent prefill can be reused when branching.
   it('drops ancestor summaries oldest-first before touching the source', () => {
     const out = applyContextBudget(blocks(), 1700);
     // Root (oldest) sacrificed first, the nearer ancestor survives —
@@ -311,9 +313,9 @@ describe('applyContextBudget', () => {
   });
 });
 
-// ─── Kontext-Budget vs. Ollama-Kontextfenster ────────────────────────────────
-// Das Zeichen-Budget ist aus dem Fenster abgeleitet — ein Budget über dem
-// Fenster hieße stilles Context-Shifting und einen KV-Cache, der nie greift.
+// ─── Context budget vs. Ollama context window ────────────────────────────────
+// The character budget is derived from the window — a budget above the
+// window would mean silent context shifting and a KV cache that never hits.
 
 describe('context budget vs. context window', () => {
   const {
@@ -337,10 +339,11 @@ describe('context budget vs. context window', () => {
   });
 });
 
-// ─── parseSummaryResponse: strukturierte Summaries fürs Kontext-Banner ──────
-// Der Summarizer soll JSON {gist, points, summary} liefern (Variante 3a);
-// kleine lokale Modelle schaffen das nicht immer — jeder Parse-Fehler muss
-// sanft zum Rohtext-Fallback degradieren (summary = Rohantwort, display null).
+// ─── parseSummaryResponse: structured summaries for the context banner ──────
+// The summarizer is supposed to return JSON {gist, points, summary}
+// (variant 3a); small local models don't always manage that — every parse
+// error must degrade gracefully to the raw-text fallback (summary = raw
+// reply, display null).
 
 describe('parseSummaryResponse', () => {
   const { parseSummaryResponse } = require('../ancestor-context');

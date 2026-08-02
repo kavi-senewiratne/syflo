@@ -10,10 +10,10 @@ const TEST_DB_PATH = path.join(__dirname, 'tree-highlights.test.db');
 let app;
 let db;
 
-// Fixture: ein Baum mit Paper —
+// Fixture: a tree with a paper —
 //   root (paper_id=paper-1)
-//   └── branch-1 (eine Nachricht msg-1)
-// Der Endpoint soll PDF- und Chat-Highlights des GANZEN Baums vereint liefern.
+//   └── branch-1 (one message msg-1)
+// The endpoint should return the PDF and chat highlights of the WHOLE tree combined.
 beforeEach(() => {
   if (fs.existsSync(TEST_DB_PATH)) fs.unlinkSync(TEST_DB_PATH);
   db = createDb(TEST_DB_PATH);
@@ -61,25 +61,25 @@ async function createChatHighlight(overrides = {}) {
 }
 
 describe('GET /api/chats/:id/tree-highlights', () => {
-  it('liefert Dokumentreihenfolge: PDF nach Seite, dann Chats in Baum-Reihenfolge', async () => {
-    // Zweiter Branch, NACH branch-1 erstellt, mit eigener Nachricht.
+  it('returns document order: PDF by page, then chats in tree order', async () => {
+    // Second branch, created AFTER branch-1, with its own message.
     db.prepare(
       'INSERT INTO chats (id, title, parent_id, created_at) VALUES (?, ?, ?, ?)',
     ).run('branch-2', 'marginal contribution', 'root', '2026-07-03T00:00:00.000Z');
     db.prepare(
       "INSERT INTO messages (id, chat_id, role, content, created_at) VALUES (?, ?, 'assistant', ?, ?)",
     ).run('msg-2', 'branch-2', 'the Shapley-value connection', '2026-07-03T00:01:00.000Z');
-    // Nachricht im Root-Chat — Root kommt in Baum-Reihenfolge vor den Branches.
+    // Message in the root chat — in tree order the root comes before the branches.
     db.prepare(
       "INSERT INTO messages (id, chat_id, role, content, created_at) VALUES (?, ?, 'user', ?, ?)",
     ).run('msg-root', 'root', 'softmax sampling avoids brittleness', '2026-07-01T00:01:00.000Z');
 
-    // PDF-Highlights absichtlich in "falscher" Reihenfolge angelegt: Seite 5 zuerst.
+    // PDF highlights deliberately created in the "wrong" order: page 5 first.
     await createPdfHighlight({ text: 'page five', pageNumber: 5 });
     await createPdfHighlight({ text: 'page two', pageNumber: 2 });
 
-    // Chat-Highlights kreuz und quer angelegt: branch-2 zuerst, dann root,
-    // dann zwei in branch-1 mit absteigenden Offsets in derselben Nachricht.
+    // Chat highlights created in scrambled order: branch-2 first, then root,
+    // then two in branch-1 with descending offsets in the same message.
     await request(app).post('/api/chats/branch-2/message-highlights').send({
       messageId: 'msg-2', color: 'blue', text: 'Shapley', startOffset: 4, endOffset: 11,
     });
@@ -92,16 +92,16 @@ describe('GET /api/chats/:id/tree-highlights', () => {
     const res = await request(app).get('/api/chats/root/tree-highlights');
     expect(res.status).toBe(200);
     expect(res.body.map((h) => h.text)).toEqual([
-      'page two',    // PDF, Seite 2
-      'page five',   // PDF, Seite 5
-      'softmax',     // Chat: root zuerst
-      'entropy',     // Chat: branch-1 (älter als branch-2), Offset 4 vor 22
-      'annealed',    // Chat: branch-1, Offset 22
-      'Shapley',     // Chat: branch-2 zuletzt
+      'page two',    // PDF, page 2
+      'page five',   // PDF, page 5
+      'softmax',     // chat: root first
+      'entropy',     // chat: branch-1 (older than branch-2), offset 4 before 22
+      'annealed',    // chat: branch-1, offset 22
+      'Shapley',     // chat: branch-2 last
     ]);
   });
 
-  it('vereint PDF- und Chat-Highlights des Baums mit Quell-Metadaten', async () => {
+  it('combines the tree\'s PDF and chat highlights with source metadata', async () => {
     const pdfH = await createPdfHighlight();
     const chatH = await createChatHighlight();
 
@@ -131,10 +131,22 @@ describe('GET /api/chats/:id/tree-highlights', () => {
       messageId: 'msg-1',
       startOffset: 22,
       endOffset: 30,
+      childChatId: null,
     });
   });
 
-  it('löst von einer Branch-ID zum Root auf — gleiche Antwort wie mit Root-ID', async () => {
+  it('includes childChatId when a chat highlight is linked to a branch', async () => {
+    db.prepare(
+      'INSERT INTO chats (id, title, parent_id, created_at) VALUES (?, ?, ?, ?)',
+    ).run('branch-2', 'annealing schedule', 'branch-1', '2026-07-03T00:00:00.000Z');
+    const chatH = await createChatHighlight({ childChatId: 'branch-2' });
+
+    const res = await request(app).get('/api/chats/root/tree-highlights');
+    const chatItem = res.body.find((h) => h.kind === 'chat' && h.id === chatH.id);
+    expect(chatItem.childChatId).toBe('branch-2');
+  });
+
+  it('resolves from a branch id to the root — same response as with the root id', async () => {
     await createPdfHighlight();
     await createChatHighlight();
 
@@ -144,8 +156,8 @@ describe('GET /api/chats/:id/tree-highlights', () => {
     expect(viaBranch.body).toEqual(viaRoot.body);
   });
 
-  it('liefert keine Highlights fremder Bäume', async () => {
-    // Zweiter, unabhängiger Baum mit eigenem Paper, Chat, Nachricht und Highlights.
+  it('returns no highlights from other trees', async () => {
+    // Second, independent tree with its own paper, chat, message and highlights.
     db.prepare(
       'INSERT INTO papers (id, uploaded_at, pdf_path, status) VALUES (?, ?, ?, ?)',
     ).run('paper-other', '2026-07-05T00:00:00.000Z', '/dev/null', 'ready');
@@ -170,12 +182,12 @@ describe('GET /api/chats/:id/tree-highlights', () => {
     expect(res.body.every((h) => h.color !== 'pink')).toBe(true);
   });
 
-  it('gibt 404 für unbekannte Chat-ID', async () => {
+  it('returns 404 for an unknown chat id', async () => {
     const res = await request(app).get('/api/chats/missing/tree-highlights');
     expect(res.status).toBe(404);
   });
 
-  it('funktioniert für Bäume ohne PDF — nur Chat-Highlights', async () => {
+  it('works for trees without a PDF — chat highlights only', async () => {
     db.prepare(
       'INSERT INTO chats (id, title, created_at) VALUES (?, ?, ?)',
     ).run('nopdf-root', 'plain tree', '2026-07-06T00:00:00.000Z');

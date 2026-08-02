@@ -1,24 +1,26 @@
 /**
  * components/SettingsModal/index.tsx
  *
- * Modal zum Umschalten zwischen lokalem Ollama-Modell und OpenAI-API.
- * Lädt die aktuellen Settings beim Öffnen, schickt nur geänderte Felder
- * beim Speichern zurück. Der API-Key wird im Frontend nur lokal in einem
- * useState gehalten — er wird nicht aus dem Backend zurückgelesen.
+ * Modal for switching between the five chat providers (ADR-0008): four
+ * cloud providers under the user's own key + the local Ollama. Loads the
+ * current settings on open, sends only changed fields on save. API keys are
+ * held only in local useState — they are never read back from the backend.
  *
- * Layout: zwei Tabs (design/mockup-settings-reorg.html, Variante A) —
- * "Appearance" (Themes, wirken sofort, Footer nur Close) und "Model"
- * (nummerierter Flow: 1 Provider, 2 Model, 3 API Key nur bei OpenAI;
- * nur hier gibt es den Activate-Button).
+ * Layout: tabs (design/mockup-settings-reorg.html, variant A) — i.a.
+ * "Appearance" (themes, instant, footer only Close) and "Model" (numbered
+ * flow: 1 Provider, 2 Model, 3 API Key for cloud providers; only here is
+ * the Activate button). Model shortlists, key URLs and prices come from
+ * the registry (GET /settings/registry).
  */
 
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { X, Loader2, Eye, EyeOff, Check, ExternalLink, Info, RefreshCw, Palette, Cpu, Download, Trash2, MonitorCog, ScrollText, Languages, Mic } from 'lucide-react';
+import { X, Loader2, Eye, EyeOff, Check, ExternalLink, Info, RefreshCw, Palette, Cpu, ScrollText, Languages, Mic } from 'lucide-react';
 import { api } from '../../api';
+import { ModelTierList, type TierCooldown } from './ModelTierList';
 import { THEMES, applyTheme, getStoredTheme, type ThemeId } from '../../theme';
 import { APP_LANGUAGES, setAppLanguage, useAppLanguage } from '../../appLanguage';
 import { useStrings } from '../../strings';
-import type { LLMProvider, OllamaModelInfo, Settings, SystemRecommendation } from '../../types';
+import type { CloudProvider, LLMProvider, OllamaModelInfo, Registry, Settings, UsageSummary } from '../../types';
 
 function formatSize(bytes?: number): string {
   if (!bytes) return '';
@@ -41,24 +43,22 @@ interface Props {
   // Tab, auf dem das Modal öffnet — die Composer-Pille ("Manage models")
   // springt direkt zum Model-Tab, das Zahnrad öffnet auf Appearance.
   initialTab?: SettingsTab;
-  // Hardware-Empfehlung für diesen Rechner (Banner + "Recommended"-Hinweis
-  // in der Bibliothek). null solange unbekannt.
-  recommendation?: SystemRecommendation | null;
-  // Nach Download/Entfernen eines Modells — der Owner lädt dann Modell-Liste
-  // und ggf. Auto-Default neu.
-  onLibraryChanged?: () => void;
+  // Provider card to preselect on open (W9 path chooser, 2026-07-30).
+  initialProvider?: LLMProvider;
 }
 
-// OpenAI models exposed in the settings dropdown.
-// "search-preview" variants have OpenAI's own built-in web search — for those,
-// the backend skips its own SearXNG tool-call wiring (see backend/tools.js).
-// All four can handle images.
-const OPENAI_MODELS = [
-  { id: 'gpt-4o-mini', label: 'gpt-4o-mini — small, fast, cheap' },
-  { id: 'gpt-4o', label: 'gpt-4o — multimodal, more powerful' },
-  { id: 'gpt-4o-mini-search-preview', label: 'gpt-4o-mini-search — built-in web search (no SearXNG)' },
-  { id: 'gpt-4o-search-preview', label: 'gpt-4o-search — built-in web search, best quality' },
-];
+// Order of the provider cards in step 1 (ADR-0008): cloud first (Gemini is
+// the fresh-install default), the local Ollama last.
+const PROVIDER_ORDER: readonly LLMProvider[] = ['gemini', 'groq', 'openai', 'anthropic', 'ollama'];
+
+// Cost fallback while the registry is not (yet) loaded.
+const FREE_FALLBACK: Record<LLMProvider, boolean> = {
+  ollama: true,
+  gemini: true,
+  groq: true,
+  openai: false,
+  anthropic: false,
+};
 
 // Nummerierter Schritt-Titel im Model-Tab (Mockup: Kreis-Ziffer + Versalien).
 function StepLabel({ n, children }: { n: number; children: ReactNode }) {
@@ -72,28 +72,38 @@ function StepLabel({ n, children }: { n: number; children: ReactNode }) {
   );
 }
 
-export function SettingsModal({ open, onClose, onSaved, initialTab = 'appearance', recommendation, onLibraryChanged }: Props) {
+export function SettingsModal({ open, onClose, onSaved, initialTab = 'appearance', initialProvider }: Props) {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedFlash, setSavedFlash] = useState(false);
   const [tab, setTab] = useState<SettingsTab>('appearance');
 
-  const [provider, setProvider] = useState<LLMProvider>('ollama');
-  const [openaiModel, setOpenaiModel] = useState('gpt-4o-mini');
-  const [keyInput, setKeyInput] = useState('');
-  const [keySet, setKeySet] = useState(false);
+  const [provider, setProvider] = useState<LLMProvider>('gemini');
+  // One chosen model and one key input PER cloud provider — switching
+  // between cards never loses half-typed state this way.
+  const [cloudModels, setCloudModels] = useState<Record<CloudProvider, string>>({
+    gemini: '', groq: '', openai: '', anthropic: '',
+  });
+  const [keyInputs, setKeyInputs] = useState<Record<CloudProvider, string>>({
+    gemini: '', groq: '', openai: '', anthropic: '',
+  });
   const [showKey, setShowKey] = useState(false);
 
-  // Ollama models pulled locally (vision-gefiltert, mit canThink). Loaded once
-  // per modal-open; refreshed after downloads/removals and manually.
+  // Model registry + usage summary (ADR-0008) — both non-fatal: without
+  // the registry the model dropdown falls back to the stored model, without
+  // usage only the counter block is missing.
+  const [registry, setRegistry] = useState<Registry | null>(null);
+  const [usage, setUsage] = useState<UsageSummary | null>(null);
+  // Cooldown snapshot for the tier list (exhausted rows show a countdown).
+  const [cooldowns, setCooldowns] = useState<Record<string, TierCooldown>>({});
+
+  // Ollama models pulled locally (vision-filtered, with canThink). Loaded
+  // once per modal-open; manually refreshable. Frozen fallback (ADR-0008
+  // amendment): downloads happen via `ollama pull` in the terminal — the
+  // app only lists.
   const [ollamaModels, setOllamaModels] = useState<OllamaModelInfo[]>([]);
   const [ollamaModelsLoading, setOllamaModelsLoading] = useState(false);
-
-  // Laufender Modell-Download (Bibliothek): Name + Fortschritt 0..1 (oder
-  // null, solange Ollama noch keine Byte-Zahlen liefert).
-  const [pulling, setPulling] = useState<{ name: string; fraction: number | null } | null>(null);
-  const [libraryError, setLibraryError] = useState<string | null>(null);
 
   // Color theme — purely local (localStorage + data-theme attribute), so it
   // applies instantly on click and is independent of the Activate flow below.
@@ -115,47 +125,6 @@ export function SettingsModal({ open, onClose, onSaved, initialTab = 'appearance
       .finally(() => setOllamaModelsLoading(false));
   };
 
-  // Bibliothekszeilen: installierte Vision-Modelle + (falls noch fehlend)
-  // das empfohlene Modell als Download-Zeile obenauf.
-  type LibraryRow = OllamaModelInfo & { installed: boolean };
-  const libraryRows = useMemo<LibraryRow[]>(() => {
-    const rows: LibraryRow[] = ollamaModels.map(m => ({ ...m, installed: true }));
-    const rec = recommendation?.recommendedModel;
-    if (rec && !rows.some(r => r.name === rec)) {
-      rows.unshift({ name: rec, installed: false });
-    }
-    return rows;
-  }, [ollamaModels, recommendation]);
-
-  const handlePull = async (name: string) => {
-    setLibraryError(null);
-    setPulling({ name, fraction: null });
-    try {
-      await api.pullOllamaModel(name, p => {
-        if (p.total && p.completed !== undefined) {
-          setPulling({ name, fraction: p.completed / p.total });
-        }
-      });
-      loadOllamaModels();
-      onLibraryChanged?.();
-    } catch (err) {
-      setLibraryError(err instanceof Error ? err.message : S.model.downloadFailed);
-    } finally {
-      setPulling(null);
-    }
-  };
-
-  const handleRemove = async (name: string) => {
-    setLibraryError(null);
-    try {
-      await api.deleteOllamaModel(name);
-      loadOllamaModels();
-      onLibraryChanged?.();
-    } catch (err) {
-      setLibraryError(err instanceof Error ? err.message : S.model.removeFailed);
-    }
-  };
-
   // `original` spiegelt die zuletzt gespeicherten/geladenen Werte. Wir vergleichen
   // damit die aktuellen Form-Werte, um den "Save"-Button nur dann freizugeben,
   // wenn wirklich etwas geändert wurde — und um den "Active"-Status oben zu zeigen.
@@ -169,8 +138,12 @@ export function SettingsModal({ open, onClose, onSaved, initialTab = 'appearance
 
   const applySettings = (s: Settings) => {
     setProvider(s.llm_provider);
-    setOpenaiModel(s.openai_model);
-    setKeySet(s.openai_api_key_set);
+    setCloudModels({
+      gemini: s.gemini_model,
+      groq: s.groq_model,
+      openai: s.openai_model,
+      anthropic: s.anthropic_model,
+    });
     setInstructions(s.custom_instructions);
     setInstructionsEnabled(s.custom_instructions_enabled);
     setOriginal(s);
@@ -180,35 +153,57 @@ export function SettingsModal({ open, onClose, onSaved, initialTab = 'appearance
   useEffect(() => {
     if (!open) return;
     setError(null);
-    setKeyInput('');
+    setKeyInputs({ gemini: '', groq: '', openai: '', anthropic: '' });
     setShowKey(false);
     setTab(initialTab);
     setLoading(true);
     api.getSettings()
-      .then(applySettings)
+      .then(s => {
+        applySettings(s);
+        // The W9 path chooser lands on its matching provider card — the
+        // saved provider stays untouched until Activate.
+        if (initialProvider) setProvider(initialProvider);
+      })
       .catch(err => setError(err.message))
       .finally(() => setLoading(false));
     loadOllamaModels();
+    // Fetch registry + usage non-fatally (ADR-0008). Cooldowns feed the
+    // tier list's exhausted state — fetch-on-open is enough (2026-07-30),
+    // only the countdown ticks client-side.
+    api.getRegistry().then(setRegistry).catch(() => {});
+    api.getUsageSummary().then(setUsage).catch(() => {});
+    api.getQuotaCooldowns?.()
+      .then(list => {
+        const byKey: Record<string, TierCooldown> = {};
+        for (const c of list) byKey[`${c.provider}/${c.model}`] = { until: c.until, kind: c.kind };
+        setCooldowns(byKey);
+      })
+      .catch(() => {});
   }, [open, initialTab]);
 
-  // "Dirty" = irgendein Feld weicht von den zuletzt gespeicherten Werten ab.
-  // Auch ein nicht-leeres Key-Eingabefeld zählt als dirty (auch wenn wir den
-  // gespeicherten Key nicht kennen — jeder eingetippte Wert ist eine Absicht).
-  // Das Ollama-Modell zählt hier NICHT mehr mit: gewechselt wird nur über
-  // die Composer-Pille ("one owner per job") — Settings verwaltet Provider,
-  // OpenAI-Modell, Key und die lokale Bibliothek.
+  // Whether a key for cloud provider p is already stored in the backend.
+  const keySetFor = (p: CloudProvider): boolean =>
+    Boolean(original?.[`${p}_api_key_set`]);
+
+  // "Dirty" = the selection differs from the last saved values. A non-empty
+  // key input also counts as dirty (even though we never know the stored
+  // key — anything typed is intent). The Ollama model does NOT count here:
+  // it is switched only via the composer pill ("one owner per job") —
+  // Settings manages provider, cloud models and keys.
   const dirty = useMemo(() => {
     if (!original) return false;
+    if (provider !== original.llm_provider) return true;
+    if (provider === 'ollama') return false;
     return (
-      provider !== original.llm_provider ||
-      openaiModel !== original.openai_model ||
-      keyInput.length > 0
+      cloudModels[provider] !== original[`${provider}_model`] ||
+      keyInputs[provider].length > 0
     );
-  }, [original, provider, openaiModel, keyInput]);
+  }, [original, provider, cloudModels, keyInputs]);
 
-  // OpenAI braucht zwingend einen Key. Aktivierung wird blockiert, solange
-  // weder ein gespeicherter noch ein neu eingegebener Key existiert.
-  const needsKey = provider === 'openai' && !keyInput && !original?.openai_api_key_set;
+  // Every cloud provider strictly requires a key. Activation stays blocked
+  // while neither a stored nor a typed one exists.
+  const needsKey =
+    provider !== 'ollama' && !keyInputs[provider] && !keySetFor(provider);
   const canActivate = dirty && !needsKey;
 
   // Eigener Dirty-Stand für den Instructions-Tab — er hat seinen eigenen
@@ -237,15 +232,17 @@ export function SettingsModal({ open, onClose, onSaved, initialTab = 'appearance
     try {
       const patch: Parameters<typeof api.updateSettings>[0] = {
         llm_provider: provider,
-        openai_model: openaiModel,
       };
-      // Nur senden, wenn der User wirklich was getippt hat (auch leerer String =
-      // explizites Löschen, das schicken wir nur, wenn der User auf "Key entfernen" geht).
-      if (keyInput.length > 0) patch.openai_api_key = keyInput;
+      if (provider !== 'ollama') {
+        patch[`${provider}_model`] = cloudModels[provider];
+        // Only send the key when the user actually typed something (empty
+        // string = explicit delete — only "Remove key" sends that).
+        if (keyInputs[provider].length > 0) patch[`${provider}_api_key`] = keyInputs[provider];
+      }
 
       const result = await api.updateSettings(patch);
       applySettings(result);   // setzt `original` neu → dirty wird false → Button deaktiviert sich
-      setKeyInput('');
+      setKeyInputs({ gemini: '', groq: '', openai: '', anthropic: '' });
       setSavedFlash(true);
       setTimeout(() => setSavedFlash(false), 1500);
       onSaved?.(result);
@@ -275,13 +272,15 @@ export function SettingsModal({ open, onClose, onSaved, initialTab = 'appearance
     }
   };
 
-  const handleClearKey = async () => {
+  const handleClearKey = async (p: CloudProvider) => {
     setSaving(true);
     setError(null);
     try {
-      const result = await api.updateSettings({ openai_api_key: '' });
+      const patch: Parameters<typeof api.updateSettings>[0] = {};
+      patch[`${p}_api_key`] = '';
+      const result = await api.updateSettings(patch);
       applySettings(result);
-      setKeyInput('');
+      setKeyInputs(prev => ({ ...prev, [p]: '' }));
       onSaved?.(result);
     } catch (err) {
       setError(err instanceof Error ? err.message : S.errors.removeKeyFailed);
@@ -327,7 +326,7 @@ export function SettingsModal({ open, onClose, onSaved, initialTab = 'appearance
               in den breiten Theme-Fonts über (Matrix-Mono: 168px Textbedarf) —
               Nutzerreport 2026-07-24, alle Themes betroffen. min/max begrenzen,
               truncate am Label fängt den Rest ab. */}
-          <nav className="shrink-0 min-w-40 max-w-56 border-r border-gray-100 bg-gray-50/50 p-2 space-y-1" aria-label="Settings sections">
+          <nav className="shrink-0 min-w-40 max-w-56 border-r border-gray-100 bg-gray-50/50 p-2 space-y-1" aria-label={S.sectionsAria}>
             {tabs.map(t => {
               const isActive = tab === t.id;
               const Icon = t.icon;
@@ -514,26 +513,32 @@ export function SettingsModal({ open, onClose, onSaved, initialTab = 'appearance
                   </div>
                 ) : (
                   <>
-                    {/* Schritt 1: Provider */}
+                    {/* Step 1: provider — five cards (ADR-0008), cloud
+                        first, the local Ollama last. Below the grid: the
+                        data-fate line of the SELECTED provider. */}
                     <div>
                       <div className="mb-2"><StepLabel n={1}>{S.model.stepProvider}</StepLabel></div>
                       <div className="grid grid-cols-2 gap-2">
-                        {(['ollama', 'openai'] as LLMProvider[]).map(p => {
+                        {PROVIDER_ORDER.map(p => {
                           const isSelected = provider === p;
                           // "Currently active" = was gerade tatsächlich von Syflo
                           // verwendet wird (zuletzt gespeichert). Kann sich vom
                           // gerade ausgewählten Form-Wert unterscheiden, solange
                           // der User noch nicht "Activate" geklickt hat.
                           const isCurrentlyActive = original?.llm_provider === p;
-                          const label = p === 'ollama' ? S.model.ollamaLabel : S.model.openaiLabel;
-                          const costHint = p === 'ollama' ? S.model.costFree : S.model.costPaid;
-                          // Beide Kosten-Badges in derselben neutralen Grau-Variante,
-                          // damit nichts "schreit" — der Text trägt die Info.
-                          const costClass = 'text-gray-600 bg-gray-100';
+                          const label = S.model.providerLabels[p];
+                          // Kein Kosten-Badge mehr auf der Provider-Karte
+                          // (Variante B, 2026-07-30): Kosten sind eine
+                          // Eigenschaft von Modell × Key — die Wahrheit
+                          // steht in den Tier-Gruppen von Schritt 2. Die
+                          // Karte trägt nur noch die Herkunft.
+                          const originHint = p === 'ollama' ? S.model.originLocal : S.model.originCloud;
                           return (
                             <button
                               key={p}
                               onClick={() => setProvider(p)}
+                              aria-pressed={isSelected}
+                              data-testid={`provider-card-${p}`}
                               className={`relative px-3 py-2.5 rounded-lg text-sm font-medium transition-colors text-left ${
                                 isSelected
                                   ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-200'
@@ -550,36 +555,55 @@ export function SettingsModal({ open, onClose, onSaved, initialTab = 'appearance
                                 </span>
                               )}
                               <div>{label}</div>
-                              <div className={`mt-1 inline-block text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded ${costClass}`}>
-                                {costHint}
+                              <div className="mt-1 inline-block text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded text-gray-600 bg-gray-100">
+                                {originHint}
                               </div>
                             </button>
                           );
                         })}
                       </div>
+                      {/* Data fate of the selected provider (grill Q13) */}
+                      <p className="mt-2 text-[11px] text-gray-500 leading-relaxed" data-testid="provider-data-note">
+                        {S.model.dataNotes[provider]}
+                      </p>
                     </div>
 
-                    {/* Schritt 2: Modell des gewählten Providers */}
-                    {provider === 'openai' ? (
+                    {/* Steps 2 + 3: model and API key of the selected cloud
+                        provider (ADR-0008) — or the Ollama model list. */}
+                    {provider !== 'ollama' ? (
                       <>
                         <div>
                           <div className="mb-2"><StepLabel n={2}>{S.model.stepModel}</StepLabel></div>
-                          <select
-                            value={openaiModel}
-                            onChange={e => setOpenaiModel(e.target.value)}
-                            className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100 transition"
-                          >
-                            {OPENAI_MODELS.map(m => (
-                              <option key={m.id} value={m.id}>{m.label}</option>
-                            ))}
-                          </select>
+                          {(registry?.providers[provider]?.models.length ?? 0) > 0 ? (
+                            // Cost-tier radio list (mockup-model-cost-tiers
+                            // Variante B, chosen 2026-07-30) — the tier is a
+                            // property of model × key, not of the provider.
+                            <ModelTierList
+                              provider={provider}
+                              models={registry!.providers[provider].models}
+                              value={cloudModels[provider]}
+                              onChange={name => setCloudModels(prev => ({ ...prev, [provider]: name }))}
+                              keySet={keySetFor(provider)}
+                              modelsToday={usage?.modelsToday ?? {}}
+                              cooldowns={cooldowns}
+                            />
+                          ) : (
+                            // Registry not there (yet): the stored model as
+                            // a static row so nothing flips.
+                            <div
+                              data-testid="cloud-model-list"
+                              className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm text-gray-500"
+                            >
+                              {cloudModels[provider]}
+                            </div>
+                          )}
                         </div>
 
-                        {/* Schritt 3: API-Key — nur für OpenAI */}
+                        {/* Step 3: API key — bound per provider */}
                         <div>
                           <div className="mb-2"><StepLabel n={3}>
                             {S.model.stepApiKey}
-                            {keySet && (
+                            {keySetFor(provider) && (
                               <span className="inline-flex items-center gap-1 text-[10px] text-green-700 bg-green-50 px-1.5 py-0.5 rounded normal-case tracking-normal">
                                 <Check size={10} />
                                 {S.model.keySaved}
@@ -590,23 +614,33 @@ export function SettingsModal({ open, onClose, onSaved, initialTab = 'appearance
                             <div className="relative flex-1">
                               <input
                                 type={showKey ? 'text' : 'password'}
-                                value={keyInput}
-                                onChange={e => setKeyInput(e.target.value)}
-                                placeholder={keySet ? S.model.keyPlaceholderSet : S.model.keyPlaceholderEmpty}
+                                value={keyInputs[provider]}
+                                onChange={e => {
+                                  const value = e.target.value;
+                                  setKeyInputs(prev => ({ ...prev, [provider]: value }));
+                                }}
+                                placeholder={keySetFor(provider) ? S.model.keyPlaceholderSet : S.model.keyPlaceholderEmpty}
                                 className="w-full px-3 py-2 pr-9 rounded-lg border border-gray-200 text-sm font-mono focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100 transition"
                               />
-                              <button
-                                type="button"
-                                onClick={() => setShowKey(s => !s)}
-                                aria-label={showKey ? S.model.keyHide : S.model.keyShow}
-                                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-1"
-                              >
-                                {showKey ? <EyeOff size={14} /> : <Eye size={14} />}
-                              </button>
+                              {/* The eye can only reveal what is being typed RIGHT NOW —
+                                  a saved key is never sent back to the frontend, so with
+                                  an empty field there is nothing to show and the button
+                                  would look broken (user report 2026-07-25). */}
+                              {keyInputs[provider] ? (
+                                <button
+                                  type="button"
+                                  onClick={() => setShowKey(s => !s)}
+                                  aria-label={showKey ? S.model.keyHide : S.model.keyShow}
+                                  title={showKey ? S.model.keyHide : S.model.keyShow}
+                                  className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-1"
+                                >
+                                  {showKey ? <EyeOff size={14} /> : <Eye size={14} />}
+                                </button>
+                              ) : null}
                             </div>
-                            {keySet && (
+                            {keySetFor(provider) && (
                               <button
-                                onClick={handleClearKey}
+                                onClick={() => handleClearKey(provider)}
                                 disabled={saving}
                                 className="px-3 py-2 rounded-lg text-sm font-medium text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50"
                               >
@@ -619,62 +653,95 @@ export function SettingsModal({ open, onClose, onSaved, initialTab = 'appearance
                           </p>
                         </div>
 
-                        {/* Guide block — shown only when no key is configured yet.
-                            Helps brand-new OpenAI users land on the right page and
-                            understand the actual cost (which is tiny for gpt-4o-mini). */}
-                        {!keySet && (
-                          <div className="rounded-lg bg-blue-50/60 border border-blue-100 p-3.5 space-y-3">
+                        {/* Guide block — only while no key is stored yet.
+                            Title/body per provider; the link URL comes from
+                            the registry (keyUrl), not from the strings. */}
+                        {!keySetFor(provider) && (
+                          <div className="rounded-lg bg-blue-50/60 border border-blue-100 p-3.5 space-y-3" data-testid="key-guide">
                             <div className="flex items-start gap-2">
                               <Info size={14} className="text-blue-600 mt-0.5 shrink-0" />
                               <div className="text-xs text-gray-700">
-                                <p className="font-semibold text-gray-900 mb-1">{S.model.guideTitle}</p>
+                                <p className="font-semibold text-gray-900 mb-1">{S.model.keyGuides[provider].title}</p>
                                 <p className="leading-relaxed">
-                                  {S.model.guideBody}
+                                  {S.model.keyGuides[provider].body}
                                 </p>
                               </div>
                             </div>
 
-                            <a
-                              href="https://platform.openai.com/api-keys"
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 transition-colors"
-                            >
-                              {S.model.guideCta}
-                              <ExternalLink size={11} />
-                            </a>
-
-                            <div className="border-t border-blue-100 pt-2.5 text-[11px] text-gray-600 leading-relaxed">
-                              <p className="font-semibold text-gray-800 mb-1.5">{S.model.guideWhat}</p>
-                              <div className="space-y-1">
-                                <div className="flex items-baseline justify-between">
-                                  <span className="text-gray-700">gpt-4o-mini</span>
-                                  <span className="font-semibold text-gray-900">{S.model.guideMiniMessages}</span>
-                                </div>
-                                <div className="flex items-baseline justify-between">
-                                  <span className="text-gray-700">gpt-4o</span>
-                                  <span className="font-semibold text-gray-900">{S.model.guide4oMessages}</span>
-                                </div>
-                              </div>
+                            {registry?.providers[provider]?.keyUrl && (
                               <a
-                                href="https://openai.com/api/pricing/"
+                                href={registry.providers[provider].keyUrl}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="mt-2 inline-flex items-center gap-1 text-blue-700 hover:underline"
+                                data-testid="key-guide-cta"
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 transition-colors"
                               >
-                                {S.model.guidePricing}
-                                <ExternalLink size={10} />
+                                {S.model.guideCta}
+                                <ExternalLink size={11} />
                               </a>
-                            </div>
+                            )}
+
+                            {/* The $-table only applies to the OpenAI starter balance. */}
+                            {provider === 'openai' && (
+                              <div className="border-t border-blue-100 pt-2.5 text-[11px] text-gray-600 leading-relaxed">
+                                <p className="font-semibold text-gray-800 mb-1.5">{S.model.guideWhat}</p>
+                                <div className="space-y-1">
+                                  <div className="flex items-baseline justify-between">
+                                    <span className="text-gray-700">gpt-4o-mini</span>
+                                    <span className="font-semibold text-gray-900">{S.model.guideMiniMessages}</span>
+                                  </div>
+                                  <div className="flex items-baseline justify-between">
+                                    <span className="text-gray-700">gpt-4o</span>
+                                    <span className="font-semibold text-gray-900">{S.model.guide4oMessages}</span>
+                                  </div>
+                                </div>
+                                <a
+                                  href="https://openai.com/api/pricing/"
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="mt-2 inline-flex items-center gap-1 text-blue-700 hover:underline"
+                                >
+                                  {S.model.guidePricing}
+                                  <ExternalLink size={10} />
+                                </a>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Usage block (ADR-0008): quota counter for free
+                            tiers, estimated costs for paid providers. */}
+                        {usage && (
+                          <div className="rounded-lg border border-gray-200 px-3 py-2.5 text-[11px] text-gray-600 leading-relaxed" data-testid="usage-block">
+                            <p className="font-semibold text-gray-700 uppercase tracking-wider text-[10px] mb-1">
+                              {S.model.usageTitle}
+                            </p>
+                            <p>
+                              {S.model.usageRequestsToday(
+                                usage.providers[provider]?.requestsToday ?? 0,
+                                registry?.providers[provider]?.models.find(m => m.name === cloudModels[provider])
+                                  ?.freeQuota?.requestsPerDay,
+                              )}
+                            </p>
+                            {!(registry?.providers[provider]?.free ?? FREE_FALLBACK[provider]) && (
+                              <p className="font-medium text-gray-700">
+                                {S.model.usageEstimate((usage.providers[provider]?.estimatedUsd ?? 0).toFixed(2))}
+                              </p>
+                            )}
+                            <p className="mt-0.5 text-[10px] text-gray-400">
+                              {S.model.usagePricesAsOf(usage.pricesAsOf)}
+                            </p>
                           </div>
                         )}
                       </>
                     ) : (
                       <>
-                        {/* Die BIBLIOTHEK (mockup-model-picker.html, Sektion 03):
-                            Downloads, Fortschritt, Entfernen. Gewechselt wird in
-                            der Composer-Pille — hier gibt es keinen Umschalter,
-                            nur ein passives "Active"-Abzeichen. */}
+                        {/* The list of installed vision models. Frozen
+                            fallback (ADR-0008 amendment): no download, no
+                            remove, no hardware recommendation — installing
+                            happens with `ollama pull` in the terminal.
+                            Switching lives in the composer pill; here there is
+                            only a passive "Active" badge. */}
                         <div>
                           <div className="flex items-center justify-between mb-2">
                             <StepLabel n={2}>{S.model.stepModels}</StepLabel>
@@ -690,23 +757,9 @@ export function SettingsModal({ open, onClose, onSaved, initialTab = 'appearance
                             </button>
                           </div>
 
-                          {recommendation && (
-                            <div
-                              className="mb-3 flex items-center gap-2 rounded-lg bg-blue-50/60 border border-blue-100 px-3 py-2 text-xs text-gray-700"
-                              data-testid="hardware-banner"
-                            >
-                              <MonitorCog size={14} className="text-blue-600 shrink-0" />
-                              <span>
-                                {S.model.machineBanner(recommendation.totalMemGb)}{' '}
-                                <span className="font-semibold font-mono">{recommendation.recommendedModel}</span>
-                              </span>
-                            </div>
-                          )}
-
                           <div className="space-y-2">
-                            {libraryRows.map(row => {
+                            {ollamaModels.map(row => {
                               const isActive = original?.ollama_model === row.name;
-                              const isPulling = pulling?.name === row.name;
                               return (
                                 <div
                                   key={row.name}
@@ -716,61 +769,29 @@ export function SettingsModal({ open, onClose, onSaved, initialTab = 'appearance
                                   <div className="flex-1 min-w-0">
                                     <div className="text-sm font-mono font-medium text-gray-900 truncate">{row.name}</div>
                                     <div className="text-[11px] text-gray-500">
-                                      {row.name === recommendation?.recommendedModel
-                                        ? S.model.rowRecommended
-                                        : row.installed
-                                          ? [row.parameter_size, row.size ? formatSize(row.size) : null].filter(Boolean).join(' · ') || S.model.rowInstalled
-                                          : S.model.rowNotInstalled}
+                                      {[row.parameter_size, row.size ? formatSize(row.size) : null].filter(Boolean).join(' · ') || S.model.rowInstalled}
                                       {row.canThink ? S.model.rowCanThink : ''}
                                     </div>
-                                    {isPulling && (
-                                      <div className="mt-1.5 h-1 rounded-full bg-gray-100 overflow-hidden" data-testid="pull-progress">
-                                        <div
-                                          className="h-full rounded-full bg-blue-500 transition-[width]"
-                                          style={{ width: `${Math.round((pulling.fraction ?? 0.02) * 100)}%` }}
-                                        />
-                                      </div>
-                                    )}
                                   </div>
                                   {isActive && (
                                     <span className="shrink-0 inline-flex items-center gap-1 text-[11px] font-semibold text-blue-700 bg-blue-50 rounded-full px-2 py-0.5">
                                       {S.model.activeBadge}
                                     </span>
                                   )}
-                                  {!row.installed && !isPulling && (
-                                    <button
-                                      onClick={() => handlePull(row.name)}
-                                      disabled={pulling !== null}
-                                      data-testid={`download-${row.name}`}
-                                      className="shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 transition-colors disabled:opacity-40"
-                                    >
-                                      <Download size={12} />
-                                      {S.model.download}
-                                    </button>
-                                  )}
-                                  {row.installed && !isActive && (
-                                    <button
-                                      onClick={() => handleRemove(row.name)}
-                                      title={S.model.removeModelTitle}
-                                      aria-label={S.model.removeModelAria(row.name)}
-                                      className="shrink-0 p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
-                                    >
-                                      <Trash2 size={14} />
-                                    </button>
-                                  )}
                                 </div>
                               );
                             })}
-                            {libraryRows.length === 0 && (
+                            {ollamaModels.length === 0 && (
                               <p className="text-[11px] text-amber-700 leading-relaxed">
                                 {S.model.ollamaUnreachable}
                               </p>
                             )}
                           </div>
 
-                          {libraryError && (
-                            <p className="mt-2 text-[11px] text-red-600">{libraryError}</p>
-                          )}
+                          {/* Installing happens in the terminal (frozen fallback). */}
+                          <p className="mt-2 text-[11px] text-gray-500 leading-relaxed" data-testid="pull-hint">
+                            {S.model.pullHint}
+                          </p>
                           <p className="mt-2 text-[11px] text-gray-500 leading-relaxed">
                             {S.model.libraryNote}{' '}
                             <a
@@ -811,7 +832,7 @@ export function SettingsModal({ open, onClose, onSaved, initialTab = 'appearance
                 </span>
               ) : needsKey ? (
                 <span className="text-amber-700 font-medium">
-                  {S.footer.needsKey}
+                  {S.footer.needsKey(S.model.providerLabels[provider])}
                 </span>
               ) : dirty ? (
                 <span className="text-amber-700 font-medium">
@@ -871,7 +892,7 @@ export function SettingsModal({ open, onClose, onSaved, initialTab = 'appearance
               disabled={saving || loading || !canActivate}
               title={
                 needsKey
-                  ? S.footer.activateTitleNeedsKey
+                  ? S.footer.activateTitleNeedsKey(S.model.providerLabels[provider])
                   : !dirty && !saving
                     ? S.footer.activateTitleClean
                     : S.footer.activateTitleDirty

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useStrings } from '../../strings';
 
 interface Props {
   // Aktuelle Mikrofon-Lautstärke (0..1) — kommt aus useVoiceInput.
@@ -14,6 +15,7 @@ interface Props {
 // Sinus-Modulation für ein lebendiges Hin-und-Her statt eines starren
 // VU-Meters.
 export function VoiceWaveform({ volume, bars = 24, height = 36 }: Props) {
+  const S = useStrings().chatArea;
   const [tick, setTick] = useState(0);
   const rafRef = useRef<number | null>(null);
 
@@ -39,7 +41,7 @@ export function VoiceWaveform({ volume, bars = 24, height = 36 }: Props) {
       className="flex items-center justify-center gap-[3px] w-full"
       style={{ height }}
       data-testid="voice-waveform"
-      aria-label="Recording volume"
+      aria-label={S.recordingVolumeAria}
       role="img"
     >
       {Array.from({ length: bars }).map((_, i) => {

@@ -17,8 +17,8 @@
 const fs = require('fs');
 const path = require('path');
 
-// Marker, den die alte 40k-Kappung ans Ende gekürzter Texte schrieb. Solche
-// Caches sind unvollständig und werden beim nächsten Zugriff neu extrahiert.
+// Marker the old 40k cap wrote at the end of truncated texts. Such caches
+// are incomplete and get re-extracted on the next access.
 const LEGACY_TRUNCATION_MARKER = '[… paper text truncated]';
 
 // pdf.js is ESM-only; require() can't load it from this CommonJS module, so
@@ -80,8 +80,8 @@ async function getTreePaperContext(db, chatId, extractFn = extractPdfText) {
   if (!paper) return null;
 
   const cached = typeof paper.extracted_text === 'string' ? paper.extracted_text : '';
-  // Von der alten 40k-Kappung abgeschnittene Caches einmalig neu extrahieren
-  // — der Retrieval-Modus braucht den Volltext in der DB.
+  // Re-extract caches cut off by the old 40k cap once — the retrieval mode
+  // needs the full text in the DB.
   const cacheUsable = cached.length > 0 && !cached.endsWith(LEGACY_TRUNCATION_MARKER);
   if (cacheUsable) {
     return {
@@ -98,7 +98,7 @@ async function getTreePaperContext(db, chatId, extractFn = extractPdfText) {
     return { paperId: paper.id, title: paper.title || path.basename(paper.pdf_path), text };
   } catch (err) {
     console.error(`Paper text extraction failed for ${paper.pdf_path}:`, err.message);
-    // Ein gekappter alter Cache ist besser als gar kein Paper-Kontext.
+    // A truncated old cache is better than no paper context at all.
     if (cached.length > 0) {
       return {
         paperId: paper.id,

@@ -33,6 +33,8 @@ beforeEach(() => {
 
   if (fs.existsSync(TEST_DB_PATH)) fs.unlinkSync(TEST_DB_PATH);
   db = createDb(TEST_DB_PATH);
+  // This suite tests the local path — bypass the cloud default (ADR-0008).
+  require('../llm').setSetting(db, 'llm_provider', 'ollama');
   app = createApp(db);
 });
 
@@ -71,7 +73,7 @@ describe('POST /api/explain – success', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.explanation).toBe('Quantum is the smallest discrete unit of energy.');
-    // Definitionen müssen sofort kommen — Denk-Modelle dürfen hier nie grübeln.
+    // Definitions must come instantly — reasoning models must never ponder here.
     expect(mockCreate.mock.calls[0][0].reasoning_effort).toBe('none');
   });
 
@@ -105,11 +107,11 @@ describe('POST /api/explain – success', () => {
   });
 });
 
-// ─── App language (Grill-Entscheidung 2026-07-24) ────────────────────────────
-// Explain ist ein Wörterbuch und erklärt in der Sprache des Lesers: das
-// Frontend schickt die App language als `language` mit, der System-Prompt
-// bekommt eine explizite Zielsprachen-Anweisung. Ohne (oder mit ungültigem)
-// Parameter bleibt das bisherige implizite Verhalten unverändert.
+// ─── App language (grill decision 2026-07-24) ────────────────────────────────
+// Explain is a dictionary and explains in the reader's language: the
+// frontend sends the App language along as `language`, and the system
+// prompt gets an explicit target-language instruction. Without (or with an
+// invalid) parameter the previous implicit behavior stays unchanged.
 
 describe('POST /api/explain – target language (App language)', () => {
   beforeEach(() => {
@@ -142,11 +144,12 @@ describe('POST /api/explain – target language (App language)', () => {
   });
 });
 
-// ─── KV-Prefix-Sharing (2026-07-25) ──────────────────────────────────────────
-// Mit chatId hängt explain die Define-Frage an den Gesprächskontext an
-// (derselbe Builder wie Chat/Warm-up/Titel-Generierung, inkl. tools — sonst
-// weicht der gerenderte Prefix ab). So trifft die Erklärung Ollamas KV-Cache,
-// statt den einzigen Slot mit einem Standalone-Prompt zu verdrängen.
+// ─── KV prefix sharing (2026-07-25) ──────────────────────────────────────────
+// With chatId, explain appends the define question to the conversation
+// context (same builder as chat/warm-up/title generation, incl. tools —
+// otherwise the rendered prefix diverges). This way the explanation hits
+// Ollama's KV cache instead of evicting the single slot with a standalone
+// prompt.
 
 describe('POST /api/explain – shares the conversation prefix (chatId)', () => {
   const createChat = async () => {
@@ -166,15 +169,15 @@ describe('POST /api/explain – shares the conversation prefix (chatId)', () => 
 
     expect(res.status).toBe(200);
     const calledWith = mockCreate.mock.calls[0][0];
-    // Chat-System-Prompt statt Standalone-Wörterbuch-Prompt
+    // Chat system prompt instead of the standalone dictionary prompt
     expect(calledWith.messages[0].role).toBe('system');
     expect(calledWith.messages[0].content).toContain('You are a friendly and helpful assistant');
-    // Define-Frage als LETZTE Nachricht, mit Stilregeln + Zielsprache
+    // Define question as the LAST message, with style rules + target language
     const last = calledWith.messages[calledWith.messages.length - 1];
     expect(last.role).toBe('user');
     expect(last.content).toContain('Define "prefix"');
     expect(last.content).toContain('Answer in German');
-    // tools wie im Gespräch — sonst rendert das Template einen anderen Prefix
+    // tools as in the conversation — otherwise the template renders a different prefix
     expect(calledWith.tools).toBeDefined();
   });
 
@@ -191,7 +194,7 @@ describe('POST /api/explain – shares the conversation prefix (chatId)', () => 
     expect(res.status).toBe(200);
     expect(res.body.explanation).toBe('A clean definition.');
     expect(mockCreate).toHaveBeenCalledTimes(2);
-    // Zweiter Aufruf = Standalone-Wörterbuch (ohne Gesprächskontext/tools)
+    // Second call = standalone dictionary (without conversation context/tools)
     const second = mockCreate.mock.calls[1][0];
     expect(second.messages[0].content).toContain('concise dictionary');
     expect(second.tools).toBeUndefined();
@@ -224,5 +227,140 @@ describe('POST /api/explain – error handling', () => {
 
     expect(res.status).toBe(500);
     expect(res.body.error).toContain('ECONNREFUSED');
+  });
+});
+
+// ─── Quota failover (user request 2026-07-28) ────────────────────────────────
+// A right-click definition must not die with the active model's quota: like
+// the chat (messages.js), explain walks the candidate ladder — remaining
+// models of the SAME provider first, then other keyed cloud providers.
+// Cooldowns are SHARED with the chat's quota memory, so a limit learned in
+// either place is skipped proactively in both. The local provider stays
+// outside the ladder in both directions (privacy guard, mockup-model-flow §11).
+
+describe('POST /api/explain – quota failover between cloud models', () => {
+  const dailyQuotaError = () =>
+    Object.assign(new Error('Quota exceeded for metric generate_requests_per_model_per_day'), { status: 429 });
+  const minuteQuotaError = () =>
+    Object.assign(new Error('Rate limit exceeded, slow down'), { status: 429 });
+
+  function useGeminiAndGroq() {
+    const { setSetting } = require('../llm');
+    setSetting(db, 'llm_provider', 'gemini');
+    setSetting(db, 'gemini_api_key', 'AIza-test');
+    setSetting(db, 'gemini_model', 'gemini-pro-latest');
+    setSetting(db, 'groq_api_key', 'gsk-test');
+  }
+
+  const explain = () => request(app).post('/api/explain').send({ word: 'quantum', language: 'de' });
+
+  it('falls over to the sibling model of the SAME provider on a 429', async () => {
+    useGeminiAndGroq();
+    mockCreate
+      .mockRejectedValueOnce(dailyQuotaError()) // gemini-pro: daily gone
+      .mockResolvedValueOnce({ choices: [{ message: { content: 'Kleinste Einheit.' } }] });
+
+    const res = await explain();
+
+    expect(res.status).toBe(200);
+    expect(res.body.explanation).toBe('Kleinste Einheit.');
+    expect(mockCreate.mock.calls[0][0].model).toBe('gemini-pro-latest');
+    expect(mockCreate.mock.calls[1][0].model).toBe('gemini-flash-latest');
+  });
+
+  it('walks on to other keyed providers when the whole provider is exhausted', async () => {
+    useGeminiAndGroq();
+    mockCreate
+      .mockRejectedValueOnce(dailyQuotaError())  // gemini-pro (active selection)
+      .mockRejectedValueOnce(minuteQuotaError()) // gemini-flash
+      .mockRejectedValueOnce(minuteQuotaError()) // gemini-flash-lite
+      .mockResolvedValueOnce({ choices: [{ message: { content: 'Von Groq.' } }] });
+
+    const res = await explain();
+
+    expect(res.status).toBe(200);
+    expect(res.body.explanation).toBe('Von Groq.');
+    expect(mockCreate.mock.calls[3][0].model).toBe('openai/gpt-oss-120b');
+  });
+
+  it('remembers the exhausted model and skips it on the next definition', async () => {
+    useGeminiAndGroq();
+    mockCreate
+      .mockRejectedValueOnce(dailyQuotaError())
+      .mockResolvedValueOnce({ choices: [{ message: { content: 'Erste.' } }] });
+    await explain();
+
+    mockCreate.mockClear();
+    mockCreate.mockResolvedValueOnce({ choices: [{ message: { content: 'Zweite.' } }] });
+    const res = await explain();
+
+    expect(res.status).toBe(200);
+    // gemini-pro is cooling down → the first call goes straight to the sibling.
+    expect(mockCreate).toHaveBeenCalledTimes(1);
+    expect(mockCreate.mock.calls[0][0].model).toBe('gemini-flash-latest');
+  });
+
+  it('shares the cooldown memory with the chat (picker badges see it)', async () => {
+    useGeminiAndGroq();
+    mockCreate
+      .mockRejectedValueOnce(dailyQuotaError())
+      .mockResolvedValueOnce({ choices: [{ message: { content: 'Ok.' } }] });
+    await explain();
+
+    const res = await request(app).get('/api/quota-cooldowns');
+    expect(res.body.cooldowns).toContainEqual(
+      expect.objectContaining({ provider: 'gemini', model: 'gemini-pro-latest', kind: 'daily' })
+    );
+  });
+
+  it('fails with a clear message when every cloud candidate is exhausted', async () => {
+    useGeminiAndGroq();
+    mockCreate.mockRejectedValue(dailyQuotaError());
+
+    const res = await explain();
+
+    expect(res.status).toBe(500);
+    // Tried: gemini pro (active selection) + flash + flash lite, groq
+    // gpt-oss + llama = 5 keyed cloud models. Paid models beyond the active
+    // selection are never ladder material (cost tiers 2026-07-30).
+    expect(mockCreate).toHaveBeenCalledTimes(5);
+    expect(res.body.error).toMatch(/local model/i);
+  });
+
+  it('treats a retired model (404) like a quota and moves on', async () => {
+    useGeminiAndGroq();
+    mockCreate
+      .mockRejectedValueOnce(
+        Object.assign(new Error('model gemini-pro-latest not found or no longer available'), { status: 404 })
+      )
+      .mockResolvedValueOnce({ choices: [{ message: { content: 'Trotzdem da.' } }] });
+
+    const res = await explain();
+
+    expect(res.status).toBe(200);
+    expect(res.body.explanation).toBe('Trotzdem da.');
+  });
+
+  it('does NOT fail over on non-quota errors (e.g. an invalid key)', async () => {
+    useGeminiAndGroq();
+    mockCreate.mockRejectedValue(Object.assign(new Error('Incorrect API key provided'), { status: 401 }));
+
+    const res = await explain();
+
+    expect(res.status).toBe(500);
+    expect(mockCreate).toHaveBeenCalledTimes(1);
+    expect(res.body.error).toContain('Incorrect API key');
+  });
+
+  it('never falls over from the local provider to the cloud (privacy guard)', async () => {
+    const { setSetting } = require('../llm');
+    setSetting(db, 'llm_provider', 'ollama');
+    setSetting(db, 'gemini_api_key', 'AIza-test'); // a key exists — must stay unused
+    mockCreate.mockRejectedValue(new Error('connect ECONNREFUSED 127.0.0.1:11434'));
+
+    const res = await explain();
+
+    expect(res.status).toBe(500);
+    expect(mockCreate).toHaveBeenCalledTimes(1);
   });
 });

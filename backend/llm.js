@@ -1,32 +1,36 @@
 /**
  * llm.js
  *
- * Zentrale Stelle, die den richtigen OpenAI-Client und Modellnamen
- * basierend auf den User-Settings zurückgibt. Damit muss kein Route mehr
- * direkt entscheiden, ob Ollama oder OpenAI verwendet wird.
+ * Central place that returns the right OpenAI client and model name based
+ * on the user settings. With this, no route has to decide directly anymore
+ * whether Ollama or OpenAI is used.
  *
- * Settings-Tabelle (siehe database.js):
+ * Settings table (see database.js):
  *   llm_provider:     'ollama' | 'openai'
- *   openai_api_key:   raw secret (verlässt das Backend nie)
- *   openai_model:     z. B. 'gpt-4o' oder 'gpt-4o-mini'
- *   ollama_model:     z. B. 'llama3.2-vision:11b'
+ *   openai_api_key:   raw secret (never leaves the backend)
+ *   openai_model:     e.g. 'gpt-4o' or 'gpt-4o-mini'
+ *   ollama_model:     e.g. 'llama3.2-vision:11b'
  */
 
 const OpenAI = require('openai');
+const { getRegistry, CLOUD_PROVIDERS } = require('./registry');
 
 const DEFAULTS = {
-  llm_provider: 'ollama',
+  // ADR-0008: Cloud is the default — a fresh install starts on Gemini 2.5
+  // Flash with a guided empty state (get a key OR switch to local).
+  llm_provider: 'gemini',
   openai_api_key: '',
   openai_model: 'gpt-4o-mini',
-  // Statischer Fallback = mittlere Sprosse der Empfehlungs-Leiter; die echte
-  // Hardware-Empfehlung setzt das Modell, solange model_source 'auto' ist.
+  gemini_api_key: '',
+  gemini_model: 'gemini-flash-latest',
+  groq_api_key: '',
+  groq_model: 'openai/gpt-oss-120b',
+  anthropic_api_key: '',
+  anthropic_model: 'claude-sonnet-4-5',
   ollama_model: 'qwen3.5:9b',
-  // 'auto': die Maschinen-Empfehlung darf das Modell setzen.
-  // 'manual': der Nutzer hat selbst gewählt — Automatik fasst nichts mehr an.
-  model_source: 'auto',
-  // Custom instructions (CONTEXT.md): Freitext des Nutzers, der jedem
-  // Chat-System-Prompt mitgegeben wird. Der Schalter liegt als
-  // 'true'/'false'-String in der TEXT-Spalte der settings-Tabelle.
+  // Custom instructions (CONTEXT.md): free text from the user that is
+  // passed along with every chat system prompt. The toggle is stored as a
+  // 'true'/'false' string in the TEXT column of the settings table.
   custom_instructions: '',
   custom_instructions_enabled: 'true',
 };
@@ -44,15 +48,9 @@ function setSetting(db, key, value) {
 }
 
 function getAllSettings(db) {
-  return {
-    llm_provider: getSetting(db, 'llm_provider'),
-    openai_api_key: getSetting(db, 'openai_api_key'),
-    openai_model: getSetting(db, 'openai_model'),
-    ollama_model: getSetting(db, 'ollama_model'),
-    model_source: getSetting(db, 'model_source'),
-    custom_instructions: getSetting(db, 'custom_instructions'),
-    custom_instructions_enabled: getSetting(db, 'custom_instructions_enabled'),
-  };
+  const out = {};
+  for (const key of Object.keys(DEFAULTS)) out[key] = getSetting(db, key);
+  return out;
 }
 
 /**
@@ -60,30 +58,60 @@ function getAllSettings(db) {
  * configured provider isn't usable (e.g. OpenAI selected but no API key).
  */
 function getLLMClient(db) {
-  const provider = getSetting(db, 'llm_provider');
+  return getLLMClientFor(db, getSetting(db, 'llm_provider'));
+}
 
-  if (provider === 'openai') {
-    const apiKey = getSetting(db, 'openai_api_key');
-    if (!apiKey) {
-      const err = new Error('OpenAI provider is selected but no API key is configured. Please set one in Settings.');
-      err.status = 400;
-      throw err;
-    }
+/**
+ * Resolves a SPECIFIC provider to a client, regardless of which provider is
+ * globally active — the automatic quota failover (user request 2026-07-25)
+ * answers a single request via a fallback provider without touching the
+ * stored settings.
+ */
+function getLLMClientFor(db, provider) {
+  if (provider === 'ollama') {
     return {
-      client: new OpenAI({ apiKey }),
-      model: getSetting(db, 'openai_model'),
-      provider: 'openai',
+      client: new OpenAI({
+        baseURL: 'http://localhost:11434/v1',
+        apiKey: 'ollama',
+      }),
+      model: getSetting(db, 'ollama_model'),
+      provider: 'ollama',
     };
   }
 
-  // Default / fallback: Ollama via OpenAI-compatible API.
+  // Cloud providers (ADR-0008): all speak OpenAI-compatible, only baseURL
+  // and key differ. The key is always the user's own.
+  const reg = getRegistry(db);
+  const p = reg.providers[provider];
+  if (!p) {
+    const err = new Error(`Unknown provider '${provider}'.`);
+    err.status = 400;
+    throw err;
+  }
+  const apiKey = getSetting(db, `${provider}_api_key`);
+  if (!apiKey) {
+    const err = new Error(
+      `${p.label} is selected but no API key is configured yet. Add your own key in Settings — or switch to the local model.`
+    );
+    err.status = 400;
+    // Machine-readable cause for the UI card (mockup-model-flow §05) —
+    // the prose above stays backend-internal.
+    err.failReason = 'no_key';
+    err.failProvider = provider;
+    throw err;
+  }
+  // maxRetries 0: the SDK's built-in 429 retry (default 2×) sleeps out the
+  // provider's Retry-After INVISIBLY before our route's retry/failover loop
+  // even sees the error — with Google's ~35 s retryDelay that stacked up to
+  // minutes of silent waiting (live incident 2026-07-26). The messages
+  // route owns the retry policy: visible countdown, cooldown memory,
+  // failover ladder.
+  const opts = { apiKey, maxRetries: 0 };
+  if (p.baseURL) opts.baseURL = p.baseURL;
   return {
-    client: new OpenAI({
-      baseURL: 'http://localhost:11434/v1',
-      apiKey: 'ollama',
-    }),
-    model: getSetting(db, 'ollama_model'),
-    provider: 'ollama',
+    client: new OpenAI(opts),
+    model: getSetting(db, `${provider}_model`),
+    provider,
   };
 }
 
@@ -92,8 +120,11 @@ function getLLMClient(db) {
  * auth-required endpoint (`/v1/models`, which only lists model IDs, no tokens
  * consumed). Resolves on success, rejects with a human-readable Error on failure.
  */
-async function testOpenAIKey(apiKey) {
-  const client = new OpenAI({ apiKey });
+async function testProviderKey(db, provider, apiKey) {
+  const p = getRegistry(db).providers[provider];
+  const opts = { apiKey };
+  if (p && p.baseURL) opts.baseURL = p.baseURL;
+  const client = new OpenAI(opts);
   try {
     await client.models.list();
   } catch (err) {
@@ -101,24 +132,35 @@ async function testOpenAIKey(apiKey) {
     const status = err?.status || err?.response?.status;
     if (status === 401) throw new Error('The API key is invalid or has been revoked.');
     if (status === 429) throw new Error('Rate limited — try again in a moment.');
-    throw new Error(err?.message || 'Could not reach OpenAI to verify the key.');
+    throw new Error(err?.message || `Could not reach ${p ? p.label : provider} to verify the key.`);
   }
 }
 
-/**
- * Extra-Parameter für LLM-Aufrufe, die sofort antworten müssen (Definitionen,
- * Titel, Summaries): unterdrückt bei Ollama die Denk-Phase von Reasoning-
- * Modellen (/v1 übersetzt reasoning_effort 'none' → think off).
- */
-function noThinkExtras(provider) {
-  return provider === 'ollama' ? { reasoning_effort: 'none' } : {};
+/** Backwards-compatible wrapper (old callers/tests). */
+async function testOpenAIKey(apiKey) {
+  return testProviderKey(null, 'openai', apiKey);
 }
 
 /**
- * Hält das Ollama-Modell (und damit den KV-Prefix-Cache mit dem eingelesenen
- * Paper) 1 h im Speicher. Der OpenAI-kompatible Endpoint ignoriert keep_alive
- * — nur die native API setzt die TTL; ein leerer Prompt lädt ohne zu
- * generieren (done_reason 'load'). Fehler sind nie fatal.
+ * Extra parameters for LLM calls that must answer immediately (definitions,
+ * titles, summaries): suppresses the thinking phase of reasoning models on
+ * Ollama (/v1 translates reasoning_effort 'none' → think off).
+ */
+function noThinkExtras(provider) {
+  // Ollama /v1 understands 'none' (thinking off). Gemini's NEW alias models
+  // (gemini-flash-latest, 2026-07) reject 'none' with a bare 400 — 'low' is
+  // the minimum they accept; same for Groq's gpt-oss. If a provider fails on
+  // the flag anyway, the degradation ladder in tools.js takes over.
+  if (provider === 'ollama') return { reasoning_effort: 'none' };
+  if (provider === 'gemini' || provider === 'groq') return { reasoning_effort: 'low' };
+  return {};
+}
+
+/**
+ * Keeps the Ollama model (and thus the KV prefix cache with the ingested
+ * paper) in memory for 1 h. The OpenAI-compatible endpoint ignores
+ * keep_alive — only the native API sets the TTL; an empty prompt loads
+ * without generating (done_reason 'load'). Errors are never fatal.
  */
 async function extendOllamaKeepAlive(model) {
   try {
@@ -127,31 +169,7 @@ async function extendOllamaKeepAlive(model) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ model, prompt: '', keep_alive: '1h' }),
     });
-  } catch { /* Ollama nicht erreichbar — TTL bleibt einfach beim Default */ }
+  } catch { /* Ollama unreachable — the TTL simply stays at the default */ }
 }
 
-/**
- * Wie viel des geladenen Modells im GPU-Speicher liegt (native /api/ps:
- * size_vram vs. size). Teilweises CPU-Offloading (unter 100 %) ist der
- * häufigste Grund für unerklärlich langsame lokale Antworten — 10–20×
- * langsamer als vollständig auf der GPU. null, wenn das Modell (noch) nicht
- * geladen oder Ollama nicht erreichbar ist; Fehler sind nie fatal.
- */
-async function getOllamaGpuResidency(model) {
-  try {
-    const r = await fetch('http://localhost:11434/api/ps');
-    if (!r.ok) return null;
-    const data = await r.json();
-    const loaded = (data.models || []).find(m => m.name === model || m.model === model);
-    if (!loaded || !loaded.size) return null;
-    return {
-      vramPercent: Math.round(((loaded.size_vram || 0) / loaded.size) * 100),
-      sizeBytes: loaded.size,
-      vramBytes: loaded.size_vram || 0,
-    };
-  } catch {
-    return null;
-  }
-}
-
-module.exports = { getLLMClient, getSetting, setSetting, getAllSettings, testOpenAIKey, noThinkExtras, extendOllamaKeepAlive, getOllamaGpuResidency, DEFAULTS };
+module.exports = { getLLMClient, getLLMClientFor, getSetting, setSetting, getAllSettings, testOpenAIKey, testProviderKey, noThinkExtras, extendOllamaKeepAlive, DEFAULTS, CLOUD_PROVIDERS };

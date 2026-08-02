@@ -1,22 +1,22 @@
 /**
  * perf-log.js
  *
- * Latenz-Instrumentierung pro Antwort (2026-07-24). Zwei Ausgaben, beide
- * reine Metriken — NIE Gesprächsinhalte, nichts in der Datenbank:
- *   - formatPerfLine: die erweiterte [perf]-Zeile fürs backend.log (immer)
- *   - appendPerfJsonl: eine JSON-Zeile pro Antwort in logs/perf.jsonl,
- *     nur wenn SYFLO_PERF_LOG gesetzt ist (mit `jq` auswertbar)
+ * Latency instrumentation per response (2026-07-24). Two outputs, both
+ * pure metrics — NEVER conversation content, nothing in the database:
+ *   - formatPerfLine: the extended [perf] line for backend.log (always)
+ *   - appendPerfJsonl: one JSON line per response in logs/perf.jsonl,
+ *     only when SYFLO_PERF_LOG is set (analyzable with `jq`)
  *
- * Die Datenschutz-Garantie lebt in buildPerfRecord: der Datensatz wird aus
- * einer FESTEN Feldliste gebaut, nie per Spread — so kann kein Frage-/
- * Antworttext durchsickern, egal was der Aufrufer mitgibt.
+ * The privacy guarantee lives in buildPerfRecord: the record is built from
+ * a FIXED field list, never via spread — so no question/answer text can
+ * leak through, no matter what the caller passes in.
  */
 
 const fs = require('fs');
 const path = require('path');
 
-// Aus dem rohen (potenziell inhaltshaltigen) Eingabeobjekt exakt die
-// erlaubten Metrik-Felder herausziehen. Alles andere fällt weg.
+// Pull exactly the allowed metric fields out of the raw (potentially
+// content-bearing) input object. Everything else is dropped.
 function buildPerfRecord(input = {}) {
   const num = (v) => (typeof v === 'number' ? v : null);
   const str = (v) => (typeof v === 'string' && v ? v : null);
@@ -33,6 +33,9 @@ function buildPerfRecord(input = {}) {
     genTokens: num(input.completionTokens),
     tokS: num(input.tokensPerSecond),
     totalMs: num(input.totalMs),
+    // Provider's finish_reason for the final answer round: 'stop' is clean,
+    // 'length'/'content_filter'/null flag a truncated answer (2026-07-26).
+    finish: str(input.finishReason),
   };
 }
 
@@ -42,12 +45,13 @@ function formatPerfLine(r) {
     `[perf] model=${v(r.model)} mode=${v(r.mode)} cache=${v(r.cache)} ` +
     `source_tokens=${v(r.sourceTokens)} chunks=${v(r.chunkCount)} ` +
     `prompt_tokens=${v(r.promptTokens)} ttft_ms=${v(r.ttftMs)} ` +
-    `gen_tokens=${v(r.genTokens)} tok_s=${v(r.tokS)} total_ms=${v(r.totalMs)}`
+    `gen_tokens=${v(r.genTokens)} tok_s=${v(r.tokS)} total_ms=${v(r.totalMs)} ` +
+    `finish=${v(r.finish)}`
   );
 }
 
-// Eine JSON-Zeile über den injizierten Writer (Default: an logs/perf.jsonl
-// anhängen). writeFn injizierbar für Tests.
+// One JSON line via the injected writer (default: append to
+// logs/perf.jsonl). writeFn is injectable for tests.
 function appendPerfJsonl(record, writeFn) {
   const line = `${JSON.stringify(record)}\n`;
   if (writeFn) {
@@ -59,12 +63,12 @@ function appendPerfJsonl(record, writeFn) {
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.appendFileSync(file, line);
   } catch (_) {
-    /* Logging darf die Antwort nie gefährden */
+    /* Logging must never endanger the response */
   }
 }
 
-// Schalter: die JSON-Datei läuft nur, wenn ausdrücklich eingeschaltet
-// (sie wächst pro Nachricht). '0'/'false'/'' zählen als aus.
+// Switch: the JSON file only runs when explicitly enabled
+// (it grows per message). '0'/'false'/'' count as off.
 function isPerfJsonlEnabled(env = process.env) {
   const v = (env.SYFLO_PERF_LOG || '').toString().trim().toLowerCase();
   return v !== '' && v !== '0' && v !== 'false';

@@ -1,7 +1,8 @@
 /**
  * SettingsModal — Zwei-Tab-Layout (design/mockup-settings-reorg.html,
  * Variante A): Appearance (Themes, nur Close) und Model (Provider → Model →
- * API Key, nur hier Activate).
+ * API Key, nur hier Activate). Seit ADR-0008: fünf Provider-Karten, Modelle
+ * und Key-URLs aus der Registry, Daten-Schicksal-Zeile, Usage-Block.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
@@ -11,23 +12,105 @@ vi.mock('../api', () => ({
     getSettings: vi.fn(),
     updateSettings: vi.fn(),
     getOllamaModels: vi.fn(),
-    pullOllamaModel: vi.fn(),
-    deleteOllamaModel: vi.fn(),
+    getRegistry: vi.fn(),
+    getUsageSummary: vi.fn(),
+    getQuotaCooldowns: vi.fn(),
   },
 }));
 
 import { api } from '../api';
 import { SettingsModal } from '../components/SettingsModal';
-import type { Settings } from '../types';
+import type { Registry, Settings, UsageSummary } from '../types';
 
 const ollamaSettings: Settings = {
   llm_provider: 'ollama',
-  openai_model: 'gpt-4o-mini',
   ollama_model: 'llama3.2-vision:11b',
-  model_source: 'auto',
+  gemini_model: 'gemini-2.5-flash',
+  groq_model: 'openai/gpt-oss-120b',
+  openai_model: 'gpt-4o-mini',
+  anthropic_model: 'claude-sonnet-4-5',
+  gemini_api_key_set: false,
+  groq_api_key_set: false,
   openai_api_key_set: false,
+  anthropic_api_key_set: false,
   custom_instructions: '',
   custom_instructions_enabled: true,
+};
+
+// Frischer Install (ADR-0008): Gemini 2.5 Flash ist der Default, kein Key.
+const geminiSettings: Settings = { ...ollamaSettings, llm_provider: 'gemini' };
+
+// Schlanke Registry-Fixture — Form wie GET /api/settings/registry.
+const registry: Registry = {
+  asOf: '2026-07-25',
+  providers: {
+    gemini: {
+      label: 'Gemini', kind: 'cloud', keyUrl: 'https://aistudio.google.com/apikey',
+      free: true, defaultModel: 'gemini-2.5-flash',
+      models: [
+        {
+          name: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', vision: true, canThink: true,
+          contextWindowTokens: 1048576, budgetCapTokens: 32768, free: true,
+          pricing: { inputPerMTok: 0.3, outputPerMTok: 2.5 },
+          freeQuota: { requestsPerMinute: 10, requestsPerDay: 250 },
+        },
+        {
+          name: 'gemini-flash-lite-latest', label: 'Gemini Flash Lite', vision: true, canThink: true,
+          contextWindowTokens: 1048576, budgetCapTokens: 32768, free: true,
+          pricing: { inputPerMTok: 0.1, outputPerMTok: 0.4 },
+          freeQuota: { requestsPerMinute: 15, requestsPerDay: 500 },
+        },
+        {
+          name: 'gemini-pro-latest', label: 'Gemini Pro', vision: true, canThink: true,
+          contextWindowTokens: 1048576, budgetCapTokens: 32768, free: false,
+          pricing: { inputPerMTok: 1.25, outputPerMTok: 10 },
+        },
+      ],
+    },
+    groq: {
+      label: 'Groq', kind: 'cloud', keyUrl: 'https://console.groq.com/keys',
+      free: true, defaultModel: 'openai/gpt-oss-120b',
+      models: [
+        {
+          name: 'openai/gpt-oss-120b', label: 'gpt-oss 120B', vision: false, canThink: true,
+          contextWindowTokens: 131072, budgetCapTokens: 32768, free: true, pricing: null,
+        },
+      ],
+    },
+    openai: {
+      label: 'OpenAI', kind: 'cloud', keyUrl: 'https://platform.openai.com/api-keys',
+      free: false, defaultModel: 'gpt-4o-mini',
+      models: [
+        {
+          name: 'gpt-4o-mini', label: 'GPT-4o mini', vision: true, canThink: false,
+          contextWindowTokens: 128000, budgetCapTokens: 32768, free: false,
+          pricing: { inputPerMTok: 0.15, outputPerMTok: 0.6 },
+        },
+      ],
+    },
+    anthropic: {
+      label: 'Claude', kind: 'cloud', keyUrl: 'https://console.anthropic.com/settings/keys',
+      free: false, defaultModel: 'claude-sonnet-4-5',
+      models: [
+        {
+          name: 'claude-sonnet-4-5', label: 'Claude Sonnet 4.5', vision: true, canThink: true,
+          contextWindowTokens: 200000, budgetCapTokens: 32768, free: false,
+          pricing: { inputPerMTok: 3, outputPerMTok: 15 },
+        },
+      ],
+    },
+    ollama: { kind: 'local', free: true, models: [] },
+  },
+};
+
+const usageSummary: UsageSummary = {
+  month: '2026-07',
+  pricesAsOf: '2026-07-25',
+  providers: {
+    gemini: { requests: 12, requestsToday: 5, promptTokens: 10000, completionTokens: 4000, estimatedUsd: 0.02 },
+    openai: { requests: 3, requestsToday: 2, promptTokens: 2000, completionTokens: 800, estimatedUsd: 0.11 },
+  },
+  modelsToday: { 'gemini/gemini-2.5-flash': 5 },
 };
 
 beforeEach(() => {
@@ -35,6 +118,9 @@ beforeEach(() => {
   localStorage.clear();
   vi.mocked(api.getSettings).mockResolvedValue(ollamaSettings);
   vi.mocked(api.getOllamaModels).mockResolvedValue([]);
+  vi.mocked(api.getRegistry).mockResolvedValue(registry);
+  vi.mocked(api.getUsageSummary).mockResolvedValue(usageSummary);
+  vi.mocked(api.getQuotaCooldowns).mockResolvedValue([]);
 });
 
 async function renderOpen() {
@@ -64,7 +150,7 @@ describe('SettingsModal – two-tab layout', () => {
     fireEvent.click(screen.getByRole('button', { name: /model/i }));
 
     expect(screen.getByText('Ollama (local)')).toBeInTheDocument();
-    expect(screen.getByText('OpenAI (Cloud)')).toBeInTheDocument();
+    expect(screen.getByText('Gemini')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /activate/i })).toBeInTheDocument();
     // Ollama aktiv → kein API-Key-Schritt
     expect(screen.queryByText('API Key')).not.toBeInTheDocument();
@@ -80,11 +166,11 @@ describe('SettingsModal – two-tab layout', () => {
     expect(screen.queryByText('Theme')).not.toBeInTheDocument();
   });
 
-  it('reveals the API key step only when OpenAI is picked', async () => {
+  it('reveals the API key step only when a cloud provider is picked', async () => {
     await renderOpen();
 
     fireEvent.click(screen.getByRole('button', { name: /model/i }));
-    fireEvent.click(screen.getByText('OpenAI (Cloud)'));
+    fireEvent.click(screen.getByTestId('provider-card-openai'));
 
     expect(screen.getByText('API Key')).toBeInTheDocument();
     // Ohne Key: Aktivieren blockiert + Hinweis im Footer
@@ -93,43 +179,189 @@ describe('SettingsModal – two-tab layout', () => {
   });
 });
 
-describe('SettingsModal – model library (mockup-model-picker.html, Sektion 03)', () => {
-  const recommendation = { platform: 'darwin', totalMemGb: 24, recommendedModel: 'qwen3.5:9b' };
+// ─── Cloud-Provider (ADR-0008, Slice 8) ──────────────────────────────────────
+// Fünf Provider-Karten, Registry-getriebene Modelle/Key-URLs, ehrliche
+// Daten-Schicksal-Zeile pro Provider, Key-Pflicht vor Aktivierung.
 
-  it('shows the hardware banner and a Download row for the missing recommended model', async () => {
-    vi.mocked(api.getOllamaModels).mockResolvedValue([
-      { name: 'llama3.2-vision:11b', parameter_size: '10.7B', canThink: false },
-    ]);
-    render(
-      <SettingsModal open onClose={vi.fn()} initialTab="model" recommendation={recommendation} />
-    );
-    await screen.findByTestId('hardware-banner');
+describe('SettingsModal – cloud providers (ADR-0008)', () => {
+  async function openModelTab(settings: Settings = geminiSettings) {
+    vi.mocked(api.getSettings).mockResolvedValue(settings);
+    render(<SettingsModal open onClose={vi.fn()} initialTab="model" />);
+    await screen.findByTestId('provider-card-gemini');
+  }
 
-    expect(screen.getByTestId('hardware-banner')).toHaveTextContent('24 GB');
-    expect(screen.getByTestId('library-row-qwen3.5:9b')).toHaveTextContent('Recommended for this machine');
-    // Installiert + aktiv → "Active"-Abzeichen, aber KEIN Umschalter.
-    expect(screen.getByTestId('library-row-llama3.2-vision:11b')).toHaveTextContent('Active');
-    expect(screen.getByTestId('download-qwen3.5:9b')).toBeInTheDocument();
+  it('renders five provider cards with gemini preselected from the settings', async () => {
+    await openModelTab();
+
+    for (const p of ['gemini', 'groq', 'openai', 'anthropic', 'ollama']) {
+      expect(screen.getByTestId(`provider-card-${p}`)).toBeInTheDocument();
+    }
+    expect(screen.getByTestId('provider-card-gemini')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('provider-card-ollama')).toHaveAttribute('aria-pressed', 'false');
+    // Kein Kosten-Badge mehr auf der Karte (Variante B, 2026-07-30): Kosten
+    // sind eine Eigenschaft von Modell × Key und leben in Schritt 2. Die
+    // Karte trägt nur noch die Herkunft.
+    expect(screen.getByTestId('provider-card-gemini')).toHaveTextContent('Cloud');
+    expect(screen.getByTestId('provider-card-gemini')).not.toHaveTextContent('Free');
+    expect(screen.getByTestId('provider-card-ollama')).toHaveTextContent('Local');
   });
 
-  it('starts the pull when Download is clicked and refreshes the library', async () => {
-    vi.mocked(api.getOllamaModels).mockResolvedValue([]);
-    vi.mocked(api.pullOllamaModel).mockResolvedValue(undefined);
-    const onLibraryChanged = vi.fn();
-    render(
-      <SettingsModal
-        open
-        onClose={vi.fn()}
-        initialTab="model"
-        recommendation={recommendation}
-        onLibraryChanged={onLibraryChanged}
-      />
-    );
-    fireEvent.click(await screen.findByTestId('download-qwen3.5:9b'));
+  it('changes the data-fate line with the selected provider', async () => {
+    await openModelTab();
 
-    await waitFor(() => expect(api.pullOllamaModel).toHaveBeenCalled());
-    expect(vi.mocked(api.pullOllamaModel).mock.calls[0][0]).toBe('qwen3.5:9b');
-    await waitFor(() => expect(onLibraryChanged).toHaveBeenCalled());
+    expect(screen.getByTestId('provider-data-note')).toHaveTextContent(
+      /Google may use them to improve its products/i,
+    );
+
+    fireEvent.click(screen.getByTestId('provider-card-ollama'));
+    expect(screen.getByTestId('provider-data-note')).toHaveTextContent(
+      'Chat data never leaves this device.',
+    );
+
+    fireEvent.click(screen.getByTestId('provider-card-groq'));
+    expect(screen.getByTestId('provider-data-note')).toHaveTextContent(
+      'Requests go to Groq under your own key.',
+    );
+  });
+
+  // Kosten-Stufen (mockup-model-cost-tiers Variante B, gewählt 2026-07-30):
+  // der Modell-Schritt ist eine Radio-Liste mit den Gruppen Free tier /
+  // Requires billing statt eines Dropdowns.
+  it('groups the cloud models by cost tier, with a lock and price on paid rows', async () => {
+    await openModelTab();
+
+    expect(screen.getByText('Free tier')).toBeInTheDocument();
+    expect(screen.getByText('Requires billing')).toBeInTheDocument();
+    // Gespeichertes Modell ist vorausgewählt.
+    expect(screen.getByTestId('settings-model-gemini-2.5-flash')).toHaveAttribute('aria-checked', 'true');
+    // Paid-Zeile: Hinweis + Preis, aber wählbar (Notausgang für Billing-Keys).
+    const pro = screen.getByTestId('settings-model-gemini-pro-latest');
+    expect(pro).toHaveTextContent('Billing required');
+    expect(pro).toHaveTextContent('$1.25 / MTok');
+    fireEvent.click(pro);
+    expect(pro).toHaveAttribute('aria-checked', 'true');
+
+    // Groq: alle Modelle frei → keine Billing-Gruppe.
+    fireEvent.click(screen.getByTestId('provider-card-groq'));
+    expect(screen.queryByText('Requires billing')).not.toBeInTheDocument();
+  });
+
+  it('shows live used/limit meters with a key, static quotas without one', async () => {
+    // Mit Key: Zähler aus modelsToday gegen das Registry-Kontingent.
+    await openModelTab({ ...geminiSettings, gemini_api_key_set: true });
+    expect(await screen.findByTestId('settings-quota-gemini-2.5-flash')).toHaveTextContent('5/250');
+
+    // Der W10-Tooltip erklärt die Doppel-Natur (frei UND bezahlbar) am Gruppenkopf.
+    expect(screen.getByTestId('tier-info').getAttribute('title')).toMatch(/API key/i);
+  });
+
+  it('shows the static registry quota when no key is saved yet (W5)', async () => {
+    await openModelTab();
+    // Ohne Key keine Nutzungsdaten: statisches Kontingent statt Zähler.
+    expect(screen.getByTestId('settings-quota-gemini-2.5-flash')).toHaveTextContent('250 / day');
+  });
+
+  it('links the key guide CTA to the registry keyUrl', async () => {
+    await openModelTab();
+
+    expect(screen.getByTestId('key-guide-cta')).toHaveAttribute(
+      'href',
+      'https://aistudio.google.com/apikey',
+    );
+
+    fireEvent.click(screen.getByTestId('provider-card-anthropic'));
+    expect(screen.getByTestId('key-guide-cta')).toHaveAttribute(
+      'href',
+      'https://console.anthropic.com/settings/keys',
+    );
+  });
+
+  it('blocks Activate for a cloud provider without a key until one is typed', async () => {
+    // Ollama aktiv gespeichert → der Wechsel auf Gemini ist dirty, aber ohne
+    // Key bleibt Aktivieren blockiert.
+    await openModelTab(ollamaSettings);
+    fireEvent.click(screen.getByTestId('provider-card-gemini'));
+
+    expect(screen.getByText(/add an api key to activate gemini/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /activate/i })).toBeDisabled();
+
+    // Key eintippen → Aktivieren wird frei.
+    fireEvent.change(screen.getByPlaceholderText('sk-…'), { target: { value: 'AIza-test-key' } });
+    expect(screen.getByRole('button', { name: /activate/i })).toBeEnabled();
+  });
+
+  it('sends llm_provider, the provider model and the typed key on Activate', async () => {
+    const updated: Settings = { ...geminiSettings, gemini_api_key_set: true };
+    vi.mocked(api.updateSettings).mockResolvedValue(updated);
+    await openModelTab(ollamaSettings);
+    fireEvent.click(screen.getByTestId('provider-card-gemini'));
+    fireEvent.change(screen.getByPlaceholderText('sk-…'), { target: { value: 'AIza-test-key' } });
+    fireEvent.click(screen.getByRole('button', { name: /activate/i }));
+
+    await waitFor(() =>
+      expect(api.updateSettings).toHaveBeenCalledWith({
+        llm_provider: 'gemini',
+        gemini_model: 'gemini-2.5-flash',
+        gemini_api_key: 'AIza-test-key',
+      }),
+    );
+  });
+
+  it('keeps the $5 starter table only for OpenAI', async () => {
+    await openModelTab();
+    expect(screen.queryByText(/what \$5 gets you/i)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('provider-card-openai'));
+    expect(screen.getByText(/what \$5 gets you/i)).toBeInTheDocument();
+  });
+
+  it('shows the usage block: free quota counter for gemini, estimate for openai', async () => {
+    await openModelTab();
+
+    // Gemini (frei): Anfragen heute inkl. Tageslimit aus der Registry.
+    expect(screen.getByTestId('usage-block')).toHaveTextContent('5 / 250 requests today');
+    expect(screen.getByTestId('usage-block')).toHaveTextContent('Prices as of 2026-07-25');
+    expect(screen.getByTestId('usage-block')).not.toHaveTextContent('estimated');
+
+    // OpenAI (bezahlt): geschätzte Kosten, klar als Schätzung gelabelt.
+    fireEvent.click(screen.getByTestId('provider-card-openai'));
+    expect(screen.getByTestId('usage-block')).toHaveTextContent('2 requests today');
+    expect(screen.getByTestId('usage-block')).toHaveTextContent('~$0.11 estimated');
+  });
+});
+
+// ── Ollama model list (frozen fallback, ADR-0008 amendment) ─────────────────
+// No download, no remove, no hardware recommendation: the app only lists the
+// installed vision models and points to `ollama pull` in the terminal.
+
+describe('SettingsModal – Ollama model list (frozen fallback)', () => {
+  it('lists installed models with an Active badge and no download/remove UI', async () => {
+    vi.mocked(api.getOllamaModels).mockResolvedValue([
+      { name: 'llama3.2-vision:11b', parameter_size: '10.7B', canThink: false },
+      { name: 'qwen3.5:9b', parameter_size: '9.7B', canThink: true },
+    ]);
+    render(<SettingsModal open onClose={vi.fn()} initialTab="model" />);
+    await screen.findByTestId('library-row-llama3.2-vision:11b');
+
+    // Installed + active: passive "Active" badge, no switcher here.
+    expect(screen.getByTestId('library-row-llama3.2-vision:11b')).toHaveTextContent('Active');
+    expect(screen.getByTestId('library-row-qwen3.5:9b')).toHaveTextContent('can think');
+    // The download/remove machinery is gone (frozen fallback).
+    expect(screen.queryByTestId('hardware-banner')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /download/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /remove/i })).not.toBeInTheDocument();
+  });
+
+  it('shows the terminal pull hint instead of a download UI', async () => {
+    vi.mocked(api.getOllamaModels).mockResolvedValue([
+      { name: 'qwen3.5:9b', canThink: true },
+    ]);
+    render(<SettingsModal open onClose={vi.fn()} initialTab="model" />);
+    await screen.findByTestId('pull-hint');
+
+    expect(screen.getByTestId('pull-hint')).toHaveTextContent(
+      'Install models with `ollama pull <name>` in the terminal.',
+    );
   });
 
   it('never offers an Ollama model dropdown — switching lives in the composer', async () => {
@@ -137,10 +369,8 @@ describe('SettingsModal – model library (mockup-model-picker.html, Sektion 03)
       { name: 'qwen3.5:9b', canThink: true },
       { name: 'qwen3.5:4b', canThink: true },
     ]);
-    render(
-      <SettingsModal open onClose={vi.fn()} initialTab="model" recommendation={recommendation} />
-    );
-    await screen.findByTestId('hardware-banner');
+    render(<SettingsModal open onClose={vi.fn()} initialTab="model" />);
+    await screen.findByTestId('library-row-qwen3.5:9b');
 
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
     expect(screen.getByText(/switched from the chat composer/i)).toBeInTheDocument();
@@ -313,5 +543,30 @@ describe('SettingsModal – German App language', () => {
     expect(screen.getByText('Einstellungen')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Sprache' })).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: /schließen/i }).length).toBeGreaterThan(0);
+  });
+});
+
+// ─── Eye toggle on the key field (user report 2026-07-25) ────────────────────
+// A saved key is never sent back to the frontend, so with an empty field the
+// eye has nothing to reveal — it must only appear while something is typed.
+
+describe('SettingsModal – key field eye toggle', () => {
+  it('shows the eye only while a key is being typed, and toggles visibility', async () => {
+    vi.mocked(api.getSettings).mockResolvedValue(geminiSettings);
+    render(<SettingsModal open onClose={vi.fn()} initialTab="model" />);
+    await screen.findByTestId('provider-card-gemini');
+
+    // Empty field: no eye button (nothing to reveal).
+    expect(screen.queryByRole('button', { name: /show api key/i })).not.toBeInTheDocument();
+
+    const input = screen.getByPlaceholderText(/AIza|sk-|…/i);
+    fireEvent.change(input, { target: { value: 'AIza-typed' } });
+
+    // Typing reveals the toggle; clicking it flips password → text.
+    expect(input).toHaveAttribute('type', 'password');
+    fireEvent.click(screen.getByRole('button', { name: /show api key/i }));
+    expect(input).toHaveAttribute('type', 'text');
+    fireEvent.click(screen.getByRole('button', { name: /hide api key/i }));
+    expect(input).toHaveAttribute('type', 'password');
   });
 });

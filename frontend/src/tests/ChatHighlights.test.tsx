@@ -4,13 +4,14 @@
  * Chat-text highlighting + "Ask in chat"
  * (design/mockup-chat-highlights-ask-in-chat.html):
  *
- *   1. MessageBubble: right-click with a live selection fires onChatSelection
- *      with message-relative character offsets (whitespace trimmed off), on
- *      user and assistant bubbles alike; leading "> " quotes in user messages
+ *   1. MessageBubble: finishing a drag-selection (mouseup, no right-click
+ *      needed — user request 2026-07-31) fires onChatSelection with
+ *      message-relative character offsets (whitespace trimmed off), on user
+ *      and assistant bubbles alike; leading "> " quotes in user messages
  *      render as a styled block.
  *   2. ChatArea: the composer quote block renders, is removable, and sending
  *      prepends the quote as a markdown blockquote.
- *   3. App integration: selection right-click opens the popup with the color
+ *   3. App integration: finishing a selection opens the popup with the color
  *      row + "Ask in chat"; a swatch click persists a message highlight;
  *      "Ask in chat" branches from the selection, opens the branch with the
  *      quote pre-filled, and (no PDF) shows the parent chat as center context.
@@ -44,15 +45,13 @@ vi.mock('../api', () => ({
   api: {
     getTree: vi.fn(),
     getSettings: vi.fn(),
-    // Modell-System v2: App ruft diese beim Start auf — Defaults, damit
-    // bestehende Tests ohne eigenes Setup weiterlaufen.
-    applyRecommendedModel: vi.fn().mockResolvedValue({ applied: false, model: '' }),
     warmupChat: vi.fn().mockResolvedValue(undefined),
     getOllamaModels: vi.fn().mockResolvedValue([]),
-    getSystemRecommendation: vi.fn().mockRejectedValue(new Error('none')),
+    getOllamaStatus: vi.fn().mockResolvedValue({ reachable: true, models: [] }),
+    getQuotaCooldowns: vi.fn().mockResolvedValue([]),
+    getUsageSummary: vi.fn().mockResolvedValue({ month: '2026-07', pricesAsOf: '2026-07-30', providers: {}, modelsToday: {} }),
+    getRegistry: vi.fn().mockRejectedValue(new Error('none')),
     updateSettings: vi.fn(),
-    pullOllamaModel: vi.fn().mockResolvedValue(undefined),
-    deleteOllamaModel: vi.fn().mockResolvedValue(undefined),
     getChat: vi.fn(),
     getAncestors: vi.fn(),
     getTreePaper: vi.fn(),
@@ -129,7 +128,7 @@ describe('MessageBubble — chat selection capture', () => {
     const p = screen.getByText(/Gradient clipping/);
     // "clipping alone" = offsets 9..23 of the content
     mockSelectionOver(p.firstChild!, 9, 23);
-    fireEvent.contextMenu(p);
+    fireEvent.mouseUp(p);
     expect(onChatSelection).toHaveBeenCalledWith(
       expect.objectContaining({
         messageId: 'a1',
@@ -156,7 +155,7 @@ describe('MessageBubble — chat selection capture', () => {
     const p = screen.getByText(/Gradient clipping/);
     // " clipping alone " = offsets 8..24 — expect them tightened to 9..23.
     mockSelectionOver(p.firstChild!, 8, 24);
-    fireEvent.contextMenu(p);
+    fireEvent.mouseUp(p);
     expect(onChatSelection).toHaveBeenCalledWith(
       expect.objectContaining({ text: 'clipping alone', startOffset: 9, endOffset: 23 }),
       expect.any(String),
@@ -176,7 +175,7 @@ describe('MessageBubble — chat selection capture', () => {
     );
     const p = screen.getByText(/Why does warmup/);
     mockSelectionOver(p.firstChild!, 9, 15); // "warmup"
-    fireEvent.contextMenu(p);
+    fireEvent.mouseUp(p);
     expect(onChatSelection).toHaveBeenCalledWith(
       expect.objectContaining({ messageId: 'u1', text: 'warmup', startOffset: 9, endOffset: 15 }),
       userMessage.content,
@@ -283,6 +282,7 @@ describe('App — chat highlight + Ask in chat flow', () => {
     id: 'mh1',
     messageId: 'a1',
     chatId: 'c1',
+    childChatId: null,
     startOffset: 9,
     endOffset: 23,
     text: 'clipping alone',
@@ -319,7 +319,7 @@ describe('App — chat highlight + Ask in chat flow', () => {
     await waitFor(() => expect(screen.getByText(/Gradient clipping/)).toBeInTheDocument());
     const p = screen.getByText(/Gradient clipping/);
     mockSelectionOver(p.firstChild!, 9, 23); // "clipping alone"
-    fireEvent.contextMenu(p);
+    fireEvent.mouseUp(p);
   }
 
   it('opens the popup with color row and "Ask in chat" for a chat selection', async () => {
@@ -345,7 +345,7 @@ describe('App — chat highlight + Ask in chat flow', () => {
     vi.mocked(api.updateMessageHighlight).mockResolvedValue({ ...savedHighlight, color: 'blue' });
     fireEvent.click(screen.getByLabelText('Highlight as Reference'));
     await waitFor(() =>
-      expect(api.updateMessageHighlight).toHaveBeenCalledWith('mh1', 'blue'),
+      expect(api.updateMessageHighlight).toHaveBeenCalledWith('mh1', { color: 'blue' }),
     );
     expect(api.createMessageHighlight).toHaveBeenCalledTimes(1);
   });
@@ -387,7 +387,8 @@ describe('App — chat highlight + Ask in chat flow', () => {
     fireEvent.click(screen.getByText('Open as new chat'));
 
     await waitFor(() =>
-      expect(api.createChat).toHaveBeenCalledWith('About: clipping alone', 'c1', 'clipping alone'),
+      expect(api.createChat).toHaveBeenCalledWith('clipping alone', 'c1', 'clipping alone', // chat branches carry no parent_context — parent_word IS the full passage (2026-07-26)
+        undefined),
     );
     await waitFor(() =>
       expect(api.createMessageHighlight).toHaveBeenCalledWith('c1', {
@@ -396,22 +397,28 @@ describe('App — chat highlight + Ask in chat flow', () => {
         text: 'clipping alone',
         startOffset: 9,
         endOffset: 23,
+        childChatId: 'c9',
       }),
     );
   });
 
-  it('"Open as new chat" nach Swatch-Klick legt kein zweites Highlight an', async () => {
+  it('"Open as new chat" nach Swatch-Klick legt kein zweites Highlight an, verlinkt aber die bestehende Markierung', async () => {
     await openRootAndSelect();
     await waitFor(() => expect(screen.getByTestId('popup-color-section')).toBeInTheDocument());
     fireEvent.click(screen.getByLabelText('Highlight as Question'));
     await waitFor(() => expect(api.createMessageHighlight).toHaveBeenCalledTimes(1));
 
+    vi.mocked(api.updateMessageHighlight).mockResolvedValue({ ...savedHighlight, childChatId: 'c9' });
     fireEvent.click(screen.getByText('Open as new chat'));
     await waitFor(() =>
-      expect(api.createChat).toHaveBeenCalledWith('About: clipping alone', 'c1', 'clipping alone'),
+      expect(api.createChat).toHaveBeenCalledWith('clipping alone', 'c1', 'clipping alone', // chat branches carry no parent_context — parent_word IS the full passage (2026-07-26)
+        undefined),
     );
     await waitFor(() => expect(screen.getByTestId('parent-context-pane')).toBeInTheDocument());
     expect(api.createMessageHighlight).toHaveBeenCalledTimes(1);
+    await waitFor(() =>
+      expect(api.updateMessageHighlight).toHaveBeenCalledWith('mh1', { childChatId: 'c9' }),
+    );
   });
 
   it('"Ask in chat" drops the quote into the SAME chat\'s composer without branching', async () => {
@@ -435,7 +442,8 @@ describe('App — chat highlight + Ask in chat flow', () => {
     fireEvent.click(screen.getByText('Open as new chat'));
 
     await waitFor(() =>
-      expect(api.createChat).toHaveBeenCalledWith('About: clipping alone', 'c1', 'clipping alone'),
+      expect(api.createChat).toHaveBeenCalledWith('clipping alone', 'c1', 'clipping alone', // chat branches carry no parent_context — parent_word IS the full passage (2026-07-26)
+        undefined),
     );
     // The branch opens in the right pane, parent chat renders in the center.
     await waitFor(() => expect(screen.getByTestId('parent-context-pane')).toBeInTheDocument());

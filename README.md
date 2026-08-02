@@ -5,9 +5,12 @@ conversation, Syflo lets you spin off a side-chat from any word the
 model writes — creating a tree of focused sub-conversations you can
 navigate visually as a mind map.
 
-The whole thing runs on a **local Ollama vision model** (auto-picked for
-your hardware, `qwen3.5:9b` on a 24 GB machine), so no chat data ever
-leaves your machine.
+Syflo talks to the model provider of **your choice** (ADR-0008): the
+default is **Gemini 2.5 Flash** under your own free API key; Groq,
+OpenAI and Anthropic work the same way — bring your own key, Syflo
+never ships or proxies one. Prefer full privacy? Switch to the
+**local Ollama provider** and chat data never leaves your device;
+dictation, web search and retrieval embeddings run locally either way.
 
 ---
 
@@ -177,19 +180,22 @@ cd frontend && npm test
 cd backend && npm test
 ```
 
-Frontend currently has 72 tests across 8 files; backend has 23 tests
-across 3 files.
+The backend suite currently has 430+ tests; the frontend runs on
+vitest — both must be green before a change counts as done.
 
 ---
 
 ## Configuration
 
 - **Backend port**: set `PORT` in `backend/.env` (default 3001).
-- **Ollama URL**: hard-coded to `http://localhost:11434/v1` in
-  `routes/messages.js` and `routes/explain.js` for now.
-- **Model**: chosen automatically for your hardware (see `backend/hardware.js`)
-  and switchable anytime from the model pill in the chat composer; the
-  library (download/remove) lives in Settings → Models.
+- **Providers & models**: curated per-provider model lists (context
+  windows, budget caps, vision/thinking flags, prices with an as-of
+  date) live in `backend/registry.json`; the app periodically refreshes
+  it from the repo copy — no user data is involved. API keys are stored
+  in the local SQLite settings and are never returned to the frontend.
+- **Model**: switch provider and key in Settings → Model; switch the
+  model itself from the pill in the chat composer. Local Ollama models
+  are installed with `ollama pull` (vision models appear in the picker).
 
 ---
 

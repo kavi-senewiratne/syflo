@@ -1,68 +1,56 @@
 /**
  * settings.js
  *
- * Globale Syflo-Einstellungen: Welcher LLM-Provider wird verwendet,
- * welches Modell, und (für OpenAI) der API-Key.
+ * Global Syflo settings: which LLM provider is used, which model,
+ * and (for OpenAI) the API key.
  *
- * Wichtig: Der API-Key verlässt das Backend nie. GET liefert nur
- * `openai_api_key_set: true|false`, damit das Frontend einen Status
- * anzeigen kann, ohne den Key sehen zu müssen.
+ * Important: the API key never leaves the backend. GET only returns
+ * `openai_api_key_set: true|false` so the frontend can show a status
+ * without having to see the key.
  */
 
 const express = require('express');
-const { getAllSettings, getSetting, setSetting, testOpenAIKey } = require('../llm');
-const { recommendModel, systemFacts } = require('../hardware');
+const { getAllSettings, setSetting, testProviderKey, CLOUD_PROVIDERS } = require('../llm');
+const { getRegistry, refreshRegistry } = require('../registry');
 
-const ALLOWED_PROVIDERS = new Set(['ollama', 'openai']);
+const ALLOWED_PROVIDERS = new Set(['ollama', ...CLOUD_PROVIDERS]);
 
-// Deckel für die Custom instructions: sie zehren vom RESERVED_TOKENS-Puffer
-// (ancestor-context.js) — ~570 Tokens bei 2000 Zeichen lassen genug Luft für
-// Tool-Definitionen, Historie und die Antwort selbst.
+// Cap for the custom instructions: they eat into the RESERVED_TOKENS buffer
+// (ancestor-context.js) — ~570 tokens at 2000 characters leave enough room
+// for tool definitions, history and the answer itself.
 const MAX_CUSTOM_INSTRUCTIONS_CHARS = 2000;
 
 function buildResponse(db) {
   const s = getAllSettings(db);
-  return {
+  const out = {
     llm_provider: s.llm_provider,
-    openai_model: s.openai_model,
     ollama_model: s.ollama_model,
-    model_source: s.model_source,
-    openai_api_key_set: Boolean(s.openai_api_key),
     custom_instructions: s.custom_instructions,
     custom_instructions_enabled: s.custom_instructions_enabled === 'true',
   };
+  // Per cloud provider: model choice + whether a key is stored. The
+  // plaintext key never leaves the backend.
+  for (const p of CLOUD_PROVIDERS) {
+    out[`${p}_model`] = s[`${p}_model`];
+    out[`${p}_api_key_set`] = Boolean(s[`${p}_api_key`]);
+  }
+  return out;
 }
 
 module.exports = (db, options = {}) => {
   const router = express.Router();
 
-  // POST /api/settings/apply-recommended — setzt das Hardware-empfohlene
-  // Modell als aktives Modell, aber nur wenn (a) der Nutzer nie manuell
-  // gewählt hat (model_source 'auto') und (b) das Modell installiert ist.
-  // Das Frontend ruft das beim Start auf; Download-Gate bleibt gewahrt.
-  router.post('/apply-recommended', async (_req, res) => {
-    const { totalMemGb, platform } = systemFacts(options.system);
-    const model = recommendModel(totalMemGb, platform);
-
-    if (getSetting(db, 'model_source') !== 'auto') {
-      return res.json({ applied: false, model, reason: 'manual choice wins' });
-    }
-    try {
-      const r = await fetch('http://localhost:11434/api/tags');
-      if (!r.ok) return res.json({ applied: false, model, reason: 'ollama unreachable' });
-      const installed = ((await r.json()).models || []).some((m) => m.name === model);
-      if (!installed) return res.json({ applied: false, model, reason: 'not installed' });
-    } catch {
-      return res.json({ applied: false, model, reason: 'ollama unreachable' });
-    }
-
-    setSetting(db, 'ollama_model', model); // model_source bleibt 'auto'
-    res.json({ applied: true, model });
-  });
-
-  // GET /api/settings — aktuelle Einstellungen (ohne den Klartext-API-Key)
+  // GET /api/settings — current settings (never the plaintext API keys)
   router.get('/', (_req, res) => {
     res.json(buildResponse(db));
+  });
+
+  // GET /api/settings/registry — curated provider/model lists including
+  // capabilities, prices and as-of date (ADR-0008). In the background the
+  // remote copy is fetched occasionally (no user data, never fatal).
+  router.get('/registry', (_req, res) => {
+    refreshRegistry(db).catch(() => {});
+    res.json(getRegistry(db));
   });
 
   // GET /api/settings/ollama-models — proxy to the local Ollama daemon to list
@@ -88,7 +76,7 @@ module.exports = (db, options = {}) => {
             });
             if (s.ok) capabilities = (await s.json()).capabilities || [];
           } catch {
-            // Ein einzelnes kaputtes Modell blockiert nicht die ganze Liste.
+            // A single broken model doesn't block the whole list.
           }
           return { model: m, capabilities };
         })
@@ -109,62 +97,13 @@ module.exports = (db, options = {}) => {
     }
   });
 
-  // POST /api/settings/ollama-pull — lädt ein Modell über den lokalen Ollama-
-  // Daemon herunter und streamt dessen Fortschritts-Zeilen (NDJSON) 1:1 an
-  // den Client durch, damit die Settings-Bibliothek einen Balken zeigen kann.
-  router.post('/ollama-pull', async (req, res) => {
-    const { model } = req.body;
-    if (!model || typeof model !== 'string') {
-      return res.status(400).json({ error: 'model is required' });
-    }
-    try {
-      const r = await fetch('http://localhost:11434/api/pull', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model, stream: true }),
-      });
-      if (!r.ok) {
-        return res.status(502).json({ error: `Ollama responded with status ${r.status}` });
-      }
-      res.setHeader('Content-Type', 'application/x-ndjson');
-      for await (const chunk of r.body) {
-        res.write(chunk);
-      }
-      res.end();
-    } catch (err) {
-      if (!res.headersSent) {
-        res.status(503).json({ error: 'Could not reach Ollama at localhost:11434. Is it running?' });
-      } else {
-        res.end();
-      }
-    }
-  });
-
-  // DELETE /api/settings/ollama-models/:name — entfernt ein installiertes
-  // Modell (Settings-Bibliothek; der Picker kann nur wechseln, nie löschen).
-  router.delete('/ollama-models/:name', async (req, res) => {
-    try {
-      const r = await fetch('http://localhost:11434/api/delete', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: req.params.name }),
-      });
-      if (!r.ok) {
-        return res.status(502).json({ error: `Ollama responded with status ${r.status}` });
-      }
-      res.json({ ok: true });
-    } catch {
-      res.status(503).json({ error: 'Could not reach Ollama at localhost:11434. Is it running?' });
-    }
-  });
-
-  // PUT /api/settings — partielles Update. Felder, die nicht im Body
-  // stehen, bleiben unverändert. Leerer String beim API-Key löscht ihn.
-  // Wenn ein neuer OpenAI-Key gesetzt wird (nicht leerer String), wird er
-  // gegen die OpenAI-API validiert, bevor er gespeichert wird — damit das
-  // Frontend sofort weiß, ob der Key tatsächlich funktioniert.
+  // PUT /api/settings — partial update. Fields not present in the body
+  // remain unchanged. An empty string for the API key deletes it.
+  // When a new OpenAI key is set (non-empty string), it is validated
+  // against the OpenAI API before it is stored — so the frontend knows
+  // immediately whether the key actually works.
   router.put('/', async (req, res) => {
-    const { llm_provider, openai_api_key, openai_model, ollama_model, custom_instructions, custom_instructions_enabled } = req.body;
+    const { llm_provider, ollama_model, custom_instructions, custom_instructions_enabled } = req.body;
 
     if (llm_provider !== undefined && !ALLOWED_PROVIDERS.has(llm_provider)) {
       return res.status(400).json({ error: `llm_provider must be one of: ${[...ALLOWED_PROVIDERS].join(', ')}` });
@@ -182,29 +121,36 @@ module.exports = (db, options = {}) => {
       return res.status(400).json({ error: 'custom_instructions_enabled must be a boolean' });
     }
 
-    // Validate the key *before* persisting so an invalid one doesn't end up in the DB.
-    if (typeof openai_api_key === 'string' && openai_api_key.length > 0) {
-      try {
-        await testOpenAIKey(openai_api_key);
-      } catch (err) {
-        return res.status(400).json({ error: err.message });
+    // Keys are validated BEFORE they are stored — an invalid key never
+    // lands in the DB. An empty string deletes the key.
+    for (const p of CLOUD_PROVIDERS) {
+      const key = req.body[`${p}_api_key`];
+      if (typeof key === 'string' && key.length > 0) {
+        try {
+          await testProviderKey(db, p, key);
+        } catch (err) {
+          return res.status(400).json({ error: err.message });
+        }
       }
     }
 
     if (llm_provider !== undefined) setSetting(db, 'llm_provider', llm_provider);
     if (custom_instructions !== undefined) setSetting(db, 'custom_instructions', custom_instructions);
     if (custom_instructions_enabled !== undefined) {
-      // TEXT-Spalte — Boolean als 'true'/'false'-String ablegen.
+      // TEXT column — store the boolean as a 'true'/'false' string.
       setSetting(db, 'custom_instructions_enabled', custom_instructions_enabled ? 'true' : 'false');
     }
-    if (openai_api_key !== undefined) setSetting(db, 'openai_api_key', openai_api_key);
-    if (openai_model !== undefined) setSetting(db, 'openai_model', openai_model);
-    if (ollama_model !== undefined) {
-      setSetting(db, 'ollama_model', ollama_model);
-      // Eine Wahl über PUT ist immer eine Nutzer-Entscheidung — ab jetzt
-      // fasst die Hardware-Automatik das Modell nicht mehr an.
-      setSetting(db, 'model_source', 'manual');
+    for (const p of CLOUD_PROVIDERS) {
+      const key = req.body[`${p}_api_key`];
+      const model = req.body[`${p}_model`];
+      if (key !== undefined) setSetting(db, `${p}_api_key`, key);
+      if (model !== undefined) setSetting(db, `${p}_model`, model);
     }
+    if (ollama_model !== undefined) setSetting(db, 'ollama_model', ollama_model);
+
+    // Provider/model switches affect the send queue (mockup-model-flow §07):
+    // waiting local questions whose provider is now cloud start immediately.
+    options.onLLMSettingsChanged?.();
 
     res.json(buildResponse(db));
   });

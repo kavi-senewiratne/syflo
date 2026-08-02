@@ -56,30 +56,30 @@ module.exports = (db) => {
         roots.push(map[c.id]);
       }
     });
-    // Sidebar zeigt neueste Bäume oben (2026-07-24). Nur die Roots drehen —
-    // die children bleiben aufsteigend (ORDER BY oben), sie speisen die
-    // Baumlinien in Erstellungs-Reihenfolge. String-Vergleich reicht:
-    // created_at ist "YYYY-MM-DD HH:MM:SS" und sortiert lexikografisch.
+    // Sidebar shows newest trees at the top (2026-07-24). Only the roots are
+    // reversed — the children stay ascending (ORDER BY above), they feed the
+    // tree lines in creation order. String comparison is enough:
+    // created_at is "YYYY-MM-DD HH:MM:SS" and sorts lexicographically.
     roots.sort((a, b) => b.created_at.localeCompare(a.created_at));
     res.json(roots);
   });
 
-  // Vorfahren-Kette eines Chats (Wurzel → … → direkter Elternchat) mit den
-  // gecachten Summaries — die Read-only-Sicht des UIs auf den geerbten
-  // Kontext (ParentContextPane). Liest nur den Cache, erzeugt nichts.
+  // Ancestor chain of a chat (root → … → direct parent chat) with the
+  // cached summaries — the UI's read-only view of the inherited context
+  // (ParentContextPane). Only reads the cache, generates nothing.
   router.get('/:id/ancestors', (req, res) => {
     const chat = db.prepare('SELECT id FROM chats WHERE id = ?').get(req.params.id);
     if (!chat) return res.status(404).json({ error: 'Chat not found' });
 
     const ancestors = getAncestorPath(db, req.params.id).map((a) => {
-      // summary_display: JSON {gist, points[]} für das Kontext-Banner —
-      // defensiv geparst, kaputte/fehlende Einträge werden zu null
-      // (das UI fällt dann auf den gerenderten Summary-Volltext zurück).
+      // summary_display: JSON {gist, points[]} for the context banner —
+      // parsed defensively, broken/missing entries become null
+      // (the UI then falls back to the rendered full summary text).
       let display = null;
       if (a.summary_display) {
         try {
           display = JSON.parse(a.summary_display);
-        } catch (_) { /* alte/kaputte Zeile — Volltext-Fallback */ }
+        } catch (_) { /* old/broken row — full-text fallback */ }
       }
       return {
         id: a.id,
@@ -126,19 +126,25 @@ module.exports = (db) => {
 
   // Create new chat
   router.post('/', (req, res) => {
-    const { title, parent_id, parent_word } = req.body;
+    const { title, parent_id, parent_word, parent_context } = req.body;
     if (!title) return res.status(400).json({ error: 'title is required' });
 
     const id = crypto.randomUUID();
     const now = new Date().toISOString();
 
-    db.prepare(
-      'INSERT INTO chats (id, title, parent_id, parent_word, created_at) VALUES (?, ?, ?, ?, ?)'
-    ).run(id, title, parent_id || null, parent_word || null, now);
+    // parent_context only makes sense on a branch (PDF-selection surroundings,
+    // capped defensively — the frontend already trims to 400 chars).
+    const context = parent_word && typeof parent_context === 'string' && parent_context.trim()
+      ? parent_context.trim().slice(0, 600)
+      : null;
 
-    // Warm-up (Design 2026-07-20): Die Abzweigung ist das früheste Signal,
-    // dass die Vorfahren-Summaries gleich gebraucht werden. Fire-and-forget —
-    // die Antwort wartet nicht, Fehler fängt der Lazy-Pfad beim Senden ab.
+    db.prepare(
+      'INSERT INTO chats (id, title, parent_id, parent_word, parent_context, created_at) VALUES (?, ?, ?, ?, ?, ?)'
+    ).run(id, title, parent_id || null, parent_word || null, context, now);
+
+    // Warm-up (design 2026-07-20): The branch-off is the earliest signal
+    // that the ancestor summaries will be needed shortly. Fire-and-forget —
+    // the response doesn't wait; errors are caught by the lazy path on send.
     if (parent_id) {
       setImmediate(() => {
         warmUpAncestorSummaries(db, id).catch(() => {});
@@ -170,9 +176,9 @@ module.exports = (db) => {
     const deleteMessagesForChat = db.prepare('DELETE FROM messages WHERE chat_id = ?');
     const deleteChat = db.prepare('DELETE FROM chats WHERE id = ?');
     const findChildren = db.prepare('SELECT id FROM chats WHERE parent_id = ?');
-    // Highlights überleben ihren Branch (Issue 06): nur entkoppeln, nie
-    // löschen. Explizit statt per FK, weil foreign_keys hier nicht global
-    // aktiviert sind — das Schema-SET-NULL allein würde nichts tun.
+    // Highlights outlive their branch (Issue 06): only unlink, never
+    // delete. Explicit instead of via FK, because foreign_keys are not
+    // globally enabled here — the schema SET NULL alone would do nothing.
     const unlinkHighlightsForChat = db.prepare('UPDATE highlights SET chat_id = NULL WHERE chat_id = ?');
 
     const pathsToUnlink = [];

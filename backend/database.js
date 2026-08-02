@@ -50,20 +50,20 @@ function createDb(dbPath = DB_PATH) {
 
     CREATE INDEX IF NOT EXISTS idx_attachments_message ON attachments(message_id);
 
-    -- Globale Settings als Key-Value-Store. Aktuelle Keys:
+    -- Global settings as a key-value store. Current keys:
     --   llm_provider:      'ollama' | 'openai'
-    --   openai_api_key:    raw secret (nur intern, wird nie ans Frontend geschickt)
-    --   openai_model:      z. B. 'gpt-4o' oder 'gpt-4o-mini'
-    --   ollama_model:      z. B. 'llama3.2-vision:11b'
+    --   openai_api_key:    raw secret (internal only, never sent to the frontend)
+    --   openai_model:      e.g. 'gpt-4o' or 'gpt-4o-mini'
+    --   ollama_model:      e.g. 'llama3.2-vision:11b'
     CREATE TABLE IF NOT EXISTS settings (
       key TEXT PRIMARY KEY,
       value TEXT
     );
 
-    -- Papers: PDF, das an einen Chat tree gebunden ist (ADR-0002: max. eins
-    -- pro Tree, der Root-Chat trägt paper_id). Minimaler Syflo-Port ohne
-    -- Marker-Pipeline — status ist direkt 'ready', 'parsing'/'failed' bleiben
-    -- im CHECK für Schema-Kompatibilität mit Syflo.
+    -- Papers: PDF bound to a chat tree (ADR-0002: at most one per tree, the
+    -- root chat carries paper_id). Minimal Syflo port without the marker
+    -- pipeline — status is 'ready' right away, 'parsing'/'failed' stay in
+    -- the CHECK for schema compatibility with Syflo.
     CREATE TABLE IF NOT EXISTS papers (
       id TEXT PRIMARY KEY,
       title TEXT,
@@ -73,10 +73,10 @@ function createDb(dbPath = DB_PATH) {
       status TEXT NOT NULL CHECK(status IN ('parsing', 'ready', 'failed'))
     );
 
-    -- Videos: YouTube transcript als zweite Quellenart (ADR-0005: ein Baum
-    -- hat höchstens EINE Quelle — Paper ODER Video; der Root-Chat trägt
-    -- paper_id bzw. video_id). transcript hält den vollen Untertitel-Text
-    -- mit groben Minutenmarken pro Absatz.
+    -- Videos: YouTube transcript as the second source type (ADR-0005: a tree
+    -- has at most ONE source — paper OR video; the root chat carries
+    -- paper_id or video_id respectively). transcript holds the full subtitle
+    -- text with rough minute marks per paragraph.
     CREATE TABLE IF NOT EXISTS videos (
       id TEXT PRIMARY KEY,
       youtube_id TEXT NOT NULL,
@@ -89,9 +89,9 @@ function createDb(dbPath = DB_PATH) {
       created_at TEXT NOT NULL
     );
 
-    -- Text-Anker für Highlights (Syflo-Port, Slice 04). bbox_json hält die
-    -- Multi-Rects in Zoom=1-Seitenkoordinaten; start/end_offset bleiben für
-    -- Schema-Kompatibilität mit Syflo erhalten (dort: Markdown-Anker).
+    -- Text anchors for highlights (Syflo port, slice 04). bbox_json holds the
+    -- multi-rects in zoom=1 page coordinates; start/end_offset are kept for
+    -- schema compatibility with Syflo (there: Markdown anchors).
     CREATE TABLE IF NOT EXISTS text_ranges (
       id TEXT PRIMARY KEY,
       paper_id TEXT NOT NULL REFERENCES papers(id) ON DELETE CASCADE,
@@ -103,10 +103,10 @@ function createDb(dbPath = DB_PATH) {
     );
     CREATE INDEX IF NOT EXISTS idx_text_ranges_paper ON text_ranges(paper_id);
 
-    -- Farbige Highlights. chat_id ist ON DELETE SET NULL — ein Highlight
-    -- überlebt seinen Branch (Issue 06). Da SQLite-FKs hier nicht global
-    -- aktiviert sind, entkoppelt der Chat-Delete-Pfad (routes/chats.js)
-    -- zusätzlich explizit.
+    -- Colored highlights. chat_id is ON DELETE SET NULL — a highlight
+    -- survives its branch (issue 06). Since SQLite FKs are not enabled
+    -- globally here, the chat delete path (routes/chats.js) additionally
+    -- detaches explicitly.
     CREATE TABLE IF NOT EXISTS highlights (
       id TEXT PRIMARY KEY,
       text_range_id TEXT NOT NULL REFERENCES text_ranges(id) ON DELETE CASCADE,
@@ -118,11 +118,11 @@ function createDb(dbPath = DB_PATH) {
     CREATE INDEX IF NOT EXISTS idx_highlights_chat ON highlights(chat_id);
     CREATE INDEX IF NOT EXISTS idx_highlights_text_range ON highlights(text_range_id);
 
-    -- Chat-Text-Highlights (design/mockup-chat-highlights-ask-in-chat.html).
-    -- Anders als PDF-Highlights (text_ranges.bbox_json, geometrisch) ankern
-    -- sie an message_id + Zeichen-Offsets in den gerenderten Klartext der
-    -- Nachricht (textContent der Bubble) — dadurch reflow-sicher. text hält
-    -- den markierten Wortlaut zur Verifikation beim Re-Anchoring.
+    -- Chat text highlights (design/mockup-chat-highlights-ask-in-chat.html).
+    -- Unlike PDF highlights (text_ranges.bbox_json, geometric), they anchor
+    -- to message_id + character offsets into the rendered plain text of the
+    -- message (textContent of the bubble) — making them reflow-safe. text
+    -- holds the highlighted wording for verification during re-anchoring.
     CREATE TABLE IF NOT EXISTS message_highlights (
       id TEXT PRIMARY KEY,
       message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
@@ -135,9 +135,9 @@ function createDb(dbPath = DB_PATH) {
     );
     CREATE INDEX IF NOT EXISTS idx_message_highlights_message ON message_highlights(message_id);
 
-    -- Globale Farb-Labels — eine Zeile pro Farbe, vom Nutzer umbenennbar
-    -- (Slice 05). Seeds unten via INSERT OR IGNORE, damit Umbenennungen
-    -- Backend-Neustarts überleben.
+    -- Global color labels — one row per color, renamable by the user
+    -- (slice 05). Seeded below via INSERT OR IGNORE so renames survive
+    -- backend restarts.
     CREATE TABLE IF NOT EXISTS highlight_labels (
       color TEXT PRIMARY KEY CHECK(color IN ('yellow','green','blue','pink','orange')),
       label TEXT NOT NULL,
@@ -160,23 +160,23 @@ function createDb(dbPath = DB_PATH) {
     seedLabel.run(color, label, nowIso);
   }
 
-  // Migration: chats.paper_id (nullable) — der Root-Chat eines Trees ist an
-  // ein Paper gebunden. Idempotent: PRAGMA-Check vor ALTER (wie in Syflo).
+  // Migration: chats.paper_id (nullable) — the root chat of a tree is bound
+  // to a paper. Idempotent: PRAGMA check before ALTER (as in Syflo).
   const chatsCols = db.prepare('PRAGMA table_info(chats)').all();
   if (!chatsCols.some((c) => c.name === 'paper_id')) {
     db.exec('ALTER TABLE chats ADD COLUMN paper_id TEXT REFERENCES papers(id) ON DELETE SET NULL');
   }
 
-  // Migration: chats.video_id (nullable) — Gegenstück zu paper_id für die
-  // zweite Quellenart (ADR-0005). Nur der Root-Chat eines Trees trägt sie.
+  // Migration: chats.video_id (nullable) — counterpart to paper_id for the
+  // second source type (ADR-0005). Only the root chat of a tree carries it.
   if (!chatsCols.some((c) => c.name === 'video_id')) {
     db.exec('ALTER TABLE chats ADD COLUMN video_id TEXT REFERENCES videos(id) ON DELETE SET NULL');
   }
 
-  // Migration: chats.summary + chats.summary_last_message_id — gecachte
-  // LLM-Zusammenfassung des Chats für den geerbten Vorfahren-Kontext von
-  // Branches. Reiner Cache (jederzeit regenerierbar); summary_last_message_id
-  // hält die id der letzten abgedeckten Nachricht für den Staleness-Check.
+  // Migration: chats.summary + chats.summary_last_message_id — cached LLM
+  // summary of the chat for the inherited ancestor context of branches.
+  // Pure cache (regenerable at any time); summary_last_message_id holds the
+  // id of the last covered message for the staleness check.
   if (!chatsCols.some((c) => c.name === 'summary')) {
     db.exec('ALTER TABLE chats ADD COLUMN summary TEXT');
   }
@@ -184,12 +184,40 @@ function createDb(dbPath = DB_PATH) {
     db.exec('ALTER TABLE chats ADD COLUMN summary_last_message_id TEXT');
   }
 
-  // Migration: chats.summary_display — JSON {gist, points[]} für die
-  // Kontext-Banner-Anzeige (mockup-context-banner-variants.html §01).
-  // Reine Anzeige-Ableitung der Summary, geht NICHT in den Prompt; null bei
-  // alten Summaries → das UI fällt auf den gerenderten Volltext zurück.
+  // Migration: chats.summary_display — JSON {gist, points[]} for the
+  // context banner display (mockup-context-banner-variants.html §01).
+  // Pure display derivation of the summary, does NOT go into the prompt;
+  // null for old summaries → the UI falls back to the rendered full text.
   if (!chatsCols.some((c) => c.name === 'summary_display')) {
     db.exec('ALTER TABLE chats ADD COLUMN summary_display TEXT');
+  }
+
+  // Migration: chats.parent_context — for branches opened from a PDF
+  // selection: the text-layer lines around the selection, captured in the
+  // frontend at selection time (decision 2026-07-26). The PDF text layer
+  // flattens math notation ("Rm" for R^m), so the branch prompt needs the
+  // surroundings to make the selected term interpretable. Null for
+  // chat-selection branches (parent_word already carries the full passage).
+  if (!chatsCols.some((c) => c.name === 'parent_context')) {
+    db.exec('ALTER TABLE chats ADD COLUMN parent_context TEXT');
+  }
+
+  // Migration: messages.fail_reason — machine-readable cause on '*Failed*'
+  // markers (mockup-model-flow §05/§06). Deterministic causes (no_key,
+  // bad_key, no_vision, local_missing) stay true across reloads, so the UI
+  // can keep their specific card; time-dependent quota flags remain
+  // transient by design and are NEVER stored here.
+  const messagesCols = db.prepare('PRAGMA table_info(messages)').all();
+  if (!messagesCols.some((c) => c.name === 'fail_reason')) {
+    db.exec('ALTER TABLE messages ADD COLUMN fail_reason TEXT');
+  }
+
+  // Migration: messages.pending — 1 while a question waits in the send queue
+  // (mockup-model-flow §10). Persisted at enqueue so a reload can never lose
+  // a typed question; cleared (and re-stamped) at dequeue. Pending rows are
+  // excluded from prompts and timestamp logic.
+  if (!messagesCols.some((c) => c.name === 'pending')) {
+    db.exec('ALTER TABLE messages ADD COLUMN pending INTEGER NOT NULL DEFAULT 0');
   }
 
   // Migration: papers.extracted_text — lazily filled plain-text cache of the
@@ -200,13 +228,26 @@ function createDb(dbPath = DB_PATH) {
     db.exec('ALTER TABLE papers ADD COLUMN extracted_text TEXT');
   }
 
-  // Migration: source_chunks — Absatz-Chunks + Embeddings für den Retrieval-
-  // Modus langer Quellen (retrieval.js, ADR-0006). Reiner Cache: jederzeit
-  // aus papers.extracted_text bzw. videos.transcript regenerierbar.
-  // text_hash hält den Hash des Quelltexts, aus dem die Chunks entstanden —
-  // ändert er sich (z. B. Re-Extraktion eines gekappten Caches), wird neu
-  // gechunkt. embedding ist ein Float32-BLOB (Kosinus-Suche in JS; bei
-  // ~100–200 Chunks pro Quelle braucht es keine Vektor-Datenbank).
+  // Migration: message_highlights.child_chat_id — the chat branched from
+  // this chat-text highlight, mirroring highlights.chat_id (PDF side). Same
+  // ON DELETE SET NULL: the highlight outlives its branch.
+  const messageHighlightsCols = db.prepare('PRAGMA table_info(message_highlights)').all();
+  if (!messageHighlightsCols.some((c) => c.name === 'child_chat_id')) {
+    db.exec(
+      'ALTER TABLE message_highlights ADD COLUMN child_chat_id TEXT REFERENCES chats(id) ON DELETE SET NULL',
+    );
+    db.exec(
+      'CREATE INDEX IF NOT EXISTS idx_message_highlights_child_chat ON message_highlights(child_chat_id)',
+    );
+  }
+
+  // Migration: source_chunks — paragraph chunks + embeddings for the
+  // retrieval mode of long sources (retrieval.js, ADR-0006). Pure cache:
+  // regenerable at any time from papers.extracted_text or videos.transcript.
+  // text_hash holds the hash of the source text the chunks were built from —
+  // if it changes (e.g. re-extraction of a truncated cache), chunking is
+  // redone. embedding is a Float32 BLOB (cosine search in JS; with ~100–200
+  // chunks per source no vector database is needed).
   db.exec(`
     CREATE TABLE IF NOT EXISTS source_chunks (
       id TEXT PRIMARY KEY,
@@ -222,6 +263,31 @@ function createDb(dbPath = DB_PATH) {
     CREATE INDEX IF NOT EXISTS idx_source_chunks_source
       ON source_chunks(source_type, source_id, chunk_index);
   `);
+
+  // Migration: usage_log — token counts of every response (ADR-0008 slice 7).
+  // Basis of the cost estimate (× registry price table) and the free-tier
+  // daily counter. Pure metrics, NEVER conversation content.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS usage_log (
+      id TEXT PRIMARY KEY,
+      provider TEXT NOT NULL,
+      model TEXT NOT NULL,
+      prompt_tokens INTEGER,
+      completion_tokens INTEGER,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_usage_log_created ON usage_log(created_at);
+  `);
+
+  // Migration: embedding_model — the stamp of the model that embedded the
+  // chunks (ADR-0006 addendum 2026-07-25). Vectors of different models live
+  // in incompatible spaces; a mismatch means a rebuild. Existing rows
+  // without a stamp come from nomic-embed-text (the model before the switch
+  // to bge-m3) and are rebuilt on the next access.
+  const chunkCols = db.prepare("PRAGMA table_info('source_chunks')").all();
+  if (!chunkCols.some((c) => c.name === 'embedding_model')) {
+    db.exec("ALTER TABLE source_chunks ADD COLUMN embedding_model TEXT NOT NULL DEFAULT 'nomic-embed-text'");
+  }
 
   return db;
 }

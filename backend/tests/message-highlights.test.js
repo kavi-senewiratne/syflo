@@ -179,6 +179,33 @@ describe('POST /api/chats/:chatId/message-highlights', () => {
     expect(a.status).toBe(201);
     expect(b.status).toBe(201);
   });
+
+  it('defaults childChatId to null when not provided', async () => {
+    const res = await request(app)
+      .post(`/api/chats/${chatId}/message-highlights`)
+      .send(validBody());
+    expect(res.body.childChatId).toBeNull();
+  });
+
+  it('links a child chat at creation time', async () => {
+    db.prepare('INSERT INTO chats (id, title, created_at) VALUES (?, ?, ?)').run(
+      'child-1',
+      'About clipping',
+      '2026-07-19T00:00:05.000Z',
+    );
+    const res = await request(app)
+      .post(`/api/chats/${chatId}/message-highlights`)
+      .send(validBody({ childChatId: 'child-1' }));
+    expect(res.status).toBe(201);
+    expect(res.body.childChatId).toBe('child-1');
+  });
+
+  it('404s when childChatId does not reference an existing chat', async () => {
+    const res = await request(app)
+      .post(`/api/chats/${chatId}/message-highlights`)
+      .send(validBody({ childChatId: 'nope' }));
+    expect(res.status).toBe(404);
+  });
 });
 
 describe('PATCH /api/message-highlights/:mhid', () => {
@@ -207,6 +234,39 @@ describe('PATCH /api/message-highlights/:mhid', () => {
     const res = await request(app)
       .patch('/api/message-highlights/nope')
       .send({ color: 'blue' });
+    expect(res.status).toBe(404);
+  });
+
+  it('links and unlinks a child chat', async () => {
+    db.prepare('INSERT INTO chats (id, title, created_at) VALUES (?, ?, ?)').run(
+      'child-1',
+      'About clipping',
+      '2026-07-19T00:00:05.000Z',
+    );
+    const created = await request(app)
+      .post(`/api/chats/${chatId}/message-highlights`)
+      .send(validBody());
+
+    const linkRes = await request(app)
+      .patch(`/api/message-highlights/${created.body.id}`)
+      .send({ childChatId: 'child-1' });
+    expect(linkRes.status).toBe(200);
+    expect(linkRes.body.childChatId).toBe('child-1');
+
+    const unlinkRes = await request(app)
+      .patch(`/api/message-highlights/${created.body.id}`)
+      .send({ childChatId: null });
+    expect(unlinkRes.status).toBe(200);
+    expect(unlinkRes.body.childChatId).toBeNull();
+  });
+
+  it('404s when linking a childChatId that does not reference an existing chat', async () => {
+    const created = await request(app)
+      .post(`/api/chats/${chatId}/message-highlights`)
+      .send(validBody());
+    const res = await request(app)
+      .patch(`/api/message-highlights/${created.body.id}`)
+      .send({ childChatId: 'nope' });
     expect(res.status).toBe(404);
   });
 });

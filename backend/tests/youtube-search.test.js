@@ -33,7 +33,7 @@ afterEach(() => {
 describe('cleanPublished', () => {
   const { cleanPublished } = require('../youtube');
 
-  it('entfernt die Streamed/Premiered-Präfixe von Livestreams und Premieren', () => {
+  it('removes the Streamed/Premiered prefixes of livestreams and premieres', () => {
     expect(cleanPublished('Streamed 1 year ago')).toBe('1 year ago');
     expect(cleanPublished('Premiered 2 weeks ago')).toBe('2 weeks ago');
     expect(cleanPublished('9 months ago')).toBe('9 months ago');

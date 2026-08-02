@@ -1,21 +1,21 @@
 /**
  * whisper.js
  *
- * Lebenszyklus des lokalen whisper-server (ADR-0004): der Prozess ist KEIN
- * Dauerbewohner. Er wird beim ersten Diktat lazy gestartet und nach einer
- * Leerlaufzeit wieder beendet — auf 24 GB Unified Memory neben den
- * Ollama-Vision-Modellen wäre ein permanent residentes STT-Modell nur
- * zusätzliches Swap-Risiko für die Token-Generierung.
+ * Lifecycle of the local whisper-server (ADR-0004): the process is NOT a
+ * permanent resident. It is lazily started on the first dictation and
+ * terminated again after an idle period — on 24 GB unified memory next to
+ * the Ollama vision models, a permanently resident STT model would only be
+ * additional swap risk for token generation.
  *
- * Öffentliche Schnittstelle: createWhisperManager(options) →
- *   transcribe(wavBuffer) → Promise<string>   (wirft WhisperSetupError,
- *                                              wenn das Modell fehlt)
+ * Public interface: createWhisperManager(options) →
+ *   transcribe(wavBuffer) → Promise<string>   (throws WhisperSetupError
+ *                                              when the model is missing)
  *   isRunning() → boolean
  *   shutdown()  → Promise<void>
  *
- * Sprache wird NICHT vorgegeben: language=auto — Whisper erkennt Deutsch/
- * Englisch selbst, gemischte Sätze eingeschlossen (Grill-Entscheidung
- * 2026-07-23, kein UI-Umschalter).
+ * Language is NOT prescribed: language=auto — Whisper detects German/
+ * English itself, mixed sentences included (grill decision 2026-07-23,
+ * no UI toggle).
  */
 
 const { spawn } = require('child_process');
@@ -27,22 +27,22 @@ const DATA_DIR = process.env.SYFLO_DATA_DIR || path.join(__dirname, '..');
 const DEFAULT_MODEL = process.env.WHISPER_MODEL
   || path.join(DATA_DIR, 'models', 'ggml-small.bin');
 const DEFAULT_BIN = process.env.WHISPER_SERVER_BIN || 'whisper-server';
-// 8888 = Jupyter, 8890 = SearXNG — 8891 ist frei (siehe Latenz-Notizen).
+// 8888 = Jupyter, 8890 = SearXNG — 8891 is free (see latency notes).
 const DEFAULT_PORT = Number(process.env.WHISPER_PORT || 8891);
 const DEFAULT_IDLE_MS = 10 * 60 * 1000;
 
-/** Modell (oder Binary) fehlt — der Aufrufer soll eine 503 mit Anleitung geben. */
+/** Model (or binary) is missing — the caller should return a 503 with instructions. */
 class WhisperSetupError extends Error {}
 
-// Whisper "transkribiert" Stille und Nicht-Sprache als Marker aus seinen
-// Trainings-Untertiteln: [BLANK_AUDIO], [Musik], (soft music), ♪ … Solche
-// rein beschreibenden Einschübe sind kein Diktat — sie fliegen raus. Bleibt
-// nichts übrig, bekommt das Frontend einen leeren Text und hängt nichts ans
-// Eingabefeld an.
+// Whisper "transcribes" silence and non-speech as markers from its training
+// subtitles: [BLANK_AUDIO], [Musik], (soft music), ♪ … Such purely
+// descriptive insertions are not dictation — they get thrown out. If
+// nothing remains, the frontend gets an empty text and appends nothing to
+// the input field.
 const NON_SPEECH_MARKERS = /\[[^\]]*\]|\([^)]*\)|♪+/g;
 
-// whisper-server trennt Segmente außerdem mit \n — für das Composer-Feld
-// soll das Diktat ein Fließtext-Block sein.
+// whisper-server also separates segments with \n — for the composer field
+// the dictation should be one flowing-text block.
 function cleanTranscript(raw) {
   return (raw || '')
     .replace(NON_SPEECH_MARKERS, ' ')
@@ -77,13 +77,13 @@ function createWhisperManager({
     }
   }
 
-  // Nach jedem Diktat neu aufgezogen; läuft er ab, wird der Server beendet
-  // und der RAM ist wieder frei.
+  // Re-armed after every dictation; when it expires, the server is
+  // terminated and the RAM is free again.
   function armIdleTimer() {
     clearIdleTimer();
     idleTimer = setTimeout(() => { shutdown(); }, idleMs);
-    // Ein wartender Idle-Timer darf den Prozess-Exit (Tests, Server-Stop)
-    // nicht blockieren.
+    // A pending idle timer must not block process exit (tests, server
+    // stop).
     if (idleTimer.unref) idleTimer.unref();
   }
 
@@ -120,7 +120,7 @@ function createWhisperManager({
         `Could not start ${bin}: ${err.message}. Is whisper-cpp installed?`
       ));
     }
-    child.on('error', () => { /* Exit-Handler unten räumt auf */ });
+    child.on('error', () => { /* the exit handler below cleans up */ });
     child.on('exit', () => {
       child = null;
       readyPromise = null;
@@ -128,7 +128,7 @@ function createWhisperManager({
     });
 
     readyPromise = waitUntilReady().catch(err => {
-      // Fehlstart: Zustand zurücksetzen, damit der nächste Versuch frisch ist.
+      // Failed start: reset state so the next attempt starts fresh.
       const failed = child;
       child = null;
       readyPromise = null;
@@ -143,7 +143,7 @@ function createWhisperManager({
 
   async function transcribe(wavBuffer) {
     await ensureStarted();
-    clearIdleTimer(); // während der Anfrage nicht abschalten
+    clearIdleTimer(); // do not shut down during the request
 
     try {
       const form = new FormData();
@@ -175,7 +175,7 @@ function createWhisperManager({
     await new Promise(resolve => {
       running.once('exit', resolve);
       try { running.kill('SIGTERM'); } catch (_) { resolve(); }
-      // Sicherheitsnetz, falls SIGTERM ignoriert wird.
+      // Safety net in case SIGTERM is ignored.
       setTimeout(() => {
         try { running.kill('SIGKILL'); } catch (_) {}
         resolve();

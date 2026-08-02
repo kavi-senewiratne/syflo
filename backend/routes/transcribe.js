@@ -1,21 +1,22 @@
 /**
  * routes/transcribe.js
  *
- * POST /api/transcribe — nimmt ein WAV (audio/wav, roher Body) entgegen und
- * antwortet mit { text }. Die eigentliche Erkennung macht der lazy
- * gestartete lokale whisper-server (siehe whisper.js, ADR-0004).
+ * POST /api/transcribe — accepts a WAV (audio/wav, raw body) and
+ * responds with { text }. The actual recognition is done by the lazily
+ * started local whisper-server (see whisper.js, ADR-0004).
  *
- * options.manager ist für Tests injizierbar (gleiches Muster wie
+ * options.manager is injectable for tests (same pattern as
  * options.system / options.messages in server.js).
  */
 
 const express = require('express');
 const { createWhisperManager, WhisperSetupError } = require('../whisper');
 
-// Diagnose-Kennzahlen des empfangenen WAVs (16-bit-PCM, Header 44 Bytes):
-// Dauer und Pegel. Ein Diktat, das "nichts erkennt", ist fast immer zu
-// leises Audio (Mikro-Pegel/Abstand) — diese eine Logzeile unterscheidet
-// "Audio kam leer/leise an" von "Whisper hat versagt" (Diagnose 2026-07-24).
+// Diagnostic metrics of the received WAV (16-bit PCM, 44-byte header):
+// duration and level. A dictation that "recognizes nothing" is almost
+// always audio that is too quiet (mic level/distance) — this one log line
+// distinguishes "audio arrived empty/quiet" from "Whisper failed"
+// (diagnosis 2026-07-24).
 function wavStats(buf) {
   const dataBytes = Math.max(0, buf.length - 44);
   const sampleRate = buf.length >= 28 ? buf.readUInt32LE(24) : 16000;
@@ -39,7 +40,7 @@ module.exports = (options = {}) => {
   const router = express.Router();
   const manager = options.manager || createWhisperManager();
 
-  // 2 Minuten Diktat bei 16 kHz mono 16-bit ≈ 4 MB — 50 MB ist großzügig.
+  // 2 minutes of dictation at 16 kHz mono 16-bit ≈ 4 MB — 50 MB is generous.
   router.post('/', express.raw({ type: 'audio/wav', limit: '50mb' }), async (req, res) => {
     if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
       return res.status(400).json({ error: 'Expected a non-empty audio/wav body' });
@@ -50,7 +51,7 @@ module.exports = (options = {}) => {
       console.log(
         `[transcribe] ${seconds.toFixed(1)}s wav, rms=${rms.toFixed(4)}, peak=${peak.toFixed(3)}, ` +
         `text=${JSON.stringify(text.slice(0, 80))}` +
-        (rms < 0.005 ? ' — audio nahezu still (Mikro-Pegel/Abstand prüfen?)' : ''),
+        (rms < 0.005 ? ' — audio nearly silent (check mic level/distance?)' : ''),
       );
       res.json({ text });
     } catch (err) {

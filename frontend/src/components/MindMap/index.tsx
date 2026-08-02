@@ -19,6 +19,8 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { CornerDownRight, MessageSquare, Home } from 'lucide-react';
+import { InlineMarkdown } from '../ChatArea/InlineMarkdown';
+import { MathText, hasMath, plainMathText } from '../MathText';
 import { useStrings } from '../../strings';
 import type { Chat } from '../../types';
 
@@ -117,7 +119,9 @@ function FloatingEdge({ id, source, target, markerEnd, style, label, labelStyle 
               ...(labelStyle as React.CSSProperties),
             }}
           >
-            {label as React.ReactNode}
+            {/* parent_word can carry inline math ($…$) — render it, don't
+                show raw LaTeX (user report 2026-07-26). */}
+            {typeof label === 'string' ? <InlineMarkdown text={label} /> : (label as React.ReactNode)}
           </div>
         </EdgeLabelRenderer>
       )}
@@ -221,7 +225,7 @@ function ChatNodeView({ data }: NodeProps) {
       {parentWord && (
         <div className="flex items-center gap-1 text-[10px] uppercase tracking-wider opacity-80 mb-1">
           <CornerDownRight size={10} />
-          <span className="truncate">{parentWord}</span>
+          <span className={hasMath(parentWord) ? 'syflo-math-fade' : 'truncate'}><InlineMarkdown text={parentWord} /></span>
         </div>
       )}
 
@@ -230,10 +234,10 @@ function ChatNodeView({ data }: NodeProps) {
       <div
         className="font-semibold leading-tight break-words"
         style={titleStyle}
-        title={title}
+        title={plainMathText(title)}
         data-testid="mindmap-node-title"
       >
-        {title}
+        <MathText text={title} />
       </div>
 
       {/* Auszug aus der ersten Nutzer-Frage — beim Hover wird das Clamp aufgehoben */}
@@ -242,7 +246,7 @@ function ChatNodeView({ data }: NodeProps) {
           className="mt-1.5 text-[11px] italic leading-snug opacity-90 break-words"
           style={previewStyle}
         >
-          „{preview}"
+          „<InlineMarkdown text={preview} />"
         </div>
       )}
 
@@ -351,7 +355,9 @@ export function buildLayout(
     // Line-Clamp der Node-Ansicht — lange Titel machen den Knoten sonst
     // in der Schätzung endlos hoch und die Edge-Anker wandern weg.
     const charsPerLine = isRoot ? 26 : 30;
-    const titleLines = Math.min(TITLE_CLAMP_LINES, Math.max(1, Math.ceil(chat.title.length / charsPerLine)));
+    // Plain length: raw $…$ LaTeX inflates the character count far beyond
+    // what KaTeX actually renders.
+    const titleLines = Math.min(TITLE_CLAMP_LINES, Math.max(1, Math.ceil(plainMathText(chat.title).length / charsPerLine)));
     const titleHeight = (isRoot ? 32 : 22) + (titleLines - 1) * (isRoot ? 26 : 16);
     const estimatedHeight = (isRoot ? 22 : 0) + (chat.parent_word ? 18 : 0) + titleHeight + (chat.preview ? 36 : 0) + ((chat.message_count ?? 0) > 0 ? 18 : 0) + (isRoot ? 44 : 24);
     const isActive = chat.id === activeChatId;
@@ -396,15 +402,19 @@ export function buildLayout(
   return { nodes, edges };
 }
 
+// True if `chat` or any descendant (at any depth) has the given id.
+function containsChat(chat: Chat, chatId: string): boolean {
+  if (chat.id === chatId) return true;
+  return (chat.children || []).some(c => containsChat(c, chatId));
+}
+
 // Find the root chat that contains the given chatId (or is the chatId itself).
-function findRoot(chats: Chat[], chatId: string | null | undefined): Chat | null {
+// Must search the whole subtree — checking only direct children made the map
+// fall back to the first root when a branch two or more levels deep was
+// active (bug found 2026-07-28).
+export function findRoot(chats: Chat[], chatId: string | null | undefined): Chat | null {
   if (!chatId) return null;
-  for (const root of chats) {
-    if (root.id === chatId) return root;
-    const inChildren = (root.children || []).some(c => c.id === chatId);
-    if (inChildren) return root;
-  }
-  return null;
+  return chats.find(root => containsChat(root, chatId)) ?? null;
 }
 
 // Manuell verschobene Knoten-Positionen, pro Baum in localStorage — damit

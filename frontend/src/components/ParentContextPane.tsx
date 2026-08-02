@@ -9,10 +9,10 @@
  * selection that spawned the branch stays visibly highlighted. With a PDF
  * attached this pane never mounts (the PDF keeps the center, unchanged).
  *
- * Die Vorfahren-Karten („What the model inherits") sind 2026-07-22 in die
- * Chat-Spalte umgezogen (InheritedContextBanner, Variante 3a aus
- * design/mockup-context-banner-variants.html) — der geerbte Kontext gehört
- * zum Chat, der ihn empfängt. Diese Pane zeigt nur noch den Elternchat.
+ * Die Vorfahren-Karten („What the model inherits") zogen 2026-07-22 in ein
+ * Banner der Chat-Spalte um und sind 2026-08-01 ersatzlos entfallen: die
+ * Leiste wirkte überladen und erzählte nach, was diese Pane ohnehin in voller
+ * Länge zeigt. Diese Pane zeigt den Elternchat — sonst nichts.
  *
  * Read-only means: no composer, no header editing. Text interactions still
  * work — selecting text and right-clicking opens the same popup (color row +
@@ -23,6 +23,7 @@
 import { useLayoutEffect, useRef } from 'react';
 import { ExternalLink, MessageSquare } from 'lucide-react';
 import { MessageBubble } from './ChatArea/MessageBubble';
+import { MathText, hasMath, plainMathText } from './MathText';
 import { useStrings } from '../strings';
 import type { ChatDetail, ChatSelection, MessageHighlight, WordPopup } from '../types';
 
@@ -86,8 +87,8 @@ export function ParentContextPane({
       <div className="h-11 shrink-0 flex items-center justify-between px-4 bg-white border-b border-gray-200">
         <div className="flex items-center gap-2 min-w-0">
           <MessageSquare size={14} className="text-gray-400 shrink-0" />
-          <span className="text-[13px] font-medium text-gray-900 truncate" title={chat.title}>
-            {chat.title}
+          <span className={`text-[13px] font-medium text-gray-900 ${hasMath(chat.title) ? 'syflo-math-fade' : 'truncate'}`} title={plainMathText(chat.title)}>
+            <MathText text={chat.title} />
           </span>
           <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wider text-gray-400 bg-gray-50 border border-gray-200 rounded px-1.5 py-px">
             {S.badge}

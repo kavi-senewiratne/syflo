@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Syflo · Matrix-Theme, Hauptbildschirm — Code-Rain-Varianten im echten Layout</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=IBM+Plex+Mono:wght@400;500;600&family=Space+Grotesk:wght@500;700&family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    font-family: 'DM Sans', -apple-system, sans-serif;
+    background: #0b0f10; color: #C7D2E4;
+    display: flex; flex-direction: column;
+    min-height: 100vh;
+  }
+
+  /* ---------- page chrome (not part of the app itself) ---------- */
+  .page-head { padding: 22px 24px 6px; }
+  .page-head h1 { font-family: 'Space Grotesk', sans-serif; font-size: 18px; font-weight: 700; color: #F2F6FC; }
+  .page-head p { margin-top: 5px; font-size: 12.5px; color: #8DA0BF; max-width: 76ch; line-height: 1.5; }
+
+  .toggle-bar {
+    display: flex; gap: 8px; align-items: center;
+    padding: 12px 24px; flex-wrap: wrap;
+  }
+  .toggle-bar span.label { font-size: 11px; color: #8DA0BF; margin-right: 4px; font-family: 'IBM Plex Mono', monospace; }
+  .toggle-btn {
+    font-family: 'IBM Plex Mono', monospace; font-size: 12px; font-weight: 600;
+    padding: 7px 13px; border-radius: 999px; cursor: pointer;
+    background: rgba(255,255,255,0.06); color: #cbd5e1; border: 1px solid rgba(255,255,255,0.12);
+    transition: all 150ms ease;
+  }
+  .toggle-btn:hover { background: rgba(255,255,255,0.12); }
+  .toggle-btn.active { background: #2BE76B; color: #021206; border-color: #2BE76B; }
+
+  /* ---------- the app itself: same layout/classes as the real Syflo screen ---------- */
+  .app-shell { flex: 1; display: flex; padding: 8px 24px 28px; min-height: 0; }
+  .app-frame {
+    position: relative; z-index: 0; flex: 1; min-height: 640px;
+    background: #060c07;
+    border: 1px solid #12301a; border-radius: 10px;
+    box-shadow: 0 24px 60px rgba(0,0,0,0.7);
+    overflow: hidden;
+    display: grid; grid-template-rows: 54px 1fr;
+  }
+  .app-frame::after {
+    content: ''; position: absolute; inset: 0; pointer-events: none; z-index: 40;
+    background: radial-gradient(ellipse 90% 80% at 50% 38%, transparent 55%, rgba(0,0,0,0.5) 100%);
+  }
+
+  .topbar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 18px; border-bottom: 1px solid #12301a;
+  }
+  .logo {
+    font-family: 'Share Tech Mono', monospace; font-size: 13px; font-weight: 600;
+    letter-spacing: 0.12em; text-transform: uppercase; color: #2BE76B;
+    text-shadow: 0 0 8px rgba(43,231,107,0.35);
+  }
+  .chat-title { margin-left: 16px; font-size: 13px; font-weight: 600; color: #b7e8bc; }
+  .chat-title .meta { color: #3e6a48; font-weight: 400; margin-left: 8px; font-size: 11.5px; font-family: 'IBM Plex Mono', monospace; }
+  .model-pill {
+    display: inline-flex; align-items: center; gap: 7px;
+    background: #0c160d; border: 1px solid #12301a; border-radius: 999px;
+    padding: 5px 12px; font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; font-weight: 600; color: #b7e8bc;
+  }
+  .model-pill .dot { width: 6px; height: 6px; border-radius: 50%; background: #12805b; }
+
+  .columns { display: grid; grid-template-columns: 220px 1fr 300px; overflow: hidden; min-height: 0; }
+
+  /* --- left: chat tree sidebar --- */
+  .app-sidebar { position: relative; z-index: 0; border-right: 1px solid #12301a; padding: 16px 12px; overflow: hidden; }
+  .section-header {
+    font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; font-weight: 600;
+    letter-spacing: 0.12em; text-transform: uppercase; color: #3e6a48;
+    margin-bottom: 12px; padding: 0 4px;
+  }
+  .tree-list, .tree-list ul { list-style: none; }
+  .tree-list ul { padding-left: 18px; }
+  .node {
+    padding: 6px 8px; border-radius: 3px; font-size: 12.5px; color: #7bc188;
+    display: flex; align-items: center; gap: 7px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .node .dot { width: 6px; height: 6px; border-radius: 50%; background: #3e6a48; flex-shrink: 0; }
+  .node.root .dot { background: #2be76b; }
+  .node.active { background: #07290f; color: #2be76b; font-weight: 600; }
+  .node.active .dot { background: #2be76b; }
+  .node .pdf-tag {
+    margin-left: auto; font-family: 'IBM Plex Mono', monospace; font-size: 9px; color: #3e6a48;
+    border: 1px solid #12301a; padding: 1px 5px; border-radius: 4px;
+  }
+  .sidebar-footer { margin-top: 16px; padding-top: 12px; border-top: 1px solid #12301a; }
+  .new-chat-btn {
+    width: 100%; padding: 8px; border-radius: 4px; border: 1.5px dashed #12301a;
+    background: transparent; color: #3e6a48; font-family: 'IBM Plex Mono', monospace; font-size: 12px; font-weight: 600;
+  }
+
+  /* --- center: pdf viewer --- */
+  .pdf-pane { position: relative; background: #010401; border-right: 1px solid #12301a; overflow: hidden; display: flex; flex-direction: column; }
+  .pdf-toolbar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 14px; height: 42px; background: #060c07; border-bottom: 1px solid #12301a;
+    font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #b7e8bc;
+  }
+  .pdf-scroll { flex: 1; overflow: hidden; padding: 22px; display: flex; justify-content: center; }
+  .pdf-page { background: #FFFEFB; width: 100%; max-width: 380px; min-height: 500px; border-radius: 4px; padding: 34px 30px; box-shadow: 0 0 0 1px rgba(43,231,107,0.12), 0 20px 50px rgba(0,0,0,0.9); }
+  .p-title { height: 11px; border-radius: 2px; background: #3B3630; width: 78%; margin-bottom: 8px; }
+  .p-byline { height: 7px; border-radius: 2px; background: #D8D2C6; width: 55%; margin-bottom: 22px; }
+  .p-line { height: 7px; border-radius: 2px; margin-bottom: 8px; display: flex; overflow: hidden; }
+  .p-line .seg { height: 100%; background: #EAE6DD; }
+  .p-line .seg.hl { background: #BBF7D0; }
+  .p-line .gap { width: 5px; flex-shrink: 0; background: #FFFEFB; }
+  .w100 { width: 100%; } .w95 { width: 95%; } .w88 { width: 88%; } .w70 { width: 70%; }
+
+  /* --- right: active branch chat --- */
+  .chat-pane { position: relative; z-index: 0; display: grid; grid-template-rows: auto 1fr auto; overflow: hidden; }
+  .chat-header { padding: 13px 16px 10px; border-bottom: 1px solid #12301a; display: flex; align-items: center; gap: 9px; }
+  .branch-pill {
+    font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; font-weight: 600;
+    color: #2be76b; border: 1px solid rgba(43,231,107,0.55); border-radius: 2px;
+    padding: 3px 9px; text-transform: uppercase; letter-spacing: 0.08em;
+    text-shadow: 0 0 8px rgba(43,231,107,0.4);
+  }
+  .messages { overflow: hidden; padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; }
+  .msg .role { font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: #3e6a48; }
+  .msg .role::before { content: '> '; color: #12805b; }
+  .msg.user .role { text-align: right; }
+  .msg .bubble { padding: 9px 12px; font-size: 12.5px; line-height: 1.5; border-radius: 4px 4px 3px 4px; margin-top: 3px; }
+  .msg.user .bubble { background: #07290f; color: #b7e8bc; margin-left: auto; max-width: 88%; border: 1px solid #12301a; }
+  .msg.assistant .bubble { background: #08130a; color: #7bc188; max-width: 92%; border-left: 2px solid rgba(43,231,107,0.3); }
+  .composer { border-top: 1px solid #12301a; padding: 12px 14px; display: flex; align-items: center; gap: 8px; }
+  .composer .field {
+    flex: 1; border: 1px solid #12301a; border-radius: 4px; background: rgba(6,12,7,0.8);
+    padding: 9px 12px; font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; color: #3e6a48;
+  }
+  .composer .send { width: 34px; height: 34px; border-radius: 3px; background: #2be76b; box-shadow: 0 0 12px rgba(43,231,107,0.35); flex-shrink: 0; }
+
+  /* ============================================================
+     RAIN VARIANTS — swapped via [data-variant] on .app-frame.
+     Applies to sidebar + chat-pane (+ pdf-pane background image
+     only, to match the real selector list; no DOM/canvas overlay
+     there since the white page covers most of it anyway).
+     ============================================================ */
+
+  /* Referenz — isolierte Einzelziffern (heutiger Produktionsstand) */
+  #frame[data-variant="current"] .app-sidebar,
+  #frame[data-variant="current"] .chat-pane,
+  #frame[data-variant="current"] .pdf-pane {
+    background-image:
+      url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='360' font-family='IBM Plex Mono,monospace' fill='%232BE76B'><text x='18' y='40' font-size='13' fill-opacity='0.10'>1</text><text x='92' y='86' font-size='14' fill-opacity='0.07'>0</text><text x='170' y='52' font-size='12' fill-opacity='0.09'>1</text><text x='48' y='150' font-size='13' fill-opacity='0.06'>0</text><text x='140' y='180' font-size='15' fill-opacity='0.10'>1</text><text x='200' y='230' font-size='12' fill-opacity='0.07'>0</text><text x='25' y='262' font-size='14' fill-opacity='0.08'>1</text><text x='110' y='300' font-size='12' fill-opacity='0.06'>0</text><text x='180' y='330' font-size='13' fill-opacity='0.09'>1</text></svg>"),
+      url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='300' height='480' font-family='IBM Plex Mono,monospace' fill='%232BE76B'><text x='34' y='30' font-size='10' fill-opacity='0.05'>0</text><text x='128' y='66' font-size='9' fill-opacity='0.04'>1</text><text x='236' y='44' font-size='10' fill-opacity='0.06'>0</text><text x='70' y='128' font-size='9' fill-opacity='0.04'>1</text><text x='188' y='158' font-size='10' fill-opacity='0.05'>0</text><text x='272' y='196' font-size='9' fill-opacity='0.04'>1</text><text x='20' y='236' font-size='10' fill-opacity='0.06'>1</text><text x='142' y='270' font-size='9' fill-opacity='0.04'>0</text><text x='250' y='312' font-size='10' fill-opacity='0.05'>1</text><text x='88' y='356' font-size='9' fill-opacity='0.04'>0</text><text x='204' y='398' font-size='10' fill-opacity='0.05'>1</text><text x='40' y='442' font-size='9' fill-opacity='0.04'>0</text></svg>"),
+      repeating-linear-gradient(90deg, transparent 0 18px, rgba(43, 231, 107, 0.018) 18px 20px);
+    background-size: 220px 360px, 300px 480px, auto;
+    animation: rain-drift 36s linear infinite;
+  }
+
+  /* Variante A — SVG-Tile mit echten Strings (Kopf hell unten, Schweif blass) */
+  #frame[data-variant="a"] .app-sidebar,
+  #frame[data-variant="a"] .chat-pane,
+  #frame[data-variant="a"] .pdf-pane {
+    background-image:
+      url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='360' font-family='IBM Plex Mono,monospace' fill='%232BE76B'><text x='18' y='10' font-size='13' fill-opacity='0.02'>0</text><text x='18' y='27' font-size='13' fill-opacity='0.03'>1</text><text x='18' y='44' font-size='13' fill-opacity='0.05'>1</text><text x='18' y='61' font-size='13' fill-opacity='0.07'>0</text><text x='18' y='78' font-size='13' fill-opacity='0.10'>1</text><text x='92' y='60' font-size='12' fill-opacity='0.02'>1</text><text x='92' y='76' font-size='12' fill-opacity='0.04'>0</text><text x='92' y='92' font-size='12' fill-opacity='0.06'>0</text><text x='92' y='108' font-size='12' fill-opacity='0.09'>1</text><text x='170' y='150' font-size='14' fill-opacity='0.02'>0</text><text x='170' y='168' font-size='14' fill-opacity='0.03'>1</text><text x='170' y='186' font-size='14' fill-opacity='0.05'>1</text><text x='170' y='204' font-size='14' fill-opacity='0.07'>0</text><text x='170' y='222' font-size='14' fill-opacity='0.10'>1</text><text x='48' y='220' font-size='12' fill-opacity='0.02'>1</text><text x='48' y='236' font-size='12' fill-opacity='0.04'>0</text><text x='48' y='252' font-size='12' fill-opacity='0.06'>1</text><text x='48' y='268' font-size='12' fill-opacity='0.09'>0</text><text x='140' y='280' font-size='13' fill-opacity='0.02'>0</text><text x='140' y='296' font-size='13' fill-opacity='0.04'>1</text><text x='140' y='312' font-size='13' fill-opacity='0.06'>1</text><text x='140' y='328' font-size='13' fill-opacity='0.10'>0</text></svg>"),
+      url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='300' height='480' font-family='IBM Plex Mono,monospace' fill='%232BE76B'><text x='34' y='6' font-size='10' fill-opacity='0.02'>1</text><text x='34' y='20' font-size='10' fill-opacity='0.03'>0</text><text x='34' y='34' font-size='10' fill-opacity='0.04'>0</text><text x='34' y='48' font-size='10' fill-opacity='0.06'>1</text><text x='236' y='120' font-size='9' fill-opacity='0.02'>0</text><text x='236' y='134' font-size='9' fill-opacity='0.03'>1</text><text x='236' y='148' font-size='9' fill-opacity='0.04'>1</text><text x='236' y='162' font-size='9' fill-opacity='0.05'>0</text><text x='128' y='260' font-size='10' fill-opacity='0.02'>1</text><text x='128' y='274' font-size='10' fill-opacity='0.03'>1</text><text x='128' y='288' font-size='10' fill-opacity='0.05'>0</text><text x='128' y='302' font-size='10' fill-opacity='0.06'>1</text><text x='20' y='340' font-size='9' fill-opacity='0.02'>0</text><text x='20' y='354' font-size='9' fill-opacity='0.03'>0</text><text x='20' y='368' font-size='9' fill-opacity='0.04'>1</text><text x='20' y='382' font-size='9' fill-opacity='0.05'>0</text></svg>"),
+      repeating-linear-gradient(90deg, transparent 0 18px, rgba(43, 231, 107, 0.018) 18px 20px);
+    background-size: 220px 360px, 300px 480px, auto;
+    animation: rain-drift 36s linear infinite;
+  }
+
+  @keyframes rain-drift {
+    from { background-position: 0 0, 0 0, 0 0; }
+    to   { background-position: 0 1080px, 0 480px, 0 0; }
+  }
+
+  /* Varianten B/C — DOM-Spalten bzw. Canvas, als Overlay hinter dem
+     Paneinhalt (negativer z-index in der von .app-sidebar/.chat-pane
+     aufgespannten Stacking-Context). Nur sichtbar, wenn aktiv. */
+  .rain-overlay { position: absolute; inset: 0; z-index: -1; pointer-events: none; overflow: hidden; display: none; }
+  #frame[data-variant="b"] .rain-overlay.rain-b { display: flex; justify-content: space-around; padding: 0 4px; }
+  #frame[data-variant="c"] .rain-overlay.rain-c { display: block; }
+
+  .rain-col {
+    font-family: 'IBM Plex Mono', monospace; font-size: 11px; line-height: 15px; color: #2be76b;
+    writing-mode: vertical-lr; text-orientation: upright; white-space: pre;
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 65%, black 82%, transparent 100%);
+            mask-image: linear-gradient(to bottom, transparent 0%, black 65%, black 82%, transparent 100%);
+    animation-name: rain-fall; animation-timing-function: linear; animation-iteration-count: infinite;
+    opacity: 0.5;
+  }
+  @keyframes rain-fall { from { transform: translateY(-100%); } to { transform: translateY(220%); } }
+
+  /* Variante C — EIN Canvas über den ganzen .app-frame gelegt (nicht pro
+     Pane), damit der Regen als durchgehende Fläche läuft statt an den
+     Spaltengrenzen abzureißen. pdf-pane verliert dafür in dieser Variante
+     seinen eigenen blickdichten Desk-Hintergrund. Dezenter als vorher:
+     Zeichen und Fade-Trail sind gegenüber der ersten Fassung abgedunkelt. */
+  .rain-c-full { position: absolute; inset: 0; z-index: -1; display: none; pointer-events: none; }
+  #frame[data-variant="c"] .rain-c-full { display: block; }
+  #frame[data-variant="c"] .pdf-pane { background: transparent; }
+  .rain-c-full canvas { width: 100%; height: 100%; display: block; }
+</style>
+</head>
+<body>
+
+<div class="page-head">
+  <h1>Matrix-Theme — Code-Rain-Varianten im echten Home-Screen</h1>
+  <p>
+    Gleiches Layout wie der reale Syflo-Hauptbildschirm (Chat-Baum · PDF · aktiver Branch),
+    damit sich die drei Varianten aus dem vorigen Mockup im Kontext statt als kleine
+    Ausschnitte beurteilen lassen. Umschalten über die Buttons unten.
+  </p>
+</div>
+
+<div class="toggle-bar">
+  <span class="label">CODE-RAIN:</span>
+  <button class="toggle-btn active" data-variant="current">Referenz (heute)</button>
+  <button class="toggle-btn" data-variant="a">Variante A — String-Tile</button>
+  <button class="toggle-btn" data-variant="b">Variante B — DOM-Spalten</button>
+  <button class="toggle-btn" data-variant="c">Variante C — Canvas</button>
+</div>
+
+<div class="app-shell">
+  <div class="app-frame" id="frame" data-variant="current">
+    <div class="rain-c-full"><canvas id="rainCFull"></canvas></div>
+
+    <div class="topbar">
+      <div style="display:flex;align-items:center;">
+        <span class="logo">SYFLO</span>
+        <span class="chat-title">Attention Is All You Need<span class="meta">attention.pdf attached</span></span>
+      </div>
+      <div class="model-pill"><span class="dot"></span>Gemini 2.5 Flash</div>
+    </div>
+
+    <div class="columns">
+
+      <div class="app-sidebar">
+        <div class="rain-overlay rain-b" id="sidebarRainB"></div>
+        <div class="section-header">Chats</div>
+        <ul class="tree-list">
+          <li>
+            <div class="node root"><span class="dot"></span><span>Attention Is All You Need</span><span class="pdf-tag">PDF</span></div>
+            <ul>
+              <li><div class="node"><span class="dot"></span><span>multi-head attention</span></div></li>
+              <li>
+                <div class="node"><span class="dot"></span><span>positional encoding</span></div>
+                <ul><li><div class="node active"><span class="dot"></span><span>why scaled dot-product</span></div></li></ul>
+              </li>
+              <li><div class="node"><span class="dot"></span><span>train/inference cost</span></div></li>
+            </ul>
+          </li>
+        </ul>
+        <div class="sidebar-footer"><button class="new-chat-btn">+ New chat</button></div>
+      </div>
+
+      <div class="pdf-pane">
+        <div class="pdf-toolbar"><span>attention.pdf</span><span>100% · 3 / 15</span></div>
+        <div class="pdf-scroll">
+          <div class="pdf-page">
+            <div class="p-title"></div>
+            <div class="p-byline"></div>
+            <div class="p-line w100"><span class="seg" style="width:100%"></span></div>
+            <div class="p-line w95"><span class="seg" style="width:30%"></span><span class="gap"></span><span class="seg hl" style="width:40%"></span><span class="gap"></span><span class="seg" style="width:22%"></span></div>
+            <div class="p-line w88"><span class="seg" style="width:100%"></span></div>
+            <div class="p-line w70"><span class="seg hl" style="width:45%"></span><span class="gap"></span><span class="seg" style="width:48%"></span></div>
+            <div class="p-line w100"><span class="seg" style="width:100%"></span></div>
+            <div class="p-line w95"><span class="seg" style="width:100%"></span></div>
+            <div class="p-line w88"><span class="seg" style="width:60%"></span><span class="gap"></span><span class="seg hl" style="width:34%"></span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="chat-pane">
+        <div class="rain-overlay rain-b" id="chatRainB"></div>
+        <div class="chat-header"><span class="branch-pill">why scaled dot-product</span></div>
+        <div class="messages">
+          <div class="msg user"><div class="role">You</div><div class="bubble">Why divide by sqrt(d_k) before the softmax?</div></div>
+          <div class="msg assistant"><div class="role">Syflo</div><div class="bubble">Section 3.2.1: for large d_k the dot products grow large in magnitude, pushing softmax into regions with extremely small gradients — the scaling counteracts that.</div></div>
+          <div class="msg user"><div class="role">You</div><div class="bubble">Does that match the ablation in table 3?</div></div>
+        </div>
+        <div class="composer"><div class="field">Reply to this branch…</div><div class="send"></div></div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+  // Variante B — DOM-Spalten mit zufälligem 0/1-String je Container.
+  function fillColumns(mount, count) {
+    mount.innerHTML = '';
+    for (var i = 0; i < count; i++) {
+      var col = document.createElement('span');
+      col.className = 'rain-col';
+      var len = 5 + ((i * 37 + 13) % 5);
+      var s = '';
+      for (var j = 0; j < len; j++) s += ((i * 7 + j * 3) % 2 === 0) ? '1' : '0';
+      col.textContent = s;
+      var duration = 4 + ((i * 13) % 5);
+      col.style.animationDuration = duration + 's';
+      col.style.animationDelay = (-((i * 7) % duration)) + 's';
+      mount.appendChild(col);
+    }
+  }
+  fillColumns(document.getElementById('sidebarRainB'), 6);
+  fillColumns(document.getElementById('chatRainB'), 9);
+
+  // Variante C — EIN Canvas über den ganzen app-frame (nicht mehr pro
+  // Pane), klassische Matrix-Rain-Technik. Deutlich abgedunkelt gegenüber
+  // der ersten Fassung (Nutzer-Feedback: "weniger hell").
+  function makeFullFrameRain(mount, canvas) {
+    var ctx = canvas.getContext('2d');
+    var running = false;
+    var fontSize = 13;
+    var drops = [];
+    function reset() {
+      canvas.width = mount.clientWidth;
+      canvas.height = mount.clientHeight;
+      var cols = Math.floor(canvas.width / fontSize);
+      drops = new Array(cols).fill(0).map(function (_, i) { return (i * 11) % (canvas.height / fontSize); });
+      ctx.fillStyle = '#060c07';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+    function draw() {
+      // Löscht jeden Frame ausreichend stark, sonst bleiben alte Zeichen als
+      // Schlieren im Hintergrund hängen (zu niedrige Alpha hier war der Bug:
+      // die Fläche kehrte nie vollständig zur Hintergrundfarbe zurück).
+      ctx.fillStyle = 'rgba(6, 12, 7, 0.12)';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.font = fontSize + 'px IBM Plex Mono, monospace';
+      for (var i = 0; i < drops.length; i++) {
+        var char = Math.random() > 0.5 ? '1' : '0';
+        // Kopf nur leicht heller als der Schweif — insgesamt deutlich
+        // gedimmt gegenüber der ersten Fassung (0.8 -> 0.16)
+        ctx.fillStyle = 'rgba(43, 231, 107, 0.16)';
+        ctx.fillText(char, i * fontSize, drops[i] * fontSize);
+        if (drops[i] * fontSize > canvas.height && Math.random() > 0.975) drops[i] = 0;
+        drops[i]++;
+      }
+    }
+    var interval = null;
+    return {
+      start: function () { if (running) return; running = true; reset(); interval = setInterval(draw, 120); },
+      stop: function () { running = false; clearInterval(interval); }
+    };
+  }
+  var frameRain = makeFullFrameRain(document.querySelector('.rain-c-full'), document.getElementById('rainCFull'));
+
+  // Variante umschalten
+  var frame = document.getElementById('frame');
+  var buttons = document.querySelectorAll('.toggle-btn');
+  buttons.forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      buttons.forEach(function (b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      var v = btn.dataset.variant;
+      frame.dataset.variant = v;
+      if (v === 'c') { frameRain.start(); } else { frameRain.stop(); }
+    });
+  });
+</script>
+
+</body>
+</html>

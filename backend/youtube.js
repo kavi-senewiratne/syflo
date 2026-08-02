@@ -133,10 +133,10 @@ function getInnertube() {
   return innertubePromise;
 }
 
-// YouTubes timedtext-XML in {startMs, text}-Segmente zerlegen. Zwei Formate
-// kommen vor: srv3 (<p t="160"><s>hi</s><s> there</s></p>) und srv1
-// (<text start="0.16" dur="4.08">hi there</text>). Der XML-Parser löst die
-// erste Entity-Ebene auf (&amp;#39; → &#39;) — die zweite Ebene hier.
+// Split YouTube's timedtext XML into {startMs, text} segments. Two formats
+// occur: srv3 (<p t="160"><s>hi</s><s> there</s></p>) and srv1
+// (<text start="0.16" dur="4.08">hi there</text>). The XML parser resolves
+// the first entity level (&amp;#39; → &#39;) — the second level here.
 const { XMLParser } = require('fast-xml-parser');
 
 function decodeEntities(s) {
@@ -157,8 +157,8 @@ function parseTimedText(xml) {
     ignoreAttributes: false,
     parseTagValue: false,
     parseAttributeValue: false,
-    // Die srv3-Wortsegmente tragen ihr Trennzeichen als FÜHRENDES Leerzeichen
-    // ("<s> everyone</s>") — Standard-Trimming würde alle Wörter verkleben.
+    // The srv3 word segments carry their separator as a LEADING space
+    // ("<s> everyone</s>") — default trimming would glue all words together.
     trimValues: false,
   });
   let doc;
@@ -171,7 +171,7 @@ function parseTimedText(xml) {
   const clean = (text) => decodeEntities(String(text)).replace(/\s+/g, ' ').trim();
   const segments = [];
 
-  // srv3: Wort-Segmente <s> pro Absatz <p>; <w>-Fenster-Elemente ignorieren.
+  // srv3: word segments <s> per paragraph <p>; ignore <w> window elements.
   for (const p of asArray(doc?.timedtext?.body?.p)) {
     if (p == null || typeof p !== 'object') continue;
     const parts = asArray(p.s).map((s) => (typeof s === 'object' ? String(s['#text'] ?? '') : String(s)));
@@ -180,7 +180,7 @@ function parseTimedText(xml) {
   }
   if (segments.length > 0) return segments;
 
-  // srv1: <text start="s.ss"> mit Sekunden statt Millisekunden.
+  // srv1: <text start="s.ss"> with seconds instead of milliseconds.
   for (const t of asArray(doc?.transcript?.text)) {
     const node = typeof t === 'object' ? t : { '#text': t };
     const text = clean(node['#text'] ?? '');
@@ -194,10 +194,10 @@ function parseTimedText(xml) {
  * track of one video. Throws an Error with code 'no-transcript' when the
  * video has no caption track at all (not even auto-generated).
  *
- * Der Abruf läuft über den ANDROID-Client und die base_url der Untertitel-
- * Spur: die WEB-Wege sind tot — get_transcript antwortet HTTP 400, und
- * WEB-timedtext-URLs liefern ohne POT-Token einen leeren 200er-Body
- * (beides live verifiziert am 2026-07-24).
+ * The fetch runs via the ANDROID client and the caption track's base_url:
+ * the WEB routes are dead — get_transcript answers HTTP 400, and WEB
+ * timedtext URLs deliver an empty 200 body without a POT token
+ * (both verified live on 2026-07-24).
  */
 async function fetchTranscript(youtubeId) {
   const yt = await getInnertube();
@@ -212,7 +212,7 @@ async function fetchTranscript(youtubeId) {
 
   const tracks = info.captions?.caption_tracks || [];
   if (tracks.length === 0) throw noTranscript();
-  // Manuell gepflegte Spur vor Auto-Untertiteln ('asr') bevorzugen.
+  // Prefer a manually maintained track over auto captions ('asr').
   const track = tracks.find((t) => t.kind !== 'asr') || tracks[0];
 
   const r = await fetch(track.base_url, { signal: AbortSignal.timeout(30_000) });

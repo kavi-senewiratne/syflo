@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Syflo · Matrix theme — text readability</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #060c07;
+    --panel-bg: #08130a;
+    --bubble-bg: #07290f;
+    --border-dim: #12301a;
+    --shadow-ink: #10331b;
+    --text-muted: #4c7e58;    /* current gray-500 — captions/labels */
+    --text-body: #7bc188;     /* current gray-700 — used for body prose text */
+    --text-strong: #9ad6a4;   /* current gray-800 */
+    --text-brightest: #d9f6dd;/* current gray-950 */
+    --accent: #2be76b;        /* blue-600 (the "phosphor green" accent) */
+    --accent-bright: #5ef391; /* blue-700 */
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text-body);
+    font-family: 'IBM Plex Mono', ui-monospace, monospace;
+    padding: 48px 32px 96px; -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1200px; margin: 0 auto; }
+  .intro h1 {
+    font-family: 'Share Tech Mono', monospace; font-size: 24px; color: var(--text-brightest);
+    letter-spacing: 0.02em; margin: 0 0 10px;
+  }
+  .intro p { font-size: 13px; color: var(--text-muted); line-height: 1.7; max-width: 780px; margin: 0 0 8px; }
+  .intro code { color: var(--accent-bright); }
+
+  .section { margin-top: 56px; }
+  .section-label {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--accent); margin-bottom: 4px;
+  }
+  .section-label .num { color: var(--accent-bright); }
+  .section-desc { font-size: 12.5px; color: var(--text-muted); line-height: 1.6; max-width: 760px; margin-bottom: 20px; }
+
+  .panel {
+    background: var(--panel-bg); border: 1px solid var(--border-dim); border-radius: 6px;
+    box-shadow: 6px 6px 0 var(--shadow-ink); padding: 22px 26px; max-width: 640px;
+  }
+  .panel-caption { font-size: 11.5px; color: var(--text-muted); margin-top: 10px; }
+  .panel-caption b { color: var(--text-strong); font-weight: 600; }
+
+  /* ---- shared chat-message sample content ---- */
+  .msg h2 { font-size: 15px; margin: 0 0 10px; }
+  .msg p { font-size: 13.5px; line-height: 1.65; margin: 0 0 10px; }
+  .msg ul { margin: 0 0 10px; padding-left: 20px; }
+  .msg li { font-size: 13.5px; line-height: 1.65; margin-bottom: 4px; }
+  .msg .caption { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; margin-top: 14px; }
+
+  /* ================= Variant A — baseline (current, broken) ================= */
+  .variant-a strong, .variant-a b { font-weight: 700; }
+  .variant-a h2 { font-weight: 700; color: var(--text-body); }
+  .variant-a p, .variant-a li { color: var(--text-body); }
+  .variant-a .caption { color: var(--text-muted); font-weight: 700; }
+
+  /* ================= Variant B — brightness ramp (weight dropped) ================= */
+  .variant-b h2 { color: var(--text-brightest); font-weight: 400; letter-spacing: 0.02em; }
+  .variant-b h2::before { content: '## '; color: var(--accent); }
+  .variant-b p, .variant-b li { color: var(--text-body); font-weight: 400; }
+  .variant-b strong, .variant-b b { color: var(--accent-bright); font-weight: 400; }
+  .variant-b .caption { color: var(--text-muted); font-weight: 400; letter-spacing: 0.08em; }
+
+  /* ================= Variant C — brightness ramp + phosphor glow ================= */
+  .variant-c h2 {
+    color: var(--accent-bright); font-weight: 400; letter-spacing: 0.02em;
+    text-shadow: 0 0 8px rgba(43, 231, 107, 0.45);
+  }
+  .variant-c h2::before { content: '# '; color: var(--accent); text-shadow: none; }
+  .variant-c p, .variant-c li { color: var(--text-body); font-weight: 400; }
+  .variant-c strong, .variant-c b {
+    color: var(--text-brightest); font-weight: 600;
+    text-shadow: 0 0 6px rgba(43, 231, 107, 0.5);
+  }
+  .variant-c .caption { color: var(--text-muted); font-weight: 400; letter-spacing: 0.08em; }
+  .variant-c .caption .dim-glow { text-shadow: none; }
+
+  /* ================= Variant D — C + underline bar on bold (color-independent cue) ================= */
+  .variant-d h2 {
+    color: var(--accent-bright); font-weight: 400; letter-spacing: 0.02em;
+    text-shadow: 0 0 8px rgba(43, 231, 107, 0.45);
+  }
+  .variant-d h2::before { content: '# '; color: var(--accent); text-shadow: none; }
+  .variant-d p, .variant-d li { color: var(--text-body); font-weight: 400; }
+  .variant-d strong, .variant-d b {
+    color: var(--text-brightest); font-weight: 600;
+    text-shadow: 0 0 6px rgba(43, 231, 107, 0.5);
+    border-bottom: 1.5px solid rgba(43, 231, 107, 0.55);
+  }
+  .variant-d .caption { color: var(--text-muted); font-weight: 400; letter-spacing: 0.08em; }
+
+  /* ================= Variant E — C + dim highlight chip behind bold ================= */
+  .variant-e h2 {
+    color: var(--accent-bright); font-weight: 400; letter-spacing: 0.02em;
+    text-shadow: 0 0 8px rgba(43, 231, 107, 0.45);
+  }
+  .variant-e h2::before { content: '# '; color: var(--accent); text-shadow: none; }
+  .variant-e p, .variant-e li { color: var(--text-body); font-weight: 400; }
+  .variant-e strong, .variant-e b {
+    color: var(--text-brightest); font-weight: 500;
+    background: rgba(43, 231, 107, 0.12);
+    padding: 1px 4px; border-radius: 3px;
+    box-shadow: inset 0 0 0 1px rgba(43, 231, 107, 0.22);
+  }
+  .variant-e .caption { color: var(--text-muted); font-weight: 400; letter-spacing: 0.08em; }
+
+  /* ================= Variant F — C + bracket-style terminal headings ================= */
+  .variant-f h2 {
+    color: var(--accent-bright); font-weight: 400; letter-spacing: 0.04em;
+    text-shadow: 0 0 8px rgba(43, 231, 107, 0.45); font-size: 15px;
+  }
+  .variant-f h2::before { content: '[ '; color: var(--accent); text-shadow: none; }
+  .variant-f h2::after { content: ' ]'; color: var(--accent); text-shadow: none; }
+  .variant-f p, .variant-f li { color: var(--text-body); font-weight: 400; }
+  .variant-f strong, .variant-f b {
+    color: var(--text-brightest); font-weight: 600;
+    text-shadow: 0 0 6px rgba(43, 231, 107, 0.5);
+  }
+  .variant-f .caption { color: var(--text-muted); font-weight: 400; letter-spacing: 0.08em; }
+  .variant-f .caption::before { content: '> '; color: var(--accent); }
+
+  .swatch-row { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
+  .swatch { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-muted); }
+  .swatch i { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="intro">
+    <h1># Matrix theme — Textlesbarkeit</h1>
+    <p>Ursache: Im Matrix-Theme lädt die App IBM Plex Mono nur in <code>400/500/600</code> (main.tsx) — Tailwinds <code>font-bold</code> verlangt <code>700</code>, das es nicht gibt, also matcht der Browser auf 600. Bei einer Monospace-Schrift mit ohnehin dicken Strichen ist der Unterschied zwischen 400 und 600 kaum sichtbar. Die Display-Schrift Share Tech Mono hat sogar nur einen einzigen Schnitt (400) — dort ist "fett" technisch gar nicht vorhanden.</p>
+    <p>Sechs Varianten unten, gleicher Beispieltext, jeweils mit denselben Farben aus dem echten Matrix-Theme. D/E/F bauen auf C auf (Helligkeits-Hierarchie + Phosphor-Glow) und probieren je einen zusätzlichen Verstärker aus.</p>
+  </div>
+
+  <div class="section">
+    <div class="section-label"><span class="num">A —</span> Baseline (aktueller Zustand)</div>
+    <div class="section-desc">Nur Font-Weight als Unterscheidungsmerkmal. Überschrift, Fließtext und "fett" markierter Text laufen optisch ineinander.</div>
+    <div class="panel variant-a">
+      <div class="msg">
+        <h2>Trainingslauf-Zusammenfassung</h2>
+        <p>Der Agent hat nach <strong>120.000 Schritten</strong> eine Erfolgsquote von 87% erreicht. Wichtig ist, dass die <strong>Reward-Kurve</strong> stabil bleibt, bevor wir das Modell exportieren.</p>
+        <ul>
+          <li><strong>Policy-Loss</strong> sinkt kontinuierlich seit Epoche 40.</li>
+          <li>Value-Loss zeigt leichte Oszillation, <strong>noch im Toleranzbereich</strong>.</li>
+        </ul>
+        <div class="caption">Quelle: run_0042.log</div>
+      </div>
+    </div>
+    <div class="panel-caption">Problem: <b>strong</b>-Text, Überschrift und Absatz sehen fast identisch aus.</div>
+  </div>
+
+  <div class="section">
+    <div class="section-label"><span class="num">B —</span> Helligkeits-Hierarchie (Phosphor-Ramp)</div>
+    <div class="section-desc">Statt auf Font-Weight zu setzen (der im Terminal-Font kaum wirkt), nutzt jede Ebene einen anderen Helligkeitswert derselben Grün-Rampe, die im Matrix-Theme ohnehin schon definiert ist (gray-500 → gray-700 → gray-950 → accent). Passt zum Terminal-Charakter: heller = wichtiger.</div>
+    <div class="panel variant-b">
+      <div class="msg">
+        <h2>Trainingslauf-Zusammenfassung</h2>
+        <p>Der Agent hat nach <strong>120.000 Schritten</strong> eine Erfolgsquote von 87% erreicht. Wichtig ist, dass die <strong>Reward-Kurve</strong> stabil bleibt, bevor wir das Modell exportieren.</p>
+        <ul>
+          <li><strong>Policy-Loss</strong> sinkt kontinuierlich seit Epoche 40.</li>
+          <li>Value-Loss zeigt leichte Oszillation, <strong>noch im Toleranzbereich</strong>.</li>
+        </ul>
+        <div class="caption">Quelle: run_0042.log</div>
+      </div>
+    </div>
+    <div class="swatch-row">
+      <div class="swatch"><i style="background:var(--text-muted)"></i>muted / caption</div>
+      <div class="swatch"><i style="background:var(--text-body)"></i>Fließtext</div>
+      <div class="swatch"><i style="background:var(--accent-bright)"></i>fett / strong</div>
+      <div class="swatch"><i style="background:var(--text-brightest)"></i>Überschrift</div>
+    </div>
+    <div class="panel-caption">Sofort erkennbar, welche Wörter hervorgehoben sind — auch ohne dass der Font überhaupt "bold" kann.</div>
+  </div>
+
+  <div class="section">
+    <div class="section-label"><span class="num">C —</span> Helligkeits-Hierarchie + Phosphor-Glow</div>
+    <div class="section-desc">Wie B, aber Überschriften und fett markierter Text bekommen zusätzlich den sanften Glow-Effekt, den das Matrix-Theme an anderer Stelle schon für Akzentflächen nutzt (<code>--syflo-shadow-ink</code> / phosphor-glow). Macht Hervorhebungen noch klarer, ohne knallig zu wirken.</div>
+    <div class="panel variant-c">
+      <div class="msg">
+        <h2>Trainingslauf-Zusammenfassung</h2>
+        <p>Der Agent hat nach <strong>120.000 Schritten</strong> eine Erfolgsquote von 87% erreicht. Wichtig ist, dass die <strong>Reward-Kurve</strong> stabil bleibt, bevor wir das Modell exportieren.</p>
+        <ul>
+          <li><strong>Policy-Loss</strong> sinkt kontinuierlich seit Epoche 40.</li>
+          <li>Value-Loss zeigt leichte Oszillation, <strong>noch im Toleranzbereich</strong>.</li>
+        </ul>
+        <div class="caption dim-glow">Quelle: run_0042.log</div>
+      </div>
+    </div>
+    <div class="panel-caption">Am nächsten am bestehenden "phosphor terminal"-Charakter des Themes — nutzt einen bereits vorhandenen Design-Token wieder.</div>
+  </div>
+
+  <div class="section">
+    <div class="section-label"><span class="num">D —</span> C + Unterstrich am fetten Text</div>
+    <div class="section-desc">Wie C, aber fett markierter Text bekommt zusätzlich eine dünne Unterstreichung (underline). Das ist ein Signal, das NICHT von Farbe/Helligkeit abhängt — hilft z. B. bei Rot-Grün-Sehschwäche (color blindness) oder auf schlechten Bildschirmen, wo der Glow kaum zu sehen ist.</div>
+    <div class="panel variant-d">
+      <div class="msg">
+        <h2>Trainingslauf-Zusammenfassung</h2>
+        <p>Der Agent hat nach <strong>120.000 Schritten</strong> eine Erfolgsquote von 87% erreicht. Wichtig ist, dass die <strong>Reward-Kurve</strong> stabil bleibt, bevor wir das Modell exportieren.</p>
+        <ul>
+          <li><strong>Policy-Loss</strong> sinkt kontinuierlich seit Epoche 40.</li>
+          <li>Value-Loss zeigt leichte Oszillation, <strong>noch im Toleranzbereich</strong>.</li>
+        </ul>
+        <div class="caption">Quelle: run_0042.log</div>
+      </div>
+    </div>
+    <div class="panel-caption">Zusätzliche Sicherheit, aber wirkt in langen Absätzen mit viel fettem Text etwas unruhig.</div>
+  </div>
+
+  <div class="section">
+    <div class="section-label"><span class="num">E —</span> C + dezente Hervorhebungs-Box hinter fettem Text</div>
+    <div class="section-desc">Wie C, aber statt (oder zusätzlich zu) Glow bekommt fetter Text eine sehr dezente Hintergrund-Box (highlight chip) in Akzentfarbe — ähnlich wie ein Textmarker. Springt am stärksten ins Auge, auch beim schnellen Überfliegen (skimming).</div>
+    <div class="panel variant-e">
+      <div class="msg">
+        <h2>Trainingslauf-Zusammenfassung</h2>
+        <p>Der Agent hat nach <strong>120.000 Schritten</strong> eine Erfolgsquote von 87% erreicht. Wichtig ist, dass die <strong>Reward-Kurve</strong> stabil bleibt, bevor wir das Modell exportieren.</p>
+        <ul>
+          <li><strong>Policy-Loss</strong> sinkt kontinuierlich seit Epoche 40.</li>
+          <li>Value-Loss zeigt leichte Oszillation, <strong>noch im Toleranzbereich</strong>.</li>
+        </ul>
+        <div class="caption">Quelle: run_0042.log</div>
+      </div>
+    </div>
+    <div class="panel-caption">Sehr auffällig — gut für kurze, seltene Hervorhebungen; bei vielen <b>strong</b>-Wörtern pro Absatz kann es unruhig wirken.</div>
+  </div>
+
+  <div class="section">
+    <div class="section-label"><span class="num">F —</span> C + Klammer-Style für Überschriften</div>
+    <div class="section-desc">Wie C, aber Überschriften bekommen zusätzlich eckige Klammern (<code>[ … ]</code>) und die Caption ein <code>&gt;</code>-Prompt-Zeichen — beides typische Terminal-Konventionen. Verstärkt die Unterscheidung zwischen Überschrift und Fließtext durch Form, nicht nur durch Farbe.</div>
+    <div class="panel variant-f">
+      <div class="msg">
+        <h2>Trainingslauf-Zusammenfassung</h2>
+        <p>Der Agent hat nach <strong>120.000 Schritten</strong> eine Erfolgsquote von 87% erreicht. Wichtig ist, dass die <strong>Reward-Kurve</strong> stabil bleibt, bevor wir das Modell exportieren.</p>
+        <ul>
+          <li><strong>Policy-Loss</strong> sinkt kontinuierlich seit Epoche 40.</li>
+          <li>Value-Loss zeigt leichte Oszillation, <strong>noch im Toleranzbereich</strong>.</li>
+        </ul>
+        <div class="caption">Quelle: run_0042.log</div>
+      </div>
+    </div>
+    <div class="panel-caption">Am spielerischsten/thematischsten — aber Klammern in JEDER KI-Überschrift könnten auf Dauer nerven statt zu helfen.</div>
+  </div>
+</div>
+</body>
+</html>

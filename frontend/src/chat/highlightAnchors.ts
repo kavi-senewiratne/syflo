@@ -26,6 +26,10 @@ import { HIGHLIGHT_COLORS } from '../types';
 // Style names referenced by ::highlight() rules in index.css.
 const styleName = (color: HighlightColor) => `syflo-chat-hl-${color}`;
 
+// Color-independent overlay marking highlights that link to a branched chat
+// (underline, stacked on top of the color-specific background).
+const LINKED_STYLE = 'syflo-chat-hl-linked';
+
 export const supportsCustomHighlights =
   typeof CSS !== 'undefined' && 'highlights' in CSS && typeof Highlight !== 'undefined';
 
@@ -86,10 +90,137 @@ export function highlightAtPoint(
   );
 }
 
+// ─── KaTeX formulas: paint the box, not its glyphs ──────────────────────────
+//
+// ::highlight() only covers the inline boxes of real TEXT nodes. A KaTeX
+// formula is a stack of tiny spans whose spacing lives in `margin-right` on
+// .mbin/.mrel and in empty .mspace elements — none of which carry text. So a
+// highlight over a formula came out striped, and the linked-chat underline
+// restarted at every sub/superscript's own .vlist baseline instead of running
+// as one line (user report 2026-08-01).
+//
+// A formula is atomic to the reader anyway, so any highlight that touches one
+// paints the WHOLE `.katex` box through element rules (see index.css) — one
+// continuous background, one continuous underline — and the formula's offset
+// span is CUT OUT of the ranges handed to the Custom Highlight API, so the
+// glyphs are never painted twice.
+
+const FORMULA_ATTR = 'data-syflo-hl';
+const FORMULA_LINKED_ATTR = 'data-syflo-hl-linked';
+const FORMULA_FLASH_ATTR = 'data-syflo-hl-flash';
+
+export interface FormulaSpan {
+  el: HTMLElement;
+  start: number;
+  end: number;
+}
+
+function asElement(root: Node): Element | null {
+  return typeof (root as Element).querySelectorAll === 'function' ? (root as Element) : null;
+}
+
+// The offset span each top-level `.katex` box occupies in root's text. Range
+// text and the TreeWalker in rangeFromOffsets accumulate the same text-node
+// data, so these offsets live in the same coordinate system as a highlight's.
+export function formulaSpans(root: Node): FormulaSpan[] {
+  const el = asElement(root);
+  if (!el) return [];
+  const spans: FormulaSpan[] = [];
+  for (const node of Array.from(el.querySelectorAll<HTMLElement>('.katex'))) {
+    // .katex-display wraps a .katex; only the outermost box gets painted.
+    if (node.parentElement?.closest('.katex')) continue;
+    const length = (node.textContent ?? '').length;
+    if (length === 0) continue;
+    const before = document.createRange();
+    before.selectNodeContents(el);
+    before.setEndBefore(node);
+    const start = before.toString().length;
+    spans.push({ el: node, start, end: start + length });
+  }
+  return spans;
+}
+
+const touches = (span: FormulaSpan, start: number, end: number) =>
+  span.start < end && span.end > start;
+
+// [start, end) minus every formula span — the pieces ::highlight() may paint.
+export function offsetsOutsideFormulas(
+  start: number,
+  end: number,
+  spans: FormulaSpan[],
+): Array<[number, number]> {
+  let pieces: Array<[number, number]> = [[start, end]];
+  for (const span of spans) {
+    const next: Array<[number, number]> = [];
+    for (const [a, b] of pieces) {
+      if (!touches(span, a, b)) {
+        next.push([a, b]);
+        continue;
+      }
+      if (a < span.start) next.push([a, span.start]);
+      if (span.end < b) next.push([span.end, b]);
+    }
+    pieces = next;
+  }
+  return pieces;
+}
+
+function clearFormulaMarks(root: Node, ...attrs: string[]): void {
+  const el = asElement(root);
+  if (!el) return;
+  const selector = attrs.map((a) => `[${a}]`).join(',');
+  for (const node of Array.from(el.querySelectorAll<HTMLElement>(selector))) {
+    for (const attr of attrs) node.removeAttribute(attr);
+    node.style.removeProperty(UNDERLINE_VAR);
+  }
+}
+
+// The linked-chat underline cannot come from `text-decoration` on the box:
+// `.katex` is an inline-block, and Chromium paints no decoration across an
+// atomic inline (measured 2026-08-01 on a rendered formula — the red test
+// line stopped dead for the exact width of the box, and putting the rule on
+// the inner .katex-html, an inline-block too, changed nothing). A 1px
+// background gradient spans the whole box instead (see index.css), but it
+// must sit on the LINE's baseline: the box bottom is 0.3em of padding below
+// the descenders, which drew the line visibly lower than the prose one.
+//
+// A zero-height empty inline-block is baseline-aligned with its bottom edge
+// ON the baseline — inserting one next to the formula, measuring, and
+// removing it again (all inside the same layout effect, so React never sees
+// it) gives the exact distance from the box bottom up to the baseline.
+const UNDERLINE_VAR = '--syflo-hl-underline-bottom';
+// Chromium puts a `text-underline-offset: 3px` line exactly 3px below the
+// baseline — measured across 12/13/14/16/18/22/28px type, constant 3.0px, so
+// the prose rule and this one meet at the same y.
+const UNDERLINE_OFFSET_PX = 3;
+// …plus one: in `background-position`, 100% means "container height MINUS
+// image height", so a 1px line placed at 100% already sits 1px high. Keep in
+// sync with background-size in index.css.
+const UNDERLINE_THICKNESS_PX = 1;
+
+function setUnderlineOffset(el: HTMLElement): void {
+  const parent = el.parentNode;
+  if (!parent || typeof el.getBoundingClientRect !== 'function') return;
+  const probe = document.createElement('span');
+  probe.style.cssText = 'display:inline-block;width:0;height:0;overflow:hidden';
+  parent.insertBefore(probe, el);
+  const baseline = probe.getBoundingClientRect().bottom;
+  parent.removeChild(probe);
+  const bottom = el.getBoundingClientRect().bottom;
+  const offset = bottom - baseline - UNDERLINE_OFFSET_PX - UNDERLINE_THICKNESS_PX;
+  // jsdom (and a formula not laid out yet) reports zeros — leave the CSS
+  // fallback in place rather than pinning the line to a bogus offset.
+  if (!Number.isFinite(offset) || bottom === 0) return;
+  el.style.setProperty(UNDERLINE_VAR, `${offset}px`);
+}
+
 // ─── Paint registry (Custom Highlight API) ──────────────────────────────────
 
 // message id → color → live ranges currently painted for that message.
 const rangesByMessage = new Map<string, Map<HighlightColor, Range[]>>();
+// message id → live ranges of highlights linked to a branched chat, painted
+// as a second, color-independent layer stacked on the background above.
+const linkedRangesByMessage = new Map<string, Range[]>();
 
 function repaint(color: HighlightColor) {
   if (!supportsCustomHighlights) return;
@@ -105,6 +236,17 @@ function repaint(color: HighlightColor) {
   }
 }
 
+function repaintLinked() {
+  if (!supportsCustomHighlights) return;
+  const all: Range[] = [];
+  for (const ranges of linkedRangesByMessage.values()) all.push(...ranges);
+  if (all.length === 0) {
+    CSS.highlights.delete(LINKED_STYLE);
+  } else {
+    CSS.highlights.set(LINKED_STYLE, new Highlight(...all));
+  }
+}
+
 // (Re)paint one message's highlights against its current content root.
 // Called from a layout effect after every content change, so ranges never
 // point at detached text nodes.
@@ -115,20 +257,40 @@ export function paintMessageHighlights(
 ): void {
   if (!supportsCustomHighlights) return;
   const perColor = new Map<HighlightColor, Range[]>();
+  const linked: Range[] = [];
+  // Formula boxes are marked from scratch on every repaint — a highlight the
+  // user just deleted must not leave its color behind on the element.
+  const spans = formulaSpans(root);
+  clearFormulaMarks(root, FORMULA_ATTR, FORMULA_LINKED_ATTR);
   for (const h of highlights) {
     if (h.messageId !== messageId) continue;
-    const range = rangeFromOffsets(root, h.startOffset, h.endOffset);
-    if (!range) continue;
-    const list = perColor.get(h.color);
-    if (list) list.push(range);
-    else perColor.set(h.color, [range]);
+    for (const span of spans) {
+      if (!touches(span, h.startOffset, h.endOffset)) continue;
+      span.el.setAttribute(FORMULA_ATTR, h.color);
+      if (h.childChatId) {
+        span.el.setAttribute(FORMULA_LINKED_ATTR, '');
+        setUnderlineOffset(span.el);
+      }
+    }
+    for (const [start, end] of offsetsOutsideFormulas(h.startOffset, h.endOffset, spans)) {
+      const range = rangeFromOffsets(root, start, end);
+      if (!range) continue;
+      const list = perColor.get(h.color);
+      if (list) list.push(range);
+      else perColor.set(h.color, [range]);
+      if (h.childChatId) linked.push(range);
+    }
   }
   rangesByMessage.set(messageId, perColor);
+  linkedRangesByMessage.set(messageId, linked);
   for (const color of HIGHLIGHT_COLORS) repaint(color);
+  repaintLinked();
 }
 
 export function clearMessageHighlights(messageId: string): void {
   if (!supportsCustomHighlights) return;
+  linkedRangesByMessage.delete(messageId);
+  repaintLinked();
   if (!rangesByMessage.delete(messageId)) return;
   for (const color of HIGHLIGHT_COLORS) repaint(color);
 }
@@ -299,6 +461,7 @@ export function paintFlashChatRange(
   sel: { startOffset: number; endOffset: number; color: HighlightColor } | null,
 ): void {
   if (!supportsCustomHighlights) return;
+  clearFormulaMarks(root, FORMULA_FLASH_ATTR);
   if (!sel) {
     if (flashOwner === messageId) {
       flashOwner = null;
@@ -310,9 +473,21 @@ export function paintFlashChatRange(
   flashOwner = messageId;
   const style = flashStyleName(sel.color);
   if (flashStyle && flashStyle !== style) CSS.highlights.delete(flashStyle);
-  const range = rangeFromOffsets(root, sel.startOffset, sel.endOffset);
-  if (range) {
-    const highlight = new Highlight(range);
+  // Same formula treatment as the static highlights: the box flashes as one
+  // element, the prose around it as ranges.
+  const spans = formulaSpans(root);
+  const ranges: Range[] = [];
+  for (const span of spans) {
+    if (touches(span, sel.startOffset, sel.endOffset)) {
+      span.el.setAttribute(FORMULA_FLASH_ATTR, sel.color);
+    }
+  }
+  for (const [start, end] of offsetsOutsideFormulas(sel.startOffset, sel.endOffset, spans)) {
+    const range = rangeFromOffsets(root, start, end);
+    if (range) ranges.push(range);
+  }
+  if (ranges.length > 0) {
+    const highlight = new Highlight(...ranges);
     highlight.priority = 2;
     CSS.highlights.set(style, highlight);
     flashStyle = style;

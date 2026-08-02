@@ -1,21 +1,22 @@
 /**
  * messages.js
  *
- * Nimmt User-Nachrichten an (text + optionale Datei-Anhänge per multipart),
- * speichert die Dateien, baut multimodale Anfragen für llama3.2-vision und
- * streamt die Antwort per SSE zurück.
+ * Accepts user messages (text + optional file attachments via multipart),
+ * stores the files, builds multimodal requests for llama3.2-vision and
+ * streams the response back via SSE.
  *
- * Datei-Handling:
- *   - Bilder (image/*): per data-URL als image_url an das Vision-Modell
- *   - Text-Dateien (text/*, application/json): Inhalt einlesen und in den Prompt einbetten
- *   - Sonstige Dateien: nur Name/Mimetype erwähnen (Modell kann Binär nicht lesen)
+ * File handling:
+ *   - Images (image/*): as data URL via image_url to the vision model
+ *   - Text files (text/*, application/json): read content and embed it in the prompt
+ *   - Other files: only mention name/mimetype (model cannot read binary)
  */
 
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
-const { getLLMClient, getSetting, noThinkExtras, extendOllamaKeepAlive, getOllamaGpuResidency } = require('../llm');
+const { getLLMClient, getLLMClientFor, getSetting, noThinkExtras, extendOllamaKeepAlive } = require('../llm');
+const { getModelInfo, getRegistry } = require('../registry');
 const { streamWithTools, ALL_TOOLS } = require('../tools');
 const { getTreePaperContext } = require('../pdf-text');
 const { getTreeVideoContext, transcriptTruncationNote } = require('../youtube');
@@ -26,12 +27,13 @@ const {
   RETRIEVE_K,
 } = require('../retrieval');
 const { buildPerfRecord, formatPerfLine, appendPerfJsonl, isPerfJsonlEnabled } = require('../perf-log');
+const { isRateLimit, isDailyQuota, isTooLarge, isModelUnavailable, isBillingRequired, msUntilUtcMidnight } = require('../quota');
 const {
   buildAncestorContext,
   renderAncestorText,
   applyContextBudget,
-  MAX_SYSTEM_CONTEXT_CHARS,
   CONTEXT_WINDOW_TOKENS,
+  contextBudget,
 } = require('../ancestor-context');
 
 const MAX_TEXT_FILE_BYTES = 64 * 1024;
@@ -43,8 +45,8 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
   const embedTextsFn = options.embedTextsFn;
   const router = express.Router({ mergeParams: true });
 
-  // Anhänge ins chat-spezifische Verzeichnis legen, damit man pro Chat
-  // aufräumen kann und keine Dateinamen-Kollisionen entstehen.
+  // Place attachments in the chat-specific directory so cleanup can happen
+  // per chat and no filename collisions occur.
   const storage = multer.diskStorage({
     destination: (req, _file, cb) => {
       const dir = path.join(UPLOADS_DIR, req.params.chatId);
@@ -52,9 +54,9 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
       cb(null, dir);
     },
     filename: (_req, file, cb) => {
-      // Dateiname: <id>-<originalname> — id für Eindeutigkeit, originalname für Lesbarkeit
+      // Filename: <id>-<originalname> — id for uniqueness, originalname for readability
       const id = crypto.randomUUID();
-      // Originalnamen säubern (keine Pfade)
+      // Sanitize the original name (no paths)
       const safe = file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 80);
       file.attachmentId = id;
       cb(null, `${id}-${safe}`);
@@ -62,16 +64,16 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
   });
   const upload = multer({
     storage,
-    limits: { fileSize: 20 * 1024 * 1024 }, // 20 MB pro Datei
+    limits: { fileSize: 20 * 1024 * 1024 }, // 20 MB per file
   });
 
-  // Hilfsfunktion: liest eine Datei und gibt sie als data-URL zurück.
+  // Helper: reads a file and returns it as a data URL.
   function fileToDataUrl(fullPath, mimetype) {
     const data = fs.readFileSync(fullPath);
     return `data:${mimetype};base64,${data.toString('base64')}`;
   }
 
-  // Hilfsfunktion: liest eine Textdatei (begrenzt auf MAX_TEXT_FILE_BYTES)
+  // Helper: reads a text file (limited to MAX_TEXT_FILE_BYTES)
   function readTextFile(fullPath) {
     const stat = fs.statSync(fullPath);
     const len = Math.min(stat.size, MAX_TEXT_FILE_BYTES);
@@ -79,12 +81,12 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
     const buf = Buffer.alloc(len);
     fs.readSync(fd, buf, 0, len, 0);
     fs.closeSync(fd);
-    return buf.toString('utf-8') + (stat.size > len ? '\n[…gekürzt]' : '');
+    return buf.toString('utf-8') + (stat.size > len ? '\n[…truncated]' : '');
   }
 
-  // Wandelt einen DB-Anhang in den OpenAI-Multimodal-Content-Eintrag.
-  // Gibt entweder ein image_url-Objekt zurück, oder null (bei Textdateien wird
-  // der Inhalt in den Prompt-Text eingebettet — separat behandelt).
+  // Converts a DB attachment into the OpenAI multimodal content entry.
+  // Returns either an image_url object, or null (for text files the content
+  // is embedded into the prompt text — handled separately).
   function attachmentToMultimodalContent(att) {
     if (att.mimetype.startsWith('image/')) {
       return {
@@ -95,9 +97,9 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
     return null;
   }
 
-  // Baut den Text-Annex für nicht-bildliche Anhänge:
-  // - Text-Dateien: kompletter Inhalt
-  // - Sonstige: nur Verweis auf Dateiname
+  // Builds the text annex for non-image attachments:
+  // - Text files: full content
+  // - Others: only a reference to the filename
   function buildAttachmentTextAnnex(attachments) {
     const parts = [];
     for (const att of attachments) {
@@ -108,40 +110,38 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
       if (isText) {
         try {
           const content = readTextFile(att.path);
-          parts.push(`\n\n[Anhang ${att.alias} — ${att.filename}]\n\`\`\`\n${content}\n\`\`\``);
+          parts.push(`\n\n[Attachment ${att.alias} — ${att.filename}]\n\`\`\`\n${content}\n\`\`\``);
         } catch (_) {
-          parts.push(`\n\n[Anhang ${att.alias} — ${att.filename}, Fehler beim Lesen]`);
+          parts.push(`\n\n[Attachment ${att.alias} — ${att.filename}, error reading file]`);
         }
       } else {
-        parts.push(`\n\n[Anhang ${att.alias} — ${att.filename}, Typ ${att.mimetype} (Binärdatei, kann nicht gelesen werden)]`);
+        parts.push(`\n\n[Attachment ${att.alias} — ${att.filename}, type ${att.mimetype} (binary file, cannot be read)]`);
       }
     }
     return parts.join('');
   }
 
-  // Gemessene Prefill-Rate (EMA, tok/s) für die ETA im prefill-SSE-Event.
-  // Startwert = M4-Pro-Messung 2026-07-25 (~300 tok/s, qwen3.5:9b); lernt aus
-  // jeder kalten Antwort mit (Speicherdruck, Modellwechsel). Bewusst nur eine
-  // Schätzung — Ollama exponiert keinen echten Prefill-Fortschritt (#6029).
-  let prefillTokPerSec = 300;
-
-  // Baut den textuellen Gesprächskontext eines Chats: System-Prompt (inkl.
-  // Paper-Volltext bei gebundenem PDF, ADR-0002, und geerbtem Vorfahren-
-  // Kontext bei Branches) plus die Nachrichten-Historie. Wird von der echten
-  // Nachricht (dropLastMessage: die aktuelle User-Nachricht kommt multimodal
-  // dazu) UND vom Prefix-Warm-up (kompletter Stand) verwendet — beide müssen
-  // denselben Prompt-Prefix erzeugen, sonst greift Ollamas KV-Cache nicht.
-  async function buildSystemAndHistory(chat, { dropLastMessage }) {
+  // Builds the textual conversation context of a chat: system prompt (incl.
+  // full paper text for a bound PDF, ADR-0002, and inherited ancestor
+  // context for branches) plus the message history. Used by the real
+  // message (dropLastMessage: the current user message is added
+  // multimodally) AND by the prefix warm-up (complete state) — both must
+  // produce the same prompt prefix, otherwise Ollama's KV cache misses.
+  async function buildSystemAndHistory(chat, { dropLastMessage, historyUntil = null, budgetFor = null }) {
     const contextMessages = [];
-    // Regel (5) ist eine Latenz-Maßnahme: auf lokaler Hardware kostet jedes
-    // generierte Token ~40 ms — eine 950-Token-Antwort allein ~40 s. Kürze
-    // als Default macht Antworten spürbar schneller fertig.
-    let systemBase = 'You are a friendly and helpful assistant. Formatting rules: (1) Use proper Markdown for headings — always include a SPACE between the hash characters and the heading text: `# Heading`, `## Subheading`, `### Sub-subheading`. Never write `#Heading` without a space — it will not render as a heading. (2) Do NOT use emojis. Keep prose plain so it reads cleanly. (3) When explaining concepts, always use analogies and real-world comparisons to make things easy to understand. (4) When the user attaches images, examine them carefully and describe what you see when relevant. (5) Be concise by default: answer in a few short paragraphs at most, and expand only when the user explicitly asks for more depth or detail. (6) When the user asks about current or real-time information (news, weather, prices, recent events) or explicitly asks you to search the web, ALWAYS call the web_search tool first and base your answer on its results — never invent real-time information from memory, and never claim the tool is unavailable without having called it. (7) ALWAYS reply in the language of the user\'s most recent message — German message, German reply; English message, English reply. If a message mixes languages, reply in its dominant language. (8) Write EVERY mathematical expression that has an exponent, subscript, fraction, or math symbol as LaTeX inside inline math delimiters $…$ — e.g. $10^{50}$, $w_t$, $\\frac{a}{b}$, $27 \\times 27$. NEVER write a bare caret (^) or underscore (_) for math in plain text (write $10^{50}$, not 10^50), because a bare caret renders as a literal character instead of a superscript. Plain whole numbers without such notation may stay as normal text.';
+    // Deliberately NO brevity rule (removed 2026-07-26, user decision):
+    // answers may be as detailed as the question warrants. The old
+    // "be concise by default" was a latency measure for local decoding
+    // (~40 ms/token), but the perceived wait there is dominated by prefill,
+    // not decode. If long local answers ever hurt again, reintroduce the
+    // rule for provider === 'ollama' only — never globally.
+    let systemBase = 'You are a friendly and helpful assistant. Formatting rules: (1) Use proper Markdown for headings — always include a SPACE between the hash characters and the heading text: `# Heading`, `## Subheading`, `### Sub-subheading`. Never write `#Heading` without a space — it will not render as a heading. (2) Do NOT use emojis. Keep prose plain so it reads cleanly. (3) When explaining concepts, always use analogies and real-world comparisons to make things easy to understand. (4) When the user attaches images, examine them carefully and describe what you see when relevant. (5) When the user asks about current or real-time information (news, weather, prices, recent events) or explicitly asks you to search the web, ALWAYS call the web_search tool first and base your answer on its results — never invent real-time information from memory, and never claim the tool is unavailable without having called it. (6) ALWAYS reply in the language of the user\'s most recent message — German message, German reply; English message, English reply. If a message mixes languages, reply in its dominant language. (7) Write EVERY mathematical expression that has an exponent, subscript, fraction, or math symbol as LaTeX inside inline math delimiters $…$ — e.g. $10^{50}$, $w_t$, $\\frac{a}{b}$, $27 \\times 27$. NEVER write a bare caret (^) or underscore (_) for math in plain text (write $10^{50}$, not 10^50), because a bare caret renders as a literal character instead of a superscript. Plain whole numbers without such notation may stay as normal text.';
 
-    // Custom instructions (CONTEXT.md): Nutzer-Freitext aus den Settings —
-    // direkt nach den Basisregeln und VOR Paper-/Ancestor-Kontext, damit sie
-    // das Budget-Trimming nie erfasst. Die explizite Vorrang-Zeile ist nötig,
-    // weil kleine lokale Modelle Regel-Konflikte sonst unvorhersehbar lösen.
+    // Custom instructions (CONTEXT.md): user free text from the settings —
+    // directly after the base rules and BEFORE paper/ancestor context, so
+    // budget trimming never touches them. The explicit precedence line is
+    // needed because small local models otherwise resolve rule conflicts
+    // unpredictably.
     const customInstructions = getSetting(db, 'custom_instructions');
     if (getSetting(db, 'custom_instructions_enabled') === 'true' && customInstructions.trim()) {
       systemBase +=
@@ -151,53 +151,60 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
         '\n--- CUSTOM INSTRUCTIONS END ---';
     }
 
-    // Volltext des an den Chat-Tree gebundenen Papers (ADR-0002) in den
-    // System-Prompt — ohne ihn kennt das Modell das PDF nicht und halluziniert
-    // Zusammenfassungen. Extraktion ist lazy und in papers.extracted_text
-    // gecacht; Fehler degradieren still zu "kein Paper-Kontext".
+    // Full text of the paper bound to the chat tree (ADR-0002) into the
+    // system prompt — without it the model doesn't know the PDF and
+    // hallucinates summaries. Extraction is lazy and cached in
+    // papers.extracted_text; errors degrade silently to "no paper context".
     const paperContext = await getTreePaperContext(db, chat.id, extractPdfTextFn);
 
-    // YouTube transcript des Trees (ADR-0005) — zweite Quellenart. Ein Baum
-    // hat höchstens EINE Quelle, daher teilen sich Paper und Video denselben
-    // Budget-Slot (paperText) in applyContextBudget.
+    // YouTube transcript of the tree (ADR-0005) — second source type. A tree
+    // has at most ONE source, so paper and video share the same budget slot
+    // (paperText) in applyContextBudget.
     const videoContext = getTreeVideoContext(db, chat.id);
 
-    // Geerbter Gesprächskontext (Design 2026-07-20): ganzer Pfad bis zur
-    // Wurzel — Eltern wörtlich, Großeltern+ als gecachte Summary, dazu die
-    // parent_word-Kette. Summary-Fehler degradieren still zum Kontext ohne
-    // die betroffene Summary; der Lazy-Pfad hier ist das Sicherheitsnetz
-    // hinter dem Warm-up bei der Branch-Erstellung.
+    // Inherited conversation context (design 2026-07-20): whole path up to
+    // the root — parent verbatim, grandparents+ as cached summary, plus the
+    // parent_word chain. Summary errors degrade silently to the context
+    // without the affected summary; the lazy path here is the safety net
+    // behind the warm-up at branch creation.
     let ancestor = null;
     if (chat.parent_id) {
       try {
         ancestor = await buildAncestorContext(db, chat.id);
-      } catch (_) { /* ohne Ancestor-Kontext weitermachen */ }
+      } catch (_) { /* continue without ancestor context */ }
     }
 
-    // Die EINE Quelle des Baums, quellenart-neutral (Paper oder Video).
+    // The ONE source of the tree, source-type-neutral (paper or video).
     const source = paperContext
       ? { type: 'paper', id: paperContext.paperId, text: paperContext.text }
       : videoContext
         ? { type: 'video', id: videoContext.videoId, text: videoContext.text }
         : null;
 
-    // Wenn-dann-Regel (ADR-0006): Passt die Quelle in den Platz, der nach
-    // dem Vorfahren-Kontext übrig ist, bleibt alles beim Volltext-Prefix
-    // (KV-Cache, einmaliges Prefill). Sprengt sie ihn, ersetzt ein stabiles
-    // Skeleton den Volltext, und pro Frage kommen die passendsten Chunks
-    // HINTER der Historie dazu (retrieval, POST-Handler unten). Schlägt das
-    // Chunking/Embedding fehl (z. B. Embedding-Modell nicht installiert),
-    // degradiert alles auf die alte Volltext-Kürzung — nichts bricht.
-    // Baum-stabile Modus-Entscheidung (Nachtrag 2026-07-25): Volltext vs.
-    // Retrieval hängt NUR an der Quelle, nicht am Vorfahren-Kontext. Vorher
-    // schrumpfte der Platz im Kind um die Ancestor-Zeichen — dieselbe Quelle,
-    // die im Eltern-Chat Volltext war, kippte im Kind in den Retrieval-Modus,
-    // und der teure gemeinsame Quell-Präfix (System + Custom Instructions +
-    // Quelle) war beim Branchen wertlos: voller Re-Prefill statt Cache-Hit
-    // (~60 s, Messung 2026-07-25). Passt die Quelle allein ins Budget,
-    // weichen stattdessen die Vorfahren-Summaries (applyContextBudget,
-    // Opfer-Reihenfolge am selben Tag gedreht).
-    const sourceRoom = MAX_SYSTEM_CONTEXT_CHARS;
+    // If-then rule (ADR-0006): If the source fits into the room left after
+    // the ancestor context, everything stays on the full-text prefix
+    // (KV cache, one-time prefill). If it exceeds it, a stable skeleton
+    // replaces the full text, and per question the best-matching chunks are
+    // added AFTER the history (retrieval, POST handler below). If the
+    // chunking/embedding fails (e.g. embedding model not installed),
+    // everything degrades to the old full-text truncation — nothing breaks.
+    // Tree-stable mode decision (addendum 2026-07-25): full text vs.
+    // retrieval depends ONLY on the source, not on the ancestor context.
+    // Previously the room in the child shrank by the ancestor characters —
+    // the same source that was full text in the parent chat tipped into
+    // retrieval mode in the child, and the expensive shared source prefix
+    // (system + custom instructions + source) was worthless when branching:
+    // full re-prefill instead of cache hit (~60 s, measured 2026-07-25).
+    // If the source alone fits into the budget, the ancestor summaries give
+    // way instead (applyContextBudget, sacrifice order flipped the same day).
+    // Budget of the model that will answer (ADR-0008): cloud models bring
+    // bigger windows — the same source can be full text on Gemini and
+    // retrieval on Ollama. The cap (budgetCapTokens) protects free quotas.
+    // budgetFor: failover candidates and the one-off local regenerate get a
+    // prompt sized to THEIR budget (fix 2026-07-29), default is the active
+    // settings model (warm-up contract: same prompt prefix as the real call).
+    const budget = contextBudget(db, budgetFor);
+    const sourceRoom = budget.maxSystemContextChars;
 
     let retrieval = null;
     let sourceTextForPrompt = source ? source.text : null;
@@ -213,21 +220,21 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
         sourceTextForPrompt = buildSkeleton(source.text);
       } catch (err) {
         console.warn(
-          `[retrieval] Chunking/Embedding für ${source.type} ${source.id} fehlgeschlagen ` +
-          `(${err.message}) — Fallback auf Volltext-Kürzung.`
+          `[retrieval] Chunking/embedding for ${source.type} ${source.id} failed ` +
+          `(${err.message}) — falling back to full-text truncation.`
         );
       }
     }
 
-    // Opfer-Reihenfolge, wenn alles zusammen zu groß wird:
-    // Paper → Vorfahren-Summaries (älteste zuerst) → nie das Eltern-Transkript.
+    // Sacrifice order when everything together gets too big:
+    // paper → ancestor summaries (oldest first) → never the parent transcript.
     const fitted = applyContextBudget(
       {
         paperText: sourceTextForPrompt,
         summaries: ancestor ? ancestor.summaries : [],
         parentTranscript: ancestor ? ancestor.parentTranscript : null,
       },
-      MAX_SYSTEM_CONTEXT_CHARS
+      budget.maxSystemContextChars
     );
 
     if (paperContext && fitted.paperText && retrieval) {
@@ -264,9 +271,9 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
         fitted.paperText +
         '\n--- TRANSCRIPT SKELETON END ---';
     } else if (videoContext && fitted.paperText) {
-      // Video overview-Regel (Nutzerentscheid 2026-07-23): Strukturieren
-      // heißt ordnen, NICHT kürzen — ohne die explizite Regel fällt das
-      // Modell in sein Standardverhalten "zusammenfassen" zurück.
+      // Video overview rule (user decision 2026-07-23): structuring
+      // means organizing, NOT shortening — without the explicit rule the
+      // model falls back to its default behavior of "summarizing".
       const note = transcriptTruncationNote(
         fitted.paperText, videoContext.text, videoContext.durationSeconds
       );
@@ -290,41 +297,62 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
         summaries: fitted.summaries,
         parentTranscript: fitted.parentTranscript,
       });
+      // Two branch origins, two truths (decision 2026-07-26): a chat-selection
+      // branch really comes "from a previous conversation" and parent_word is
+      // the full selected passage. A PDF-selection branch carries
+      // parent_context — the text-layer lines around the selection — and the
+      // model must know that PDF extraction flattens math notation, or a
+      // selection like "Rm" (really R^m) is uninterpretable.
+      const branchIntro = chat.parent_context
+        ? `The user selected "${chat.parent_word}" inside the tree's PDF source. ` +
+          `Text surrounding the selection: "${chat.parent_context}". ` +
+          `Note: PDF text extraction flattens math notation — superscripts, subscripts and ` +
+          `blackboard/calligraphic letters may be lost (e.g. "Rm" may actually be the math ` +
+          `symbol R^m). Infer the intended notation from the surrounding text.`
+        : `The user is exploring the term "${chat.parent_word}" from a previous conversation.`;
       contextMessages.push({
         role: 'system',
-        content: `${systemBase} The user is exploring the term "${chat.parent_word}" from a previous conversation. Context:\n\n${ancestorText}`,
+        content: `${systemBase} ${branchIntro} Context:\n\n${ancestorText}`,
       });
     } else {
       contextMessages.push({ role: 'system', content: systemBase });
     }
 
-    // Historie (nur Text — alte Anhänge werden im Kontext nicht erneut hochgeschickt,
-    // sonst wird der Prompt zu groß)
+    // History (text only — old attachments are not re-uploaded in the context,
+    // otherwise the prompt gets too big)
     const history = db.prepare(
-      'SELECT role, content FROM messages WHERE chat_id = ? ORDER BY created_at ASC, id ASC'
+      'SELECT role, content, created_at FROM messages WHERE chat_id = ? AND IFNULL(pending, 0) = 0 ORDER BY created_at ASC, id ASC'
     ).all(chat.id);
-    const included = dropLastMessage ? history.slice(0, -1) : history;
-    included.forEach(m => contextMessages.push({ role: m.role, content: m.content }));
+    // Anchored regenerate: the context is the conversation as it was BEFORE
+    // the question being retried — later exchanges must not leak in.
+    const included = historyUntil
+      ? history.filter((m) => m.created_at < historyUntil)
+      : dropLastMessage ? history.slice(0, -1) : history;
+    // Prompt hygiene (§07): '*Failed*'/'*Interrupted*' markers are UI state,
+    // not conversation — the model must never see them as prior answers.
+    included
+      .filter((m) => !(m.role === 'assistant' && isRetryableMarker(m.content)))
+      .forEach(m => contextMessages.push({ role: m.role, content: m.content }));
 
-    // retrieval ≠ null heißt: der POST-Handler holt pro Frage die passenden
-    // Chunks und hängt sie HINTER die Historie — der Prefix bis hier bleibt
-    // byte-identisch mit dem Warm-up, nur der Auszugs-Block wechselt.
+    // retrieval ≠ null means: the POST handler fetches the matching chunks
+    // per question and appends them AFTER the history — the prefix up to
+    // here stays byte-identical with the warm-up, only the excerpt block changes.
     //
-    // Diagnose-Metadaten (perf-log.js): welcher Modus, wie groß die Quelle.
-    // sourceTokens ist eine Schätzung aus der Zeichenzahl (dieselbe Ratio wie
-    // das Budget); die echte Prompt-Größe steht als promptTokens in der usage.
+    // Diagnostic metadata (perf-log.js): which mode, how big the source is.
+    // sourceTokens is an estimate from the character count (same ratio as
+    // the budget); the real prompt size appears as promptTokens in the usage.
     const mode = source ? (retrieval ? 'retrieval' : 'fulltext') : 'none';
     const sourceTokens = source ? Math.round(source.text.length / 3.5) : null;
-    // Kalt/warm-Proxy: die erste Frage eines Chats trifft (fast) nie einen
-    // warmen KV-Cache; ab der zweiten ist der Paper-Prefix i. d. R. warm.
+    // Cold/warm proxy: the first question of a chat (almost) never hits a
+    // warm KV cache; from the second on the paper prefix is usually warm.
     const cache = included.some((m) => m.role === 'assistant') ? 'warm' : 'cold';
 
     return { messages: contextMessages, retrieval, meta: { mode, sourceTokens, cache } };
   }
 
-  // Rendert die abgerufenen Chunks zum Auszugs-Block hinter der Historie.
-  // Sektions-Header bleiben dran, damit das Modell weiß, WOHER im Dokument
-  // ein Auszug stammt.
+  // Renders the retrieved chunks into the excerpt block after the history.
+  // Section headers stay attached so the model knows WHERE in the document
+  // an excerpt comes from.
   function renderExcerpts(hits, sourceType) {
     const label = sourceType === 'video' ? 'TRANSCRIPT' : 'PAPER';
     const body = hits
@@ -338,34 +366,33 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
     );
   }
 
-  // Der eine laufende Warm-up (mehr als einen gibt es nie sinnvoll). Ein
-  // Warm-up ist reine Vorleistung — er darf NIE eine echte Anfrage blockieren.
-  // Auf Ollamas begrenzten Slots hieße das sonst: der Nutzer wartet bis zu
-  // ~40 s (Paper-Prefill) in der Warteschlange, bevor seine Frage überhaupt
-  // anläuft (gemessen 2026-07-21). Deshalb: neue echte Nachricht ODER neuer
-  // Warm-up → laufenden Warm-up sofort abbrechen. Der bereits verarbeitete
-  // Prefix bleibt in Ollamas Cache erhalten — abgebrochene Vorarbeit ist
-  // also nicht verloren.
+  // The one running warm-up (more than one never makes sense). A warm-up
+  // is pure upfront work — it must NEVER block a real request. On Ollama's
+  // limited slots that would otherwise mean: the user waits up to ~40 s
+  // (paper prefill) in the queue before their question even starts
+  // (measured 2026-07-21). Therefore: new real message OR new warm-up →
+  // abort the running warm-up immediately. The already-processed prefix
+  // stays in Ollama's cache — aborted upfront work is thus not lost.
   let activeWarmup = null;
   function abortActiveWarmup() {
     if (activeWarmup) activeWarmup.abort();
     activeWarmup = null;
   }
 
-  // POST /api/chats/:chatId/messages/warmup — Prefix-Warm-up: liest den
-  // kompletten Chat-Kontext (v. a. den Paper-Volltext) einmal mit einem
-  // 1-Token-Aufruf ein, damit Ollamas KV-Cache warm ist, bevor der Nutzer
-  // seine Frage abschickt — und pinnt das Modell für 1 h in den Speicher.
-  // Fire-and-forget vom Frontend beim Öffnen eines Chats; Fehler sind nie
-  // fatal (warmed:false statt 5xx).
+  // POST /api/chats/:chatId/messages/warmup — prefix warm-up: reads the
+  // complete chat context (above all the full paper text) once with a
+  // 1-token call so Ollama's KV cache is warm before the user submits
+  // their question — and pins the model in memory for 1 h.
+  // Fire-and-forget from the frontend when opening a chat; errors are never
+  // fatal (warmed:false instead of 5xx).
   router.post('/warmup', async (req, res) => {
     const chat = db.prepare('SELECT * FROM chats WHERE id = ?').get(req.params.chatId);
     if (!chat) return res.status(404).json({ error: 'Chat not found' });
 
-    // Kein Warm-up, solange echte Fragen laufen oder warten: er würde sich
-    // hinter sie einreihen und beim Durchlauf den KV-Prefix des gerade
-    // antwortenden Chats verdrängen — genau das machte Chat-Wechsel teuer
-    // (cache=cold trotz Warm-up, Befund 2026-07-24).
+    // No warm-up while real questions are running or waiting: it would
+    // queue up behind them and, when it runs, evict the KV prefix of the
+    // chat currently answering — exactly that made chat switches expensive
+    // (cache=cold despite warm-up, finding 2026-07-24).
     if (processingJob || jobQueue.length > 0) {
       return res.json({ warmed: false, reason: 'busy' });
     }
@@ -384,8 +411,8 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
         await client.chat.completions.create({
           model,
           messages: contextMessages,
-          // Gleiche Tools wie die echte Anfrage — sonst weicht der Prompt-
-          // Prefix ab und der Cache greift nicht.
+          // Same tools as the real request — otherwise the prompt prefix
+          // diverges and the cache misses.
           tools: ALL_TOOLS,
           ...noThinkExtras(provider),
           max_tokens: 1,
@@ -400,17 +427,7 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
         }, { signal: warmupAbort.signal });
       }
       await extendOllamaKeepAlive(model);
-      // GPU-Residency-Check: liegt das Modell nur teilweise im VRAM, ist
-      // jede Antwort 10–20× langsamer — das Frontend zeigt dann eine Warnung.
-      const gpu = await getOllamaGpuResidency(model);
-      if (gpu && gpu.vramPercent < 100) {
-        console.warn(
-          `[perf] ${model} liegt nur zu ${gpu.vramPercent}% im GPU-Speicher — ` +
-          'teilweises CPU-Offloading macht Antworten 10-20x langsamer. ' +
-          'Kleineres Modell wählen oder Speicher freigeben.'
-        );
-      }
-      res.json({ warmed: true, ...(gpu ? { gpu } : {}) });
+      res.json({ warmed: true });
     } catch (err) {
       res.json({ warmed: false, reason: err.message });
     } finally {
@@ -418,62 +435,118 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
     }
   });
 
-  // Inhalt einer Assistant-Nachricht, deren Generierung fehlschlug (z. B.
-  // Ollama-Fehler oder Client-Timeout): An der Stelle der Antwort bleibt nur
-  // dieser Marker — das Frontend rendert ihn als Fehlerzeile mit Retry-Button.
-  // Pendant zu '*Interrupted*'; exakt derselbe String wie FAILED_MARKER in
-  // frontend/src/types.
+  // Content of an assistant message whose generation failed (e.g.
+  // Ollama error or client timeout): in place of the answer only this
+  // marker remains — the frontend renders it as an error row with a retry
+  // button. Counterpart to '*Interrupted*'; exactly the same string as
+  // FAILED_MARKER in frontend/src/types.
   const FAILED_MARKER = '*Failed*';
+  // Stop button / connection drop: the half-generated answer is discarded and
+  // this marker takes its place. Regenerate accepts it like FAILED_MARKER
+  // (mockup-model-flow §09) — an accidental stop must not force the user to
+  // re-type the question.
+  const INTERRUPTED_MARKER = '*Interrupted*';
+  const isRetryableMarker = (content) => {
+    const t = (content || '').trim();
+    return t === FAILED_MARKER || t === INTERRUPTED_MARKER;
+  };
 
-  // ─── Sende-Warteschlange ────────────────────────────────────────────────
-  // Ollama hat genau EINEN KV-Slot (Vision-Modelle erzwingen parallel:1).
-  // Ohne eigene Schlange stauen sich gleichzeitige Fragen in Ollamas
-  // interner Warteschlange, wo sie nach 5 Minuten am Header-Timeout des
-  // HTTP-Clients sterben (Vorfall 2026-07-24) — und Frage 2 würde
-  // beantwortet, ohne Antwort 1 im Kontext zu haben. Deshalb serialisiert
-  // das Backend selbst (FIFO, chat-übergreifend): User-Insert, Kontext-
-  // Aufbau und Generierung laufen erst, wenn der Job an der Reihe ist — so
-  // steht Antwort 1 vor Frage 2 in der DB und in deren Historie. Wartende
-  // Clients bekommen queued-Events mit der Zahl der Jobs vor ihnen, der
-  // Start ein started-Event mit der jetzt persistierten User-Nachricht.
+  // ─── Send queue ─────────────────────────────────────────────────────────
+  // Ollama has exactly ONE KV slot (vision models force parallel:1).
+  // Without our own queue, concurrent questions pile up in Ollama's
+  // internal queue, where they die after 5 minutes at the HTTP client's
+  // header timeout (incident 2026-07-24) — and question 2 would be
+  // answered without having answer 1 in its context. Therefore the backend
+  // serializes itself (FIFO, across chats): user insert, context build and
+  // generation only run when the job is up — so answer 1 sits before
+  // question 2 in the DB and in its history. Waiting clients get queued
+  // events with the number of jobs ahead of them; the start gets a started
+  // event with the now-persisted user message.
   const jobQueue = [];
   let processingJob = false;
 
+  // Quota memory (user request 2026-07-25): a model that reported an
+  // exhausted quota is remembered and skipped proactively — daily limits
+  // until the next UTC midnight, per-minute exhaustion for 90 s. Limits are
+  // per MODEL, so the sibling model of the same provider stays usable.
+  const quotaCooldowns = new Map(); // 'provider/model' → { until: epoch ms, kind }
+  const isQuotaCoolingDown = (p, m) => (quotaCooldowns.get(`${p}/${m}`)?.until || 0) > Date.now();
+  // kind: 'daily' (until UTC midnight) | 'minute' (90 s) | 'retired' (24 h) —
+  // needed so retryAt can be honest per cause (mockup-model-flow §08): a
+  // sibling's 90 s cooldown must not become the daily card's clock.
+  const markQuotaCooldown = (p, m, ms, kind) =>
+    quotaCooldowns.set(`${p}/${m}`, { until: Date.now() + ms, kind });
+  // Earliest moment a cooling model becomes available again — sent as
+  // retryAt with the quotaExhausted error so the UI can gate its retry
+  // button honestly (mockup-quota-states.html §04/§05). With a kind filter
+  // it answers "when does THIS kind of limit reset"; falls back to the
+  // global minimum when no entry matches. Null when nothing is cooling
+  // down: a retry may work right away.
+  const earliestQuotaRetryAt = (kind = null) => {
+    const now = Date.now();
+    const pick = (filter) => {
+      let earliest = null;
+      for (const entry of quotaCooldowns.values()) {
+        if (filter && entry.kind !== filter) continue;
+        if (entry.until > now && (earliest === null || entry.until < earliest)) earliest = entry.until;
+      }
+      return earliest;
+    };
+    return pick(kind) ?? (kind ? pick(null) : null);
+  };
   function sseWrite(res, payload) {
-    try { res.write(`data: ${JSON.stringify(payload)}\n\n`); } catch (_) { /* Client weg */ }
+    try { res.write(`data: ${JSON.stringify(payload)}\n\n`); } catch (_) { /* client gone */ }
   }
 
-  // Streng monotone Zeitstempel innerhalb eines Chats: beim Dequeue können
-  // Antwort 1 und die nachrückende Frage 2 in derselben Millisekunde landen —
-  // GET und Frontend sortieren nach created_at, gleiche Stempel machten die
-  // Reihenfolge zufällig. Liegt der letzte Stempel nicht in der Vergangenheit,
-  // wird um 1 ms aufgerundet.
+  // Strictly monotonic timestamps within a chat: on dequeue, answer 1 and
+  // the following question 2 can land in the same millisecond — GET and
+  // frontend sort by created_at, and equal stamps made the order random.
+  // If the last stamp is not in the past, we round up by 1 ms.
   function monotonicNow(chatId) {
     const now = Date.now();
-    const last = db.prepare('SELECT MAX(created_at) AS ts FROM messages WHERE chat_id = ?').get(chatId);
+    const last = db.prepare('SELECT MAX(created_at) AS ts FROM messages WHERE chat_id = ? AND IFNULL(pending, 0) = 0').get(chatId);
     const lastMs = last && last.ts ? new Date(last.ts).getTime() : -Infinity;
     return new Date(Math.max(now, lastMs + 1)).toISOString();
   }
 
+  // The local job whose answer is generating right now — queued events name
+  // it so the waiting note can link to "the question currently answering"
+  // (mockup-model-flow §07, user request 2026-07-26).
+  let currentLocalJob = null;
+
+  function queuedPayload(ahead) {
+    return {
+      queued: {
+        ahead,
+        // The chip: which model will answer this waiting question. After the
+        // queue split only local jobs wait, so this is the local model.
+        model: getSetting(db, 'ollama_model'),
+        ...(currentLocalJob ? {
+          current: {
+            chatId: currentLocalJob.req.params.chatId,
+            question: String(currentLocalJob.content || '').slice(0, 120),
+          },
+        } : {}),
+      },
+    };
+  }
+
   function notifyQueuePositions() {
     jobQueue.forEach((job, i) => {
-      sseWrite(job.res, { queued: { ahead: i + (processingJob ? 1 : 0) } });
+      sseWrite(job.res, queuedPayload(i + (processingJob ? 1 : 0)));
     });
   }
 
-  function enqueueMessageJob(job) {
-    jobQueue.push(job);
-    const ahead = jobQueue.length - 1 + (processingJob ? 1 : 0);
-    if (ahead > 0) sseWrite(job.res, { queued: { ahead } });
-
-    // Ein Close-Handler fürs ganze Job-Leben — auf der RESPONSE, nicht dem
-    // Request: req 'close' feuert in Node schon, wenn der Request fertig
-    // GELESEN ist (bei SSE also sofort), res 'close' erst, wenn die
-    // Verbindung wirklich zugeht; writableEnded unterscheidet das normale
-    // Ende (unser res.end()) vom Abbruch durch den Client. Solange der Job
-    // wartet, wird er nur aus der Schlange genommen — nichts ist
-    // persistiert, die Frage gilt als nie gestellt. Läuft er schon, bricht
-    // job.abort die Upstream-Generierung ab (Stop-Button-Semantik).
+  // One close handler for the job's whole life — on the RESPONSE, not the
+  // request: req 'close' fires in Node as soon as the request has been
+  // fully READ (so immediately with SSE), res 'close' only when the
+  // connection actually closes; writableEnded distinguishes the normal
+  // end (our res.end()) from the client aborting. While the job is
+  // waiting, it is only removed from the queue — the persisted pending
+  // question stays (§10; only the explicit DELETE removes it). If it's
+  // already running, job.abort cancels the upstream generation
+  // (stop-button semantics).
+  function attachCloseHandler(job) {
     job.res.on('close', () => {
       if (job.res.writableEnded) return;
       job.clientClosed = true;
@@ -485,9 +558,35 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
           jobQueue.splice(idx, 1);
           notifyQueuePositions();
         }
-        try { job.res.end(); } catch (_) { /* schon zu */ }
+        try { job.res.end(); } catch (_) { /* already closed */ }
       }
     });
+  }
+
+  // Runs a job outside the FIFO — cloud requests are parallel by decision
+  // 2026-07-25 (§07): providers rate-limit server-side; only Ollama's single
+  // KV slot needs serialization.
+  function runJobParallel(job) {
+    job.running = true;
+    void runMessageJob(job).catch((err) => {
+      console.error('[messages] Unexpected job error:', err);
+      sseWrite(job.res, { error: err.message });
+      try { job.res.end(); } catch (_) { /* already closed */ }
+    });
+  }
+
+  function enqueueMessageJob(job) {
+    attachCloseHandler(job);
+
+    const provider = job.forceProvider || getSetting(db, 'llm_provider');
+    if (provider !== 'ollama') {
+      runJobParallel(job);
+      return;
+    }
+
+    jobQueue.push(job);
+    const ahead = jobQueue.length - 1 + (processingJob ? 1 : 0);
+    if (ahead > 0) sseWrite(job.res, queuedPayload(ahead));
 
     void processJobQueue();
   }
@@ -498,37 +597,89 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
     try {
       while (jobQueue.length > 0) {
         const job = jobQueue.shift();
+        currentLocalJob = job;
         notifyQueuePositions();
         if (job.canceled) continue;
         job.running = true;
         try {
           await runMessageJob(job);
         } catch (err) {
-          // Sicherheitsnetz — runMessageJob fängt Generierungsfehler selbst.
-          console.error('[messages] Unerwarteter Job-Fehler:', err);
+          // Safety net — runMessageJob catches generation errors itself.
+          console.error('[messages] Unexpected job error:', err);
           sseWrite(job.res, { error: err.message });
-          try { job.res.end(); } catch (_) { /* schon zu */ }
+          try { job.res.end(); } catch (_) { /* already closed */ }
         }
       }
     } finally {
       processingJob = false;
+      currentLocalJob = null;
     }
   }
 
+  // Settings changed (provider switch from the picker): questions waiting
+  // for the local slot may no longer need it. Jobs that now resolve to a
+  // cloud provider leave the FIFO and start immediately (§07 — "switch to
+  // a cloud model while waiting → the question starts now").
+  function reevaluateQueue() {
+    for (const job of [...jobQueue]) {
+      if (job.canceled) continue;
+      const provider = job.forceProvider || getSetting(db, 'llm_provider');
+      if (provider === 'ollama') continue;
+      const idx = jobQueue.indexOf(job);
+      if (idx === -1) continue;
+      jobQueue.splice(idx, 1);
+      runJobParallel(job);
+    }
+    // Re-announce positions either way — the chip's model name may have
+    // changed even when nobody left the queue.
+    notifyQueuePositions();
+  }
+
   // POST /api/chats/:chatId/messages
-  // Akzeptiert sowohl JSON (alte Clients) als auch multipart/form-data (mit Dateien).
-  // Multipart-Felder: text, aliases (JSON-Array), files (Datei-Inputs).
-  // Antwortet sofort mit dem SSE-Stream und reiht den Job in die Schlange ein.
-  router.post('/', upload.array('files', 8), (req, res) => {
-    // Inhalt aus JSON oder Multipart
+  // Accepts both JSON (old clients) and multipart/form-data (with files).
+  // Multipart fields: text, aliases (JSON array), files (file inputs).
+  // Responds immediately with the SSE stream and enqueues the job.
+  // The chat check must run BEFORE multer: the storage destination is built
+  // from req.params.chatId, so an unvalidated id (e.g. an encoded "../")
+  // would create directories outside UPLOADS_DIR. Only ids of existing
+  // chats — always server-generated UUIDs — may reach the disk layer.
+  const requireChat = (req, res, next) => {
+    const chat = db.prepare('SELECT * FROM chats WHERE id = ?').get(req.params.chatId);
+    if (!chat) return res.status(404).json({ error: 'Chat not found' });
+    req.chat = chat;
+    next();
+  };
+
+  router.post('/', requireChat, upload.array('files', 8), (req, res) => {
+    // Content from JSON or multipart
     const content = req.body.content || req.body.text || '';
     const aliases = req.body.aliases ? JSON.parse(req.body.aliases) : [];
     if (!content && (!req.files || req.files.length === 0)) {
       return res.status(400).json({ error: 'content or files required' });
     }
 
-    const chat = db.prepare('SELECT * FROM chats WHERE id = ?').get(req.params.chatId);
-    if (!chat) return res.status(404).json({ error: 'Chat not found' });
+    const chat = req.chat;
+
+    // Persist the question at ENQUEUE (mockup-model-flow §10): a reload or
+    // backend restart while waiting must never lose typed text. pending=1
+    // keeps the row out of prompts and timestamp logic until dequeue, where
+    // it is cleared and re-stamped (answers keep their order). Only the
+    // explicit DELETE below removes it — a disconnect does not.
+    const chatId = req.params.chatId;
+    const userMsgId = crypto.randomUUID();
+    const enqueuedAt = monotonicNow(chatId);
+    db.prepare(
+      'INSERT INTO messages (id, chat_id, role, content, created_at, pending) VALUES (?, ?, ?, ?, ?, 1)'
+    ).run(userMsgId, chatId, 'user', content, enqueuedAt);
+    const files = req.files || [];
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const alias = aliases[i] || `@file${i + 1}`;
+      db.prepare(
+        `INSERT INTO attachments (id, message_id, chat_id, alias, filename, mimetype, path, size, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(file.attachmentId, userMsgId, chatId, alias, file.originalname, file.mimetype, file.path, file.size, enqueuedAt);
+    }
 
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
@@ -537,20 +688,97 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
 
     enqueueMessageJob({
       req, res, content, aliases,
-      files: req.files || [],
+      files,
       think: String(req.body.think) === 'true',
+      persisted: { userMsgId },
     });
   });
 
-  // POST /api/chats/:chatId/messages/regenerate — Retry-Button der Fehler-
-  // zeile: beantwortet die LETZTE User-Frage neu, ohne sie zu duplizieren.
-  // Ein abschließender '*Failed*'-Marker wird entfernt; eine nackte User-
-  // Frage ohne Antwort (Altlast der früher stummen Fehler) zählt ebenfalls.
-  // 409, wenn die letzte Nachricht eine echte Antwort ist.
+  // DELETE /api/chats/:chatId/messages/:messageId — explicit cancel of a
+  // QUEUED question (stop button while waiting): "counts as never asked".
+  // Only pending rows are deletable; everything else is history.
+  router.delete('/:messageId', (req, res) => {
+    const { chatId, messageId } = req.params;
+    const row = db.prepare('SELECT * FROM messages WHERE id = ? AND chat_id = ?').get(messageId, chatId);
+    if (!row) return res.status(404).json({ error: 'Message not found' });
+    if (!row.pending) return res.status(409).json({ error: 'only pending questions can be canceled' });
+
+    const idx = jobQueue.findIndex((j) => j.persisted?.userMsgId === messageId);
+    if (idx !== -1) {
+      const job = jobQueue[idx];
+      job.canceled = true;
+      jobQueue.splice(idx, 1);
+      notifyQueuePositions();
+      try { job.res.end(); } catch (_) { /* already closed */ }
+    }
+    const atts = db.prepare('SELECT * FROM attachments WHERE message_id = ?').all(messageId);
+    for (const att of atts) {
+      try { fs.unlinkSync(att.path); } catch (_) { /* file already gone */ }
+    }
+    db.prepare('DELETE FROM attachments WHERE message_id = ?').run(messageId);
+    db.prepare('DELETE FROM messages WHERE id = ?').run(messageId);
+    res.json({ ok: true });
+  });
+
+  // POST /api/chats/:chatId/messages/regenerate — retry button of the error
+  // row: answers the LAST user question again without duplicating it.
+  // A trailing '*Failed*' marker is removed; a bare user question without
+  // an answer (legacy of the formerly silent errors) also counts.
+  // 409 if the last message is a real answer.
   router.post('/regenerate', (req, res) => {
     const chatId = req.params.chatId;
     const chat = db.prepare('SELECT * FROM chats WHERE id = ?').get(chatId);
     if (!chat) return res.status(404).json({ error: 'Chat not found' });
+
+    // Anchored variant (user report 2026-07-25): with the send queue several
+    // questions can fail in a row, so the retry button sends ITS marker's id.
+    // The retry answers the question right above that marker, with the
+    // history up to that question, and the result takes the marker's slot —
+    // retried answers never land under the wrong question.
+    // One-off provider override: after quota exhaustion the retry may run
+    // via the LOCAL model without changing the stored settings. Only
+    // 'ollama' is allowed — cloud overrides would bypass the key checks.
+    const overrideProvider = req.body?.provider;
+    if (overrideProvider !== undefined && overrideProvider !== 'ollama') {
+      return res.status(400).json({ error: "provider override must be 'ollama'" });
+    }
+
+    const targetId = req.body?.messageId;
+    if (targetId) {
+      const marker = db.prepare(
+        'SELECT * FROM messages WHERE id = ? AND chat_id = ?'
+      ).get(targetId, chatId);
+      if (!marker || marker.role !== 'assistant' || !isRetryableMarker(marker.content)) {
+        return res.status(409).json({ error: 'nothing to regenerate' });
+      }
+      const question = db.prepare(
+        "SELECT * FROM messages WHERE chat_id = ? AND role = 'user' AND created_at < ? ORDER BY created_at DESC, id DESC LIMIT 1"
+      ).get(chatId, marker.created_at);
+      if (!question) return res.status(409).json({ error: 'nothing to regenerate' });
+      db.prepare('DELETE FROM messages WHERE id = ?').run(marker.id);
+      const attachments = db.prepare('SELECT * FROM attachments WHERE message_id = ?').all(question.id);
+
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+      res.flushHeaders?.();
+
+      return enqueueMessageJob({
+        req, res,
+        content: question.content,
+        aliases: [],
+        files: [],
+        think: String(req.body?.think) === 'true',
+        forceProvider: overrideProvider || null,
+        regenerate: {
+          userMsgId: question.id,
+          createdAt: question.created_at,
+          attachments,
+          anchorCreatedAt: marker.created_at,
+          historyUntil: question.created_at,
+        },
+      });
+    }
 
     const last = db.prepare(
       'SELECT * FROM messages WHERE chat_id = ? ORDER BY created_at DESC, id DESC LIMIT 1'
@@ -558,7 +786,7 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
     let userRow = null;
     if (last && last.role === 'user') {
       userRow = last;
-    } else if (last && last.role === 'assistant' && last.content.trim() === FAILED_MARKER) {
+    } else if (last && last.role === 'assistant' && isRetryableMarker(last.content)) {
       db.prepare('DELETE FROM messages WHERE id = ?').run(last.id);
       userRow = db.prepare(
         "SELECT * FROM messages WHERE chat_id = ? AND role = 'user' ORDER BY created_at DESC, id DESC LIMIT 1"
@@ -579,25 +807,28 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
       aliases: [],
       files: [],
       think: String(req.body?.think) === 'true',
+      forceProvider: overrideProvider || null,
       regenerate: { userMsgId: userRow.id, createdAt: userRow.created_at, attachments },
     });
   });
 
-  // Führt EINEN Nachrichten-Job aus — immer seriell, via processJobQueue.
+  // Runs ONE message job — always serially, via processJobQueue.
   async function runMessageJob(job) {
     const { req, res, content } = job;
     const chatId = req.params.chatId;
 
-    // Frisch lesen — Titel/Quelle können sich geändert haben, seit der Job
-    // eingereiht wurde; gelöschte Chats beenden den Job sauber.
+    // Read fresh — title/source may have changed since the job was
+    // enqueued; deleted chats end the job cleanly.
     const chat = db.prepare('SELECT * FROM chats WHERE id = ?').get(chatId);
     if (!chat) {
       sseWrite(res, { error: 'Chat not found' });
       return void res.end();
     }
 
-    // User-Nachricht speichern — erst beim Dequeue (siehe Warteschlangen-
-    // Kommentar oben). Beim Regenerate existiert die Frage bereits.
+    // The question was persisted at ENQUEUE (§10, pending=1). On dequeue it
+    // becomes real: pending cleared, created_at re-stamped so the previous
+    // answer keeps its place before this question. Regenerate re-answers an
+    // existing question; a pending one (unanswered row) is claimed the same way.
     let userMsgId;
     let now;
     let attachments = [];
@@ -605,30 +836,24 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
       userMsgId = job.regenerate.userMsgId;
       now = job.regenerate.createdAt;
       attachments = job.regenerate.attachments;
-    } else {
-      userMsgId = crypto.randomUUID();
-      now = monotonicNow(chatId);
-      db.prepare(
-        'INSERT INTO messages (id, chat_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)'
-      ).run(userMsgId, chatId, 'user', content, now);
-
-      // Anhänge speichern (die Dateien liegen seit dem POST auf der Platte)
-      for (let i = 0; i < job.files.length; i++) {
-        const file = job.files[i];
-        const alias = job.aliases[i] || `@datei${i + 1}`;
-        const id = file.attachmentId;
-        db.prepare(
-          `INSERT INTO attachments (id, message_id, chat_id, alias, filename, mimetype, path, size, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-        ).run(id, userMsgId, chatId, alias, file.originalname, file.mimetype, file.path, file.size, now);
-        attachments.push({
-          id, message_id: userMsgId, alias,
-          filename: file.originalname, mimetype: file.mimetype, path: file.path, size: file.size,
-        });
+      const qRow = db.prepare('SELECT pending FROM messages WHERE id = ?').get(userMsgId);
+      if (qRow?.pending) {
+        now = monotonicNow(chatId);
+        db.prepare('UPDATE messages SET pending = 0, created_at = ? WHERE id = ?').run(now, userMsgId);
       }
+    } else {
+      userMsgId = job.persisted.userMsgId;
+      const qRow = db.prepare('SELECT * FROM messages WHERE id = ?').get(userMsgId);
+      if (!qRow) {
+        // Explicitly canceled between dequeue and here — nothing to do.
+        return void res.end();
+      }
+      now = monotonicNow(chatId);
+      db.prepare('UPDATE messages SET pending = 0, created_at = ? WHERE id = ?').run(now, userMsgId);
+      attachments = db.prepare('SELECT * FROM attachments WHERE message_id = ?').all(userMsgId);
     }
 
-    // Anhänge mit URLs für Frontend
+    // Attachments with URLs for the frontend
     const userAttachments = attachments.map(a => ({
       id: a.id, alias: a.alias, filename: a.filename, mimetype: a.mimetype, size: a.size,
       url: `/uploads/${chatId}/${a.id}-${a.filename.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 80)}`,
@@ -638,126 +863,239 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
       attachments: userAttachments,
     };
 
-    // started-Event: der Job ist an der Reihe. Die UI ersetzt damit ihre
-    // optimistische Frage durch die persistierte (echter Zeitstempel →
-    // richtige chronologische Sortierung) und wechselt von "wartet" zu den
-    // Denk-Punkten.
+    // started event: the job is up. The UI uses it to replace its
+    // optimistic question with the persisted one (real timestamp →
+    // correct chronological sorting) and switches from "waiting" to the
+    // thinking dots.
     sseWrite(res, { started: true, userMessage });
 
-    // Kontext aufbauen — System-Prompt (+ Paper + Vorfahren) + Historie.
-    // Letzte (aktuelle) User-Nachricht weglassen — die fügen wir multimodal hinzu.
-    const { messages: contextMessages, retrieval, meta } = await buildSystemAndHistory(chat, {
-      dropLastMessage: true,
-    });
-
-    // Retrieval-Modus (ADR-0006): die zur Frage passendsten Chunks der
-    // langen Quelle als eigener Block hinter der Historie. Fehler sind nie
-    // fatal — das Skeleton im System-Prompt trägt die Antwort dann allein.
-    let chunkCount = null;
-    let excerptChars = 0;
-    if (retrieval && content) {
-      try {
-        const hits = await retrieveChunks(db, {
-          sourceType: retrieval.sourceType,
-          sourceId: retrieval.sourceId,
-          query: content,
-          k: RETRIEVE_K,
-          ...(embedTextsFn ? { embedFn: embedTextsFn } : {}),
-        });
-        chunkCount = hits.length;
-        if (hits.length > 0) {
-          const excerptBlock = renderExcerpts(hits, retrieval.sourceType);
-          excerptChars = excerptBlock.length;
-          contextMessages.push({ role: 'system', content: excerptBlock });
-        }
-      } catch (err) {
-        console.warn(`[retrieval] Chunk-Abruf fehlgeschlagen (${err.message}) — Antwort ohne Auszüge.`);
-      }
-    }
-
-    // Aktuelle User-Nachricht: multimodal mit Bildern. Text-Annexe anderer
-    // Dateien folgen als eigene System-Message HINTER der Frage — dasselbe
-    // Muster wie die Retrieval-Excerpts (Umbau 2026-07-25). Vorher steckte
-    // der Annex in der User-Message selbst; die Historie rendert alte
-    // Nachrichten aber ohne Annex (persistiert wird nur `content`), also
-    // wich der Prompt der NÄCHSTEN Runde genau ab der Anhang-Nachricht ab:
-    // KV-Cache tot, bei 64-KB-Anhängen bis zu ~18k Tokens Re-Prefill pro
-    // Folgefrage. Jetzt bleibt die User-Message byte-identisch mit ihrer
-    // späteren Historien-Form; nur der Annex-Block ist einmalig. (Bilder
-    // müssen in der User-Message bleiben — bekannter Rest-Cache-Bruch.)
+    // Attachment-derived pieces are budget-independent — computed once.
+    // Text annexes of other files follow as their own system message AFTER
+    // the question — the same pattern as the retrieval excerpts (rework
+    // 2026-07-25). Previously the annex sat in the user message itself; the
+    // history renders old messages without the annex though (only `content`
+    // is persisted), so the prompt of the NEXT round diverged exactly from
+    // the attachment message on: KV cache dead, with 64 KB attachments up
+    // to ~18k tokens of re-prefill per follow-up question. Now the user
+    // message stays byte-identical with its later history form; only the
+    // annex block is one-off. (Images must stay in the user message —
+    // known residual cache break.)
     const imageContents = attachments.map(attachmentToMultimodalContent).filter(Boolean);
     const textAnnex = buildAttachmentTextAnnex(attachments);
 
-    if (imageContents.length > 0) {
-      contextMessages.push({
-        role: 'user',
-        content: [{ type: 'text', text: content }, ...imageContents],
+    // Build the context — system prompt (+ paper + ancestors) + history —
+    // sized to the budget of the model that will ANSWER. Rebuilt on failover
+    // when the candidate's budget differs (fix 2026-07-29): the ladder used
+    // to ship the ACTIVE model's prompt to every candidate, so a Gemini-
+    // sized full-text prompt hit Groq's 8k cap as a deterministic 413 and
+    // the card claimed "too large" although a Groq-sized prompt (retrieval
+    // mode) would have fit.
+    let contextMessages, meta, chunkCount, excerptChars, currentBudgetChars;
+    const buildContextFor = async (budgetFor) => {
+      currentBudgetChars = contextBudget(db, budgetFor).maxSystemContextChars;
+      const built = await buildSystemAndHistory(chat, {
+        dropLastMessage: !job.regenerate?.historyUntil,
+        historyUntil: job.regenerate?.historyUntil ?? null,
+        budgetFor,
       });
-    } else {
-      contextMessages.push({ role: 'user', content });
-    }
-    if (textAnnex) {
-      contextMessages.push({
-        role: 'system',
-        content:
-          'ATTACHED FILES — contents of the files the user attached to their current message:' +
-          textAnnex,
-      });
-    }
+      contextMessages = built.messages;
+      meta = built.meta;
+      const retrieval = built.retrieval;
 
-    // Echte Fragen haben Vorfahrt: einen eventuell laufenden Warm-up sofort
-    // abbrechen, damit dieser Job nicht hinter ihm in Ollamas Warteschlange
-    // hängt. (Die SSE-Header sind seit dem POST gesetzt.)
+      // Retrieval mode (ADR-0006): the chunks of the long source that best
+      // match the question, as their own block after the history. Errors are
+      // never fatal — the skeleton in the system prompt then carries the
+      // answer alone.
+      chunkCount = null;
+      excerptChars = 0;
+      if (retrieval && content) {
+        try {
+          const hits = await retrieveChunks(db, {
+            sourceType: retrieval.sourceType,
+            sourceId: retrieval.sourceId,
+            query: content,
+            k: RETRIEVE_K,
+            ...(embedTextsFn ? { embedFn: embedTextsFn } : {}),
+          });
+          chunkCount = hits.length;
+          if (hits.length > 0) {
+            const excerptBlock = renderExcerpts(hits, retrieval.sourceType);
+            excerptChars = excerptBlock.length;
+            contextMessages.push({ role: 'system', content: excerptBlock });
+          }
+        } catch (err) {
+          console.warn(`[retrieval] Chunk retrieval failed (${err.message}) — answering without excerpts.`);
+        }
+      }
+
+      // Current user message: multimodal with images (see annex note above).
+      if (imageContents.length > 0) {
+        contextMessages.push({
+          role: 'user',
+          content: [{ type: 'text', text: content }, ...imageContents],
+        });
+      } else {
+        contextMessages.push({ role: 'user', content });
+      }
+      if (textAnnex) {
+        contextMessages.push({
+          role: 'system',
+          content:
+            'ATTACHED FILES — contents of the files the user attached to their current message:' +
+            textAnnex,
+        });
+      }
+    };
+
+    // Initial build for the model that actually starts: the one-off local
+    // regenerate (forceProvider 'ollama') must get the LOCAL budget, not the
+    // active cloud model's — same root cause as the failover mismatch.
+    const startProvider = job.forceProvider ?? getSetting(db, 'llm_provider');
+    await buildContextFor({
+      provider: startProvider,
+      model: getSetting(db, startProvider === 'ollama' ? 'ollama_model' : `${startProvider}_model`),
+    });
+
+    // Real questions have right of way: abort a possibly running warm-up
+    // immediately so this job doesn't hang behind it in Ollama's queue.
+    // (The SSE headers have been set since the POST.)
     abortActiveWarmup();
 
     try {
-      const { client, model, provider } = getLLMClient(db);
+      let { client, model, provider } = job.forceProvider
+        ? getLLMClientFor(db, job.forceProvider)
+        : getLLMClient(db);
 
-      // Denken ist standardmäßig AUS (Antworten starten sofort). Nur wenn der
-      // Client explizit think=true schickt, darf das Modell seine Gedanken-
-      // kette laufen lassen. Ollama /v1 übersetzt reasoning_effort 'none'
-      // in think=false; die Gedanken streamen als eigene reasoning-Events
-      // an die UI (einklappbares Panel), aber nie in Antwort-Text oder DB.
+      // Thinking is OFF by default (answers start immediately). Only if the
+      // client explicitly sends think=true may the model run its chain of
+      // thought. Ollama /v1 translates reasoning_effort 'none' into
+      // think=false; the thoughts stream as separate reasoning events to
+      // the UI (collapsible panel), but never into answer text or DB.
       const thinkOn = job.think;
-      const extras = thinkOn ? {} : noThinkExtras(provider);
+      let extras = thinkOn ? {} : noThinkExtras(provider);
 
-      // Stop-Button: Wenn der Client die Verbindung schließt, brechen wir die
-      // Upstream-Anfrage ab — Ollama/OpenAI hören sofort auf zu generieren.
-      // Der close-Handler hängt seit dem Einreihen am Request
-      // (enqueueMessageJob) und ruft job.abort; war der Client beim Job-Start
-      // schon weg, wird sofort abgebrochen.
-      // Ehrliche Warte-Schätzung fürs Frontend (ThinkingIndicator-Balken,
-      // design/mockup-prefill-progress.html §01): voraussichtlich neu zu
-      // rechnende Tokens ÷ gemessene Rate. Kalt = kompletter Prompt; warm im
-      // Retrieval-Modus = frischer Auszugs-Block + letzte Runde; warm im
-      // Volltext-Modus bleibt unter der Schwelle (kein Event). Nur Ollama —
-      // Cloud-TTFTs liegen ohnehin unter der Anzeigeschwelle.
-      if (provider === 'ollama') {
-        const promptChars = contextMessages.reduce((n, m) => n + (typeof m.content === 'string'
-          ? m.content.length
-          : m.content.reduce((k, p) => k + (p.type === 'text' ? p.text.length : 0), 0)), 0);
-        const uncachedTokensEst = meta.cache === 'cold'
-          ? Math.round(promptChars / 3.5)
-          : retrieval ? Math.round(excerptChars / 3.5) + 400 : 200;
-        const etaSeconds = Math.round(uncachedTokensEst / prefillTokPerSec);
-        if (etaSeconds >= 4) sseWrite(res, { prefill: { seconds: etaSeconds } });
+      // Automatic provider failover (user requests 2026-07-25): quotas are
+      // per MODEL, so candidates are tried in this order — remaining models
+      // of the SAME provider (same key) first, then other keyed cloud
+      // providers. Known-exhausted models (quota memory) and, for image
+      // questions, text-only models are skipped. The stored settings stay
+      // untouched: the next quota reset puts the user back on their
+      // preferred model automatically.
+      const modelKey = (p, m) => `${p}/${m}`;
+      const tried = new Set([modelKey(provider, model)]);
+      const pickFallback = () => {
+        const reg = getRegistry(db);
+        const order = [provider, ...Object.keys(reg.providers).filter((n) => n !== provider)];
+        for (const name of order) {
+          const p = reg.providers[name];
+          if (!p || p.kind !== 'cloud') continue;
+          if (!getSetting(db, `${name}_api_key`)) continue;
+          const selected = getSetting(db, `${name}_model`);
+          const models = [selected, ...p.models.map((m) => m.name).filter((n) => n !== selected)];
+          for (const m of models) {
+            if (tried.has(modelKey(name, m))) continue;
+            if (isQuotaCoolingDown(name, m)) continue;
+            // The ladder never gambles on paid-only models (cost tiers
+            // 2026-07-30): without billing they fail deterministically, and
+            // WITH billing a silent switch would spend money unasked. Paid
+            // models answer only when deliberately selected.
+            if (getModelInfo(db, name, m).free === false) continue;
+            if (imageContents.length > 0 && !getModelInfo(db, name, m).vision) continue;
+            return { provider: name, model: m };
+          }
+        }
+        return null;
+      };
+      const failoverTo = async (target, reason) => {
+        tried.add(modelKey(target.provider, target.model));
+        const resolved = getLLMClientFor(db, target.provider);
+        sseWrite(res, {
+          failover: {
+            from: provider,
+            fromModel: model,
+            to: target.provider,
+            model: target.model,
+            reason,
+          },
+        });
+        client = resolved.client;
+        model = target.model;
+        provider = target.provider;
+        extras = thinkOn ? {} : noThinkExtras(provider);
+        // The prompt follows the model (fix 2026-07-29): rebuild when the
+        // candidate's budget differs — a prompt sized for the failed model
+        // may not fit the candidate (413) or waste most of its window.
+        // Same-budget siblings keep the identical prompt (no wasted
+        // chunking/embedding work).
+        if (contextBudget(db, target).maxSystemContextChars !== currentBudgetChars) {
+          await buildContextFor(target);
+        }
+      };
+
+      // Vision gate (ADR-0008 slice 3, failover-aware): an image with a
+      // text-only model must never be silently dropped — first try a
+      // vision-capable candidate, otherwise fail with a clear hint.
+      if (imageContents.length > 0 && !getModelInfo(db, provider, model).vision) {
+        const to = pickFallback();
+        if (to) {
+          await failoverTo(to, 'no_vision');
+        } else {
+          const err = new Error(
+            `${model} cannot read images. Remove the image or switch to a vision-capable model (e.g. Gemini 2.5 Flash or your local model).`
+          );
+          err.status = 400;
+          err.failReason = 'no_vision';
+          err.failModel = model;
+          throw err;
+        }
       }
 
+      // Proactive skip: if the active model is known-exhausted, don't burn a
+      // request on it — unless there is no candidate at all (then try anyway;
+      // maybe the quota reset early).
+      if (isQuotaCoolingDown(provider, model)) {
+        const to = pickFallback();
+        if (to) await failoverTo(to, 'cooldown');
+      }
+
+
+      // Stop button: when the client closes the connection, we abort the
+      // upstream request — Ollama/OpenAI stop generating immediately.
+      // The close handler has been attached to the request since enqueueing
+      // (enqueueMessageJob) and calls job.abort; if the client was already
+      // gone at job start, we abort immediately.
       const upstreamAbort = new AbortController();
       job.abort = upstreamAbort;
       if (job.clientClosed) upstreamAbort.abort();
 
-      // Tool-Use-Loop: das LLM darf eigenständig web_search aufrufen. Beim
-      // Tool-Call streamen wir spezielle SSE-Events ans Frontend, damit es
-      // "Searching the web…" anzeigen und die Quellen unter der Antwort
-      // auflisten kann.
-      const fullContent = await streamWithTools({
+      // 429 handling (ADR-0008 slice 5): per-minute limits of the free
+      // tiers are visibly waited out in the queue (Retry-After respected,
+      // max. 3 attempts); an exhausted DAILY limit fails immediately with a
+      // switch hint. Retry only as long as no text has been streamed yet —
+      // otherwise the answer would arrive twice.
+      const retryAfterSeconds = (e) => {
+        const raw = e?.headers?.['retry-after'] ?? e?.response?.headers?.['retry-after'];
+        const parsed = parseInt(raw, 10);
+        return Number.isFinite(parsed) ? Math.min(parsed, 120) : 20;
+      };
+      const sleep = (ms) => new Promise((resolve) => {
+        const t = setTimeout(resolve, ms);
+        upstreamAbort.signal.addEventListener('abort', () => { clearTimeout(t); resolve(); }, { once: true });
+      });
+
+      let streamedAnything = false;
+
+      // Tool-use loop: the LLM may call web_search on its own. On a tool
+      // call we stream special SSE events to the frontend so it can show
+      // "Searching the web…" and list the sources under the answer.
+      const runStream = () => streamWithTools({
         client,
         model,
         messages: contextMessages,
         extras,
         signal: upstreamAbort.signal,
         onText: (delta) => {
+          streamedAnything = true;
           res.write(`data: ${JSON.stringify({ delta })}\n\n`);
         },
         onToolEvent: (evt) => {
@@ -770,10 +1108,10 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
           res.write(`data: ${JSON.stringify({ reasoning: delta })}\n\n`);
         },
         onPerf: (perf) => {
-          // Eine [perf]-Zeile pro Antwort: die Basis für jede Latenz-Diagnose
-          // (Prefill vs. Decode). Angereichert um Modus, Cache-Zustand und
-          // Quellengröße — die drei Haupttreiber der Wartezeit. Reine Metriken,
-          // NIE Gesprächsinhalte (Garantie in perf-log.js), nichts in der DB.
+          // One [perf] line per answer: the basis for every latency diagnosis
+          // (prefill vs. decode). Enriched with mode, cache state and
+          // source size — the three main drivers of wait time. Pure metrics,
+          // NEVER conversation content (guaranteed in perf-log.js), nothing in the DB.
           const record = buildPerfRecord({
             now: new Date().toISOString(),
             chatId: req.params.chatId,
@@ -787,59 +1125,171 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
             completionTokens: perf.completionTokens,
             tokensPerSecond: perf.tokensPerSecond,
             totalMs: perf.totalMs,
+            finishReason: perf.finishReason,
           });
           console.log(formatPerfLine(record));
-          // Auswertbare Historie nur auf ausdrücklichen Wunsch (SYFLO_PERF_LOG):
-          // eine JSON-Zeile pro Antwort in logs/perf.jsonl, per `jq` filterbar.
+          // Analyzable history only on explicit request (SYFLO_PERF_LOG):
+          // one JSON line per answer in logs/perf.jsonl, filterable via `jq`.
           if (isPerfJsonlEnabled()) appendPerfJsonl(record);
-          // Prefill-Rate (EMA) nur aus kalten Antworten lernen — warme haben
-          // winzige echte Prefills bei großem promptTokens und würden die
-          // Rate absurd nach oben ziehen.
-          if (provider === 'ollama' && meta.cache === 'cold' && perf.promptTokens > 2000 && perf.ttftMs > 1500) {
-            const measured = perf.promptTokens / (perf.ttftMs / 1000);
-            prefillTokPerSec = Math.min(2000, Math.max(50, 0.6 * prefillTokPerSec + 0.4 * measured));
-          }
-          // Prompt nahe am Kontextfenster heißt Context-Shifting: Ollama
-          // wirft vorne Tokens weg, der Prefix ändert sich bei jeder Anfrage
-          // und der KV-Cache greift nie — genau das soll das abgeleitete
-          // Zeichen-Budget verhindern. Diese Warnung ist das Sicherheitsnetz.
+          // Token log (ADR-0008 slice 7): counting basis for the cost
+          // estimate and the free-tier daily counter. Metrics only.
+          try {
+            db.prepare(
+              'INSERT INTO usage_log (id, provider, model, prompt_tokens, completion_tokens, created_at) VALUES (?, ?, ?, ?, ?, ?)'
+            ).run(
+              crypto.randomUUID(), provider, model,
+              perf.promptTokens ?? null, perf.completionTokens ?? null,
+              new Date().toISOString()
+            );
+          } catch (_) { /* statistics must never cost an answer */ }
+          // A prompt close to the context window means context shifting:
+          // Ollama drops tokens at the front, the prefix changes on every
+          // request and the KV cache never hits — exactly what the derived
+          // character budget is meant to prevent. This warning is the safety net.
           if (provider === 'ollama' && perf.promptTokens && perf.promptTokens > CONTEXT_WINDOW_TOKENS * 0.9) {
             console.warn(
-              `[perf] Prompt (${perf.promptTokens} Tokens) ist nahe am Kontextfenster ` +
-              `(${CONTEXT_WINDOW_TOKENS}) — Context-Shifting droht, KV-Cache wird unwirksam.`
+              `[perf] Prompt (${perf.promptTokens} tokens) is close to the context window ` +
+              `(${CONTEXT_WINDOW_TOKENS}) — context shifting looms, KV cache becomes ineffective.`
             );
           }
           res.write(`data: ${JSON.stringify({ perf })}\n\n`);
         },
       });
 
-      // Nach jeder Antwort die Modell-TTL wieder auf 1 h ziehen — sonst fällt
-      // sie auf Ollamas 5-Minuten-Default zurück und der Paper-Cache stirbt.
+      let fullContent;
+      for (let attempt = 1; ; attempt++) {
+        try {
+          fullContent = await runStream();
+          break;
+        } catch (err) {
+          if (upstreamAbort.signal.aborted) throw err; // stop button
+          if (streamedAnything) throw err;
+          const tooLarge = isTooLarge(err);
+          const unavailable = isModelUnavailable(err);
+          // Privacy guard (mockup-model-flow §11): the local provider is a
+          // privacy promise — its failures NEVER fall over to the cloud
+          // automatically, and no cooldown is remembered (availability is
+          // re-checked live; local calls are free). Leaving the private mode
+          // is an explicit, named click in the UI.
+          if (provider === 'ollama') {
+            if (unavailable) {
+              err.failReason = 'local_missing';
+              err.failModel = model;
+            } else if (!err.status && /connection|fetch failed|ECONNREFUSED|ENOTFOUND|socket/i.test(err.message || '')) {
+              err.failReason = 'local_unreachable';
+            }
+            throw err;
+          }
+          if (!isRateLimit(err) && !tooLarge && !unavailable) throw err;
+          if (unavailable) {
+            // Long cooldown: a retired model does not come back at midnight.
+            markQuotaCooldown(provider, model, 24 * 60 * 60 * 1000, 'retired');
+            const to = pickFallback();
+            if (to) {
+              await failoverTo(to, 'model_unavailable');
+              attempt = 0;
+              continue;
+            }
+            throw err;
+          }
+          // Billing gate (mockup-model-cost-tiers W4, 2026-07-30): a
+          // zero-limit 429 is deterministic — it does not reset at midnight,
+          // so no cooldown (nothing to wait out) and no ladder move (the
+          // user picked this model deliberately; switching is their call
+          // via the card, not an automatic failover).
+          if (isBillingRequired(err)) {
+            const out = new Error(
+              `${model} has no free quota on ${provider} — it needs billing. Pick a free model or set up billing.`
+            );
+            out.quotaExhausted = true;
+            out.quotaReason = 'billing';
+            out.failProvider = provider;
+            out.failModel = model;
+            throw out;
+          }
+          const daily = isRateLimit(err) && isDailyQuota(err);
+          // Remember the exhausted model so this and future requests skip it
+          // (413 is request-size-dependent, not a quota — no cooldown).
+          if (daily) markQuotaCooldown(provider, model, msUntilUtcMidnight(), 'daily');
+          else if (!tooLarge) markQuotaCooldown(provider, model, 90_000, 'minute');
+          // Waiting is only rational when there is no alternative: if any
+          // candidate is free, switch IMMEDIATELY instead of backing off
+          // (user request 2026-07-25 — "why wait 20 s when we switch anyway").
+          const to = pickFallback();
+          if (to) {
+            await failoverTo(to, daily ? 'daily' : tooLarge ? 'too_large' : 'rate_limit');
+            attempt = 0; // fresh retry budget on the fallback model
+            continue;
+          }
+          if (daily) {
+            const out = new Error(
+              `The daily quota for ${provider} is exhausted — switch to another provider or the local model for today.`
+            );
+            // Every candidate was tried or is cooling down — the UI offers
+            // the local model as a one-off emergency fallback.
+            out.quotaExhausted = true;
+            // Honest clock (§08): the daily card promises the DAILY reset,
+            // never a sibling's 90 s minute cooldown.
+            out.retryAt = earliestQuotaRetryAt('daily');
+            // Cause for the precise card copy (mockup-quota-states v3):
+            // daily → upgrade hint, no retry (it cannot work today).
+            out.quotaReason = 'daily';
+            // "Limit erhöhen" must open the billing page of the provider
+            // whose limit hit — after a cross-provider failover that is not
+            // the active provider.
+            out.failProvider = provider;
+            throw out;
+          }
+          if (tooLarge || attempt >= 3) {
+            err.quotaExhausted = true;
+            err.retryAt = tooLarge ? earliestQuotaRetryAt() : earliestQuotaRetryAt('minute');
+            // too_large is size-dependent — retrying the identical request
+            // fails deterministically, so the card offers switch/upgrade
+            // instead of retry; rate_limit gets the countdown retry.
+            err.quotaReason = tooLarge ? 'too_large' : 'rate_limit';
+            err.failProvider = provider;
+            throw err;
+          }
+          const wait = retryAfterSeconds(err);
+          // Precise wait copy (mockup-quota-states §10, variant C): WHICH
+          // minute limit bit — tokens (TPM) or requests (RPM) — and on
+          // which model. Classified from the provider's 429 message.
+          const scope = /token|TPM/i.test(err?.message || '') ? 'tokens' : 'requests';
+          sseWrite(res, { rateLimit: { retryInSeconds: wait, attempt, scope, model } });
+          await sleep(wait * 1000);
+          if (upstreamAbort.signal.aborted) throw err;
+        }
+      }
+
+      // After every answer, pull the model TTL back up to 1 h — otherwise
+      // it falls back to Ollama's 5-minute default and the paper cache dies.
       if (provider === 'ollama') extendOllamaKeepAlive(model);
 
-      // Stop-Button (Nutzerentscheid 2026-07-22): die halb generierte Antwort
-      // wird NICHT gespeichert — an ihrer Stelle steht nur der Marker, den
-      // das Frontend als graue "Interrupted"-Zeile rendert (gleicher String
-      // wie INTERRUPTED_MARKER in frontend/src/types).
+      // Stop button (user decision 2026-07-22): the half-generated answer
+      // is NOT saved — in its place stands only the marker, which the
+      // frontend renders as a gray "Interrupted" row (same string as
+      // INTERRUPTED_MARKER in frontend/src/types).
       const aborted = upstreamAbort.signal.aborted;
       const assistantContent = aborted ? '*Interrupted*' : fullContent;
 
       const assistantMsgId = crypto.randomUUID();
-      const assistantNow = monotonicNow(chatId);
+      // Anchored regenerate: the replacement takes the old marker's slot so
+      // the answer sits directly under its question.
+      const assistantNow = job.regenerate?.anchorCreatedAt ?? monotonicNow(chatId);
       db.prepare(
         'INSERT INTO messages (id, chat_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)'
       ).run(assistantMsgId, req.params.chatId, 'assistant', assistantContent, assistantNow);
 
-      // Titel-Generierung wie bisher — nach einem Abbruch überspringen (der
-      // Client ist weg, und ein weiterer LLM-Aufruf wäre nur Wartezeit für
-      // die nächste echte Frage).
+      // Title generation as before — skip after an abort (the client is
+      // gone, and another LLM call would just be wait time for the next
+      // real question).
       const msgCount = db.prepare(
         'SELECT COUNT(*) as count FROM messages WHERE chat_id = ?'
       ).get(req.params.chatId);
 
-      // Bäume mit gebundener Quelle sind nach ihr benannt (Papers seit
-      // Slice 03, Videos ADR-0005) — der Root behält diesen Namen, statt
-      // sich von der Titel-Generierung überschreiben zu lassen.
+      // Trees with a bound source are named after it (papers since
+      // slice 03, videos ADR-0005) — the root keeps this name instead of
+      // letting title generation overwrite it.
       const hasSourceName = Boolean(chat.paper_id || chat.video_id);
       if (!aborted && !hasSourceName && (chat.title === 'New Chat' || msgCount.count <= 2)) {
         // Hard caps so the sidebar list and mindmap stay readable even if the
@@ -847,40 +1297,91 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
         const MAX_TITLE_WORDS = 4;
         const MAX_TITLE_CHARS = 40;
 
-        // Fallback: first few words of the user's message, in case the LLM call fails.
-        let newTitle = (content || 'Chat')
-          .trim()
-          .split(/\s+/)
-          .slice(0, MAX_TITLE_WORDS)
-          .join(' ');
+        // Titles may carry inline $…$ LaTeX — the frontend renders them
+        // via MathText (2026-07-26). The word/char caps must never cut
+        // through a math span: a dangling `$` swallows the rest of the
+        // title once rendered.
+        const capTitleWords = (text, maxWords) => {
+          // Mask spaces inside $…$ so a formula counts as ONE word.
+          const masked = text.replace(/\$\$?[^$]*\$\$?/g, (m) => m.replace(/\s/g, '\u0000'));
+          return masked
+            .split(/\s+/)
+            .filter(Boolean)
+            .slice(0, maxWords)
+            .join(' ')
+            .replace(/\u0000/g, ' ');
+        };
+        const capTitleChars = (text, maxChars) => {
+          // Measure what the user SEES: LaTeX source is much longer than
+          // the rendered formula, so the cap applies to the
+          // delimiter-stripped text.
+          if (text.replace(/\$\$?([^$]*)\$\$?/g, '$1').length <= maxChars) return text;
+          let cut = text.slice(0, maxChars - 1);
+          if ((cut.match(/\$/g) || []).length % 2 === 1) {
+            const idx = cut.lastIndexOf('$');
+            // Backing off to "before the dangling $" empties the whole cut
+            // when the title IS one long formula starting at position 0 —
+            // the prompt above tells the model to title math-centric
+            // passages as a bare LaTeX expression, so this isn't rare (user
+            // report 2026-07-31: a branch titled only "…"). Drop the lone
+            // delimiter instead of the entire title — same half-delimiter
+            // fallback as the sanitizer below, just applied locally.
+            cut = idx > 0 ? cut.slice(0, idx) : cut.replace(/\$/g, '');
+          }
+          return cut.trimEnd() + '…';
+        };
+
+        // Branch chats are titled after the SELECTED PASSAGE they were opened
+        // from, not after the first question (user decision 2026-07-26): in
+        // the sidebar tree "Kannst du mir alle" says nothing, a summary of
+        // the marked text does.
+        const branchQuote = chat.parent_word ? String(chat.parent_word).trim().slice(0, 600) : null;
+
+        // Fallback: first few words of the passage (branches) or of the
+        // user's message, in case the LLM call fails.
+        let newTitle = capTitleWords((branchQuote || content || 'Chat').trim(), MAX_TITLE_WORDS);
 
         try {
           const { client: titleClient, model: titleModel, provider: titleProvider } = getLLMClient(db);
           const titleInstruction = {
             role: 'user',
-            content:
-              'Generate a 2 to 4 word title for this chat. ' +
-              'Write the title in the language of the conversation (a German chat gets a German title). ' +
-              'Output ONLY the title — no quotes, no punctuation, no markdown, no labels, no extra commentary. ' +
-              'Examples: React hooks tutorial / Bicycle repair guide / Berlin trip planning / Linear algebra basics.',
+            content: branchQuote
+              ? 'Generate a 2 to 4 word title that summarizes the following selected passage ' +
+                '(this branch chat explores it). If the passage is already a short term, use the term itself. ' +
+                'Write the title in the language of the passage. ' +
+                'If the passage centers on a math expression, use that expression as the title, ' +
+                'written as LaTeX wrapped in $...$ — reconstruct proper LaTeX even if the passage ' +
+                'shows mangled plain-text math (e.g. "wt−1" means w_{t-1}). ' +
+                'Output ONLY the title — no quotes, no punctuation, no markdown, no labels, no extra commentary ' +
+                '(inline $...$ math is the one allowed markup). ' +
+                `Passage: "${branchQuote}"`
+              : 'Generate a 2 to 4 word title for this chat. ' +
+                'Write the title in the language of the conversation (a German chat gets a German title). ' +
+                'Output ONLY the title — no quotes, no punctuation, no markdown, no labels, no extra commentary ' +
+                '(a math expression central to the chat may appear as LaTeX wrapped in $...$). ' +
+                'Examples: React hooks tutorial / Bicycle repair guide / Berlin trip planning / Linear algebra basics.',
           };
-          // Ollama hat genau EINEN KV-Cache-Slot (Vision-Modelle erzwingen
-          // Parallel:1). Ein Standalone-Titel-Prompt würde den teuren
-          // Paper-Prefix verdrängen — die nächste Frage zahlt dann den
-          // vollen Prefill erneut (~40 s gemessen, 2026-07-21). Deshalb:
-          // dieselbe Prompt-Basis wie das Gespräch (inkl. tools, sonst
-          // weicht der gerenderte Prefix ab) + Titel-Frage hinten dran —
-          // Cache-Treffer statt Verdrängung. Cloud-Provider behalten den
-          // billigen Mini-Prompt (dort zählt jedes Input-Token, nicht der
-          // lokale Cache).
+          // Ollama has exactly ONE KV cache slot (vision models force
+          // parallel:1). A standalone title prompt would evict the
+          // expensive paper prefix — the next question then pays the full
+          // prefill again (~40 s measured, 2026-07-21). Therefore: the
+          // same prompt base as the conversation (incl. tools, otherwise
+          // the rendered prefix diverges) + the title question appended —
+          // cache hit instead of eviction. Cloud providers keep the cheap
+          // mini prompt (there every input token counts, not the local
+          // cache).
+          // Branches: the instruction already carries the passage — appending
+          // the question would pull the summary toward the question again.
           const titleMessages = titleProvider === 'ollama'
             ? [...contextMessages, { role: 'assistant', content: fullContent }, titleInstruction]
-            : [titleInstruction, { role: 'user', content: content || 'New chat' }];
+            : branchQuote
+              ? [titleInstruction]
+              : [titleInstruction, { role: 'user', content: content || 'New chat' }];
           let titleCompletion;
           try {
             titleCompletion = await titleClient.chat.completions.create({
               model: titleModel,
-              // Für einen 4-Wort-Titel darf kein Denk-Modell minutenlang grübeln.
+              // For a 4-word title no thinking model may brood for minutes.
               ...noThinkExtras(titleProvider),
               messages: titleMessages,
               ...(titleProvider === 'ollama' ? { tools: ALL_TOOLS } : {}),
@@ -895,21 +1396,22 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
           }
           const raw = titleCompletion.choices[0]?.message?.content || '';
           if (raw.trim()) newTitle = raw.trim();
-        } catch (_) { /* Fallback genügt */ }
+        } catch (_) { /* the fallback is good enough */ }
 
         // Sanitize whatever the LLM returned: strip wrapping quotes/backticks,
         // strip trailing punctuation, drop any line breaks the model added, and
         // enforce the word + character caps.
-        newTitle = newTitle
-          .replace(/[\r\n]+/g, ' ')
-          .replace(/^["'`*_]+|["'`*_.!?,;:]+$/g, '')
-          .trim()
-          .split(/\s+/)
-          .slice(0, MAX_TITLE_WORDS)
-          .join(' ');
-        if (newTitle.length > MAX_TITLE_CHARS) {
-          newTitle = newTitle.slice(0, MAX_TITLE_CHARS - 1).trimEnd() + '…';
-        }
+        newTitle = capTitleWords(
+          newTitle
+            .replace(/[\r\n]+/g, ' ')
+            .replace(/^["'`*_]+|["'`*_.!?,;:]+$/g, '')
+            .trim(),
+          MAX_TITLE_WORDS,
+        );
+        newTitle = capTitleChars(newTitle, MAX_TITLE_CHARS);
+        // A leftover unbalanced `$` (an LLM half-delimiter) reads as broken
+        // math in the UI — fall back to plain text.
+        if ((newTitle.match(/\$/g) || []).length % 2 === 1) newTitle = newTitle.replace(/\$/g, '');
         if (!newTitle) newTitle = 'New Chat';
 
         db.prepare('UPDATE chats SET title = ? WHERE id = ?').run(newTitle, req.params.chatId);
@@ -923,31 +1425,91 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
       res.write(`data: ${JSON.stringify({ done: true, userMessage, assistantMessage })}\n\n`);
       res.end();
     } catch (err) {
-      // Fehler nie mehr stumm (Vorfall 2026-07-24: Antworten verschwanden
-      // ohne Log und ohne Spur in der DB): loggen, einen '*Failed*'-Marker
-      // an Stelle der Antwort persistieren und dem Client beide persistierten
-      // Nachrichten mitgeben — die UI zeigt die Fehlerzeile mit Retry.
-      console.error(`[messages] Antwort in Chat ${chatId} fehlgeschlagen: ${err.message}`);
+      // Errors are never silent anymore (incident 2026-07-24: answers
+      // vanished without a log and without a trace in the DB): log, persist
+      // a '*Failed*' marker in place of the answer and hand the client both
+      // persisted messages — the UI shows the error row with retry.
+      // One abort = one truth (§09): a stop or disconnect — whether it hits
+      // mid-stream, during a rate-limit sleep or anywhere else — persists
+      // the *Interrupted* marker, never *Failed*. The UI told the user
+      // "Unterbrochen" the moment they clicked; the DB must agree.
+      const wasAborted = job.abort?.signal?.aborted || job.clientClosed;
+      if (wasAborted) {
+        try {
+          const interruptedId = crypto.randomUUID();
+          const interruptedNow = job.regenerate?.anchorCreatedAt ?? monotonicNow(chatId);
+          db.prepare(
+            'INSERT INTO messages (id, chat_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)'
+          ).run(interruptedId, chatId, 'assistant', INTERRUPTED_MARKER, interruptedNow);
+        } catch (_) { /* DB error — nothing else to do, the client is gone */ }
+        try { res.end(); } catch (_) { /* already closed */ }
+        return;
+      }
+      console.error(`[messages] Answer in chat ${chatId} failed: ${err.message}`);
+      // Machine-readable cause for the UI card (mockup-model-flow §05):
+      // classify here what wasn't classified at the throw site. A key that
+      // was valid on save but got revoked later surfaces as a 401 mid-use.
+      if (!err.failReason && (err.status === 401 || err.response?.status === 401)) {
+        err.failReason = 'bad_key';
+        err.failProvider = err.failProvider || getSetting(db, 'llm_provider');
+      }
       let assistantMessage = null;
       try {
         const failedId = crypto.randomUUID();
-        const failedNow = monotonicNow(chatId);
+        const failedNow = job.regenerate?.anchorCreatedAt ?? monotonicNow(chatId);
+        // Deterministic causes survive the reload (§06) — quota flags stay
+        // transient by design, so they are never persisted here.
         db.prepare(
-          'INSERT INTO messages (id, chat_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)'
-        ).run(failedId, chatId, 'assistant', FAILED_MARKER, failedNow);
+          'INSERT INTO messages (id, chat_id, role, content, created_at, fail_reason) VALUES (?, ?, ?, ?, ?, ?)'
+        ).run(failedId, chatId, 'assistant', FAILED_MARKER, failedNow, err.failReason ?? null);
         assistantMessage = {
           id: failedId, chat_id: chatId, role: 'assistant', content: FAILED_MARKER,
           created_at: failedNow, attachments: [],
+          ...(err.failReason ? { fail_reason: err.failReason } : {}),
         };
-      } catch (_) { /* DB-Fehler: wenigstens das error-Event geht raus */ }
-      sseWrite(res, { error: err.message, userMessage, assistantMessage });
+      } catch (_) { /* DB error: at least the error event goes out */ }
+      sseWrite(res, {
+        error: err.message, userMessage, assistantMessage,
+        ...(err.quotaExhausted ? { quotaExhausted: true } : {}),
+        ...(err.quotaExhausted && err.retryAt ? { retryAt: new Date(err.retryAt).toISOString() } : {}),
+        ...(err.quotaExhausted && err.quotaReason ? { quotaReason: err.quotaReason } : {}),
+        ...(err.failReason ? { failReason: err.failReason } : {}),
+        ...(err.failProvider ? { failProvider: err.failProvider } : {}),
+        ...(err.failModel ? { failModel: err.failModel } : {}),
+      });
       res.end();
     }
   }
 
-  // Der Kontext-Builder wird an /api/explain weitergereicht (server.js):
-  // Wort-Erklärungen teilen so denselben Prompt-Präfix wie das Gespräch —
-  // Cache-Treffer statt Verdrängung des einzigen KV-Slots (2026-07-25).
+  // The context builder is passed on to /api/explain (server.js):
+  // word explanations thus share the same prompt prefix as the conversation —
+  // cache hit instead of evicting the only KV slot (2026-07-25).
   router.buildSystemAndHistory = buildSystemAndHistory;
+  // The quota memory is passed on to /api/explain too (2026-07-28): a limit
+  // learned by either route is skipped proactively by both, and the picker
+  // badges (GET /api/quota-cooldowns) see definitions' quota hits as well.
+  router.isQuotaCoolingDown = isQuotaCoolingDown;
+  router.markQuotaCooldown = markQuotaCooldown;
+  // Cooldown snapshot for the model picker badges (mockup-quota-states.html
+  // §06) — server.js exposes this as GET /api/quota-cooldowns. Only future
+  // expiries are reported; model names may themselves contain '/'.
+  // Settings PUT calls this (server.js wiring): waiting local jobs whose
+  // provider is now cloud leave the FIFO immediately.
+  router.reevaluateQueue = reevaluateQueue;
+  router.getQuotaCooldowns = () => {
+    const now = Date.now();
+    const cooldowns = [];
+    for (const [key, entry] of quotaCooldowns) {
+      if (entry.until <= now) continue;
+      const [providerName, ...modelParts] = key.split('/');
+      cooldowns.push({
+        provider: providerName,
+        model: modelParts.join('/'),
+        until: new Date(entry.until).toISOString(),
+        kind: entry.kind,
+      });
+    }
+    return cooldowns;
+  };
   return router;
 };

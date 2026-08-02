@@ -127,7 +127,7 @@ describe('POST /api/papers — upload a PDF into a chat tree', () => {
 });
 
 describe('POST /api/papers — background retrieval preparation (ADR-0006)', () => {
-  // > MAX_SYSTEM_CONTEXT_CHARS (~40k) → Retrieval-Modus-Kandidat.
+  // > MAX_SYSTEM_CONTEXT_CHARS (~40k) → retrieval-mode candidate.
   const LONG_TEXT = Array.from(
     { length: 520 },
     (_, i) => `Paragraph ${i} discussing background material in sufficient detail to fill space.`
@@ -149,7 +149,7 @@ describe('POST /api/papers — background retrieval preparation (ADR-0006)', () 
       .attach('pdf', PDF_BYTES, { filename: 'long.pdf', contentType: 'application/pdf' });
   }
 
-  // Der Hook ist fire-and-forget — kurz auf setImmediate-Arbeit warten.
+  // The hook is fire-and-forget — briefly wait for setImmediate work.
   const flushBackground = () => new Promise((r) => setTimeout(r, 50));
 
   it('extracts, chunks and embeds a long paper right after upload', async () => {
@@ -161,11 +161,11 @@ describe('POST /api/papers — background retrieval preparation (ADR-0006)', () 
     expect(res.status).toBe(201);
     await flushBackground();
 
-    // Volltext liegt im Cache — die erste Frage extrahiert nicht mehr …
+    // Full text is in the cache — the first question no longer extracts …
     const row = db.prepare('SELECT extracted_text FROM papers WHERE id = ?').get(res.body.id);
     expect(row.extracted_text).toBe(LONG_TEXT);
-    // … und die Chunks samt Embeddings liegen bereit — die erste Frage
-    // wartet nicht auf das Einbetten.
+    // … and the chunks with their embeddings are ready — the first question
+    // does not wait for embedding.
     const n = db
       .prepare('SELECT COUNT(*) AS n FROM source_chunks WHERE source_id = ?')
       .get(res.body.id).n;
@@ -197,7 +197,7 @@ describe('POST /api/papers — background retrieval preparation (ADR-0006)', () 
     const res = await uploadVia(app2, chat.body.id);
     expect(res.status).toBe(201);
     await flushBackground();
-    // Kein Cache, keine Chunks — aber der Upload selbst ist durch.
+    // No cache, no chunks — but the upload itself went through.
     const row = db.prepare('SELECT extracted_text FROM papers WHERE id = ?').get(res.body.id);
     expect(row.extracted_text).toBeNull();
   });

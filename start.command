@@ -1,6 +1,6 @@
 #!/bin/bash
-# Syflo Start-Skript
-# Startet Ollama, Backend und Frontend, öffnet den Browser
+# Syflo start script
+# Starts Ollama, backend and frontend, opens the browser
 
 set -e
 
@@ -11,12 +11,12 @@ mkdir -p "$LOG_DIR"
 
 cd "$SYFLO_DIR"
 
-# Beim Doppelklick-Start (Finder/launchd, z. B. Syflo.app auf dem Schreibtisch)
-# erbt das Skript KEIN Shell-Profil — der PATH ist nur /usr/bin:/bin:…:
-# weder Homebrew (ollama, docker, whisper-server) noch nvm (node, npm) sind
-# auffindbar. Deshalb beide hier explizit in den PATH holen, statt sich auf
-# die .zshrc zu verlassen. nvm.sh wird bewusst NICHT gesourct (verträgt sich
-# schlecht mit set -e) — die neueste installierte Node-Version reicht.
+# When started via double-click (Finder/launchd, e.g. Syflo.app on the desktop)
+# the script inherits NO shell profile — the PATH is only /usr/bin:/bin:…:
+# neither Homebrew (ollama, docker, whisper-server) nor nvm (node, npm) can
+# be found. So pull both into the PATH explicitly here instead of relying on
+# .zshrc. nvm.sh is deliberately NOT sourced (plays badly with set -e) —
+# the newest installed Node version is enough.
 for p in /opt/homebrew/bin /usr/local/bin; do
   [[ -d "$p" && ":$PATH:" != *":$p:"* ]] && PATH="$p:$PATH"
 done
@@ -26,58 +26,60 @@ if ! command -v npm >/dev/null 2>&1; then
 fi
 export PATH
 if ! command -v npm >/dev/null 2>&1; then
-  echo "FEHLER: npm nicht gefunden (weder im PATH noch unter ~/.nvm)"
+  echo "ERROR: npm not found (neither in PATH nor under ~/.nvm)"
   exit 1
 fi
 
-# Ein Wert für alle: Ollama nutzt ihn als Kontextfenster, das Backend leitet
-# daraus sein Zeichen-Budget für den System-Kontext ab (ancestor-context.js).
-# Exportiert, damit BEIDE Prozesse denselben Wert sehen — ein Backend-Budget
-# über dem Ollama-Fenster hieße stilles Context-Shifting und toten KV-Cache.
+# One value for all: Ollama uses it as the context window, the backend
+# derives its character budget for the system context from it
+# (ancestor-context.js). Exported so BOTH processes see the same value — a
+# backend budget above the Ollama window would mean silent context shifting
+# and a dead KV cache.
 #
-# 32768 statt 16384 (2026-07-24): das Backend-Budget wächst automatisch mit
-# auf ~97k Zeichen, wodurch die meisten Papers (z. B. Bengio 2003: 15,2k
-# Tokens) wieder in den schnellen Volltext-Modus fallen statt in Retrieval —
-# Folgefragen ~2 s statt ~14 s, unabhängig vom Thema. Auf dem 24-GB-Mac
-# verifiziert: qwen3.5:9b bleibt mit 32k-Fenster zu 100 % auf der GPU
-# (9,7 GB, Decode unverändert ~28 tok/s). Retrieval bleibt Netz für Monster.
+# 32768 instead of 16384 (2026-07-24): the backend budget grows automatically
+# to ~97k characters, so most papers (e.g. Bengio 2003: 15.2k tokens) fall
+# back into the fast full-text mode instead of retrieval — follow-up
+# questions ~2 s instead of ~14 s, regardless of topic. Verified on the
+# 24-GB Mac: qwen3.5:9b stays 100% on the GPU with the 32k window
+# (9.7 GB, decode unchanged ~28 tok/s). Retrieval remains the safety net
+# for monsters.
 export OLLAMA_CONTEXT_LENGTH=32768
 
-# FlashAttention: mathematisch identisches Ergebnis, aber kachelweise
-# berechnet — schnelleres Prefill und weniger Speicher.
+# FlashAttention: mathematically identical result, but computed tile by
+# tile — faster prefill and less memory.
 export OLLAMA_FLASH_ATTENTION=1
 
-# Modelle nie aus Idle entladen (Ollama-Default: 5 min). Ein Unload wirft
-# den kompletten KV-Cache weg — die nächste Frage zahlt den vollen
-# Paper-Prefill (~60 s, gemessen 2026-07-25). Das Backend pinnt zwar nach
-# jeder Antwort 1 h nach (messages.js), -1 schützt aber auch alle Pfade
-# ohne Re-Pinning (z. B. nach reinen explain-/Embedding-Aufrufen).
+# Never unload models on idle (Ollama default: 5 min). An unload throws
+# away the entire KV cache — the next question pays the full paper prefill
+# (~60 s, measured 2026-07-25). The backend does re-pin for 1 h after
+# every answer (messages.js), but -1 also protects all paths without
+# re-pinning (e.g. after pure explain/embedding calls).
 export OLLAMA_KEEP_ALIVE=-1
 
-# Latenz-Analyse (perf-log.js): auskommentiert lassen — nur zum Messen
-# einschalten. Dann schreibt das Backend pro Antwort eine JSON-Zeile mit
-# reinen Metriken (Modus, Cache, Tokens, Zeiten; NIE Gesprächsinhalte) nach
-# logs/perf.jsonl, auswertbar mit jq. Die [perf]-Zeile im backend.log läuft
-# ohnehin immer. Datei jederzeit löschbar.
+# Latency analysis (perf-log.js): leave commented out — enable only for
+# measuring. Then the backend writes one JSON line per answer with pure
+# metrics (mode, cache, tokens, timings; NEVER conversation content) to
+# logs/perf.jsonl, analyzable with jq. The [perf] line in backend.log runs
+# always anyway. The file can be deleted at any time.
 # export SYFLO_PERF_LOG=1
 
-# KEIN OLLAMA_KV_CACHE_TYPE=q8_0: qwen3.5 ist ein Hybrid-Attention-Modell,
-# und mit quantisiertem KV-Cache fällt der Runner auf Metal still auf
-# 100 % CPU zurück (gemessen 2026-07-24: 33/33 GPU-Schichten → 0). Erst
-# wieder erwägen, wenn die Modell-Leiter auf klassische Attention wechselt.
+# NO OLLAMA_KV_CACHE_TYPE=q8_0: qwen3.5 is a hybrid-attention model,
+# and with a quantized KV cache the runner on Metal silently falls back to
+# 100% CPU (measured 2026-07-24: 33/33 GPU layers → 0). Only reconsider
+# when the model ladder switches to classic attention.
 
-# Kein OLLAMA_NUM_PARALLEL: Ollama erzwingt bei Vision-Modellen (unsere
-# ganze Leiter) Parallel:1 — es gibt genau EINEN KV-Cache-Slot. Deshalb
-# teilen sich alle Nebenaufrufe (Titel-Generierung) den Prompt-Prefix des
-# Gesprächs (messages.js), statt den teuren Paper-Prefill zu verdrängen.
+# No OLLAMA_NUM_PARALLEL: for vision models (our entire ladder) Ollama
+# forces parallel:1 — there is exactly ONE KV cache slot. That is why all
+# side calls (title generation) share the conversation's prompt prefix
+# (messages.js) instead of evicting the expensive paper prefill.
 
-echo "🚀 Syflo wird gestartet..."
+echo "🚀 Starting Syflo..."
 echo ""
 
-# Rekursiv einen Prozess samt aller Nachfahren beenden.
-# Wichtig, weil $BACKEND_PID/$FRONTEND_PID nur die Bash-Subshell sind —
-# darunter laufen npm und node. Ohne Rekursion bleiben node/vite als
-# Waisen weiter und blockieren Port 3001 / 5173.
+# Recursively terminate a process along with all its descendants.
+# Important because $BACKEND_PID/$FRONTEND_PID are only the bash subshell —
+# npm and node run underneath. Without recursion, node/vite keep running
+# as orphans and block ports 3001 / 5173.
 kill_tree() {
   local parent=$1
   [[ -z "$parent" ]] && return
@@ -87,28 +89,28 @@ kill_tree() {
   kill -TERM "$parent" 2>/dev/null || true
 }
 
-# Aufräumen beim Beenden (Ctrl+C, Cmd+W, kill)
+# Clean up on exit (Ctrl+C, Cmd+W, kill)
 cleanup() {
   echo ""
-  echo "Beende Syflo..."
+  echo "Stopping Syflo..."
   kill_tree "$BACKEND_PID"
   kill_tree "$FRONTEND_PID"
   kill_tree "$OLLAMA_PID"
-  # Sicherheitsnetz: alles, was noch auf unseren Ports lauscht, beenden
-  # 8891 = whisper-server (Diktat, ADR-0004) — wird vom Backend lazy
-  # gestartet und hängt als dessen Kind normalerweise mit an kill_tree.
+  # Safety net: terminate anything still listening on our ports
+  # 8891 = whisper-server (dictation, ADR-0004) — started lazily by the
+  # backend and, as its child, normally caught by kill_tree as well.
   for port in 3001 5173 5174 5175 5176 5177 5178 8891; do
     leftover=$(lsof -t -iTCP:$port -sTCP:LISTEN 2>/dev/null || true)
     [[ -n "$leftover" ]] && kill -TERM $leftover 2>/dev/null || true
   done
-  echo "👋 Tschüss!"
+  echo "👋 Bye!"
   exit 0
 }
 trap cleanup INT TERM HUP
 
-# Vorherige Instanzen schließen: nur Bash-Prozesse, die genau dieses Skript
-# ausführen (eigene PID ausgenommen). Damit werden weder Editoren, die das
-# Skript geöffnet haben, noch andere Terminals (z. B. Claude) angefasst.
+# Close previous instances: only bash processes executing exactly this
+# script (excluding our own PID). This touches neither editors that have
+# the script open nor other terminals (e.g. Claude).
 own_pid=$$
 killed_any=0
 for pid in $(pgrep -f "$SCRIPT_PATH" 2>/dev/null || true); do
@@ -116,11 +118,11 @@ for pid in $(pgrep -f "$SCRIPT_PATH" 2>/dev/null || true); do
   cmd=$(ps -p "$pid" -o command= 2>/dev/null || true)
   case "$cmd" in
     *bash*"$SCRIPT_PATH"*|*sh*"$SCRIPT_PATH"*|"$SCRIPT_PATH"*)
-      [[ "$killed_any" == 0 ]] && echo "Schließe vorherige Syflo-Instanzen..."
+      [[ "$killed_any" == 0 ]] && echo "Closing previous Syflo instances..."
       killed_any=1
       pid_tty=$(ps -p "$pid" -o tty= 2>/dev/null | tr -d ' ' || true)
       kill -TERM "$pid" 2>/dev/null || true
-      # Zugehöriges Terminal-Fenster schließen (best-effort, braucht Automation-Berechtigung)
+      # Close the associated Terminal window (best-effort, needs Automation permission)
       if [[ -n "$pid_tty" && "$pid_tty" != "??" && "$pid_tty" != "?" ]]; then
         osascript >/dev/null 2>&1 <<EOF || true
 tell application "Terminal"
@@ -138,20 +140,20 @@ EOF
 done
 [[ "$killed_any" == 1 ]] && sleep 1
 
-# Sicherheitsnetz: alle Prozesse beenden, die noch auf unseren Ports lauschen.
-# Fängt Waisen-Prozesse von alten/abgestürzten Instanzen ab — sonst weicht der
-# neue vite z. B. von 5173 auf 5174 aus und der Browser zeigt veralteten Code.
+# Safety net: terminate all processes still listening on our ports.
+# Catches orphan processes from old/crashed instances — otherwise the new
+# vite e.g. moves from 5173 to 5174 and the browser shows stale code.
 for port in 3001 5173 5174 5175 5176 5177 5178; do
   leftover=$(lsof -t -iTCP:$port -sTCP:LISTEN 2>/dev/null || true)
   if [[ -n "$leftover" ]]; then
-    echo "Räume Port $port (PID $leftover)..."
+    echo "Clearing port $port (PID $leftover)..."
     kill -TERM $leftover 2>/dev/null || true
   fi
 done
 [[ "$killed_any" == 1 ]] || sleep 0.3
 
-# Auf einen HTTP-Endpoint warten, bis er antwortet (oder Timeout).
-# Gibt 0 bei Erfolg, 1 bei Timeout zurück.
+# Wait for an HTTP endpoint until it responds (or timeout).
+# Returns 0 on success, 1 on timeout.
 wait_for() {
   local url=$1 max_tries=${2:-30}
   for i in $(seq 1 "$max_tries"); do
@@ -164,32 +166,32 @@ wait_for() {
 }
 
 # 1. Ollama
-# Kontextfenster statt der 4096-Default: der Chat bekommt den Volltext des
-# angehängten Papers in den System-Prompt — mit 4096 würde Ollama den
-# Paper-Text stillschweigend abschneiden. Wert: export oben im Skript.
+# Context window instead of the 4096 default: the chat gets the full text of
+# the attached paper in the system prompt — with 4096, Ollama would silently
+# cut off the paper text. Value: export at the top of the script.
 start_ollama() {
   ollama serve >"$LOG_DIR/ollama.log" 2>&1 &
   OLLAMA_PID=$!
   if wait_for http://localhost:11434/api/tags 20; then
-    echo "Ollama bereit"
+    echo "Ollama ready"
   else
-    echo "Ollama antwortet nicht (siehe $LOG_DIR/ollama.log)"
+    echo "Ollama is not responding (see $LOG_DIR/ollama.log)"
   fi
 }
 if curl -s http://localhost:11434/api/tags >/dev/null 2>&1; then
-  # Ein bereits laufender Daemon hat unsere Exports NICHT geerbt — fremd
-  # gestartet (brew services, altes Terminal) liefe er mit 4096er-Fenster,
-  # während das Backend mit ~97k Zeichen plant: stilles Context-Shifting,
-  # toter KV-Cache, abgeschnittene Papers (Falle entdeckt 2026-07-24).
-  # Deshalb die Env des Daemons prüfen (ps -wwE) und notfalls neu starten.
+  # An already running daemon has NOT inherited our exports — started
+  # elsewhere (brew services, an old terminal) it would run with a 4096
+  # window while the backend plans for ~97k characters: silent context
+  # shifting, dead KV cache, cut-off papers (trap discovered 2026-07-24).
+  # So check the daemon's env (ps -wwE) and restart it if necessary.
   running_pid=$(pgrep -f "ollama serve" | head -1 || true)
   running_env=$(ps -wwE -p "${running_pid:-0}" -o command= 2>/dev/null || true)
   if [[ "$running_env" == *"OLLAMA_CONTEXT_LENGTH=$OLLAMA_CONTEXT_LENGTH"* ]]; then
-    echo "Ollama läuft bereits (Kontextfenster $OLLAMA_CONTEXT_LENGTH ok)"
+    echo "Ollama is already running (context window $OLLAMA_CONTEXT_LENGTH ok)"
   else
-    echo "Ollama läuft ohne unser Kontextfenster — starte neu..."
-    # Ein brew-Service würde den Daemon nach kill sofort mit alter Env
-    # wiederbeleben — den Service deshalb zuerst stoppen (best effort).
+    echo "Ollama is running without our context window — restarting..."
+    # A brew service would immediately revive the daemon with the old env
+    # after a kill — so stop the service first (best effort).
     if launchctl list 2>/dev/null | grep -qi ollama; then
       brew services stop ollama >/dev/null 2>&1 || true
     fi
@@ -202,97 +204,98 @@ if curl -s http://localhost:11434/api/tags >/dev/null 2>&1; then
   fi
 else
   if ! command -v ollama >/dev/null 2>&1; then
-    echo "FEHLER: 'ollama' ist nicht installiert (brew install ollama)"
+    echo "ERROR: 'ollama' is not installed (brew install ollama)"
     exit 1
   fi
-  echo "Starte Ollama..."
+  echo "Starting Ollama..."
   start_ollama
 fi
 
-# 1.4 Embedding-Modell für den Retrieval-Modus langer Papers (retrieval.js):
-# winzig (~300 MB), lädt im Hintergrund. Fehlt es zur Laufzeit, degradiert
-# das Backend still auf die alte Volltext-Kürzung — nichts bricht.
-if curl -s http://localhost:11434/api/tags 2>/dev/null | grep -q 'nomic-embed-text'; then
-  : # schon vorhanden
+# 1.4 Embedding model for the retrieval mode of long papers (retrieval.js):
+# multilingual, ~1.2 GB (bge-m3, ADR-0006 addendum), downloads in the background.
+# If it is missing at runtime, the backend silently degrades to the old
+# full-text truncation — nothing breaks.
+if curl -s http://localhost:11434/api/tags 2>/dev/null | grep -q 'bge-m3'; then
+  : # already present
 else
-  echo "Lade Embedding-Modell nomic-embed-text (Hintergrund)..."
-  ollama pull nomic-embed-text >"$LOG_DIR/embed-pull.log" 2>&1 &
+  echo "Downloading embedding model bge-m3 (background)..."
+  ollama pull bge-m3 >"$LOG_DIR/embed-pull.log" 2>&1 &
 fi
 
-# 1.5 SearXNG (Web-Suche im Chat) — best effort: ohne laufenden Container
-# stirbt die web_search-Funktion still (das Modell bekommt nur einen Fehler-
-# String). Keine Container-Laufzeit ist NICHT fatal — der Chat läuft weiter,
-# nur ohne Web-Suche. Port 8890, siehe searxng/docker-compose.yml.
-# Laufzeit ist Colima (Entscheidung 2026-07-22): schlanke VM (~1 GB Deckel)
-# statt Docker Desktop, Autostart über `brew services start colima`. Der
-# colima-start hier ist nur das Sicherheitsnetz, falls der Dienst aus ist.
+# 1.5 SearXNG (web search in chat) — best effort: without a running container
+# the web_search function dies silently (the model only gets an error
+# string). No container runtime is NOT fatal — the chat keeps running,
+# just without web search. Port 8890, see searxng/docker-compose.yml.
+# The runtime is Colima (decision 2026-07-22): a lean VM (~1 GB cap)
+# instead of Docker Desktop, autostart via `brew services start colima`. The
+# colima start here is only the safety net in case the service is off.
 if curl -s -m 2 http://localhost:8890/ >/dev/null 2>&1; then
-  echo "SearXNG läuft bereits"
+  echo "SearXNG is already running"
 elif command -v docker >/dev/null 2>&1; then
   if ! docker info >/dev/null 2>&1 && command -v colima >/dev/null 2>&1; then
-    echo "Starte Colima..."
+    echo "Starting Colima..."
     colima start >"$LOG_DIR/colima.log" 2>&1 || true
   fi
   if docker info >/dev/null 2>&1; then
-    echo "Starte SearXNG (Port 8890)..."
+    echo "Starting SearXNG (port 8890)..."
     docker compose -f "$SYFLO_DIR/searxng/docker-compose.yml" up -d >"$LOG_DIR/searxng.log" 2>&1 \
-      && echo "SearXNG bereit" \
-      || echo "SearXNG konnte nicht starten (siehe $LOG_DIR/searxng.log) — Web-Suche deaktiviert"
+      && echo "SearXNG ready" \
+      || echo "SearXNG could not start (see $LOG_DIR/searxng.log) — web search disabled"
   else
-    echo "Keine Container-Laufzeit erreichbar (colima start fehlgeschlagen?) — Web-Suche deaktiviert"
+    echo "No container runtime reachable (colima start failed?) — web search disabled"
   fi
 else
-  echo "Docker-CLI ist nicht installiert — Web-Suche im Chat ist deaktiviert"
+  echo "Docker CLI is not installed — web search in chat is disabled"
 fi
 
 # 2. Backend
-echo "Starte Backend (Port 3001)..."
+echo "Starting backend (port 3001)..."
 (cd "$SYFLO_DIR/backend" && npm run dev) >"$LOG_DIR/backend.log" 2>&1 &
 BACKEND_PID=$!
 if wait_for http://localhost:3001/api/chats 20; then
-  echo "Backend bereit"
+  echo "Backend ready"
 else
-  echo "Backend antwortet nicht (siehe $LOG_DIR/backend.log)"
+  echo "Backend is not responding (see $LOG_DIR/backend.log)"
 fi
 
 # 3. Frontend
-echo "Starte Frontend (Port 5173)..."
+echo "Starting frontend (port 5173)..."
 (cd "$SYFLO_DIR/frontend" && npm run dev) >"$LOG_DIR/frontend.log" 2>&1 &
 FRONTEND_PID=$!
 if wait_for http://localhost:5173 30; then
-  echo "Frontend bereit"
+  echo "Frontend ready"
 else
-  echo "Frontend antwortet nicht (siehe $LOG_DIR/frontend.log)"
+  echo "Frontend is not responding (see $LOG_DIR/frontend.log)"
 fi
 
 echo ""
-echo "✅ Syflo läuft!"
+echo "✅ Syflo is running!"
 echo "   Frontend: http://localhost:5173"
 echo "   Backend:  http://localhost:3001"
 echo "   Ollama:   http://localhost:11434"
 echo "   Logs:     $LOG_DIR"
 echo ""
 
-# 4. Syflo-Fenster (Electron-Dev-Hülle, lädt den Vite-Server auf :5173).
-# Läuft im Vordergrund: Fenster schließen — oder Ctrl+C hier — fährt über
-# cleanup alles herunter. Ohne installiertes Electron: Browser wie früher.
+# 4. Syflo window (Electron dev shell, loads the Vite server on :5173).
+# Runs in the foreground: closing the window — or Ctrl+C here — shuts
+# everything down via cleanup. Without Electron installed: browser as before.
 if [[ -d "$SYFLO_DIR/electron/node_modules/electron" ]]; then
-  echo "Öffne Syflo-Fenster... (Fenster schließen oder Ctrl+C beendet alles)"
-  # Über LaunchServices (open) statt direkt gespawnt: so ist Electron.app
-  # selbst der für macOS-Berechtigungen „verantwortliche Prozess" und nutzt
-  # seine eigene Mikrofon-Freigabe (com.github.Electron, Eintrag „Electron"
-  # in den Systemeinstellungen). Direkt gestartet erbte die ganze Kette die
-  # Identität des Desktop-Launchers (local.syflo.launcher) — dessen
-  # Mikrofonzugriff verweigerte macOS OHNE Prompt, und das Diktat nahm
-  # exakte Stille auf (Diagnose 2026-07-24). -W wartet bis zum Schließen
-  # des Fensters, damit cleanup danach alles herunterfährt.
-  # electron.log entfällt dabei (open kann stdout nicht umleiten).
+  echo "Opening Syflo window... (closing the window or Ctrl+C stops everything)"
+  # Via LaunchServices (open) instead of spawning directly: this way
+  # Electron.app itself is the process "responsible" for macOS permissions
+  # and uses its own microphone grant (com.github.Electron, entry "Electron"
+  # in System Settings). Started directly, the whole chain would inherit the
+  # identity of the desktop launcher (local.syflo.launcher) — whose
+  # microphone access macOS denied WITHOUT a prompt, and dictation recorded
+  # exact silence (diagnosis 2026-07-24). -W waits until the window is
+  # closed so cleanup shuts everything down afterwards.
+  # electron.log is dropped in the process (open cannot redirect stdout).
   open -n -W "$SYFLO_DIR/electron/node_modules/electron/dist/Electron.app" \
     --args "$SYFLO_DIR/electron" || true
   cleanup
 else
-  echo "Electron fehlt (cd electron && npm install) — öffne Browser..."
+  echo "Electron is missing (cd electron && npm install) — opening browser..."
   open http://localhost:5173
-  echo "Drücke Ctrl+C zum Beenden."
+  echo "Press Ctrl+C to stop."
   wait
 fi

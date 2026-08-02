@@ -12,7 +12,9 @@ import { render, screen } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { api } from '../api';
 import { VideoBanner } from '../components/VideoBanner';
+import { CloudSetupNotice } from '../components/ChatArea/CloudSetupNotice';
 import { HighlightsDrawer } from '../components/HighlightsDrawer';
+import { HighlightActionsMenu } from '../components/PdfView/HighlightActionsMenu';
 import { _resetTreeHighlightsCacheForTests } from '../hooks/useTreeHighlights';
 import { _resetLabelsCacheForTests } from '../hooks/useLabels';
 import type { TreeHighlight, Video } from '../types';
@@ -68,6 +70,35 @@ describe('App language Deutsch (syflo.appLanguage=de)', () => {
     expect(screen.getByText(/Transcript angehängt/)).toBeInTheDocument();
     expect(screen.getByTestId('video-banner-view-transcript')).toHaveTextContent('Transcript ansehen');
     expect(screen.getByTestId('video-banner-open-youtube')).toHaveTextContent('Auf YouTube öffnen');
+  });
+
+  it('CloudSetupNotice rendert die deutschen Texte (W9 Pfad-Wahl, 2026-07-30)', () => {
+    render(<CloudSetupNotice onOpenSettings={vi.fn()} />);
+
+    expect(screen.getByTestId('setup-path-free')).toHaveTextContent('Kostenlos starten');
+    expect(screen.getByTestId('setup-path-paid')).toHaveTextContent('Eigenes Konto nutzen');
+    expect(screen.getByTestId('setup-path-local')).toHaveTextContent('Komplett privat');
+    expect(screen.getByTestId('cloud-setup-notice')).toHaveTextContent(
+      'In etwa einer Minute startklar',
+    );
+  });
+
+  it('HighlightActionsMenu rendert die deutschen Texte (Bug-Report 2026-07-25)', () => {
+    render(
+      <HighlightActionsMenu
+        highlight={{ color: 'yellow', chatId: 'c9' }}
+        x={10}
+        y={10}
+        onClose={vi.fn()}
+        onChangeColor={vi.fn()}
+        onDelete={vi.fn()}
+        onOpenChat={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('Farbe ändern')).toBeInTheDocument();
+    expect(screen.getByText('Verknüpften Chat öffnen')).toBeInTheDocument();
+    expect(screen.getByText('Highlight löschen')).toBeInTheDocument();
   });
 
   it('HighlightsDrawer formatiert Datumsangaben deutsch (de-DE)', async () => {

@@ -1,26 +1,26 @@
 /**
  * tools.js
  *
- * LLM-Tools, die das Modell während eines Chat-Completion-Calls aufrufen
- * kann. Aktuell: `web_search` via lokalem SearXNG.
+ * LLM tools the model can call during a chat completion call.
+ * Currently: `web_search` via local SearXNG.
  *
- * Streaming-Tool-Use-Flow (OpenAI-kompatibel, funktioniert auch mit Ollama
+ * Streaming tool-use flow (OpenAI-compatible, also works with Ollama
  * Llama 3.1+):
  *
- *   1. Wir schicken die `tools`-Definition beim ersten Completion-Call mit
- *   2. Das LLM streamt entweder Text (normaler Fall) oder tool_call-Fragmente
- *   3. Bei finish_reason === 'tool_calls': wir mergen die Fragmente, führen
- *      jede Tool-Funktion aus, hängen die Ergebnisse an die History und
- *      starten einen neuen Stream-Call
- *   4. Loop bis finish_reason === 'stop'
+ *   1. We send the `tools` definition along with the first completion call
+ *   2. The LLM streams either text (normal case) or tool_call fragments
+ *   3. On finish_reason === 'tool_calls': we merge the fragments, execute
+ *      every tool function, append the results to the history and start a
+ *      new stream call
+ *   4. Loop until finish_reason === 'stop'
  */
 
-// Port 8890 statt SearXNGs üblichem 8888 — 8888 ist auf Entwickler-Macs oft
-// von Jupyter belegt (genau daran ist die Suche hier still gestorben).
+// Port 8890 instead of SearXNG's usual 8888 — 8888 is often taken by
+// Jupyter on developer Macs (exactly that silently killed the search here).
 const SEARXNG_URL = process.env.SEARXNG_URL || 'http://localhost:8890';
 
-// Tool-Definition im OpenAI-Function-Calling-Format. Auch Ollama-Llama-3.1+
-// versteht dieses Schema (via OpenAI-kompatiblem Endpoint).
+// Tool definition in the OpenAI function-calling format. Ollama Llama 3.1+
+// understands this schema too (via the OpenAI-compatible endpoint).
 const WEB_SEARCH_TOOL = {
   type: 'function',
   function: {
@@ -80,8 +80,8 @@ const TOOL_IMPLS = {
 };
 
 /**
- * Streaming-Chunks von OpenAI haben tool_calls als Fragmente, die per
- * `index` zusammengesetzt werden müssen. `accumulator` ist ein Map(index → {
+ * Streaming chunks from OpenAI carry tool_calls as fragments that must be
+ * assembled by `index`. `accumulator` is a Map(index → {
  *   id, name, arguments (string, JSON-encoded) }).
  */
 function mergeToolCallDeltas(accumulator, deltas) {
@@ -94,6 +94,11 @@ function mergeToolCallDeltas(accumulator, deltas) {
     if (delta.id) entry.id = delta.id;
     if (delta.function?.name) entry.name = delta.function.name;
     if (delta.function?.arguments) entry.arguments += delta.function.arguments;
+    // Gemini 3 (gemini-flash-latest, 2026-07) attaches a thought_signature
+    // to the fragment as extra_content — it MUST be echoed back on the
+    // assistant tool_calls message, otherwise the follow-up request fails
+    // with a 400 INVALID_ARGUMENT (thought-signatures doc).
+    if (delta.extra_content) entry.extra_content = delta.extra_content;
   }
 }
 
@@ -112,6 +117,75 @@ function isAbortError(err) {
   return err?.name === 'AbortError' || err?.name === 'APIUserAbortError' || /abort/i.test(err?.message || '');
 }
 
+/**
+ * How many characters at the end of `s` are a possible BEGINNING of `tag`.
+ * Needed because streaming chunks can cut a tag right through the middle
+ * ("<thi" + "nk>"): the suspected remainder stays in the buffer until the
+ * next chunk confirms or refutes it.
+ */
+function partialSuffixLen(s, tag) {
+  const max = Math.min(s.length, tag.length - 1);
+  for (let k = max; k > 0; k--) {
+    if (s.endsWith(tag.slice(0, k))) return k;
+  }
+  return 0;
+}
+
+/**
+ * Stateful filter for inline thinking tags (ADR-0008 slice 2): some cloud
+ * models (e.g. Qwen via Groq) stream their chain of thought as
+ * `<think>…</think>` directly in the content instead of as reasoning
+ * deltas. The filter separates the two — thoughts NEVER reach the response
+ * text or the DB.
+ */
+class ThinkTagFilter {
+  constructor() {
+    this.buf = '';
+    this.inThink = false;
+  }
+
+  /** Processes a content delta → { content, reasoning }. */
+  feed(s) {
+    this.buf += s;
+    let content = '';
+    let reasoning = '';
+    while (this.buf.length > 0) {
+      if (this.inThink) {
+        const end = this.buf.indexOf('</think>');
+        if (end !== -1) {
+          reasoning += this.buf.slice(0, end);
+          this.buf = this.buf.slice(end + '</think>'.length);
+          this.inThink = false;
+          continue;
+        }
+        const keep = partialSuffixLen(this.buf, '</think>');
+        reasoning += this.buf.slice(0, this.buf.length - keep);
+        this.buf = this.buf.slice(this.buf.length - keep);
+        break;
+      }
+      const start = this.buf.indexOf('<think>');
+      if (start !== -1) {
+        content += this.buf.slice(0, start);
+        this.buf = this.buf.slice(start + '<think>'.length);
+        this.inThink = true;
+        continue;
+      }
+      const keep = partialSuffixLen(this.buf, '<think>');
+      content += this.buf.slice(0, this.buf.length - keep);
+      this.buf = this.buf.slice(this.buf.length - keep);
+      break;
+    }
+    return { content, reasoning };
+  }
+
+  /** End of stream: whatever is left in the buffer belongs to the active channel. */
+  flush() {
+    const rest = this.buf;
+    this.buf = '';
+    return this.inThink ? { content: '', reasoning: rest } : { content: rest, reasoning: '' };
+  }
+}
+
 async function streamWithTools({ client, model, messages, onText, onToolEvent, onThinking, onReasoning, onPerf, extras = {}, signal }) {
   // Defensive: keep messages in a local array we can append to across rounds.
   const convo = [...messages];
@@ -120,28 +194,35 @@ async function streamWithTools({ client, model, messages, onText, onToolEvent, o
   // model goes haywire.
   const MAX_ROUNDS = 5;
 
-  // Latenz-Messung über alle Runden hinweg: Zeit bis zum ersten Token
-  // (= Prefill/Prompt-Verarbeitung, der teure Teil bei großen Papern) und
-  // Token-Zähler aus den usage-Chunks (stream_options.include_usage).
+  // Latency measurement across all rounds: time to first token
+  // (= prefill/prompt processing, the expensive part with large papers) and
+  // token counters from the usage chunks (stream_options.include_usage).
   const startedAt = Date.now();
   let firstTokenAt = null;
   let promptTokens = null;
   let completionTokens = 0;
+  // Some dialects (Gemini) attach usage to EVERY chunk as a running total,
+  // others (Ollama, OpenAI) only to the final chunk. Within a round the
+  // maximum is therefore the truth — summing running totals overcounted by
+  // orders of magnitude (bug found live 2026-07-25). Across tool rounds the
+  // per-round finals add up; endUsageRound() folds a round into the total.
+  let roundCompletionTokens = 0;
 
-  // usage-Chunks kommen als letzter Chunk mit leerem choices-Array. Bei
-  // mehreren Tool-Runden ist der Prompt der letzten Runde der längste —
-  // fürs Kontextfenster zählt das Maximum; generierte Tokens summieren sich.
   const trackUsage = (chunk) => {
     if (!chunk.usage) return;
     if (typeof chunk.usage.prompt_tokens === 'number') {
       promptTokens = Math.max(promptTokens ?? 0, chunk.usage.prompt_tokens);
     }
     if (typeof chunk.usage.completion_tokens === 'number') {
-      completionTokens += chunk.usage.completion_tokens;
+      roundCompletionTokens = Math.max(roundCompletionTokens, chunk.usage.completion_tokens);
     }
   };
+  const endUsageRound = () => {
+    completionTokens += roundCompletionTokens;
+    roundCompletionTokens = 0;
+  };
 
-  const reportPerf = () => {
+  const reportPerf = (finishReason) => {
     if (!onPerf) return;
     const now = Date.now();
     const ttftMs = firstTokenAt ? firstTokenAt - startedAt : null;
@@ -155,6 +236,9 @@ async function streamWithTools({ client, model, messages, onText, onToolEvent, o
         completionTokens && decodeMs > 0
           ? Math.round((completionTokens / decodeMs) * 10_000) / 10
           : null,
+      // 'stop' is a clean end; 'length'/'content_filter'/null flag a
+      // provider-side truncation of the final answer round.
+      finishReason: finishReason ?? null,
     });
   };
 
@@ -166,103 +250,154 @@ async function streamWithTools({ client, model, messages, onText, onToolEvent, o
   // our `tools` definition alongside causes API errors. Detect them by name
   // and skip our tool wiring from the start.
   let toolsDisabled = /search-preview/i.test(model);
+  // Some OpenAI-compatible gateways don't know stream_options — after the
+  // first error, continue permanently without the field (then only the
+  // token statistics are missing, never the response).
+  let usageSupported = true;
+  let extrasEnabled = Object.keys(extras).length > 0;
 
   for (let round = 0; round < MAX_ROUNDS; round++) {
+    const makeBody = () => ({
+      model,
+      messages: convo,
+      ...(toolsDisabled ? {} : { tools: ALL_TOOLS }),
+      ...(extrasEnabled ? extras : {}),
+      stream: true,
+      // usage chunk at the end of the stream: prompt/response tokens for
+      // the latency diagnosis ([perf] log line and SSE perf event).
+      ...(usageSupported ? { stream_options: { include_usage: true } } : {}),
+    });
+
     let stream;
-    try {
-      stream = await client.chat.completions.create({
-        model,
-        messages: convo,
-        ...(toolsDisabled ? {} : { tools: ALL_TOOLS }),
-        ...extras,
-        stream: true,
-        // usage-Chunk am Stream-Ende: Prompt-/Antwort-Tokens für die
-        // Latenz-Diagnose ([perf]-Logzeile und SSE-perf-Event).
-        stream_options: { include_usage: true },
-      }, { signal });
-    } catch (err) {
-      if (isAbortError(err)) return finalText;
-      // Ollama returns "<model> does not support tools" for vision/embedding/
-      // tool-incompatible models. Retry once without the `tools` field so the
-      // user still gets an answer — they just lose web-search for this model.
-      if (!toolsDisabled && /does not support tools/i.test(err?.message || '')) {
-        toolsDisabled = true;
-        stream = await client.chat.completions.create({
-          model,
-          messages: convo,
-          ...extras,
-          stream: true,
-          stream_options: { include_usage: true },
-        });
-      } else if (Object.keys(extras).length > 0 && /think|reasoning/i.test(err?.message || '')) {
-        // Modelle ohne Denk-Fähigkeit können an reasoning_effort scheitern —
-        // dann lieber ohne das Flag antworten als gar nicht.
-        stream = await client.chat.completions.create({
-          model,
-          messages: convo,
-          ...(toolsDisabled ? {} : { tools: ALL_TOOLS }),
-          stream: true,
-          stream_options: { include_usage: true },
-        });
-      } else {
-        throw err;
+    // Up to three degradations (tools, extras, stream_options) — each is
+    // disabled at most once; after that the error really propagates.
+    for (let attempt = 0; ; attempt++) {
+      try {
+        stream = await client.chat.completions.create(makeBody(), { signal });
+        break;
+      } catch (err) {
+        if (isAbortError(err)) return finalText;
+        const msg = err?.message || '';
+        // Ollama: "<model> does not support tools" for tool-incompatible
+        // models → continue without tools (web search is dropped).
+        // Some gateways answer an unclassifiable 400 ("invalid argument",
+        // or no body at all — Gemini alias models 2026-07) — degrade
+        // blindly, one feature per attempt: extras, then tools, then
+        // stream_options. Real errors keep failing once the ladder is done.
+        const blind400 = err?.status === 400 &&
+          !/does not support tools|think|reasoning|stream_options/i.test(msg);
+        if (!toolsDisabled && /does not support tools/i.test(msg)) {
+          toolsDisabled = true;
+        } else if (extrasEnabled && (/think|reasoning/i.test(msg) || blind400)) {
+          // Models without thinking capability fail on reasoning_effort —
+          // better to answer without the flag than not at all.
+          extrasEnabled = false;
+        } else if (usageSupported && /stream_options/i.test(msg)) {
+          usageSupported = false;
+        } else if (blind400 && !toolsDisabled) {
+          toolsDisabled = true;
+        } else if (blind400 && usageSupported) {
+          usageSupported = false;
+        } else {
+          throw err;
+        }
+        if (attempt >= 3) throw err;
       }
     }
 
     let roundText = '';
+    let roundFinishReason = null;
+    let roundReasoningChars = 0;
     const toolCalls = new Map();
-    let finishReason = null;
     let thinkingSeen = false;
+    // A fresh tag filter per round (cloud models that stream <think> tags
+    // into the content do so at the start of every response round).
+    const thinkFilter = new ThinkTagFilter();
+
+    const emitReasoning = (r) => {
+      if (!r) return;
+      roundReasoningChars += r.length;
+      if (!firstTokenAt) firstTokenAt = Date.now();
+      if (!thinkingSeen) {
+        thinkingSeen = true;
+        if (onThinking) onThinking();
+      }
+      if (onReasoning) onReasoning(r);
+    };
+    const emitContent = (c) => {
+      if (!c) return;
+      if (!firstTokenAt) firstTokenAt = Date.now();
+      roundText += c;
+      onText(c);
+    };
 
     try {
       for await (const chunk of stream) {
         trackUsage(chunk);
         const choice = chunk.choices?.[0];
         if (!choice) continue;
+        if (choice.finish_reason) roundFinishReason = choice.finish_reason;
         const delta = choice.delta || {};
-        // Denk-Modelle streamen die Gedankenkette als `reasoning`-Deltas
-        // (Ollama /v1). Sie wird live an den Client weitergereicht
-        // (onReasoning), damit die UI sie in einem einklappbaren Panel
-        // zeigen kann — die Wartezeit fühlt sich so deutlich kürzer an.
-        // Sie landet aber nie im Antwort-Text oder in der Datenbank.
-        if (delta.reasoning) {
-          if (!firstTokenAt) firstTokenAt = Date.now();
-          if (!thinkingSeen) {
-            thinkingSeen = true;
-            if (onThinking) onThinking();
-          }
-          if (onReasoning) onReasoning(delta.reasoning);
-        }
+        // Thinking models stream the chain of thought as `reasoning` deltas
+        // (Ollama /v1, Groq gpt-oss) or `reasoning_content` (other
+        // OpenAI-compatible gateways). It is passed live to the client
+        // (onReasoning) so the UI can show it in a collapsible panel — but
+        // it never ends up in the response text or in the database.
+        emitReasoning(delta.reasoning || delta.reasoning_content);
         if (delta.content) {
-          if (!firstTokenAt) firstTokenAt = Date.now();
-          roundText += delta.content;
-          onText(delta.content);
+          const { content, reasoning } = thinkFilter.feed(delta.content);
+          emitReasoning(reasoning);
+          emitContent(content);
         }
         if (delta.tool_calls) {
           mergeToolCallDeltas(toolCalls, delta.tool_calls);
         }
-        if (choice.finish_reason) finishReason = choice.finish_reason;
       }
+      // Remainder in the filter buffer still belongs to the round (e.g. an incomplete tag).
+      const tail = thinkFilter.flush();
+      emitReasoning(tail.reasoning);
+      emitContent(tail.content);
     } catch (err) {
-      // Abbruch (Stop-Button): der bereits gestreamte Text bleibt gültig —
-      // ihn zurückgeben statt werfen, damit die Route ihn speichern kann.
+      // Abort (stop button): the already-streamed text remains valid —
+      // return it instead of throwing so the route can save it.
       if (isAbortError(err)) return roundText;
       throw err;
     }
 
-    // Plain answer — we're done.
-    if (finishReason !== 'tool_calls' || toolCalls.size === 0) {
+    endUsageRound();
+
+    // A truncated answer looks exactly like a normal one from here — the
+    // only witness is the provider's finish_reason. 'length' /
+    // 'content_filter' (Gemini: MAX_TOKENS / RECITATION / safety) or a
+    // missing finish chunk (connection cut) mean the text ended mid-answer
+    // (live incident 2026-07-26: Gemini stopped mid-sentence). Warn loudly;
+    // the reason also travels in the [perf] line via onPerf below.
+    if (roundFinishReason !== 'stop' && roundFinishReason !== 'tool_calls') {
+      console.warn(
+        `[tools] Abnormal stream end: finish_reason=${roundFinishReason ?? 'MISSING'} ` +
+        `round=${round} textLen=${roundText.length} tail=${JSON.stringify(roundText.slice(-40))}`
+      );
+    }
+
+    // Plain answer — we're done. Deliberately NOT keyed on finish_reason:
+    // Gemini 3's OpenAI layer streams tool calls with finish_reason 'stop'
+    // (not 'tool_calls'), which used to end the loop here with an empty
+    // answer (live incident 2026-07-26). Accumulated tool calls always mean
+    // a tool round, whatever the finish_reason says.
+    if (toolCalls.size === 0) {
       finalText = roundText;
-      reportPerf();
+      reportPerf(roundFinishReason);
       break;
     }
 
     // Tool calls requested. Persist the assistant message that contained them
     // (text + tool_calls go together in the same assistant message).
+    // extra_content carries Gemini 3's thought_signature — required on echo.
     const assistantToolCalls = [...toolCalls.values()].map(tc => ({
       id: tc.id,
       type: 'function',
       function: { name: tc.name, arguments: tc.arguments || '{}' },
+      ...(tc.extra_content ? { extra_content: tc.extra_content } : {}),
     }));
     convo.push({
       role: 'assistant',

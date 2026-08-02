@@ -50,6 +50,7 @@ const chatItem: TreeHighlight = {
   text: 'annealed',
   chatId: 'branch-1',
   chatTitle: 'entropy bonus',
+  childChatId: null,
   messageId: 'msg-1',
   startOffset: 22,
   endOffset: 30,
@@ -99,7 +100,7 @@ describe('useTreeHighlights', () => {
     vi.mocked(api.listTreeHighlights).mockResolvedValue([]);
     vi.mocked(api.listMessageHighlights).mockResolvedValue([]);
     vi.mocked(api.createMessageHighlight).mockResolvedValue({
-      id: 'mh-1', messageId: 'msg-1', chatId: 'branch-1',
+      id: 'mh-1', messageId: 'msg-1', chatId: 'branch-1', childChatId: null,
       startOffset: 22, endOffset: 30, text: 'annealed', color: 'orange',
       createdAt: '2026-07-19T00:00:00.000Z', updatedAt: '2026-07-19T00:00:00.000Z',
     });
