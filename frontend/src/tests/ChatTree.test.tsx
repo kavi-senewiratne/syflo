@@ -331,3 +331,33 @@ describe('ChatTree – expand / collapse', () => {
     expect(screen.getByText('Child Chat')).toBeInTheDocument();
   });
 });
+
+describe('ChatTree – the row whose context menu is open stays marked (design/mockup-context-menu-target.html, variant A)', () => {
+  const rowOf = (title: string) => screen.getByText(title).closest('div') as HTMLElement;
+
+  it('holds the hover pill on the row the menu belongs to', () => {
+    render(<ChatTree chats={flatChats} {...baseProps} contextMenuId="1" />);
+    expect(rowOf('Alpha').classList.contains('bg-gray-100')).toBe(true);
+    // Every other row keeps its neutral styling.
+    expect(rowOf('Beta').classList.contains('bg-gray-100')).toBe(false);
+  });
+
+  it('deepens the active row instead of graying it, so it still reads as the open chat', () => {
+    render(<ChatTree chats={flatChats} {...baseProps} activeChatId="1" contextMenuId="1" />);
+    const row = rowOf('Alpha');
+    expect(row.classList.contains('bg-blue-100')).toBe(true);
+    expect(row.classList.contains('bg-gray-100')).toBe(false);
+  });
+
+  it('marks nothing while no menu is open', () => {
+    render(<ChatTree chats={flatChats} {...baseProps} />);
+    expect(rowOf('Alpha').classList.contains('bg-gray-100')).toBe(false);
+    expect(rowOf('Beta').classList.contains('bg-gray-100')).toBe(false);
+  });
+
+  it('also marks a child row deep in the tree', () => {
+    render(<ChatTree chats={nestedChats} {...baseProps} contextMenuId="2" />);
+    expect(rowOf('Child Chat').classList.contains('bg-gray-100')).toBe(true);
+    expect(rowOf('Parent Chat').classList.contains('bg-gray-100')).toBe(false);
+  });
+});

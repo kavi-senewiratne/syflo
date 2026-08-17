@@ -9,7 +9,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 vi.mock('../api', () => ({
-  api: { sendFeedback: vi.fn() },
+  api: { sendFeedback: vi.fn(), getFeedbackIssuesUrl: vi.fn() },
 }));
 
 import { api } from '../api';
@@ -17,6 +17,8 @@ import { FeedbackDialog } from '../components/FeedbackDialog';
 
 beforeEach(() => {
   vi.mocked(api.sendFeedback).mockReset();
+  vi.mocked(api.getFeedbackIssuesUrl).mockReset();
+  vi.mocked(api.getFeedbackIssuesUrl).mockResolvedValue('https://github.com/kavi-senewiratne/syflo/issues');
 });
 
 describe('FeedbackDialog', () => {
@@ -43,6 +45,21 @@ describe('FeedbackDialog', () => {
     await user.click(screen.getByRole('button', { name: 'Send' }));
 
     await waitFor(() => expect(api.sendFeedback).toHaveBeenCalledWith('bug', 'Picker closes too fast', 'me@example.com'));
+  });
+
+  it('offers the GitHub issues page as fallback when sending fails', async () => {
+    // Hybrid feedback (2026-08-08): Web3Forms down, key rotated, or quota
+    // exhausted must degrade to a link, never to a dead end.
+    vi.mocked(api.sendFeedback).mockRejectedValue(new Error('quota'));
+    const user = userEvent.setup();
+    render(<FeedbackDialog open onClose={vi.fn()} />);
+
+    await user.type(screen.getByPlaceholderText('What happened, or what would help?'), 'It broke');
+    await user.click(screen.getByRole('button', { name: 'Send' }));
+
+    expect(await screen.findByText('Could not send feedback. Please try again.')).toBeInTheDocument();
+    const link = await screen.findByRole('link', { name: 'Open a GitHub issue instead' });
+    expect(link).toHaveAttribute('href', 'https://github.com/kavi-senewiratne/syflo/issues');
   });
 
   it('picks up initialText when opened from an already-mounted, previously-closed instance', () => {

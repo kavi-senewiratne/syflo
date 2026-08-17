@@ -219,14 +219,19 @@ export function useVoiceInput({
   useEffect(() => {
     if (!enabled) return;
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.code !== 'Space' || e.repeat) return;
+      if (e.code !== 'Space') return;
       const active = document.activeElement;
       const isTextInput =
         active instanceof HTMLTextAreaElement ||
         active instanceof HTMLInputElement ||
         (active instanceof HTMLElement && active.isContentEditable);
       if (isTextInput) return;
+      // Outside a text field the browser reads Space as "page down". Holding
+      // the key for push-to-talk fires auto-repeat keydowns, so every single
+      // one has to be suppressed — otherwise a held Space scrolls the PDF to
+      // its last page while the recording runs.
       e.preventDefault();
+      if (e.repeat) return;
       startListening();
     };
     const handleKeyUp = (e: KeyboardEvent) => {

@@ -136,9 +136,9 @@ describe('SettingsModal – two-tab layout', () => {
 
     expect(screen.getByRole('button', { name: /appearance/i })).toBeInTheDocument();
     expect(screen.getByText('Mushroom Kingdom')).toBeInTheDocument();
-    // "Basic" (professional) ist versteckt, nicht entfernt (Nutzerwunsch
-    // 2026-07-23): Theme bleibt gültig, taucht im Picker aber nicht auf.
-    expect(screen.queryByText('Basic')).not.toBeInTheDocument();
+    // Das Default-Theme wird seit 2026-08-12 wieder angeboten und heißt seit
+    // 2026-08-13 "Simply Blue" (ID weiterhin `professional`).
+    expect(screen.getByText('Simply Blue')).toBeInTheDocument();
     // Kein Activate und kein Status-Hinweis auf dem Appearance-Tab
     expect(screen.queryByRole('button', { name: /activate/i })).not.toBeInTheDocument();
     expect(screen.queryByText(/current selection is active/i)).not.toBeInTheDocument();
@@ -252,7 +252,7 @@ describe('SettingsModal – cloud providers (ADR-0008)', () => {
     expect(await screen.findByTestId('settings-quota-gemini-2.5-flash')).toHaveTextContent('5/250');
 
     // Der W10-Tooltip erklärt die Doppel-Natur (frei UND bezahlbar) am Gruppenkopf.
-    expect(screen.getByTestId('tier-info').getAttribute('title')).toMatch(/API key/i);
+    expect(screen.getByTestId('tier-info').getAttribute('data-tip')).toMatch(/API key/i);
   });
 
   it('shows the static registry quota when no key is saved yet (W5)', async () => {

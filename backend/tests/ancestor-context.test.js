@@ -263,6 +263,78 @@ describe('buildAncestorContext – over-long parent chat', () => {
   });
 });
 
+// ─── Selection origin: the paragraph the branch was opened from ──────────────
+//
+// Bug 2026-08-09: the parent transcript sits in the system message behind up
+// to ~58k characters of source text. A weak model read the selected sentence
+// as a free-floating quote — "imaginär" in a passage about word embeddings
+// became language philosophy, although the parent chat had just explained
+// imaginary NUMBERS. buildAncestorContext returns the origin separately so
+// the caller can repeat it right next to the selection.
+
+describe('findSelectionOrigin', () => {
+  const { findSelectionOrigin, buildAncestorContext } = require('../ancestor-context');
+
+  const reply = {
+    role: 'assistant',
+    content:
+      'Reelle Zahlen sind die ganz normalen Dezimalzahlen.\n\n' +
+      'Daneben gibt es die **imaginäre Einheit** $i$ mit $i^2 = -1$.\n\n' +
+      'Man braucht keine komplexen Zahlen, weil die Bedeutung eines Wortes ' +
+      'keinen imaginären Anteil braucht.',
+  };
+  const messages = [{ role: 'user', content: 'Was sind reelle Zahlen?' }, reply];
+
+  it('returns the matching paragraph together with its predecessor', () => {
+    const origin = findSelectionOrigin(messages, 'keinen imaginären Anteil braucht');
+    expect(origin.role).toBe('assistant');
+    // The predecessor carries what the selected term refers to — without it
+    // "imaginär" is ambiguous.
+    expect(origin.excerpt).toContain('imaginäre Einheit');
+    expect(origin.excerpt).toContain('keinen imaginären Anteil braucht');
+    // Not the whole message: the first paragraph stays out.
+    expect(origin.excerpt).not.toContain('ganz normalen Dezimalzahlen');
+  });
+
+  it('finds a passage selected in the rendered bubble, without its markdown', () => {
+    // The user selects "die imaginäre Einheit $i$" — the asterisks the
+    // renderer swallowed are not part of what the browser hands over.
+    const origin = findSelectionOrigin(messages, 'die imaginäre Einheit $i$ mit');
+    expect(origin.excerpt).toContain('imaginäre Einheit');
+  });
+
+  it('matches the newest occurrence when a term repeats', () => {
+    const older = { role: 'assistant', content: 'Erste Erwähnung von Perplexity hier.' };
+    const newer = { role: 'assistant', content: 'Zweite Erwähnung von Perplexity hier.' };
+    const origin = findSelectionOrigin([older, newer], 'Erwähnung von Perplexity');
+    expect(origin.excerpt).toContain('Zweite');
+  });
+
+  it('returns null instead of guessing when the selection is not found', () => {
+    expect(findSelectionOrigin(messages, 'ein Satz aus einem PDF')).toBeNull();
+    // Too short to locate reliably — a two-letter match would hit anywhere.
+    expect(findSelectionOrigin(messages, 'i')).toBeNull();
+    expect(findSelectionOrigin(messages, null)).toBeNull();
+  });
+
+  it('is exposed on buildAncestorContext for chat branches', async () => {
+    insertChat({ id: 'parent', title: 'Zahlen' });
+    insertMessage('parent', 'user', 'Was sind reelle Zahlen?');
+    insertMessage('parent', 'assistant', reply.content);
+    insertChat({
+      id: 'child', title: 'Child', parentId: 'parent',
+      parentWord: 'keinen imaginären Anteil braucht',
+    });
+
+    const ctx = await buildAncestorContext(db, 'child');
+
+    expect(ctx.origin.excerpt).toContain('imaginäre Einheit');
+    // The rendered ancestor text is unchanged — the origin travels separately
+    // so the caller can place it at the END of the prompt.
+    expect(ctx.text).not.toContain('this is what its terms refer to');
+  });
+});
+
 // ─── applyContextBudget: sacrifice order ─────────────────────────────────────
 
 describe('applyContextBudget', () => {

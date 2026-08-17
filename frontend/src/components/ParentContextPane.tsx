@@ -25,7 +25,7 @@ import { ExternalLink, MessageSquare } from 'lucide-react';
 import { MessageBubble } from './ChatArea/MessageBubble';
 import { MathText, hasMath, plainMathText } from './MathText';
 import { useStrings } from '../strings';
-import type { ChatDetail, ChatSelection, MessageHighlight, WordPopup } from '../types';
+import type { ChatDetail, ChatSelection, Message, MessageHighlight, WordPopup } from '../types';
 
 interface Props {
   chat: ChatDetail;
@@ -45,6 +45,9 @@ interface Props {
   // onScrollTargetConsumed, damit die App das Ziel verwirft.
   scrollToMessageId?: string | null;
   onScrollTargetConsumed?: () => void;
+  // Klick auf das Zitat einer Frage im Elternchat: springt zu deren Quelle,
+  // genau wie in der aktiven Spalte (mockup-quote-jump-to-source.html).
+  onQuoteClick?: (message: Message) => void;
 }
 
 export function ParentContextPane({
@@ -58,6 +61,7 @@ export function ParentContextPane({
   pendingSelection,
   scrollToMessageId,
   onScrollTargetConsumed,
+  onQuoteClick,
 }: Props) {
   // UI-Texte in der App language — re-rendert beim Sprachwechsel mit.
   const S = useStrings().parentContext;
@@ -126,6 +130,7 @@ export function ParentContextPane({
                   onChatSelection={onChatSelection}
                   onHighlightContextMenu={onHighlightContextMenu}
                   pendingSelection={pendingSelection}
+                  onQuoteClick={onQuoteClick}
                 />
               </div>
             ))}

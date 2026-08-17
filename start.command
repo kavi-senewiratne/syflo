@@ -140,10 +140,51 @@ EOF
 done
 [[ "$killed_any" == 1 ]] && sleep 1
 
+# Orphaned dev servers from earlier instances (bug found 2026-08-10).
+#
+# The loop above only finds instances whose bash process still EXISTS. Force-
+# quit the Terminal window, put the Mac to sleep, SIGKILL — and the trap never
+# runs, so `npm run dev` and its `node --watch server.js` live on as orphans
+# with no parent to match. Clearing the port below does not help either: the
+# listener on 3001 is merely the CHILD of the watcher, and the moment it dies
+# the watcher spawns a fresh one. The old instance therefore keeps competing
+# for the port forever.
+#
+# Measured state on 2026-08-10: THREE watchers alive at once (from 31 July,
+# 6 August and 9 August), all on the same folder. Which one won port 3001 was
+# a race — it changed between two measurements an hour apart. The two losers
+# still wrote "Syflo backend running on http://localhost:3001" into their own
+# log after dying on EADDRINUSE, so the perf lines and the real log sat in
+# different files and a diagnosis reads the wrong one.
+#
+# So kill the WATCHERS, not the listeners. Matched by command line AND working
+# directory, so another checkout or an unrelated project is never touched.
+stale_dev_pids() {
+  local pid cwd
+  {
+    pgrep -f "node --watch server.js" 2>/dev/null || true
+    pgrep -f "node .*/vite" 2>/dev/null || true
+  } | sort -u | while read -r pid; do
+    [[ -z "$pid" || "$pid" == "$own_pid" ]] && continue
+    cwd=$(lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -1)
+    [[ "$cwd" == "$SYFLO_DIR"* ]] && echo "$pid"
+  done
+}
+stale=$(stale_dev_pids)
+if [[ -n "$stale" ]]; then
+  echo "Closing orphaned dev servers: PID $(echo $stale | tr '\n' ' ')"
+  for pid in $stale; do
+    kill_tree "$pid"
+  done
+  sleep 1
+fi
+
 # Safety net: terminate all processes still listening on our ports.
 # Catches orphan processes from old/crashed instances — otherwise the new
 # vite e.g. moves from 5173 to 5174 and the browser shows stale code.
-for port in 3001 5173 5174 5175 5176 5177 5178; do
+# 8891 = whisper-server (dictation): started lazily by the backend, so an
+# orphan outlives its parent and the new backend's instance cannot bind.
+for port in 3001 5173 5174 5175 5176 5177 5178 8891; do
   leftover=$(lsof -t -iTCP:$port -sTCP:LISTEN 2>/dev/null || true)
   if [[ -n "$leftover" ]]; then
     echo "Clearing port $port (PID $leftover)..."

@@ -181,8 +181,33 @@ const en = {
     dropFiles: 'Drop files to attach',
     attachmentsHeading: 'Attachments',
     feedbackCommandDesc: 'Send a bug report or idea to the Syflo team',
+    // /btw in the slash menu — the one place the command is discovered, so
+    // the description carries the promise instead of a line in the composer.
+    btwCommandDesc: 'Ask a side question — not saved to this chat',
+    // /branch (design/mockup-branch-command.html). The command name is not
+    // translated — same rule as /btw — but everything around it is.
+    branchCommandDesc: 'Open a branch on a topic you type',
+    branchUnder: (title: string) => `under ${title}`,
+    branchTargetHeading: 'Create the branch under',
+    branchTargetChange: 'Change where the branch is created',
     quoteFrom: (label: string) => `from "${label}"`,
     removeQuote: 'Remove quote',
+    // /btw (design/mockup-btw-composer-fold.html). The command itself stays
+    // "/btw" in both languages — it is the panel's name too, so nothing here
+    // translates it.
+    btwKeep: 'Keep in chat',
+    btwBranch: 'Make a branch',
+    // Branch trace (design/mockup-branch-trace.html): the line a passage-less
+    // branch leaves at the point in the transcript where it was opened. The
+    // pill carries the raw command name — "/btw" and "/branch" are the same
+    // in both languages, like the panel — so only the wording around it lives
+    // here.
+    traceOpenBranch: 'Open branch',
+    traceMore: (n: number) => (n === 1 ? 'Show 1 more branch' : `Show ${n} more branches`),
+    traceLess: 'Show fewer',
+    // Back-link in the header of a branch that has no quote (`/branch`):
+    // jumps to its line in the parent transcript.
+    traceBackTo: 'Branched off in ',
     attach: 'Attach',
     menuMedia: 'Media',
     menuPdf: 'PDF',
@@ -223,6 +248,24 @@ const en = {
     rateLimitedScoped: (scope: string, model: string, seconds: number) =>
       `Per-minute limit (${scope}) on ${model} — resuming in ${seconds} s`,
     retryingOn: (model: string) => `Retrying on ${model}…`,
+    // The provider's servers are saturated, not our quota (503 "high
+    // demand", mockup-truncated-answer §03). Names the provider, the wait
+    // and which attempt this is — so the wait reads as progress, not as a
+    // hang. Its own copy because "rate limit" would blame the wrong thing.
+    overloadedWaiting: (provider: string, seconds: number, attempt: number, max: number) =>
+      `${provider} is overloaded — retrying in ${seconds}s (${attempt} of ${max})`,
+    overloadedRetrying: (provider: string, attempt: number, max: number) =>
+      `${provider} is overloaded — retrying (${attempt} of ${max})…`,
+    // Every retry used up. Names the provider, not the quota — nothing the
+    // user owns ran out here.
+    failOverloaded: (provider: string) =>
+      `${provider} is overloaded — three attempts came back empty.`,
+    // The answer stopped mid-thought (mockup-truncated-answer §01). With a
+    // time mark the line answers the reader's actual question — "why does it
+    // stop here?" — without scrolling.
+    truncated: 'The answer broke off mid-sentence.',
+    truncatedAtMark: (mark: string) => `The answer broke off mid-sentence — last at ${mark}.`,
+    continueWriting: 'Continue',
     // Another provider stepped in for this answer (limit on the active one).
     failover: (fromLabel: string, toLabel: string, modelLabel: string) =>
       `Quota reached on ${fromLabel} — this answer comes from ${toLabel} (${modelLabel}).`,
@@ -300,6 +343,8 @@ const en = {
     resend: 'Send again',
   },
   messageBubble: {
+    // Tooltip of a clickable time mark in a video overview.
+    openAtTime: 'Open the video at this point',
     thinking: 'Thinking…',
     thoughtFor: (duration: string) => `Thought for ${duration}`,
     thoughts: 'Thoughts',
@@ -312,6 +357,9 @@ const en = {
     // Tooltip of the ahead-link (§07): previews the question the queue is
     // answering RIGHT NOW; clicking jumps to that chat.
     nowAnswering: (question: string) => `Now answering: “${question}…”`,
+    // Tooltip of a clickable "Ask in chat" quote
+    // (mockup-quote-jump-to-source.html, variant A).
+    quoteJumpTitle: 'Go to the source of this quote',
     sources: 'Sources',
     assistantThinking: 'Assistant is thinking',
     tipLabel: 'Tip: ',
@@ -348,6 +396,43 @@ const en = {
     retry: 'Retry',
     noChats: 'No chats yet',
     allChats: 'All chats',
+    // Pinned section (design/mockup-pinned-chats.html, variant A) — the
+    // heading reads like a date section, the pin icon carries the difference.
+    pinned: 'Pinned',
+    pin: 'Pin chat',
+    unpin: 'Unpin chat',
+    // The parent of the date sections (design/mockup-sidebar-timeline-group.html,
+    // variant B, decided 2026-08-16). One heading, so the whole clock side of
+    // the sidebar puts itself away in a click. German "Verlauf" is the word the
+    // user chose; "History" is its English counterpart and what a new user
+    // looks for.
+    timeline: 'History',
+    // Categories — the third grouping in the root list, and the only one the
+    // user owns (design/mockup-sidebar-categories-v2.html, decided 2026-08-16).
+    newCategory: 'New category',
+    newSubcategory: 'New subcategory',
+    renameCategory: 'Rename',
+    deleteCategory: 'Delete category',
+    // The promise the menu makes out loud: a container is not its contents.
+    deleteCategoryNote: (count: number) => count === 1
+      ? 'The chat stays and returns to its date section.'
+      : `The ${count} chats stay and return to their date sections.`,
+    // The confirmation repeats that promise, because the modal is where the
+    // deletion actually happens and "delete" reads as "delete the chats too".
+    deleteCategoryTitle: 'Delete category?',
+    deleteCategoryBody: (name: string, count: number) => count === 0
+      ? `"${name}" will be removed. It holds no chats.`
+      : count === 1
+        ? `"${name}" will be removed. The chat in it stays and returns to its date section.`
+        : `"${name}" will be removed. The ${count} chats in it stay and return to their date sections.`,
+    categoryOptions: 'Category options',
+    categoryNamePlaceholder: 'Category name',
+    moveToCategory: 'Move to category',
+    // Files into the category itself rather than one of its subcategories —
+    // without it the user has to back out of a submenu they only opened to
+    // read the names.
+    categoryItself: (name: string) => `${name} itself`,
+    removeFromCategory: 'Remove from category',
     responseInProgress: 'Response in progress',
     queuedInQueue: 'Question waiting in queue',
     // Anzeige-Texte der Datums-Gruppen — groupChatsByDate.ts liefert die
@@ -375,6 +460,7 @@ const en = {
     sending: 'Sending…',
     sent: 'Feedback sent — thank you!',
     error: 'Could not send feedback. Please try again.',
+    errorIssueLink: 'Open a GitHub issue instead',
     close: 'Close',
   },
   videoBanner: {
@@ -387,6 +473,29 @@ const en = {
     close: 'Close transcript',
     sourceNote: 'This is the source text the model reads.',
     languageNote: (lang: string) => ` Language: ${lang}.`,
+  },
+  videoPane: {
+    chapters: 'Chapters',
+    transcript: 'Transcript',
+    watchOnYouTube: 'Watch on YouTube',
+    readTranscript: 'Read the transcript',
+    noChaptersTitle: 'No chapters yet',
+    noChaptersBody:
+      'The chapters are the sections of the video overview. Ask for the overview and they appear here.',
+    // Three honest states instead of one wrong sentence
+    // (design/mockup-truncated-answer.html §02): the overview question goes
+    // out automatically on import, so "ask for it" was advice for something
+    // already done.
+    chaptersWriting: 'Writing the overview …',
+    chaptersCut: 'The overview broke off',
+    chaptersCutAtMark: (mark: string) => `The overview broke off at ${mark}`,
+    chaptersCutBody: (duration: string) =>
+      `Only part of the ${duration} video has been structured so far.`,
+    continueOverview: 'Continue',
+    embedBlockedTitle: "This video can't play inside Syflo",
+    embedBlockedBody:
+      'The channel has disabled embedding. The transcript is attached all the same — the overview and every question work exactly as usual; only the picture has to open on YouTube.',
+    jumpTo: (mark: string) => `Jump to ${mark}`,
   },
   paperSearch: {
     title: 'Add a research paper',
@@ -423,12 +532,34 @@ const en = {
     searchFailed: 'Search failed',
     importFailed: 'Import failed',
   },
+  // Default name of each highlight color. These follow the App language
+  // (user request 2026-08-06) — unlike every other string here they are only
+  // a DEFAULT: a name the user typed in the popup's edit mode is stored
+  // server-side and wins over the language, in every language.
+  //
+  // The five categories name the READING SITUATION a mark records, and they
+  // are deliberately mutually exclusive (decision 2026-08-06). 'Question' was
+  // rejected as the yellow label: every mark can be branched into a question,
+  // so the word said nothing the color did not already say. 'unclear' (not
+  // understood) versus 'doubt' (understood but not convinced) is the sharp
+  // pair that replaces it.
+  highlightLabels: {
+    yellow: 'Unclear',
+    green: 'Key point',
+    blue: 'Definition',
+    pink: 'Idea',
+    orange: 'Doubt',
+  },
   highlightsDrawer: {
     title: 'Highlights',
     close: 'Close highlights',
     all: 'All',
     empty: 'No highlights yet — select text and right-click to highlight.',
     pdfSource: (page: number) => `PDF · p. ${page}`,
+    // The video marks name their moment — the transcript's answer to a page
+    // number (drawer, 2026-08-16).
+    transcriptSource: (mark: string) => `Transcript · ${mark}`,
+    chapterSource: (mark: string) => `Chapter · ${mark}`,
     chatSource: (title: string) => `Chat · ${title}`,
     // Locale der Datumsformatierung — folgt der App language.
     dateLocale: 'en-US',
@@ -469,7 +600,6 @@ const en = {
   },
   floatingPopup: {
     definition: 'Definition',
-    wordCount: (n: number) => `· ${n} words`,
     collapse: 'Collapse',
     copyText: 'Copy text',
     copiedTitle: 'Copied!',
@@ -486,6 +616,56 @@ const en = {
     saveLabels: 'Save labels',
     askInChat: 'Ask in chat',
     openAsNewChat: 'Open as new chat',
+    // Shown in place of openAsNewChat while the branch is being created —
+    // the wait is the passage-title lookup (see chat/passageTitle.ts).
+    creatingChat: 'Creating chat…',
+  },
+  // Citation card — the popup a clicked reference link opens
+  // (design/mockup-paper-reference-links.html). The STATE lives in the door:
+  // a paywalled work reads "No free PDF", one already imported reads
+  // "Go to tree". No badge, no footnote.
+  citationCard: {
+    reference: (label: string) => `Reference ${label}`,
+    referenceGeneric: 'Reference',
+    notIdentified: 'from the page',
+    alreadyATree: 'already a tree',
+    lookingItUp: 'Looking it up…',
+    notFound: 'Read off the printed row.',
+    // Bare number for the icon row — the icon and its label say what it is.
+    citationCount: (n: number) => n.toLocaleString('en-US'),
+    // Spelled out for the folded summary line, which has no icon beside it.
+    citationCountLong: (n: number) => `${n.toLocaleString('en-US')} citations`,
+    etAl: 'et al.',
+    // Screen-reader labels for the icons that replace the "·" separators.
+    authorsLabel: 'Authors',
+    yearLabel: 'Year',
+    venueLabel: 'Published in',
+    citationsLabel: 'Citations',
+    openedAgo: 'already open in Syflo',
+    openInSyflo: 'Open in Syflo',
+    openInBrowser: 'Open in browser',
+    noFreePdf: 'No downloadable PDF available.',
+    // The silent web search (design/mockup-citation-card-standard.html § 04).
+    // Only three sentences exist for it, and two of them are apologies —
+    // when it works, the reader is meant to notice nothing at all.
+    searchingFulltext: 'Looking for the full text…',
+    noFulltextFound: 'No freely available full text found.',
+    searchUnreachable: 'The web search is not reachable right now.',
+    // The clock and the sentence shape come from the quota cooldown line in
+    // the chat ("Rate limit reached — trying again in 18 s",
+    // mockup-quota-states § 02): one countdown idiom for the whole app (user
+    // decision 2026-08-11).
+    //
+    // "Search paused" and not "Too many requests": the reader is owed the
+    // consequence, not the cause. Whose limit it was and which engine shut us
+    // out is backstage — what they need to know is that Syflo stopped
+    // looking, and starts again by itself in n seconds.
+    searchRetryIn: (seconds: number) => `Search paused — resuming in ${seconds} s`,
+    goToTree: 'Go to tree',
+    searchTheWeb: 'Search the web',
+    loadingPaper: 'Loading paper…',
+    downloadBlocked: 'The download was blocked. Save the PDF from the publisher and upload it into a new tree.',
+    close: 'Close',
   },
   // Aktions-Menü eines bestehenden Highlights (PDF & Chat-Text) — war bis
   // 2026-07-25 hartkodiert englisch (Bug-Report). "Highlight" bleibt als
@@ -509,6 +689,12 @@ const en = {
   mindMap: {
     mainTopic: 'Main Topic',
     noChats: 'No chats yet',
+    // Placeholder for the node's second line while the finding is still
+    // missing (mockup-mindmap-node-final.html §01).
+    outcomePending: 'Outcome follows …',
+    // Filter chips above the map — same wording as the highlights drawer.
+    filterAll: 'All',
+    filterHidden: (shown: number, total: number) => `${shown} / ${total} nodes shown`,
   },
   app: {
     newChatTitle: 'New Chat',
@@ -517,9 +703,18 @@ const en = {
     // auto-title replaces it with a summary after the first answer anyway.
     aboutChatTitle: (word: string) => word,
     newTreeTitle: 'This chat tree already has a source',
-    newTreeLead: 'Each chat tree holds one source — a PDF or a YouTube transcript.',
-    newTreeAskPrefix: 'Start a new tree with ',
-    newTreeAskSuffix: '?',
+    // Variant C (user choice 2026-08-15): the two sources are shown as cards,
+    // current above new, instead of the title sitting inside a sentence. The
+    // lead therefore ends on a colon and the "Start a new tree with … ?"
+    // wrapper is gone — the confirm button already says what happens.
+    newTreeLead: 'A tree holds exactly one source. The new one needs a tree of its own:',
+    newTreeCurrent: 'In this tree',
+    newTreeNext: 'In the new tree',
+    // Kind labels under a source title. The channel/author is appended by the
+    // caller when there is one.
+    newTreeKindPdf: 'PDF',
+    newTreeKindVideo: 'YouTube',
+    newTreeUntitledPdf: 'Untitled PDF',
     cancel: 'Cancel',
     startNewTree: 'Start new tree',
     noDefinition: '(No definition returned)',
@@ -685,8 +880,19 @@ const de: Strings = {
     dropFiles: 'Dateien hier ablegen',
     attachmentsHeading: 'Anhänge',
     feedbackCommandDesc: 'Feedback oder eine Idee an das Syflo-Team senden',
+    btwCommandDesc: 'Nebenfrage stellen — wird nicht in diesem Chat gespeichert',
+    branchCommandDesc: 'Branch zu einem selbst getippten Thema öffnen',
+    branchUnder: (title: string) => `unter ${title}`,
+    branchTargetHeading: 'Branch anlegen unter',
+    branchTargetChange: 'Ändern, wo der Branch angelegt wird',
     quoteFrom: (label: string) => `aus „${label}"`,
     removeQuote: 'Zitat entfernen',
+    btwKeep: 'Im Chat behalten',
+    btwBranch: 'Verzweigen',
+    traceOpenBranch: 'Branch öffnen',
+    traceMore: (n: number) => (n === 1 ? '1 weiteren Branch anzeigen' : `${n} weitere Branches anzeigen`),
+    traceLess: 'Weniger anzeigen',
+    traceBackTo: 'Abgezweigt in ',
     attach: 'Anhängen',
     menuMedia: 'Medien',
     menuPdf: 'PDF',
@@ -717,6 +923,15 @@ const de: Strings = {
     rateLimitedScoped: (scope: string, model: string, seconds: number) =>
       `Minuten-Limit (${scope}) bei ${model} — weiter in ${seconds} s`,
     retryingOn: (model: string) => `Neuer Versuch bei ${model} läuft…`,
+    overloadedWaiting: (provider: string, seconds: number, attempt: number, max: number) =>
+      `${provider} ist überlastet — neuer Versuch in ${seconds} s (${attempt} von ${max})`,
+    overloadedRetrying: (provider: string, attempt: number, max: number) =>
+      `${provider} ist überlastet — neuer Versuch läuft (${attempt} von ${max})…`,
+    failOverloaded: (provider: string) =>
+      `${provider} ist überlastet — drei Versuche blieben ohne Antwort.`,
+    truncated: 'Die Antwort brach mitten im Satz ab.',
+    truncatedAtMark: (mark: string) => `Die Antwort brach mitten im Satz ab — zuletzt bei ${mark}.`,
+    continueWriting: 'Weiterschreiben',
     failover: (fromLabel: string, toLabel: string, modelLabel: string) =>
       `Kontingent bei ${fromLabel} erschöpft — diese Antwort kommt von ${toLabel} (${modelLabel}).`,
     failoverSameProvider: (fromModelLabel: string, toModelLabel: string) =>
@@ -770,6 +985,7 @@ const de: Strings = {
     resend: 'Erneut senden',
   },
   messageBubble: {
+    openAtTime: 'Video an dieser Stelle öffnen',
     thinking: 'Denkt nach…',
     thoughtFor: (duration: string) => `Hat ${duration} nachgedacht`,
     thoughts: 'Gedanken',
@@ -780,6 +996,7 @@ const de: Strings = {
     queued: (ahead: number) =>
       ahead === 1 ? 'Wartet — 1 Anfrage davor' : `Wartet — ${ahead} Anfragen davor`,
     nowAnswering: (question: string) => `Gerade dran: „${question}…“`,
+    quoteJumpTitle: 'Zur Quelle dieses Zitats springen',
     sources: 'Quellen',
     assistantThinking: 'Der Assistent denkt nach',
     tipLabel: 'Tipp: ',
@@ -816,6 +1033,28 @@ const de: Strings = {
     retry: 'Erneut versuchen',
     noChats: 'Noch keine Chats',
     allChats: 'Alle Chats',
+    pinned: 'Angepinnt',
+    pin: 'Chat anpinnen',
+    unpin: 'Nicht mehr anpinnen',
+    timeline: 'Verlauf',
+    newCategory: 'Neue Kategorie',
+    newSubcategory: 'Neue Unterkategorie',
+    renameCategory: 'Umbenennen',
+    deleteCategory: 'Kategorie löschen',
+    deleteCategoryNote: (count: number) => count === 1
+      ? 'Der Chat bleibt und kehrt in seinen Datums-Abschnitt zurück.'
+      : `Die ${count} Chats bleiben und kehren in ihre Datums-Abschnitte zurück.`,
+    deleteCategoryTitle: 'Kategorie löschen?',
+    deleteCategoryBody: (name: string, count: number) => count === 0
+      ? `„${name}" wird entfernt. Sie enthält keine Chats.`
+      : count === 1
+        ? `„${name}" wird entfernt. Der Chat darin bleibt und kehrt in seinen Datums-Abschnitt zurück.`
+        : `„${name}" wird entfernt. Die ${count} Chats darin bleiben und kehren in ihre Datums-Abschnitte zurück.`,
+    categoryOptions: 'Kategorie-Optionen',
+    categoryNamePlaceholder: 'Name der Kategorie',
+    moveToCategory: 'In Kategorie verschieben',
+    categoryItself: (name: string) => `${name} selbst`,
+    removeFromCategory: 'Aus der Kategorie nehmen',
     responseInProgress: 'Antwort wird generiert',
     queuedInQueue: 'Frage wartet in der Warteschlange',
     groups: {
@@ -841,6 +1080,7 @@ const de: Strings = {
     sending: 'Wird gesendet…',
     sent: 'Feedback gesendet — danke!',
     error: 'Feedback konnte nicht gesendet werden. Bitte versuche es erneut.',
+    errorIssueLink: 'Stattdessen ein GitHub-Issue öffnen',
     close: 'Schließen',
   },
   videoBanner: {
@@ -853,6 +1093,25 @@ const de: Strings = {
     close: 'Transcript schließen',
     sourceNote: 'Das ist der Quelltext, den das Modell liest.',
     languageNote: (lang: string) => ` Sprache: ${lang}.`,
+  },
+  videoPane: {
+    chapters: 'Kapitel',
+    transcript: 'Transcript',
+    watchOnYouTube: 'Auf YouTube ansehen',
+    readTranscript: 'Transcript lesen',
+    noChaptersTitle: 'Noch keine Kapitel',
+    noChaptersBody:
+      'Die Kapitel sind die Abschnitte der Video overview. Sie entstehen aus der Antwort — sobald sie da ist, stehen sie hier.',
+    chaptersWriting: 'Die Übersicht wird geschrieben …',
+    chaptersCut: 'Die Übersicht brach ab',
+    chaptersCutAtMark: (mark: string) => `Die Übersicht brach bei ${mark} ab`,
+    chaptersCutBody: (duration: string) =>
+      `Von ${duration} Minuten ist bisher nur ein Teil gegliedert.`,
+    continueOverview: 'Weiterschreiben',
+    embedBlockedTitle: 'Dieses Video lässt sich in Syflo nicht abspielen',
+    embedBlockedBody:
+      'Der Kanal hat das Einbetten deaktiviert. Das Transcript hängt trotzdem am Baum — Übersicht und alle Fragen funktionieren wie gewohnt; nur das Bild muss auf YouTube aufgehen.',
+    jumpTo: (mark: string) => `Zu ${mark} springen`,
   },
   paperSearch: {
     title: 'Research paper hinzufügen',
@@ -889,12 +1148,22 @@ const de: Strings = {
     searchFailed: 'Suche fehlgeschlagen',
     importFailed: 'Import fehlgeschlagen',
   },
+  // Nur Voreinstellung — eine eigene Umbenennung gewinnt (siehe EN-Hälfte).
+  highlightLabels: {
+    yellow: 'Unklar',
+    green: 'Kernaussage',
+    blue: 'Definition',
+    pink: 'Idee',
+    orange: 'Zweifel',
+  },
   highlightsDrawer: {
     title: 'Highlights',
     close: 'Highlights schließen',
     all: 'Alle',
     empty: 'Noch keine Highlights — markiere Text und rechtsklicke, um zu highlighten.',
     pdfSource: (page: number) => `PDF · S. ${page}`,
+    transcriptSource: (mark: string) => `Transcript · ${mark}`,
+    chapterSource: (mark: string) => `Kapitel · ${mark}`,
     chatSource: (title: string) => `Chat · ${title}`,
     dateLocale: 'de-DE',
   },
@@ -928,7 +1197,6 @@ const de: Strings = {
   },
   floatingPopup: {
     definition: 'Definition',
-    wordCount: (n: number) => `· ${n} Wörter`,
     collapse: 'Einklappen',
     copyText: 'Text kopieren',
     copiedTitle: 'Kopiert!',
@@ -946,6 +1214,35 @@ const de: Strings = {
     // Domänenbegriff (CONTEXT.md) — bleibt auch im Deutschen englisch.
     askInChat: 'Ask in chat',
     openAsNewChat: 'Als neuen Chat öffnen',
+    creatingChat: 'Chat wird erstellt …',
+  },
+  citationCard: {
+    reference: (label: string) => `Referenz ${label}`,
+    referenceGeneric: 'Referenz',
+    notIdentified: 'aus dem Text',
+    alreadyATree: 'bereits ein Baum',
+    lookingItUp: 'Wird nachgeschlagen …',
+    notFound: 'Aus der gedruckten Zeile gelesen.',
+    citationCount: (n: number) => n.toLocaleString('de-DE'),
+    citationCountLong: (n: number) => `${n.toLocaleString('de-DE')} Zitationen`,
+    etAl: 'u.\u202fa.',
+    authorsLabel: 'Autoren',
+    yearLabel: 'Jahr',
+    venueLabel: 'Erschienen in',
+    citationsLabel: 'Zitationen',
+    openedAgo: 'bereits in Syflo geöffnet',
+    openInSyflo: 'In Syflo öffnen',
+    openInBrowser: 'Im Browser öffnen',
+    noFreePdf: 'Kein herunterladbares PDF verfügbar.',
+    searchingFulltext: 'Volltext wird gesucht …',
+    noFulltextFound: 'Kein frei verfügbarer Volltext gefunden.',
+    searchUnreachable: 'Die Websuche ist gerade nicht erreichbar.',
+    searchRetryIn: (seconds: number) => `Suche pausiert — weiter in ${seconds} s`,
+    goToTree: 'Zum Baum',
+    searchTheWeb: 'Im Web suchen',
+    loadingPaper: 'Paper wird geladen …',
+    downloadBlocked: 'Der Download wurde blockiert. Speichere das PDF beim Verlag und lade es in einen neuen Baum hoch.',
+    close: 'Schließen',
   },
   highlightMenu: {
     changeColor: 'Farbe ändern',
@@ -966,15 +1263,21 @@ const de: Strings = {
   mindMap: {
     mainTopic: 'Hauptthema',
     noChats: 'Noch keine Chats',
+    outcomePending: 'Ergebnis folgt …',
+    filterAll: 'Alle',
+    filterHidden: (shown: number, total: number) => `${shown} / ${total} Knoten sichtbar`,
   },
   app: {
     newChatTitle: 'Neuer Chat',
     // Kein „Über:"-Präfix (Nutzerentscheidung 2026-07-26) — siehe EN-Hälfte.
     aboutChatTitle: (word: string) => word,
     newTreeTitle: 'Dieser Chat-Baum hat bereits eine Quelle',
-    newTreeLead: 'Jeder Chat-Baum hält genau eine Quelle — ein PDF oder ein YouTube transcript.',
-    newTreeAskPrefix: 'Neuen Baum mit ',
-    newTreeAskSuffix: ' starten?',
+    newTreeLead: 'Ein Baum hält genau eine Quelle. Für die neue braucht es einen eigenen Baum:',
+    newTreeCurrent: 'In diesem Baum',
+    newTreeNext: 'Im neuen Baum',
+    newTreeKindPdf: 'PDF',
+    newTreeKindVideo: 'YouTube',
+    newTreeUntitledPdf: 'PDF ohne Titel',
     cancel: 'Abbrechen',
     startNewTree: 'Neuen Baum starten',
     noDefinition: '(Keine Definition erhalten)',

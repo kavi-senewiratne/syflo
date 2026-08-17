@@ -24,7 +24,11 @@ let db;
 beforeEach(() => {
   if (fs.existsSync(TEST_DB_PATH)) fs.unlinkSync(TEST_DB_PATH);
   db = createDb(TEST_DB_PATH);
-  app = createApp(db);
+  // The upload route kicks off two background passes (retrieval + reference
+  // links). Both reach for pdf.js, and an ESM import landing after this suite
+  // tears down breaks the loader for every other suite in the process — so
+  // this suite stubs them out, as it already does for the text extraction.
+  app = createApp(db, { papers: { extractCitationsFn: async () => ({ citations: [], references: [] }) } });
 });
 
 afterEach(() => {
@@ -138,6 +142,7 @@ describe('POST /api/papers — background retrieval preparation (ADR-0006)', () 
       papers: {
         extractPdfTextFn: jest.fn().mockResolvedValue(extractedText),
         embedTextsFn: embedFn,
+        extractCitationsFn: async () => ({ citations: [], references: [] }),
       },
     });
   }
@@ -190,6 +195,7 @@ describe('POST /api/papers — background retrieval preparation (ADR-0006)', () 
       papers: {
         extractPdfTextFn: jest.fn().mockRejectedValue(new Error('corrupt')),
         embedTextsFn: jest.fn(),
+        extractCitationsFn: async () => ({ citations: [], references: [] }),
       },
     });
     const chat = await request(app2).post('/api/chats').send({ title: 'Broken' });

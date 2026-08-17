@@ -39,7 +39,7 @@ vi.mock('../api', () => ({
     createChat: vi.fn(),
     // Default: no title from the model — the branch falls back to the tidied
     // passage, which is what the older tests below expect.
-    passageTitle: vi.fn().mockResolvedValue(null),
+    passageTitle: vi.fn().mockResolvedValue({ title: null, quote: null }),
     deleteChat: vi.fn(),
     renameChat: vi.fn(),
     sendMessageStream: vi.fn(),
@@ -215,6 +215,7 @@ describe('App — Highlight-Flows (Slices 04–06)', () => {
         'c1',
         'inverse dynamics model',
         'inverse dynamics model',
+        undefined,   // parent_word_display: no model quote in this test
       ),
     );
     // Kein Swatch-Klick vorher → Highlight wird direkt mit chatId angelegt.
@@ -226,13 +227,44 @@ describe('App — Highlight-Flows (Slices 04–06)', () => {
     );
   });
 
+  // Während der Branch entsteht, wartet der Klick auf die Titel-Abfrage
+  // (gemessen 0,5 s, Deckel 2,5 s). Bis 2026-08-08 stand der Knopf einfach
+  // tot da — jetzt zeigt er den Ladezustand und nimmt keinen zweiten Klick
+  // an (Variante A, design/mockup-branch-creation-loading.html).
+  it('zeigt während der Branch-Erstellung den Ladezustand und ignoriert einen zweiten Klick', async () => {
+    const branch: Chat = { ...rootChat, id: 'c2', title: 'inverse dynamics model', parent_id: 'c1' };
+    // Die Titel-Abfrage hängt, bis der Test sie auflöst — genau das Fenster,
+    // in dem der Nutzer den toten Knopf sah.
+    let releaseTitle: (v: { title: string | null; quote: string | null }) => void = () => {};
+    vi.mocked(api.passageTitle).mockReturnValue(
+      new Promise((resolve) => { releaseTitle = resolve; }),
+    );
+    vi.mocked(api.createChat).mockResolvedValue(branch);
+    await openPdfChatAndRightClick();
+
+    const branchBtn = screen.getByTestId('popup-open-child-chat');
+    fireEvent.click(branchBtn);
+
+    await waitFor(() =>
+      expect(screen.getByTestId('popup-open-child-chat')).toHaveAttribute('aria-busy', 'true'),
+    );
+    expect(screen.getByTestId('popup-open-child-chat')).toHaveTextContent(/creating chat/i);
+    expect(api.createChat).not.toHaveBeenCalled();
+
+    // Ungeduldiger zweiter Klick darf keinen zweiten Branch anlegen.
+    fireEvent.click(screen.getByTestId('popup-open-child-chat'));
+
+    releaseTitle({ title: null, quote: null });
+    await waitFor(() => expect(api.createChat).toHaveBeenCalledTimes(1));
+  });
+
   // Der Branch trägt SOFORT den fertigen Titel — im Baum darf nie die rohe
   // Passage stehen (Nutzeranforderung 2026-08-02). Die Titel-Abfrage startet
   // beim Öffnen des Popups, der Branch-Klick verwendet ihr Ergebnis.
   it('erstellt den Branch mit dem vom Modell rekonstruierten Formel-Titel', async () => {
     const branch: Chat = { ...rootChat, id: 'c2', title: '$x^{(k)}$', parent_id: 'c1' };
     vi.mocked(api.createChat).mockResolvedValue(branch);
-    vi.mocked(api.passageTitle).mockResolvedValue('$x^{(k)}$');
+    vi.mocked(api.passageTitle).mockResolvedValue({ title: '$x^{(k)}$', quote: '$x^{(k)} = 1$' });
 
     await openPdfChatAndRightClick();
     // Die Abfrage läuft, sobald das Popup offen ist — nicht erst beim Klick.
@@ -244,10 +276,14 @@ describe('App — Highlight-Flows (Slices 04–06)', () => {
       expect(api.createChat).toHaveBeenCalledWith(
         '$x^{(k)}$',
         'c1',
-        // parent_word bleibt die Original-Passage — der Zitat-Text im
-        // Branch-Header ist NICHT der Titel.
+        // parent_word bleibt die WÖRTLICHE Passage — sie ist der Kontext
+        // fürs Modell und der Anker, den Branch-Links und der
+        // Highlight-Abgleich im Text suchen.
         'inverse dynamics model',
         'inverse dynamics model',
+        // parent_word_display: dieselbe Passage mit wiederhergestellter
+        // Mathematik — nur für die Anzeige im Branch-Header (2026-08-02).
+        '$x^{(k)} = 1$',
       ),
     );
   });
@@ -266,6 +302,97 @@ describe('App — Highlight-Flows (Slices 04–06)', () => {
       expect(api.updateHighlight).toHaveBeenCalledWith('h1', { chatId: 'c2' }),
     );
     expect(api.createHighlight).toHaveBeenCalledTimes(1);
+  });
+
+  // Nutzer-Report 2026-08-06: im Enkel-Chat "PointNet" ins PDF zurückgewechselt,
+  // Text markiert, neuer Chat — und der Branch hing unter PointNet statt unter
+  // dem PDF-Wurzelchat. Der Eltern-Chat folgt der HERKUNFT der Markierung: das
+  // PDF gehört der Baumwurzel (ADR-0002, backend/routes/papers.js bindet es an
+  // root.id), also ist die Wurzel der Elternteil — egal welcher Chat aktiv ist.
+  it('branch aus einer PDF-Markierung hängt an der Baumwurzel, nicht am aktiven Enkel-Chat', async () => {
+    const grandchild: Chat = {
+      id: 'c3', title: 'PointNet + ResNet-18', parent_id: 'c2',
+      parent_word: 'PointNet', created_at: '2026-08-06T00:00:00Z', children: [],
+    };
+    const child: Chat = {
+      id: 'c2', title: 'RF-DETR', parent_id: 'c1', parent_word: 'RF-DETR',
+      created_at: '2026-08-06T00:00:00Z', children: [grandchild],
+    };
+    vi.mocked(api.getTree).mockResolvedValue([{ ...rootChat, children: [child] }]);
+    vi.mocked(api.getChat).mockImplementation(async (id: string) =>
+      id === 'c3' ? { ...grandchild, messages: [], children: [] } : rootDetail,
+    );
+    vi.mocked(api.createChat).mockResolvedValue({
+      ...rootChat, id: 'c4', title: 'About: inverse dynamics model', parent_id: 'c1',
+    });
+
+    render(<App />);
+    // Die Listenansicht zeigt nur Wurzeln; der Klick auf die Wurzel klappt den
+    // Baum auf, erst dann ist der Enkel-Chat anklickbar.
+    await waitFor(() => expect(screen.getByText('Paper chat')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('Paper chat'));
+    await waitFor(() => expect(screen.getByText('PointNet + ResNet-18')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('PointNet + ResNet-18'));
+    await waitFor(() => expect(screen.getByTestId('fake-pdf-view')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByTestId('simulate-pdf-rightclick'));
+    await waitFor(() => expect(screen.getByText(/inverse dynamics model/)).toBeInTheDocument());
+    fireEvent.click(screen.getByText(/open as new chat/i));
+
+    await waitFor(() => expect(api.createChat).toHaveBeenCalled());
+    expect(vi.mocked(api.createChat).mock.calls[0][1]).toBe('c1');
+  });
+
+  // Gegenprobe: eine Markierung IM Chat verzweigt weiterhin von diesem Chat.
+  it('branch aus einer Chat-Markierung hängt am markierten Chat, nicht an der Wurzel', async () => {
+    const grandchild: Chat = {
+      id: 'c3', title: 'PointNet + ResNet-18', parent_id: 'c2',
+      parent_word: 'PointNet', created_at: '2026-08-06T00:00:00Z', children: [],
+    };
+    const child: Chat = {
+      id: 'c2', title: 'RF-DETR', parent_id: 'c1', parent_word: 'RF-DETR',
+      created_at: '2026-08-06T00:00:00Z', children: [grandchild],
+    };
+    vi.mocked(api.getTree).mockResolvedValue([{ ...rootChat, children: [child] }]);
+    vi.mocked(api.getChat).mockImplementation(async (id: string) =>
+      id === 'c3'
+        ? { ...grandchild, children: [], messages: [{
+            id: 'm1', chat_id: 'c3', role: 'assistant' as const,
+            content: 'PointNet reads the point cloud geometry.',
+            created_at: '2026-08-06T00:00:00Z',
+          }] }
+        : rootDetail,
+    );
+    vi.mocked(api.createChat).mockResolvedValue({
+      ...rootChat, id: 'c4', title: 'About: point cloud', parent_id: 'c3',
+    });
+
+    render(<App />);
+    // Die Listenansicht zeigt nur Wurzeln; der Klick auf die Wurzel klappt den
+    // Baum auf, erst dann ist der Enkel-Chat anklickbar.
+    await waitFor(() => expect(screen.getByText('Paper chat')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('Paper chat'));
+    await waitFor(() => expect(screen.getByText('PointNet + ResNet-18')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('PointNet + ResNet-18'));
+    const bubble = await waitFor(() => screen.getByText(/reads the point cloud geometry/));
+
+    const content = bubble.closest('[data-chat-content]') ?? bubble;
+    const textNode = bubble.firstChild as Text;
+    const range = document.createRange();
+    range.setStart(textNode, textNode.data.indexOf('point cloud'));
+    range.setEnd(textNode, textNode.data.indexOf('point cloud') + 'point cloud'.length);
+    vi.spyOn(window, 'getSelection').mockReturnValue({
+      isCollapsed: false, rangeCount: 1, getRangeAt: () => range,
+      toString: () => range.toString(),
+      removeAllRanges: () => {}, addRange: () => {},
+    } as unknown as Selection);
+    fireEvent.mouseUp(content);
+
+    await waitFor(() => expect(screen.getByText(/open as new chat/i)).toBeInTheDocument());
+    fireEvent.click(screen.getByText(/open as new chat/i));
+
+    await waitFor(() => expect(api.createChat).toHaveBeenCalled());
+    expect(vi.mocked(api.createChat).mock.calls[0][1]).toBe('c3');
   });
 
   it('Swatch-Klick gefolgt von sofortigem "Open as new chat" (vor Server-Antwort) verknüpft trotzdem nur ein Highlight statt ein zweites unverknüpftes anzulegen', async () => {
@@ -559,5 +686,51 @@ describe('App — Highlights-Drawer (mockup-highlights-overview.html, Variante A
     } finally {
       window.HTMLElement.prototype.scrollIntoView = original;
     }
+  });
+
+  // Nutzerreport 2026-08-10: nach dem Löschen eines Zweigs bot das Popup der
+  // markierten Stelle weiter "Zum verknüpften Chat" an. Die Datenbank löst die
+  // Verknüpfung selbst (ON DELETE SET NULL), aber die Listen im Speicher hängen
+  // an paperId/chatId und wurden nie neu geladen.
+  it('lädt die Highlight-Listen neu, nachdem ein Zweig gelöscht wurde', async () => {
+    const branchChat: Chat = {
+      id: 'c2', title: 'entropy bonus', parent_id: 'c1', parent_word: 'entropy',
+      created_at: '2026-07-12T00:00:00Z', children: [],
+    };
+    vi.mocked(api.getTree).mockResolvedValue([{ ...rootChat, children: [branchChat] }]);
+    vi.mocked(api.getChat).mockImplementation(async (id: string) =>
+      id === 'c2' ? { ...branchChat, messages: [], children: [] } : rootDetail,
+    );
+    // Das PDF-Highlight, das auf den Zweig zeigt — der Zustand vor dem Löschen.
+    vi.mocked(api.listHighlights).mockResolvedValue([{ ...savedHighlight, chatId: 'c2' }]);
+    vi.mocked(api.deleteChat).mockResolvedValue(undefined);
+
+    render(<App />);
+    await waitFor(() => expect(screen.getByText('Paper chat')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('Paper chat'));
+    await waitFor(() => expect(screen.getByText('entropy bonus')).toBeInTheDocument());
+    await waitFor(() => expect(vi.mocked(api.listHighlights)).toHaveBeenCalled());
+
+    // Ab hier gibt das Backend die gelöste Verknüpfung zurück.
+    vi.mocked(api.listHighlights).mockResolvedValue([{ ...savedHighlight, chatId: null }]);
+    const pdfCallsBefore = vi.mocked(api.listHighlights).mock.calls.length;
+    const chatCallsBefore = vi.mocked(api.listMessageHighlights).mock.calls.length;
+
+    // Rechtsklick auf den Zweig → "Delete" → bestätigen. Der Titel steht auch
+    // in der Mind Map, darum auf die Seitenleiste eingegrenzt.
+    const sidebar = within(document.querySelector('.syflo-sidebar') as HTMLElement);
+    fireEvent.contextMenu(sidebar.getByText('entropy bonus'));
+    fireEvent.click(await screen.findByText('Delete'));
+    fireEvent.click(await screen.findByTestId('confirm-delete-chat'));
+
+    await waitFor(() => expect(vi.mocked(api.deleteChat)).toHaveBeenCalledWith('c2'));
+    // Beide Listen müssen erneut geladen werden — die PDF-Seite und die
+    // Chat-Text-Seite tragen je eine Verknüpfung auf den gelöschten Zweig.
+    await waitFor(() =>
+      expect(vi.mocked(api.listHighlights).mock.calls.length).toBeGreaterThan(pdfCallsBefore),
+    );
+    await waitFor(() =>
+      expect(vi.mocked(api.listMessageHighlights).mock.calls.length).toBeGreaterThan(chatCallsBefore),
+    );
   });
 });

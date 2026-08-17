@@ -83,11 +83,19 @@ const VARIANTS: Record<ThemeId, React.ReactNode> = {
           flexShrink: 0,
         }}
       >
+        {/* Der Ast endet AUF der Knotenmitte (38 / 12.5), nicht davor
+            (mockup-logo-icons-basic-round8.html, M1, Nutzerwahl 2026-08-13).
+            Vorher lief er schräg in die Flanke des Knotens: an der Innenseite
+            blieb eine Kerbe stehen, der Knoten wirkte aufgesteckt statt
+            angewachsen. Mit dem Ende in der Mitte liegt die runde Kappe des
+            Astes mittig im Knoten, der Übergang ist auf beiden Seiten gleich.
+            Der Radius fiel dazu von 6.5 auf 5 — ein Knoten, der nur noch 2
+            über den Ast aufträgt, liest sich als verdickte Astspitze. */}
         <svg width="12" height="12" viewBox="0 0 48 48" fill="none" aria-hidden="true">
-          <path d="M8 24 H 22 C 28 24, 29 15, 36 13" stroke="#FFFFFF" strokeWidth="6" strokeLinecap="round" />
-          <path d="M22 24 C 28 24, 29 33, 36 35" stroke="#FFFFFF" strokeWidth="6" strokeLinecap="round" />
-          <circle cx="38" cy="12.5" r="6.5" fill="#FFFFFF" />
-          <circle cx="38" cy="35.5" r="6.5" fill="#FFFFFF" />
+          <path d="M8 24 H 22 C 28 24, 29 15, 38 12.5" stroke="#FFFFFF" strokeWidth="6" strokeLinecap="round" />
+          <path d="M22 24 C 28 24, 29 33, 38 35.5" stroke="#FFFFFF" strokeWidth="6" strokeLinecap="round" />
+          <circle cx="38" cy="12.5" r="5" fill="#FFFFFF" />
+          <circle cx="38" cy="35.5" r="5" fill="#FFFFFF" />
         </svg>
       </span>
       <span

@@ -287,3 +287,70 @@ describe('DELETE /api/message-highlights/:mhid', () => {
     expect(res.status).toBe(404);
   });
 });
+
+// The passage outlives its branch, but the LINK must not: a deleted chat left
+// child_chat_id dangling, so the highlight menu kept offering "Open linked
+// chat" for a chat that no longer exists (user report 2026-08-10). The schema's
+// ON DELETE SET NULL cannot do this — the database runs with foreign_keys=OFF.
+describe('DELETE /api/chats/:id unlinks chat-text highlights', () => {
+  async function linkedHighlight(childChatId, overrides = {}) {
+    db.prepare('INSERT INTO chats (id, title, parent_id, created_at) VALUES (?, ?, ?, ?)').run(
+      childChatId,
+      'Branch on optimizer state',
+      chatId,
+      '2026-07-19T00:00:02.000Z',
+    );
+    const created = await request(app)
+      .post(`/api/chats/${chatId}/message-highlights`)
+      .send(validBody({ childChatId, ...overrides }));
+    expect(created.status).toBe(201);
+    expect(created.body.childChatId).toBe(childChatId);
+    return created.body.id;
+  }
+
+  it('keeps the highlight but clears childChatId when the branch is deleted', async () => {
+    const mhid = await linkedHighlight('chat-branch-1');
+
+    const del = await request(app).delete('/api/chats/chat-branch-1');
+    expect(del.status).toBe(200);
+
+    const list = await request(app).get(`/api/chats/${chatId}/message-highlights`);
+    expect(list.body).toHaveLength(1);
+    expect(list.body[0].id).toBe(mhid);
+    expect(list.body[0].childChatId).toBeNull();
+  });
+
+  it('clears links across the whole deleted subtree', async () => {
+    // A branch of a branch: deleting the middle chat takes the grandchild with
+    // it, so BOTH highlights pointing into that subtree must be unlinked.
+    const mhid = await linkedHighlight('chat-branch-1');
+    db.prepare('INSERT INTO chats (id, title, parent_id, created_at) VALUES (?, ?, ?, ?)').run(
+      'chat-grandchild',
+      'Deeper branch',
+      'chat-branch-1',
+      '2026-07-19T00:00:03.000Z',
+    );
+    const deepHighlight = await request(app)
+      .post(`/api/chats/${chatId}/message-highlights`)
+      .send(validBody({ startOffset: 30, endOffset: 40, text: 'because the', childChatId: 'chat-grandchild' }));
+    expect(deepHighlight.status).toBe(201);
+
+    await request(app).delete('/api/chats/chat-branch-1');
+
+    const list = await request(app).get(`/api/chats/${chatId}/message-highlights`);
+    expect(list.body).toHaveLength(2);
+    expect(list.body.every((h) => h.childChatId === null)).toBe(true);
+    expect(list.body.map((h) => h.id)).toContain(mhid);
+  });
+
+  it('leaves highlights linked to surviving chats untouched', async () => {
+    const keeper = await linkedHighlight('chat-branch-keep');
+    await linkedHighlight('chat-branch-drop', { startOffset: 44, endOffset: 55, text: 'the problem' });
+
+    await request(app).delete('/api/chats/chat-branch-drop');
+
+    const list = await request(app).get(`/api/chats/${chatId}/message-highlights`);
+    const survivor = list.body.find((h) => h.id === keeper);
+    expect(survivor.childChatId).toBe('chat-branch-keep');
+  });
+});

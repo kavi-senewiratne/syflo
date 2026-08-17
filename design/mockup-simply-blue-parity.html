@@ -1,0 +1,1152 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<title>Syflo · Simply Blue — Akzentblau + Feature-Parität zu den anderen Themes</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Baloo+2:wght@500;600&family=Karla:wght@400;600&family=Marcellus&family=DM+Sans:wght@400;600&family=Space+Grotesk:wght@500;600&family=IBM+Plex+Mono:wght@400;500&family=Share+Tech+Mono&family=Press+Start+2P&display=swap" rel="stylesheet">
+<style>
+  /* ============================================================
+     WICHTIG — zwei Paletten, nicht eine.
+
+     Alle früheren Simply-Blue-Mockups haben `--t-blue-600: #2563EB` gesetzt.
+     Das ist Tailwind **v3**. Die App läuft auf Tailwind **v4.2.2**, und dort
+     sind die Farben nach OKLCH umgestellt:
+
+         --color-blue-600: oklch(54.6% 0.245 262.881)  =  #155DFC
+
+     Simply Blue hat per Architektur keinen eigenen Token-Block
+     (frontend/src/theme.ts:8 — "professional is the untouched default
+     palette"), erbt also exakt diesen v4-Wert. Die Mockups zeigten seit
+     Monaten einen Ton, den die App nie gerendert hat.
+
+     Beide Skalen stehen unten nebeneinander, damit §01 den Unterschied
+     zeigen kann statt ihn zu behaupten. Gemessen 14.08.2026 aus
+     frontend/node_modules/tailwindcss/theme.css.
+     ============================================================ */
+  :root {
+    /* Tailwind v4 — das, was die App HEUTE rendert */
+    --v4-blue-50: #EFF6FF; --v4-blue-100: #DBEAFE; --v4-blue-200: #BEDBFF;
+    --v4-blue-300: #8EC5FF; --v4-blue-400: #51A2FF; --v4-blue-500: #2B7FFF;
+    --v4-blue-600: #155DFC; --v4-blue-700: #1447E6; --v4-blue-800: #193CB8;
+    /* Tailwind v3 — das, was in den Mockups und in 6 Hex-Werten im Code steht */
+    --v3-blue-50: #EFF6FF; --v3-blue-100: #DBEAFE; --v3-blue-200: #BFDBFE;
+    --v3-blue-300: #93C5FD; --v3-blue-400: #60A5FA; --v3-blue-500: #3B82F6;
+    --v3-blue-600: #2563EB; --v3-blue-700: #1D4ED8; --v3-blue-800: #1E40AF;
+
+    /* Graustufen: v3 und v4 unterscheiden sich hier um höchstens 3 von 255
+       Stufen — deshalb nur EINE Skala. Der Bruch sitzt allein in den
+       gesättigten Blautönen. */
+    --gray-50: #F9FAFB; --gray-100: #F3F4F6; --gray-200: #E5E7EB;
+    --gray-300: #D1D5DC; --gray-400: #99A1AF; --gray-500: #6A7282;
+    --gray-600: #4A5565; --gray-700: #364153; --gray-800: #1E2939;
+    --gray-900: #101828;
+
+    /* Die Seite selbst wird im v4-Blau gezeichnet — sie soll aussehen wie
+       die App, nicht wie das Wunschbild. */
+    --brand: var(--v4-blue-600);
+    --surface: #FFFFFF;
+    --bg-app: var(--gray-50);
+    --text-strong: var(--gray-900);
+    --text-default: var(--gray-700);
+    --text-muted: var(--gray-500);
+    --border: var(--gray-200);
+    --shadow: 0 1px 3px rgba(0,0,0,0.07), 0 1px 2px rgba(0,0,0,0.05);
+    --shadow-ink: #E2E8F0;   /* index.css:1057, Simply Blues Cartoon-Schatten */
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Inter', -apple-system, sans-serif; background: var(--bg-app);
+    color: var(--text-default); -webkit-font-smoothing: antialiased;
+    min-height: 100vh; padding: 44px 32px 140px;
+  }
+  .wrap { max-width: 1340px; margin: 0 auto; }
+
+  .intro { margin-bottom: 34px; }
+  .intro h1 { font-size: 25px; font-weight: 700; color: var(--text-strong); letter-spacing: -0.015em; margin-bottom: 9px; }
+  .intro p { font-size: 14px; color: var(--text-muted); line-height: 1.68; max-width: 920px; }
+  .intro p + p { margin-top: 10px; }
+  .intro strong { color: var(--text-default); font-weight: 600; }
+  code {
+    background: var(--gray-100); border-radius: 4px; padding: 1px 5px;
+    font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: var(--gray-700);
+  }
+
+  /* ── Gemessen-Kasten ── */
+  .measured {
+    margin-top: 20px; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; padding: 15px 19px 17px; box-shadow: var(--shadow); max-width: 920px;
+  }
+  .measured h2 {
+    font-size: 11px; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase;
+    color: var(--gray-400); margin-bottom: 11px;
+  }
+  .measured ul { list-style: none; display: flex; flex-direction: column; gap: 9px; }
+  .measured li { font-size: 13px; line-height: 1.58; color: var(--text-muted); display: flex; gap: 9px; }
+  .measured li > svg { color: var(--brand); flex: none; margin-top: 3px; }
+  .measured li strong { color: var(--text-default); font-weight: 600; }
+
+  /* ── Inhaltsverzeichnis ── */
+  .toc { display: flex; flex-wrap: wrap; gap: 7px; margin: 26px 0 46px; }
+  .toc a {
+    font-size: 11.5px; font-weight: 500; text-decoration: none;
+    height: 28px; display: inline-flex; align-items: center; gap: 6px; padding: 0 11px;
+    border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--text-muted);
+  }
+  .toc a:hover { background: var(--gray-100); color: var(--text-default); }
+  .toc a b { color: var(--brand); font-weight: 700; }
+
+  /* ── Sektionen ── */
+  .section { margin-bottom: 62px; scroll-margin-top: 20px; }
+  .section-label {
+    font-size: 12px; font-weight: 600; color: var(--text-muted);
+    letter-spacing: 0.06em; text-transform: uppercase;
+    display: flex; align-items: baseline; gap: 8px; margin-bottom: 7px;
+  }
+  .section-label .num { color: var(--brand); font-weight: 700; }
+  .section-desc { font-size: 13px; color: var(--text-muted); line-height: 1.65; margin-bottom: 18px; max-width: 920px; }
+  .section-desc strong { color: var(--text-default); font-weight: 600; }
+  .section-desc + .section-desc { margin-top: -10px; }
+  .src {
+    display: inline-flex; align-items: center; gap: 5px; font-size: 10.5px; font-weight: 500;
+    color: var(--gray-400); font-family: ui-monospace, Menlo, monospace; margin-left: 2px;
+  }
+
+  .kind {
+    display: inline-flex; align-items: center; gap: 5px; font-size: 10px; font-weight: 600;
+    letter-spacing: 0.05em; text-transform: uppercase; border-radius: 999px;
+    padding: 2px 9px; margin-left: 4px; border: 1px solid var(--border);
+    background: var(--gray-100); color: var(--gray-500);
+  }
+  .kind.inner { background: var(--v4-blue-50); border-color: var(--v4-blue-100); color: var(--v4-blue-700); }
+
+  .stage {
+    background: var(--gray-200); border-radius: 14px; padding: 30px 24px;
+    display: flex; justify-content: center; gap: 26px; align-items: flex-start; flex-wrap: wrap;
+  }
+  .stage.dark { background: var(--gray-700); }
+  .col { display: flex; flex-direction: column; align-items: center; }
+  .state-label {
+    text-align: center; font-size: 10.5px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.06em; color: var(--gray-600); margin-bottom: 11px; line-height: 1.5;
+  }
+  .stage.dark .state-label { color: var(--gray-300); }
+  .state-label .v { color: var(--v4-blue-700); }
+  .state-label .now { color: var(--gray-500); }
+  .state-label .ref { color: var(--gray-500); font-weight: 500; text-transform: none; letter-spacing: 0; }
+  .state-note {
+    font-size: 11px; color: var(--gray-600); line-height: 1.55; margin-top: 10px;
+    text-align: center; max-width: 300px;
+  }
+  .stage.dark .state-note { color: var(--gray-300); }
+  .state-note b { color: var(--gray-800); font-weight: 600; }
+  .stage.dark .state-note b { color: #FFFFFF; }
+
+  /* ── Farbmuster ── */
+  .chips { display: flex; flex-direction: column; gap: 6px; margin-top: 16px; max-width: 920px; }
+  .chiprow { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--text-muted); }
+  .chiprow b { color: var(--text-default); font-family: ui-monospace, Menlo, monospace; font-weight: 500; }
+  .chip { width: 15px; height: 15px; border-radius: 4px; flex: none; border: 1px solid rgba(0,0,0,0.08); }
+  .ramp { display: flex; border-radius: 8px; overflow: hidden; border: 1px solid rgba(0,0,0,0.08); }
+  .ramp div { width: 46px; height: 34px; }
+  .ramp-wrap { display: flex; flex-direction: column; gap: 7px; }
+  .ramp-cap { font-size: 10.5px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--gray-500); }
+  .ramp-ticks { display: flex; }
+  .ramp-ticks span { width: 46px; text-align: center; font-size: 9px; color: var(--gray-500); font-family: ui-monospace, Menlo, monospace; }
+
+  /* ── Mini-App-Rahmen ── */
+  .app {
+    --accent: var(--v4-blue-600);
+    --accent-tint: var(--v4-blue-50);
+    --accent-tint-line: var(--v4-blue-100);
+    --accent-deep: var(--v4-blue-700);
+    --bubble-ink: var(--v4-blue-200);
+    width: 296px; flex: none; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 11px; box-shadow: var(--shadow); overflow: hidden;
+    display: flex; flex-direction: column;
+  }
+  .app.v3 {
+    --accent: var(--v3-blue-600);
+    --accent-tint: var(--v3-blue-50);
+    --accent-tint-line: var(--v3-blue-100);
+    --accent-deep: var(--v3-blue-700);
+    --bubble-ink: var(--v3-blue-200);
+  }
+  .app-top {
+    display: flex; align-items: center; gap: 8px; padding: 9px 11px;
+    border-bottom: 1px solid var(--gray-100); flex: none;
+  }
+  .logo-tile {
+    width: 18px; height: 18px; border-radius: 5px; background: var(--mark-color, var(--accent));
+    display: inline-grid; place-items: center; flex: none;
+  }
+  .logo-word { font-size: 13px; font-weight: 600; color: var(--gray-900); letter-spacing: -0.01em; }
+  .app-body { display: flex; min-height: 0; }
+  .side { width: 118px; flex: none; border-right: 1px solid var(--gray-100); padding: 7px 6px; }
+  .side-row {
+    font-size: 11px; color: var(--gray-600); padding: 5px 7px; border-radius: 6px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .side-row.on { background: var(--accent-tint); color: var(--accent-deep); font-weight: 600; box-shadow: var(--row-edge, none); }
+  .main { flex: 1; min-width: 0; padding: 11px 10px 12px; display: flex; flex-direction: column; gap: 9px; }
+  .b-user {
+    align-self: flex-end; background: var(--accent); color: #FFFFFF;
+    font-size: 11.5px; line-height: 1.5; padding: 7px 10px;
+    border-radius: 14px 14px 4px 14px; max-width: 90%;
+    box-shadow: 4px 4px 0 var(--bubble-ink);
+  }
+  .b-ai {
+    align-self: flex-start; background: var(--gray-100); color: var(--gray-900);
+    font-size: 11.5px; line-height: 1.55; padding: 8px 11px;
+    border-radius: 14px 14px 14px 4px; max-width: 96%;
+    box-shadow: 4px 4px 0 var(--shadow-ink);
+  }
+  .btn-accent {
+    align-self: flex-start; background: var(--accent); color: #FFFFFF; border: 0;
+    font-family: inherit; font-size: 11px; font-weight: 600; padding: 6px 12px;
+    border-radius: 8px; box-shadow: 4px 4px 0 var(--shadow-ink); cursor: pointer;
+  }
+  .maproot {
+    align-self: center; margin-top: 3px; background: var(--map-root, var(--accent)); color: #FFFFFF;
+    font-size: 10.5px; font-weight: 600; padding: 7px 13px; border-radius: 14px;
+    box-shadow: 6px 6px 0 var(--shadow-ink); position: relative;
+  }
+  .maproot::after {
+    content: ''; position: absolute; inset: 0; right: -6px; bottom: -6px;
+    border-radius: inherit; outline: 2px dashed var(--map-root, var(--accent)); outline-offset: 6px;
+  }
+
+  /* Der Trenner, der den Bruch zeigt: zwei Flächen stumpf aneinander. */
+  .split { display: flex; border-radius: 9px; overflow: hidden; border: 1px solid rgba(0,0,0,0.08); }
+  .split div {
+    width: 112px; height: 62px; display: grid; place-items: end center; padding-bottom: 6px;
+    font-size: 9.5px; font-weight: 600; color: rgba(255,255,255,0.92);
+    font-family: ui-monospace, Menlo, monospace; letter-spacing: 0.02em;
+  }
+
+  /* ── §02 PDF-Seiten ── */
+  .pdfpane {
+    width: 250px; flex: none; border-radius: 10px; padding: 20px 22px 24px;
+    background: var(--pane-bg, var(--gray-100)); background-image: var(--pane-img, none);
+    display: flex; flex-direction: column; align-items: center; gap: 14px; overflow: hidden;
+  }
+  .page {
+    width: 148px; height: 106px; background: #FFFFFF; border-radius: var(--page-r, 2px);
+    box-shadow: var(--page-shadow, 4px 4px 0 var(--shadow-ink));
+    padding: 11px 12px; display: flex; flex-direction: column; gap: 5px; flex: none;
+  }
+  .page i { display: block; height: 4px; border-radius: 2px; background: var(--gray-200); }
+  .page i.t { height: 6px; width: 62%; background: var(--gray-300); margin-bottom: 3px; }
+  .page i.s { width: 78%; }
+  .page i.q { width: 88%; }
+
+  /* ── §03 Schriften ── */
+  /* Der echte Empty-State steht in einem max-w-lg-Container (512 px) bei 32 px
+     Schrift und trägt `whitespace-nowrap` (ChatArea/index.tsx:1294). Damit fünf
+     Spalten nebeneinander passen, ist die Kiste hier auf 356 px und 23 px
+     herunterskaliert — dasselbe Verhältnis von Titel zu Breite, nur kleiner.
+     Der Umbruchschutz bleibt, weil genau er in Mushroom Kingdom die
+     Sonderregel `.syflo-empty-title` nötig macht (index.css:585). */
+  .emptybox {
+    width: 356px; flex: none; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; box-shadow: var(--shadow); padding: 30px 18px 26px;
+    display: flex; flex-direction: column; align-items: center; gap: 9px; text-align: center;
+    overflow: hidden;
+  }
+  .emptybox h3 {
+    font-size: var(--title-size, 23px); font-weight: 500; color: var(--gray-800);
+    font-family: var(--title-font, ui-serif, Georgia, 'Times New Roman', serif);
+    letter-spacing: -0.02em; line-height: 1.2; white-space: nowrap;
+  }
+  .emptybox p { font-size: 11.5px; color: var(--gray-500); line-height: 1.55; max-width: 220px; }
+
+  /* ── §05/§06 Panels ── */
+  .panelbox {
+    width: 250px; height: 152px; flex: none; border-radius: 10px; overflow: hidden;
+    border: 1px solid var(--border); background: var(--surface);
+    background-image: var(--panel-img, none); padding: 12px 13px;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .panelbox .ph { font-size: 11px; font-weight: 600; color: var(--gray-800); }
+  .panelbox .pl { height: 5px; border-radius: 3px; background: var(--gray-200); }
+  .panelbox .pl.a { width: 84%; } .panelbox .pl.b { width: 66%; } .panelbox .pl.c { width: 74%; }
+
+  /* ── §07 Mindmap ── */
+  .mapstage {
+    width: 300px; height: 190px; flex: none; border-radius: 10px; overflow: hidden;
+    background: var(--map-canvas, #F9FAFB);
+    background-image: radial-gradient(var(--map-dots, #E2E8F0) 1px, transparent 1px);
+    background-size: 14px 14px; position: relative;
+  }
+  .mnode {
+    position: absolute; font-size: 9.5px; font-weight: 500; padding: 6px 9px;
+    border-radius: 11px; background: var(--map-node-bg, #FFFFFF);
+    color: var(--map-node-text, #101828);
+    border: var(--map-bw, 1.5px) solid var(--map-node-line, #E5E7EB);
+    box-shadow: 4px 4px 0 var(--shadow-ink); white-space: nowrap;
+  }
+  .mnode.root {
+    background: var(--map-root, var(--v4-blue-600)); color: #FFFFFF; font-weight: 600;
+    border-color: var(--map-root-line, var(--map-root, var(--v4-blue-600)));
+    box-shadow: 6px 6px 0 var(--shadow-ink); text-shadow: var(--map-root-glow, none);
+  }
+  .mnode.ring::after {
+    content: ''; position: absolute; inset: 0; right: -4px; bottom: -4px;
+    border-radius: inherit; outline: 2px dashed var(--map-active, var(--v4-blue-600));
+    outline-offset: 6px; filter: var(--map-ring-glow, none);
+  }
+  .medge { position: absolute; stroke: var(--map-edge, #B6C2D4); stroke-width: var(--map-edge-w, 2px); fill: none; stroke-dasharray: var(--map-dash, none); }
+
+  /* ── §08 Kleinteile ── */
+  .smallbox {
+    width: 250px; flex: none; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; box-shadow: var(--shadow); padding: 14px 15px 16px;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .caps {
+    font-size: 9.5px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: var(--caps-track, 0.03em); color: var(--gray-400);
+    font-family: var(--caps-font, inherit);
+  }
+  .smallbox h4 { font-size: 13px; font-weight: 600; color: var(--gray-900); font-family: var(--h-font, inherit); }
+  .smallbox p { font-size: 11.5px; line-height: 1.6; color: var(--gray-700); }
+  .smallbox p b { color: var(--b-color, var(--gray-900)); font-weight: 600; text-shadow: var(--b-glow, none); }
+  .fakefield {
+    border: 1px solid var(--field-line, var(--gray-300)); border-radius: 7px;
+    padding: 6px 9px; font-size: 11px; color: var(--gray-500); background: var(--field-bg, #FFFFFF);
+    font-family: var(--field-font, inherit);
+  }
+  .selbit { background: var(--sel-bg, var(--v4-blue-200)); color: var(--sel-ink, var(--gray-900)); }
+
+  /* ── Umsetzungs-Kasten ── */
+  .impl {
+    margin-top: 18px; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; padding: 15px 19px 16px; max-width: 920px;
+  }
+  .impl h3 {
+    font-size: 11px; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase;
+    color: var(--gray-400); margin-bottom: 10px;
+  }
+  .impl p { font-size: 12.5px; line-height: 1.65; color: var(--text-muted); }
+  .impl p + p { margin-top: 8px; }
+  .impl p strong { color: var(--text-default); font-weight: 600; }
+  .impl .vn { color: var(--v4-blue-700); font-weight: 700; }
+
+  .outro {
+    margin-top: 70px; padding-top: 26px; border-top: 1px solid var(--border);
+    font-size: 12.5px; color: var(--text-muted); line-height: 1.7; max-width: 920px;
+  }
+  .outro strong { color: var(--text-default); font-weight: 600; }
+</style>
+</head>
+<body>
+
+<!-- Lucide-Symbole (keine Emojis, Projektregel) -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+  <symbol id="i-info" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>
+  </symbol>
+  <symbol id="i-ruler" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M21.3 15.3a2.4 2.4 0 0 1 0 3.4l-2.6 2.6a2.4 2.4 0 0 1-3.4 0L2.7 8.7a2.41 2.41 0 0 1 0-3.4l2.6-2.6a2.41 2.41 0 0 1 3.4 0Z"/><path d="m14.5 12.5 2-2"/><path d="m11.5 9.5 2-2"/><path d="m8.5 6.5 2-2"/><path d="m17.5 15.5 2-2"/>
+  </symbol>
+  <symbol id="i-file" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v5h5"/><path d="M16 13H8"/><path d="M16 17H8"/>
+  </symbol>
+  <symbol id="i-type" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M4 7V4h16v3"/><path d="M9 20h6"/><path d="M12 4v16"/>
+  </symbol>
+  <symbol id="i-panels" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/>
+  </symbol>
+  <symbol id="i-branch" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/>
+  </symbol>
+  <symbol id="i-sliders" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <line x1="21" x2="14" y1="4" y2="4"/><line x1="10" x2="3" y1="4" y2="4"/><line x1="21" x2="12" y1="12" y2="12"/><line x1="8" x2="3" y1="12" y2="12"/><line x1="21" x2="16" y1="20" y2="20"/><line x1="12" x2="3" y1="20" y2="20"/><line x1="14" x2="14" y1="2" y2="6"/><line x1="8" x2="8" y1="10" y2="14"/><line x1="16" x2="16" y1="18" y2="22"/>
+  </symbol>
+  <symbol id="i-image" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21"/>
+  </symbol>
+  <symbol id="i-drop" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 22a7 7 0 0 0 7-7c0-2-1-3.9-3-5.5s-3.5-4-4-6.5c-.5 2.5-2 4.9-4 6.5C6 11.1 5 13 5 15a7 7 0 0 0 7 7z"/>
+  </symbol>
+  <!-- Syflo-Knotenmarke, 1:1 aus components/Logo.tsx -->
+  <symbol id="i-mark" viewBox="0 0 48 48" fill="none">
+    <path d="M8 24 H 22 C 28 24, 29 15, 38 12.5" stroke="#FFFFFF" stroke-width="6" stroke-linecap="round"/>
+    <path d="M22 24 C 28 24, 29 33, 38 35.5" stroke="#FFFFFF" stroke-width="6" stroke-linecap="round"/>
+    <circle cx="38" cy="12.5" r="5" fill="#FFFFFF"/><circle cx="38" cy="35.5" r="5" fill="#FFFFFF"/>
+  </symbol>
+</defs></svg>
+
+<div class="wrap">
+
+  <div class="intro">
+    <h1>Simply Blue — Akzentblau und die Parität zu den anderen Themes</h1>
+    <p>
+      Zwei getrennte Fragen in einem Dokument. <strong>§01</strong> klärt, welches Blau Simply Blue
+      eigentlich trägt — hier gibt es einen messbaren Bruch zwischen App, Marke und Mockups.
+      <strong>§02–§08</strong> zeigen die Stellen, an denen die vier anderen Themes eine Behandlung
+      haben und Simply Blue keine, weil es per Architektur ohne eigenen CSS-Block läuft
+      (<code>theme.ts:8</code>: „professional is the untouched default palette, so it has no CSS
+      block at all"). Jede Verzierung, die als <code>:root[data-theme='…'] .foo</code> gebaut wurde,
+      ging damit still an Simply Blue vorbei.
+    </p>
+    <p>
+      Die Abschnitte tragen zwei Etiketten. <span class="kind inner"><svg width="11" height="11"><use href="#i-drop"/></svg>Widerspruch im Theme</span>
+      heißt: Simply Blue widerspricht sich selbst, unabhängig von den anderen Themes.
+      <span class="kind"><svg width="11" height="11"><use href="#i-info"/></svg>Signatur der anderen</span>
+      heißt: die Behandlung ist Teil der Identität eines anderen Themes und in Simply Blue nur dann
+      eine Lücke, wenn du bewusst mehr willst. Die Varianten sind neutral A/B/C — nichts ist
+      vorausgewählt.
+    </p>
+
+    <div class="measured">
+      <h2>Gemessen am 14.08.2026</h2>
+      <ul>
+        <li>
+          <svg width="14" height="14"><use href="#i-ruler"/></svg>
+          <span>Die App läuft auf <strong>Tailwind 4.2.2</strong>. Dort ist <code>--color-blue-600</code>
+          als <code>oklch(54.6% 0.245 262.881)</code> definiert — umgerechnet <strong>#155DFC</strong>.
+          Simply Blue hat keinen Token-Block und erbt genau diesen Wert.</span>
+        </li>
+        <li>
+          <svg width="14" height="14"><use href="#i-ruler"/></svg>
+          <span>Tailwind v3 hatte an derselben Stelle <strong>#2563EB</strong>. Gleiche Helligkeit
+          (54,6 %), fast gleicher Farbwinkel (262,9 statt 262,88) — aber <strong>Buntheit 0,215
+          statt 0,245</strong>. v4 ist rund <strong>14 % kräftiger</strong>, Kanalabstand bis
+          <strong>17 von 255</strong> Stufen.</span>
+        </li>
+        <li>
+          <svg width="14" height="14"><use href="#i-drop"/></svg>
+          <span>Im Code stehen <strong>sechs</strong> Stellen fest auf <code>#2563EB</code>, die
+          neben den v4-Flächen sichtbar sind: <code>Logo.tsx:80</code>,
+          <code>public/favicon.svg:6</code>, <code>favicon-professional.svg:13</code>,
+          <code>index.css:1167</code> (Mindmap-Wurzel), <code>index.css:1179</code>
+          (Mindmap-Aktivring) und der Picker-Punkt in <code>theme.ts:39</code>.</span>
+        </li>
+        <li>
+          <svg width="14" height="14"><use href="#i-info"/></svg>
+          <span>Die <strong>Graustufen</strong> unterscheiden sich zwischen v3 und v4 um höchstens
+          <strong>3 von 255</strong> Stufen, die hellen Tints <code>blue-50</code>/<code>blue-100</code>
+          um <strong>0</strong>. Der Bruch sitzt allein im gesättigten Akzent — deshalb fällt er
+          am Logo und am Knopf auf und nirgends sonst.</span>
+        </li>
+        <li>
+          <svg width="14" height="14"><use href="#i-info"/></svg>
+          <span>Alle bisherigen Simply-Blue-Mockups setzen <code>--t-blue-600: #2563EB</code>, also
+          den v3-Wert. <code>mockup-simply-blue-dock-tone.html:223</code> beschriftet ihn sogar
+          als „Heute". <strong>Diese Annahme war falsch</strong> — die App hat #2563EB als
+          Flächenfarbe nie gerendert.</span>
+        </li>
+        <li>
+          <svg width="14" height="14"><use href="#i-info"/></svg>
+          <span>Die <code>#2563EB</code>-Werte in <code>HighlightsDrawer</code>,
+          <code>PdfView</code>, <code>MindMap</code> und <code>KindFilterBar</code> sind
+          <strong>nicht</strong> betroffen: das ist die Identitätsfarbe der blauen Markierung,
+          eine bewusste Produktkonstante über alle Themes hinweg.</span>
+        </li>
+        <li>
+          <svg width="14" height="14"><use href="#i-ruler"/></svg>
+          <span>Der Fallback in <code>index.css:1785</code> — <code>var(--color-blue-600, #2563eb)</code>
+          — greift <strong>nie</strong>, weil Tailwind das Token immer setzt. Der Fokusring ist
+          also schon heute #155DFC.</span>
+        </li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="toc">
+    <a href="#s01"><b>§01</b> Akzentblau</a>
+    <a href="#s02"><b>§02</b> PDF-Seitenschatten</a>
+    <a href="#s03"><b>§03</b> Display-Schrift</a>
+    <a href="#s04"><b>§04</b> Aktive Zeile</a>
+    <a href="#s05"><b>§05</b> Panel-Hintergrund</a>
+    <a href="#s06"><b>§06</b> PDF-Fläche</a>
+    <a href="#s07"><b>§07</b> Mindmap-Feinschliff</a>
+    <a href="#s08"><b>§08</b> Kleinteile</a>
+  </div>
+
+  <!-- ══════════════════════════════ §01 ══════════════════════════════ -->
+  <div class="section" id="s01">
+    <div class="section-label">
+      <span class="num">§01</span> Welches Blau ist Simply Blue?
+      <span class="kind inner"><svg width="11" height="11"><use href="#i-drop"/></svg>Widerspruch im Theme</span>
+    </div>
+    <p class="section-desc">
+      Zwei Blautöne laufen heute gleichzeitig. Die <strong>Flächen</strong> — Knöpfe, Frage-Blase,
+      aktive Zeile, Fokusring — kommen aus Tailwind v4 und sind <strong>#155DFC</strong>. Die
+      <strong>Marke</strong> — Logo-Kachel, Favicon, Dock-Icon, Picker-Punkt — und die
+      <strong>Mindmap-Wurzel</strong> stehen fest auf <strong>#2563EB</strong>. Beide sind auf
+      demselben Bildschirm sichtbar: die Logo-Kachel oben links, direkt über der Frage-Blase.
+    </p>
+    <p class="section-desc">
+      Der Streifen unten zeigt die beiden Töne stumpf aneinander. Dass die Kante überhaupt zu
+      sehen ist, <em>ist</em> der Befund — bei gleichem Ton wäre dort nichts.
+    </p>
+
+    <div class="stage">
+      <div class="col">
+        <div class="state-label"><span class="now">Heute</span> · zwei Töne im Bild<br>Marke #2563EB, Flächen #155DFC</div>
+        <div class="app" style="--mark-color:#2563EB; --map-root:#2563EB">
+          <div class="app-top">
+            <span class="logo-tile"><svg width="12" height="12"><use href="#i-mark"/></svg></span>
+            <span class="logo-word">Syflo</span>
+          </div>
+          <div class="app-body">
+            <div class="side">
+              <div class="side-row on">Attention Is All…</div>
+              <div class="side-row">Positionskodierung</div>
+              <div class="side-row">Mehrkopf-Aufmerk…</div>
+            </div>
+            <div class="main">
+              <div class="b-user">Was macht der Skalierungsfaktor?</div>
+              <div class="b-ai">Er hält die Punktprodukte in einem Bereich, in dem der Softmax noch Gefälle hat.</div>
+              <button class="btn-accent">Zweig öffnen</button>
+              <div class="maproot">Wurzel</div>
+            </div>
+          </div>
+        </div>
+        <div class="split" style="margin-top:14px">
+          <div style="background:#2563EB">#2563EB</div>
+          <div style="background:#155DFC">#155DFC</div>
+        </div>
+        <div class="state-note">Die Kante in der Mitte ist der Bruch. <b>Buntheit 0,215 gegen 0,245</b> bei gleicher Helligkeit.</div>
+      </div>
+
+      <div class="col">
+        <div class="state-label"><span class="v">A</span> · ein Wert: v4<br>alles auf #155DFC</div>
+        <div class="app" style="--mark-color:var(--v4-blue-600); --map-root:var(--v4-blue-600)">
+          <div class="app-top">
+            <span class="logo-tile"><svg width="12" height="12"><use href="#i-mark"/></svg></span>
+            <span class="logo-word">Syflo</span>
+          </div>
+          <div class="app-body">
+            <div class="side">
+              <div class="side-row on">Attention Is All…</div>
+              <div class="side-row">Positionskodierung</div>
+              <div class="side-row">Mehrkopf-Aufmerk…</div>
+            </div>
+            <div class="main">
+              <div class="b-user">Was macht der Skalierungsfaktor?</div>
+              <div class="b-ai">Er hält die Punktprodukte in einem Bereich, in dem der Softmax noch Gefälle hat.</div>
+              <button class="btn-accent">Zweig öffnen</button>
+              <div class="maproot">Wurzel</div>
+            </div>
+          </div>
+        </div>
+        <div class="state-note">Die sechs Hex-Werte werden nachgezogen. Simply Blue bleibt die <b>unberührte Tailwind-Palette</b> — die Architektur von <code>theme.ts</code> bleibt, wie sie ist.</div>
+      </div>
+
+      <div class="col">
+        <div class="state-label"><span class="v">B</span> · ein Wert: v3<br>alles auf #2563EB</div>
+        <div class="app v3" style="--mark-color:var(--v3-blue-600); --map-root:var(--v3-blue-600)">
+          <div class="app-top">
+            <span class="logo-tile"><svg width="12" height="12"><use href="#i-mark"/></svg></span>
+            <span class="logo-word">Syflo</span>
+          </div>
+          <div class="app-body">
+            <div class="side">
+              <div class="side-row on">Attention Is All…</div>
+              <div class="side-row">Positionskodierung</div>
+              <div class="side-row">Mehrkopf-Aufmerk…</div>
+            </div>
+            <div class="main">
+              <div class="b-user">Was macht der Skalierungsfaktor?</div>
+              <div class="b-ai">Er hält die Punktprodukte in einem Bereich, in dem der Softmax noch Gefälle hat.</div>
+              <button class="btn-accent">Zweig öffnen</button>
+              <div class="maproot">Wurzel</div>
+            </div>
+          </div>
+        </div>
+        <div class="state-note">Simply Blue bekommt <b>einen eigenen Token-Block</b> mit den vier v3-Blauwerten (400–800). Danach stimmen App, Marke und alle Mockups überein.</div>
+      </div>
+
+      <div class="col">
+        <div class="state-label"><span class="v">C</span> · zwei Werte, aber gewollt<br>Marke ruhig, Fläche kräftig</div>
+        <div class="app" style="--mark-color:#2563EB; --map-root:var(--v4-blue-600)">
+          <div class="app-top">
+            <span class="logo-tile"><svg width="12" height="12"><use href="#i-mark"/></svg></span>
+            <span class="logo-word">Syflo</span>
+          </div>
+          <div class="app-body">
+            <div class="side">
+              <div class="side-row on">Attention Is All…</div>
+              <div class="side-row">Positionskodierung</div>
+              <div class="side-row">Mehrkopf-Aufmerk…</div>
+            </div>
+            <div class="main">
+              <div class="b-user">Was macht der Skalierungsfaktor?</div>
+              <div class="b-ai">Er hält die Punktprodukte in einem Bereich, in dem der Softmax noch Gefälle hat.</div>
+              <button class="btn-accent">Zweig öffnen</button>
+              <div class="maproot">Wurzel</div>
+            </div>
+          </div>
+        </div>
+        <div class="state-note">Der heutige Zustand, nur <b>aufgeschrieben statt zufällig</b>: #2563EB ist Markenfarbe (Icon, Favicon, Dock), #155DFC ist Oberflächenfarbe. Die Mindmap folgt der Oberfläche.</div>
+      </div>
+    </div>
+
+    <div class="chips">
+      <div class="ramp-wrap" style="margin-top:16px">
+        <div class="ramp-cap">Tailwind v4 — was die App heute rendert</div>
+        <div class="ramp">
+          <div style="background:var(--v4-blue-200)"></div><div style="background:var(--v4-blue-300)"></div>
+          <div style="background:var(--v4-blue-400)"></div><div style="background:var(--v4-blue-500)"></div>
+          <div style="background:var(--v4-blue-600)"></div><div style="background:var(--v4-blue-700)"></div>
+          <div style="background:var(--v4-blue-800)"></div>
+        </div>
+        <div class="ramp-cap" style="margin-top:8px">Tailwind v3 — was in den Mockups und in 6 Hex-Werten steht</div>
+        <div class="ramp">
+          <div style="background:var(--v3-blue-200)"></div><div style="background:var(--v3-blue-300)"></div>
+          <div style="background:var(--v3-blue-400)"></div><div style="background:var(--v3-blue-500)"></div>
+          <div style="background:var(--v3-blue-600)"></div><div style="background:var(--v3-blue-700)"></div>
+          <div style="background:var(--v3-blue-800)"></div>
+        </div>
+        <div class="ramp-ticks">
+          <span>200</span><span>300</span><span>400</span><span>500</span><span>600</span><span>700</span><span>800</span>
+        </div>
+        <div class="ramp-cap" style="margin-top:6px; color:var(--gray-400); text-transform:none; letter-spacing:0; font-weight:400; font-size:11px">
+          Abstand je Stufe (größter Kanal): 200 → 1 · 300 → 5 · 400 → 15 · 500 → 16 · 600 → 17 · 700 → 14 · 800 → 9
+        </div>
+      </div>
+    </div>
+
+    <div class="impl">
+      <h3>Was jede Variante technisch bedeutet</h3>
+      <p>
+        <span class="vn">A</span> — sechs Hex-Werte gegen <code>var(--color-blue-600)</code> tauschen
+        (<code>Logo.tsx:80</code>, <code>index.css:1167</code>, <code>index.css:1179</code>,
+        <code>theme.ts:39</code>) und die beiden SVG-Favicons neu schreiben. Kein neuer Token-Block.
+        Der Ton der App ändert sich <strong>nicht</strong> — nur Logo, Favicon und Mindmap-Wurzel
+        ziehen nach.
+      </p>
+      <p>
+        <span class="vn">B</span> — ein Block <code>:root[data-theme='professional']</code> mit
+        <code>--color-blue-400/500/600/700/800</code> auf den v3-Werten, plus dieselbe Aufräumarbeit
+        wie in A. Bricht die Regel „professional hat keinen CSS-Block", dafür stimmen danach App,
+        Marke <strong>und jedes bestehende Mockup</strong> überein. <code>blue-50</code> bis
+        <code>blue-200</code> bleiben unangetastet, weil sie in beiden Versionen identisch sind.
+      </p>
+      <p>
+        <span class="vn">C</span> — kein Code-Wechsel bei den Flächen, nur ein Kommentar in
+        <code>Logo.tsx</code> und <code>theme.ts</code>, der #2563EB als Markenfarbe festschreibt,
+        plus die Mindmap-Wurzel und der Aktivring von #2563EB auf das Token umgestellt. Der
+        Picker-Punkt bleibt #2563EB und zeigt dann bewusst die Marke, nicht die Fläche.
+      </p>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════ §02 ══════════════════════════════ -->
+  <div class="section" id="s02">
+    <div class="section-label">
+      <span class="num">§02</span> PDF-Seitenschatten
+      <span class="kind inner"><svg width="11" height="11"><use href="#i-drop"/></svg>Widerspruch im Theme</span>
+      <span class="src"><svg width="11" height="11"><use href="#i-file"/></svg>index.css:659 · 746 · 852 · 968</span>
+    </div>
+    <p class="section-desc">
+      Der harte Versatzschatten ohne Weichzeichnung ist laut <code>index.css:1046</code> ein
+      <strong>gemeinsames Stilmittel aller Themes</strong>: 4 px für Elemente, 6 px für Karten und
+      Seiten. Alle vier anderen Themes lösen die PDF-Seite deshalb mit einer eigenen Regel auf
+      <strong>6 px plus Ring</strong> ein. Simply Blue hat keine — die Seite fällt auf die generische
+      4-px-Regel aus Zeile 1062 zurück und ist damit die einzige Karte im Produkt, die flacher liegt
+      als die Chat-Blase direkt daneben.
+    </p>
+
+    <div class="stage">
+      <div class="col">
+        <div class="state-label"><span class="now">Heute</span><br>generische 4 px, kein Ring</div>
+        <div class="pdfpane">
+          <div class="page"><i class="t"></i><i></i><i class="s"></i><i></i><i class="q"></i><i class="s"></i></div>
+          <div class="page"><i class="t"></i><i></i><i class="q"></i><i class="s"></i></div>
+        </div>
+        <div class="state-note">Fällt auf <code>.shadow-md</code> zurück: <b>4px 4px 0 #E2E8F0</b>, Radius 2 px.</div>
+      </div>
+
+      <div class="col">
+        <div class="state-label"><span class="v">A</span> · 6 px, kein Ring</div>
+        <div class="pdfpane" style="--page-shadow:6px 6px 0 var(--shadow-ink); --page-r:6px">
+          <div class="page"><i class="t"></i><i></i><i class="s"></i><i></i><i class="q"></i><i class="s"></i></div>
+          <div class="page"><i class="t"></i><i></i><i class="q"></i><i class="s"></i></div>
+        </div>
+        <div class="state-note">Nur die Tiefe wird an die anderen Themes angeglichen. <b>Keine neue Farbe</b> im Theme.</div>
+      </div>
+
+      <div class="col">
+        <div class="state-label"><span class="v">B</span> · 6 px + grauer Ring</div>
+        <div class="pdfpane" style="--page-shadow:0 0 0 1px var(--gray-300), 6px 6px 0 var(--shadow-ink); --page-r:6px">
+          <div class="page"><i class="t"></i><i></i><i class="s"></i><i></i><i class="q"></i><i class="s"></i></div>
+          <div class="page"><i class="t"></i><i></i><i class="q"></i><i class="s"></i></div>
+        </div>
+        <div class="state-note">Der Ring ist ein <b>Schatten, kein Rahmen</b> — sonst verschiebt sich die pdf.js-Textebene um 1 px.</div>
+      </div>
+
+      <div class="col">
+        <div class="state-label"><span class="v">C</span> · 6 px + blauer Ring</div>
+        <div class="pdfpane" style="--page-shadow:0 0 0 1px var(--v4-blue-200), 6px 6px 0 var(--shadow-ink); --page-r:6px">
+          <div class="page"><i class="t"></i><i></i><i class="s"></i><i></i><i class="q"></i><i class="s"></i></div>
+          <div class="page"><i class="t"></i><i></i><i class="q"></i><i class="s"></i></div>
+        </div>
+        <div class="state-note">Zieht den Akzent in die Lesefläche — dieselbe Idee wie Hyrules Goldring, im Simply-Blue-Ton.</div>
+      </div>
+
+      <div class="col">
+        <div class="state-label"><span class="ref">Referenz · Hyrule</span><br>index.css:746</div>
+        <div class="pdfpane" style="--pane-bg:#EFEBDA; --page-shadow:0 0 0 1px rgba(158,148,106,0.25), 6px 6px 0 #D5C88F; --page-r:6px">
+          <div class="page" style="background:#F8F5E8"><i class="t" style="background:#C6BFA0"></i><i style="background:#D9D3B9"></i><i class="s" style="background:#D9D3B9"></i><i style="background:#D9D3B9"></i><i class="q" style="background:#D9D3B9"></i><i class="s" style="background:#D9D3B9"></i></div>
+          <div class="page" style="background:#F8F5E8"><i class="t" style="background:#C6BFA0"></i><i style="background:#D9D3B9"></i><i class="q" style="background:#D9D3B9"></i><i class="s" style="background:#D9D3B9"></i></div>
+        </div>
+        <div class="state-note">So sieht die Behandlung aus, die Simply Blue fehlt: <b>6 px Versatz plus feiner Ring</b>.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════ §03 ══════════════════════════════ -->
+  <div class="section" id="s03">
+    <div class="section-label">
+      <span class="num">§03</span> Display-Schrift <code>.font-serif</code>
+      <span class="kind inner"><svg width="11" height="11"><use href="#i-drop"/></svg>Widerspruch im Theme</span>
+      <span class="src"><svg width="11" height="11"><use href="#i-type"/></svg>index.css:572 · 704 · 796 · 916 · ChatArea/index.tsx:1294</span>
+    </div>
+    <p class="section-desc">
+      Alle vier anderen Themes belegen <code>.font-serif</code> mit einer eigenen Display-Schrift
+      (Press Start 2P, Marcellus, Space Grotesk, Share Tech Mono). Simply Blue hat keine Regel und
+      landet bei Tailwinds Standard-Serifenkette — also <strong>Georgia oder Times</strong>. Das ist
+      die einzige Serife in einer Oberfläche, die sonst durchgehend System-Sans ist. Betroffen ist
+      der Empty-State-Titel.
+    </p>
+
+    <div class="stage">
+      <div class="col">
+        <div class="state-label"><span class="now">Heute</span><br>Georgia / Times</div>
+        <div class="emptybox">
+          <h3>How can I help you today?</h3>
+          <p>Frage etwas, lade ein PDF, oder öffne einen bestehenden Baum.</p>
+        </div>
+        <div class="state-note">Serife ohne Anlass — <b>der einzige Serifensatz</b> im ganzen Theme.</div>
+      </div>
+
+      <div class="col">
+        <div class="state-label"><span class="v">A</span> · System-Sans, größer</div>
+        <div class="emptybox" style="--title-font:-apple-system,'Inter',sans-serif; --title-size:24px">
+          <h3 style="font-weight:600">How can I help you today?</h3>
+          <p>Frage etwas, lade ein PDF, oder öffne einen bestehenden Baum.</p>
+        </div>
+        <div class="state-note">Der Titel bleibt in der Hausschrift, die Hierarchie kommt aus <b>Größe und Gewicht</b>. Nichts Neues zu laden.</div>
+      </div>
+
+      <div class="col">
+        <div class="state-label"><span class="v">B</span> · Space Grotesk</div>
+        <div class="emptybox" style="--title-font:'Space Grotesk',sans-serif; --title-size:23px">
+          <h3 style="font-weight:500">How can I help you today?</h3>
+          <p>Frage etwas, lade ein PDF, oder öffne einen bestehenden Baum.</p>
+        </div>
+        <div class="state-note">Die Display-Schrift von Ink Blue — <b>liegt schon im Projekt</b> (@fontsource), also kein neues Paket.</div>
+      </div>
+
+      <div class="col">
+        <div class="state-label"><span class="v">C</span> · DM Sans</div>
+        <div class="emptybox" style="--title-font:'DM Sans',sans-serif; --title-size:24px">
+          <h3 style="font-weight:600">How can I help you today?</h3>
+          <p>Frage etwas, lade ein PDF, oder öffne einen bestehenden Baum.</p>
+        </div>
+        <div class="state-note">Näher an der System-Sans als B, aber mit eigener Zeichnung. Ebenfalls schon vorhanden.</div>
+      </div>
+
+      <div class="col">
+        <div class="state-label"><span class="ref">Referenz · Hyrule</span><br>Marcellus</div>
+        <div class="emptybox" style="--title-font:'Marcellus',serif; --title-size:23px; background:#F8F5E8; border-color:#D9D3B9">
+          <h3 style="color:#33372A">How can I help you today?</h3>
+          <p style="color:#767962">Frage etwas, lade ein PDF, oder öffne einen bestehenden Baum.</p>
+        </div>
+        <div class="state-note">Hier ist die Serife <b>eine Entscheidung</b> — sie gehört zum Pergament-Charakter des Themes.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════ §04 ══════════════════════════════ -->
+  <div class="section" id="s04">
+    <div class="section-label">
+      <span class="num">§04</span> Aktive Zeile in der Seitenleiste
+      <span class="kind"><svg width="11" height="11"><use href="#i-info"/></svg>Signatur der anderen</span>
+      <span class="src"><svg width="11" height="11"><use href="#i-panels"/></svg>index.css:731 · 844 · 962</span>
+    </div>
+    <p class="section-desc">
+      Hyrule setzt der aktiven Zeile eine <strong>Goldkante</strong> nach innen
+      (<code>inset 3px 0 0</code>), Ink Blue und Matrix färben die Fläche eigenständig. In Simply
+      Blue trägt die Zeile nur die blasse <code>blue-50</code>-Füllung — bei fünf Zeilen
+      untereinander ist der Unterschied zu den inaktiven gering.
+    </p>
+
+    <div class="stage">
+      <div class="col">
+        <div class="state-label"><span class="now">Heute</span><br>nur die Füllung</div>
+        <div class="app" style="width:190px; --mark-color:#2563EB">
+          <div class="app-body">
+            <div class="side" style="width:100%; border:0; padding:9px 7px">
+              <div class="side-row">Positionskodierung</div>
+              <div class="side-row on">Attention Is All You…</div>
+              <div class="side-row">Mehrkopf-Aufmerks…</div>
+              <div class="side-row">Restverbindungen</div>
+            </div>
+          </div>
+        </div>
+        <div class="state-note"><code>bg-blue-50</code> auf Weiß — <b>ein Helligkeitsschritt</b>, keine Kante.</div>
+      </div>
+
+      <div class="col">
+        <div class="state-label"><span class="v">A</span> · Akzentkante links</div>
+        <div class="app" style="width:190px; --row-edge:inset 3px 0 0 var(--v4-blue-600)">
+          <div class="app-body">
+            <div class="side" style="width:100%; border:0; padding:9px 7px">
+              <div class="side-row">Positionskodierung</div>
+              <div class="side-row on">Attention Is All You…</div>
+              <div class="side-row">Mehrkopf-Aufmerks…</div>
+              <div class="side-row">Restverbindungen</div>
+            </div>
+          </div>
+        </div>
+        <div class="state-note">Dieselbe Geste wie Hyrules Goldkante, im Akzentton. <b>Ein Token</b>, keine neue Farbe.</div>
+      </div>
+
+      <div class="col">
+        <div class="state-label"><span class="v">B</span> · kräftigere Füllung</div>
+        <div class="app" style="width:190px">
+          <div class="app-body">
+            <div class="side" style="width:100%; border:0; padding:9px 7px">
+              <div class="side-row">Positionskodierung</div>
+              <div class="side-row on" style="background:var(--v4-blue-100)">Attention Is All You…</div>
+              <div class="side-row">Mehrkopf-Aufmerks…</div>
+              <div class="side-row">Restverbindungen</div>
+            </div>
+          </div>
+        </div>
+        <div class="state-note"><code>blue-100</code> statt <code>blue-50</code> — <b>zwei Stufen Abstand</b> statt einer, ohne neues Element.</div>
+      </div>
+
+      <div class="col">
+        <div class="state-label"><span class="v">C</span> · Kante + Cartoon-Schatten</div>
+        <div class="app" style="width:190px; --row-edge:inset 3px 0 0 var(--v4-blue-600), 3px 3px 0 var(--v4-blue-200)">
+          <div class="app-body">
+            <div class="side" style="width:100%; border:0; padding:9px 7px">
+              <div class="side-row">Positionskodierung</div>
+              <div class="side-row on">Attention Is All You…</div>
+              <div class="side-row">Mehrkopf-Aufmerks…</div>
+              <div class="side-row">Restverbindungen</div>
+            </div>
+          </div>
+        </div>
+        <div class="state-note">Hebt die Zeile aus der Liste heraus wie eine Karte. Nimmt aber <b>3 px Breite</b> in einer schmalen Leiste.</div>
+      </div>
+
+      <div class="col">
+        <div class="state-label"><span class="ref">Referenz · Hyrule</span><br>index.css:731</div>
+        <div class="app" style="width:190px; background:#F8F5E8; border-color:#D9D3B9">
+          <div class="app-body">
+            <div class="side" style="width:100%; border:0; padding:9px 7px">
+              <div class="side-row" style="color:#5F624E">Positionskodierung</div>
+              <div class="side-row on" style="background:#DEEDE8; color:#218880; box-shadow:inset 3px 0 0 #B8963A">Attention Is All You…</div>
+              <div class="side-row" style="color:#5F624E">Mehrkopf-Aufmerks…</div>
+              <div class="side-row" style="color:#5F624E">Restverbindungen</div>
+            </div>
+          </div>
+        </div>
+        <div class="state-note">Gold ist in Hyrule <b>für genau eine Sache</b> reserviert: das Aktive.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════ §05 ══════════════════════════════ -->
+  <div class="section" id="s05">
+    <div class="section-label">
+      <span class="num">§05</span> Hintergrund der Arbeitsflächen
+      <span class="kind"><svg width="11" height="11"><use href="#i-info"/></svg>Signatur der anderen</span>
+      <span class="src"><svg width="11" height="11"><use href="#i-panels"/></svg>index.css:735 · 925</span>
+    </div>
+    <p class="section-desc">
+      Hyrule legt zwei sehr flache Lichtkegel auf Chatfläche und Seitenleiste, Matrix eine dunkle
+      Tönung. Simply Blue hat flaches Weiß — <strong>Mushroom Kingdom und Ink Blue allerdings
+      auch</strong>. Das ist also keine Lücke, die nur Simply Blue betrifft, sondern eine offene
+      Frage für drei Themes.
+    </p>
+
+    <div class="stage">
+      <div class="col">
+        <div class="state-label"><span class="now">Heute</span><br>flaches Weiß</div>
+        <div class="panelbox">
+          <div class="ph">Attention Is All You Need</div>
+          <div class="pl a"></div><div class="pl b"></div><div class="pl c"></div><div class="pl b"></div>
+        </div>
+        <div class="state-note">Keine Regel — die Fläche ist <code>bg-white</code>, Kante an Kante mit der Leiste.</div>
+      </div>
+
+      <div class="col">
+        <div class="state-label"><span class="v">A</span> · ein kühler Lichtkegel</div>
+        <div class="panelbox" style="--panel-img:radial-gradient(ellipse 55% 35% at 78% 0%, rgba(21,93,252,0.05), transparent 70%)">
+          <div class="ph">Attention Is All You Need</div>
+          <div class="pl a"></div><div class="pl b"></div><div class="pl c"></div><div class="pl b"></div>
+        </div>
+        <div class="state-note">5 % Akzent oben rechts. Gibt der Fläche eine <b>Richtung</b>, ohne einen Farbwechsel zu behaupten.</div>
+      </div>
+
+      <div class="col">
+        <div class="state-label"><span class="v">B</span> · zwei Kegel, oben und unten</div>
+        <div class="panelbox" style="--panel-img:radial-gradient(ellipse 55% 35% at 78% 0%, rgba(21,93,252,0.06), transparent 70%), radial-gradient(ellipse 40% 30% at 8% 100%, rgba(106,114,130,0.05), transparent 70%)">
+          <div class="ph">Attention Is All You Need</div>
+          <div class="pl a"></div><div class="pl b"></div><div class="pl c"></div><div class="pl b"></div>
+        </div>
+        <div class="state-note">Genau Hyrules Aufbau, nur mit Blau und Grau statt Gold und Teal.</div>
+      </div>
+
+      <div class="col">
+        <div class="state-label"><span class="v">C</span> · keine Änderung</div>
+        <div class="panelbox">
+          <div class="ph">Attention Is All You Need</div>
+          <div class="pl a"></div><div class="pl b"></div><div class="pl c"></div><div class="pl b"></div>
+        </div>
+        <div class="state-note">Bleibt flach — das leere Weiß ist bei einem Theme namens „Simply" <b>möglicherweise die Absicht</b>.</div>
+      </div>
+
+      <div class="col">
+        <div class="state-label"><span class="ref">Referenz · Hyrule</span><br>index.css:735</div>
+        <div class="panelbox" style="background:#F8F5E8; border-color:#D9D3B9; --panel-img:radial-gradient(ellipse 55% 35% at 78% 0%, rgba(214,182,89,0.10), transparent 70%), radial-gradient(ellipse 40% 30% at 8% 100%, rgba(42,161,152,0.05), transparent 70%)">
+          <div class="ph" style="color:#33372A">Attention Is All You Need</div>
+          <div class="pl a" style="background:#D9D3B9"></div><div class="pl b" style="background:#D9D3B9"></div><div class="pl c" style="background:#D9D3B9"></div><div class="pl b" style="background:#D9D3B9"></div>
+        </div>
+        <div class="state-note">„Goldene Stunde": 10 % Gold oben, 5 % Teal unten.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════ §06 ══════════════════════════════ -->
+  <div class="section" id="s06">
+    <div class="section-label">
+      <span class="num">§06</span> Fläche hinter der PDF-Seite
+      <span class="kind"><svg width="11" height="11"><use href="#i-info"/></svg>Signatur der anderen</span>
+      <span class="src"><svg width="11" height="11"><use href="#i-image"/></svg>index.css:636 · 849 · 931 · PdfView/index.tsx:634</span>
+    </div>
+    <p class="section-desc">
+      Mushroom Kingdom malt dort einen ganzen Himmel mit Hügeln, Ink Blue und Matrix tönen die
+      Fläche. Simply Blue hat <code>bg-gray-100</code>. Hyrule hat auch keine eigene Regel — die
+      Frage ist also, ob die Lesefläche in Simply Blue ruhiges Grau bleiben soll oder eine leise
+      Tiefe bekommt, gegen die das Weiß der Seite als Papier liest.
+    </p>
+
+    <div class="stage">
+      <div class="col">
+        <div class="state-label"><span class="now">Heute</span><br>bg-gray-100</div>
+        <div class="pdfpane">
+          <div class="page"><i class="t"></i><i></i><i class="s"></i><i></i><i class="q"></i></div>
+          <div class="page"><i class="t"></i><i></i><i class="q"></i></div>
+        </div>
+        <div class="state-note">#F3F4F6 gegen #FFFFFF — <b>12 von 255 Stufen</b> Abstand zur Seite.</div>
+      </div>
+
+      <div class="col">
+        <div class="state-label"><span class="v">A</span> · eine Stufe tiefer</div>
+        <div class="pdfpane" style="--pane-bg:var(--gray-200)">
+          <div class="page"><i class="t"></i><i></i><i class="s"></i><i></i><i class="q"></i></div>
+          <div class="page"><i class="t"></i><i></i><i class="q"></i></div>
+        </div>
+        <div class="state-note"><code>gray-200</code> = 26 Stufen Abstand. Die Seite liest deutlicher als eigenes Blatt.</div>
+      </div>
+
+      <div class="col">
+        <div class="state-label"><span class="v">B</span> · kühl getönt</div>
+        <div class="pdfpane" style="--pane-bg:#EDF1F7">
+          <div class="page"><i class="t"></i><i></i><i class="s"></i><i></i><i class="q"></i></div>
+          <div class="page"><i class="t"></i><i></i><i class="q"></i></div>
+        </div>
+        <div class="state-note">Grau mit einem Hauch Akzent — bindet die Lesefläche an das Theme, statt sie neutral zu lassen.</div>
+      </div>
+
+      <div class="col">
+        <div class="state-label"><span class="v">C</span> · Tiefenverlauf</div>
+        <div class="pdfpane" style="--pane-bg:var(--gray-100); --pane-img:linear-gradient(180deg, #E7EAEF 0%, #F3F4F6 34%, #F3F4F6 100%)">
+          <div class="page"><i class="t"></i><i></i><i class="s"></i><i></i><i class="q"></i></div>
+          <div class="page"><i class="t"></i><i></i><i class="q"></i></div>
+        </div>
+        <div class="state-note">Dunkler nur am oberen Rand, wie Licht von vorn. Die Seite bleibt beim Scrollen <b>ohne wanderndes Muster</b>.</div>
+      </div>
+
+      <div class="col">
+        <div class="state-label"><span class="ref">Referenz · Ink Blue</span><br>index.css:849</div>
+        <div class="pdfpane" style="--pane-bg:#E7EFF9">
+          <div class="page"><i class="t" style="background:#C9D8EB"></i><i style="background:#DDE7F3"></i><i class="s" style="background:#DDE7F3"></i><i style="background:#DDE7F3"></i><i class="q" style="background:#DDE7F3"></i></div>
+          <div class="page"><i class="t" style="background:#C9D8EB"></i><i style="background:#DDE7F3"></i><i class="q" style="background:#DDE7F3"></i></div>
+        </div>
+        <div class="state-note">Getöntes Blau als Lesegrund, Seite in reinem Weiß darüber.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════ §07 ══════════════════════════════ -->
+  <div class="section" id="s07">
+    <div class="section-label">
+      <span class="num">§07</span> Mindmap-Feinschliff
+      <span class="kind"><svg width="11" height="11"><use href="#i-info"/></svg>Signatur der anderen</span>
+      <span class="src"><svg width="11" height="11"><use href="#i-branch"/></svg>index.css:1494 · 1498 · 1520–1528 · 1167 · 1179</span>
+    </div>
+    <p class="section-desc">
+      Hyrule gibt der Wurzel einen Goldrand und den Ladepunkten einen Schimmer, Matrix legt
+      Phosphor-Glow auf den Aktivring, streicht die Kanten gestrichelt und setzt der Wurzel einen
+      Textschatten. Simply Blue nutzt die Grundform. <strong>Wichtig:</strong> in dieser Ansicht sitzt
+      auch der Farbbruch aus §01 — die Wurzel steht auf <code>#2563EB</code>, die Knöpfe der
+      Oberfläche darüber auf <code>#155DFC</code>.
+    </p>
+
+    <div class="stage">
+      <div class="col">
+        <div class="state-label"><span class="now">Heute</span><br>Grundform, Wurzel #2563EB</div>
+        <div class="mapstage">
+          <svg width="300" height="190" style="position:absolute; inset:0"><path class="medge" d="M150 54 C 150 74, 84 74, 84 96"/><path class="medge" d="M150 54 C 150 74, 216 74, 216 96"/><path class="medge" d="M84 124 C 84 142, 60 142, 60 154"/></svg>
+          <div class="mnode root" style="left:112px; top:30px; --map-root:#2563EB">Attention</div>
+          <div class="mnode ring" style="left:44px; top:96px; --map-active:#2563EB">Skalierung</div>
+          <div class="mnode" style="left:180px; top:96px">Mehrkopf</div>
+          <div class="mnode" style="left:22px; top:152px">√d_k</div>
+        </div>
+        <div class="state-note">Wurzel und Ring lesen <b>#2563EB</b> aus zwei festen Hex-Werten, nicht aus dem Theme-Token.</div>
+      </div>
+
+      <div class="col">
+        <div class="state-label"><span class="v">A</span> · nur der Farbbruch weg</div>
+        <div class="mapstage">
+          <svg width="300" height="190" style="position:absolute; inset:0"><path class="medge" d="M150 54 C 150 74, 84 74, 84 96"/><path class="medge" d="M150 54 C 150 74, 216 74, 216 96"/><path class="medge" d="M84 124 C 84 142, 60 142, 60 154"/></svg>
+          <div class="mnode root" style="left:112px; top:30px">Attention</div>
+          <div class="mnode ring" style="left:44px; top:96px">Skalierung</div>
+          <div class="mnode" style="left:180px; top:96px">Mehrkopf</div>
+          <div class="mnode" style="left:22px; top:152px">√d_k</div>
+        </div>
+        <div class="state-note">Zwei Zeilen CSS: die Hex-Werte werden Tokens. <b>Sonst nichts</b> — folgt automatisch aus §01/A.</div>
+      </div>
+
+      <div class="col">
+        <div class="state-label"><span class="v">B</span> · Wurzel bekommt eine Kante</div>
+        <div class="mapstage">
+          <svg width="300" height="190" style="position:absolute; inset:0"><path class="medge" d="M150 54 C 150 74, 84 74, 84 96"/><path class="medge" d="M150 54 C 150 74, 216 74, 216 96"/><path class="medge" d="M84 124 C 84 142, 60 142, 60 154"/></svg>
+          <div class="mnode root" style="left:112px; top:30px; --map-root-line:var(--v4-blue-800)">Attention</div>
+          <div class="mnode ring" style="left:44px; top:96px">Skalierung</div>
+          <div class="mnode" style="left:180px; top:96px">Mehrkopf</div>
+          <div class="mnode" style="left:22px; top:152px">√d_k</div>
+        </div>
+        <div class="state-note">Dieselbe Geste wie Hyrules Goldrand: <code>blue-800</code> um die Wurzel, damit sie als <b>Anker</b> liest.</div>
+      </div>
+
+      <div class="col">
+        <div class="state-label"><span class="v">C</span> · Kante + hellere Nebenlinien</div>
+        <div class="mapstage" style="--map-edge:#CBD5E1">
+          <svg width="300" height="190" style="position:absolute; inset:0"><path class="medge" d="M150 54 C 150 74, 84 74, 84 96" style="stroke:var(--v4-blue-600); stroke-width:2.5px"/><path class="medge" d="M150 54 C 150 74, 216 74, 216 96"/><path class="medge" d="M84 124 C 84 142, 60 142, 60 154" style="stroke:var(--v4-blue-600); stroke-width:2.5px"/></svg>
+          <div class="mnode root" style="left:112px; top:30px; --map-root-line:var(--v4-blue-800)">Attention</div>
+          <div class="mnode ring" style="left:44px; top:96px">Skalierung</div>
+          <div class="mnode" style="left:180px; top:96px">Mehrkopf</div>
+          <div class="mnode" style="left:22px; top:152px">√d_k</div>
+        </div>
+        <div class="state-note">Der aktive Pfad leuchtet, die anderen bleichen aus — über <code>--syflo-map-edge-mix</code>, das <b>schon existiert</b> (index.css:1176).</div>
+      </div>
+
+      <div class="col">
+        <div class="state-label"><span class="ref">Referenz · Matrix</span><br>index.css:1520–1528</div>
+        <div class="mapstage" style="--map-canvas:#030503; --map-dots:rgba(43,231,107,0.14); --map-node-bg:#060C07; --map-node-text:#7BC188; --map-node-line:#1E5A2E; --map-bw:1px; --map-edge:rgba(43,231,107,0.5); --map-edge-w:1.5px; --map-dash:6 4; --shadow-ink:#10331B">
+          <svg width="300" height="190" style="position:absolute; inset:0"><path class="medge" d="M150 54 C 150 74, 84 74, 84 96"/><path class="medge" d="M150 54 C 150 74, 216 74, 216 96"/><path class="medge" d="M84 124 C 84 142, 60 142, 60 154"/></svg>
+          <div class="mnode root" style="left:112px; top:30px; --map-root:#07290F; color:#2BE76B; --map-root-line:#2BE76B; --map-root-glow:0 0 8px rgba(43,231,107,0.4)">Attention</div>
+          <div class="mnode ring" style="left:44px; top:96px; --map-active:#2BE76B; --map-ring-glow:drop-shadow(0 0 4px rgba(43,231,107,0.5))">Skalierung</div>
+          <div class="mnode" style="left:180px; top:96px">Mehrkopf</div>
+          <div class="mnode" style="left:22px; top:152px">√d_k</div>
+        </div>
+        <div class="state-note">Glow, Strichelung, Textschatten — das ist <b>Matrix-Identität</b> und gehört nicht nach Simply Blue.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════ §08 ══════════════════════════════ -->
+  <div class="section" id="s08">
+    <div class="section-label">
+      <span class="num">§08</span> Kleinteile: Versalien, Prosa, Auswahl, Eingabefelder
+      <span class="kind"><svg width="11" height="11"><use href="#i-info"/></svg>Signatur der anderen</span>
+      <span class="src"><svg width="11" height="11"><use href="#i-sliders"/></svg>index.css:577 · 706 · 994–1001 · 1035–1039</span>
+    </div>
+    <p class="section-desc">
+      Vier kleine Behandlungen, die je ein oder zwei Themes haben. Mushroom Kingdom und Hyrule
+      sperren <code>.uppercase</code> weit (0,08 em bzw. 0,22 em); Matrix färbt
+      <code>.prose h1–h3</code> und <code>strong</code>, dreht <code>::selection</code> auf Grün und
+      setzt Eingabefelder auf Monospace. Simply Blue hat für keines davon eine Regel.
+    </p>
+
+    <div class="stage">
+      <div class="col">
+        <div class="state-label"><span class="now">Heute</span><br>keine der vier Regeln</div>
+        <div class="smallbox">
+          <div class="caps">Zuletzt geöffnet</div>
+          <h4>Skalierte Punktprodukt-Aufmerksamkeit</h4>
+          <p>Der Faktor <b>1/√d_k</b> hält die Werte im Bereich, in dem der <span class="selbit">Softmax noch Gefälle hat</span>.</p>
+          <div class="fakefield">Frage stellen…</div>
+        </div>
+        <div class="state-note">Versalien eng, Fettdruck in Textfarbe, Auswahl im Browser-Standard.</div>
+      </div>
+
+      <div class="col">
+        <div class="state-label"><span class="v">A</span> · nur die Versalien sperren</div>
+        <div class="smallbox" style="--caps-track:0.09em">
+          <div class="caps">Zuletzt geöffnet</div>
+          <h4>Skalierte Punktprodukt-Aufmerksamkeit</h4>
+          <p>Der Faktor <b>1/√d_k</b> hält die Werte im Bereich, in dem der <span class="selbit">Softmax noch Gefälle hat</span>.</p>
+          <div class="fakefield">Frage stellen…</div>
+        </div>
+        <div class="state-note">Eine Zeile CSS. Kleine Versalien lesen gesperrt <b>ruhiger</b>, das ist Typografie, nicht Theme-Charakter.</div>
+      </div>
+
+      <div class="col">
+        <div class="state-label"><span class="v">B</span> · Versalien + Fettdruck im Akzent</div>
+        <div class="smallbox" style="--caps-track:0.09em; --b-color:var(--v4-blue-700)">
+          <div class="caps">Zuletzt geöffnet</div>
+          <h4>Skalierte Punktprodukt-Aufmerksamkeit</h4>
+          <p>Der Faktor <b>1/√d_k</b> hält die Werte im Bereich, in dem der <span class="selbit">Softmax noch Gefälle hat</span>.</p>
+          <div class="fakefield">Frage stellen…</div>
+        </div>
+        <div class="state-note">Fettdruck trägt Farbe wie in Matrix. Risiko: Blau ist im Chat <b>schon der Zweig-Link</b> — zwei Bedeutungen auf einem Ton.</div>
+      </div>
+
+      <div class="col">
+        <div class="state-label"><span class="v">C</span> · Versalien + eigene Auswahlfarbe</div>
+        <div class="smallbox" style="--caps-track:0.09em; --sel-bg:var(--v4-blue-200); --sel-ink:var(--gray-900); --field-line:var(--gray-300)">
+          <div class="caps">Zuletzt geöffnet</div>
+          <h4>Skalierte Punktprodukt-Aufmerksamkeit</h4>
+          <p>Der Faktor <b>1/√d_k</b> hält die Werte im Bereich, in dem der <span class="selbit">Softmax noch Gefälle hat</span>.</p>
+          <div class="fakefield">Frage stellen…</div>
+        </div>
+        <div class="state-note"><code>::selection</code> auf <code>blue-200</code>. <b>Achtung:</b> im PDF ist die native Auswahl absichtlich unterdrückt (index.css:1543) — die Regel darf die Textebene nicht treffen.</div>
+      </div>
+
+      <div class="col">
+        <div class="state-label"><span class="ref">Referenz · Matrix</span><br>index.css:994–1039</div>
+        <div class="smallbox" style="background:#060C07; border-color:#12301A; --caps-font:'Share Tech Mono',monospace; --caps-track:0.06em; --h-font:'Share Tech Mono',monospace; --b-color:#2BE76B; --b-glow:0 0 8px rgba(43,231,107,0.4); --field-bg:#08130A; --field-line:#12301A; --field-font:'IBM Plex Mono',monospace; --sel-bg:#2BE76B; --sel-ink:#021206">
+          <div class="caps" style="color:#4C7E58">Zuletzt geöffnet</div>
+          <h4 style="color:#2BE76B; text-shadow:0 0 8px rgba(43,231,107,0.3)">Skalierte Punktprodukt-Aufmerksamkeit</h4>
+          <p style="color:#9AD6A4">Der Faktor <b>1/√d_k</b> hält die Werte im Bereich, in dem der <span class="selbit">Softmax noch Gefälle hat</span>.</p>
+          <div class="fakefield" style="color:#4C7E58">Frage stellen…</div>
+        </div>
+        <div class="state-note">Alle vier Regeln auf einmal — <b>ein Terminal, kein Theme-Anstrich</b>.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="outro">
+    <strong>Reihenfolge, falls du mehrere nimmst:</strong> §01 zuerst, weil §07/A daraus folgt und
+    weil jedes weitere Mockup sonst wieder auf dem falschen Blau aufsetzt. Danach sind §02 und §03
+    unabhängig voneinander umsetzbar. §04–§06 und §08 sind reine Geschmacksfragen und blockieren
+    nichts.
+    <br><br>
+    <strong>Nicht in diesem Dokument:</strong> die Markierungsfarben
+    <code>--syflo-hl-*</code> (index.css:55–60) überschreibt nur Matrix — Mushroom Kingdom, Hyrule
+    und Ink Blue erben also Simply Blues Pastelltöne. Das ist die Gegenrichtung derselben Lücke und
+    betrifft drei andere Themes. Ebenfalls offen aus der letzten Sitzung:
+    <code>mockup-simply-blue-fixes.html</code> §05 (Tasten mit Text werden in schmalen Spalten zum
+    Symbol, <code>VideoBanner</code>) und §06 (die <code>ParentContextPane</code> stapelt zwei
+    Innenabstände, 104 von 232 px).
+  </div>
+
+</div>
+</body>
+</html>

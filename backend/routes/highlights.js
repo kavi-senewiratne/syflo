@@ -30,13 +30,11 @@ const express = require('express');
 const { randomUUID } = require('crypto');
 
 const ALLOWED_COLORS = new Set(['yellow', 'green', 'blue', 'pink', 'orange']);
-const DEFAULT_LABELS = {
-  yellow: 'Important',
-  green: 'Agree',
-  blue: 'Reference',
-  pink: 'Question',
-  orange: 'Disagree',
-};
+// The DEFAULT name of a color is UI copy, not data: it belongs to the App
+// language and lives in frontend/src/strings.ts (user request 2026-08-06).
+// This table therefore holds nothing but the user's own renames, and a color
+// without a row is reported as null — the frontend fills it from strings.
+const NO_OVERRIDE = { yellow: null, green: null, blue: null, pink: null, orange: null };
 const MAX_LABEL_LEN = 24;
 
 // Shape returned to the frontend. We join highlights with their text_range
@@ -243,29 +241,33 @@ module.exports = (db) => {
 
   // ─── Labels ───────────────────────────────────────────────────────────────
 
-  // GET — returns the 5 labels as an object keyed by color. Always returns
-  // all 5 colors (falling back to defaults for any missing row, which
-  // shouldn't happen after createDb's seed but defends against partial
-  // migrations).
+  // GET — all 5 colors, each carrying the user's own name or null. Never a
+  // default: naming an unrenamed color here would freeze it into the language
+  // that happened to be active when the row was written.
   router.get('/highlight-labels', (_req, res) => {
     const rows = db.prepare('SELECT color, label FROM highlight_labels').all();
-    const out = { ...DEFAULT_LABELS };
+    const out = { ...NO_OVERRIDE };
     for (const r of rows) {
-      if (ALLOWED_COLORS.has(r.color)) out[r.color] = r.label;
+      if (ALLOWED_COLORS.has(r.color) && String(r.label || '').trim()) out[r.color] = r.label;
     }
     res.json(out);
   });
 
-  // PUT — rename one color's label. Empty string resets to default (matches
-  // the "Reset to default" affordance in the inline editor). Length capped
-  // at 24 chars so the popup row doesn't reflow into a multi-line mess.
+  // PUT — rename one color. An empty string DROPS the override (the "Reset to
+  // default" affordance in the inline editor), so the color goes back to
+  // following the App language; the response says so with label: null. Length
+  // capped at 24 chars so the popup row doesn't reflow into a multi-line mess.
   router.put('/highlight-labels/:color', (req, res) => {
     const { color } = req.params;
     if (!ALLOWED_COLORS.has(color)) {
       return res.status(400).json({ error: 'unknown color' });
     }
     const raw = typeof req.body?.label === 'string' ? req.body.label.trim() : '';
-    const label = raw.length === 0 ? DEFAULT_LABELS[color] : raw.slice(0, MAX_LABEL_LEN);
+    if (raw.length === 0) {
+      db.prepare('DELETE FROM highlight_labels WHERE color = ?').run(color);
+      return res.json({ color, label: null });
+    }
+    const label = raw.slice(0, MAX_LABEL_LEN);
     const now = new Date().toISOString();
     db.prepare(
       `INSERT INTO highlight_labels (color, label, updated_at) VALUES (?, ?, ?)
@@ -278,4 +280,3 @@ module.exports = (db) => {
 };
 
 module.exports.ALLOWED_COLORS = ALLOWED_COLORS;
-module.exports.DEFAULT_LABELS = DEFAULT_LABELS;

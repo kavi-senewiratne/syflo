@@ -5,28 +5,47 @@
  * input field, the send button, and the microphone button for voice dictation.
  */
 
-import { useState, useRef, useEffect, useImperativeHandle, useMemo } from 'react';
-import { AlertCircle, Loader2, Mic, MicOff, Plus, ArrowUp, ChevronDown, Highlighter, Image as ImageIcon, ImagePlus, FileText, BookOpen, MessageSquareQuote, MessageSquarePlus, RotateCcw, Square, TvMinimalPlay, X } from 'lucide-react';
+import { Fragment, useState, useRef, useEffect, useImperativeHandle, useMemo } from 'react';
+import { AlertCircle, Loader2, Mic, MicOff, MessageCircleQuestionMark, Plus, ArrowUp, Check, ChevronDown, CornerDownRight, GitBranch, Highlighter, Image as ImageIcon, ImagePlus, FileText, BookOpen, MessageSquareQuote, MessageSquarePlus, RotateCcw, Square, TvMinimalPlay, X } from 'lucide-react';
 import { MessageBubble } from './MessageBubble';
+import { BranchTrace } from './BranchTrace';
 import { InlineMarkdown } from './InlineMarkdown';
 import { MathText, hasMath, plainMathText } from '../MathText';
 import { AttachmentChip } from './AttachmentChip';
+import { BtwPanel } from './BtwPanel';
 import { Logo } from '../Logo';
 import { VoiceWaveform } from './VoiceWaveform';
 import { useVoiceInput } from '../../hooks/useVoiceInput';
 import { useStrings } from '../../strings';
 import { HIGHLIGHT_HEX } from '../../types';
-import type { ChatDetail, ChatSelection, ComposerQuote, HighlightColor, LocalAttachment, Message, MessageHighlight, WordPopup } from '../../types';
+import type { Aside, BranchTarget, ChatDetail, ChatSelection, ComposerQuote, HighlightColor, LocalAttachment, Message, MessageHighlight, WordPopup } from '../../types';
+import { isOverlayOpen } from '../../overlay';
 import { rangeFromOffsets } from '../../chat/highlightAnchors';
 import { deriveQuestions, currentQuestionIndex } from '../../chat/questionNav';
+import { groupBranchTraces } from '../../chat/branchTrace';
 import { orderMessages } from '../../chat/messageOrder';
 import { QuestionNavButton, QuestionStepper } from './QuestionNav';
 
 interface Props {
   chat: ChatDetail | null;
+  // YouTube-Kennung des Baum-Videos, falls der Baum eins hat. Macht die
+  // Zeitmarken der Video overview anklickbar (markdown/timeLinks.ts).
+  videoYoutubeId?: string;
+  // Steht das Video eingebettet in der Mittelspalte, springt ein Klick auf eine
+  // Zeitmarke dort hin statt YouTube zu öffnen
+  // (mockup-youtube-embed-layout.html §03).
+  onTimeMarkClick?: (seconds: number) => void;
   loading: boolean;
   streaming: boolean;
-  onSendMessage: (content: string, attachments: LocalAttachment[]) => Promise<void>;
+  // targetChatId bleibt den programmatischen Sends der App vorbehalten; der
+  // Composer füllt nur quoteHighlightId — den Anker des Zitats, das er gerade
+  // in den Text gestellt hat (mockup-quote-jump-to-source.html).
+  onSendMessage: (
+    content: string,
+    attachments: LocalAttachment[],
+    targetChatId?: string,
+    quoteHighlightId?: string | null,
+  ) => Promise<void>;
   onWordRightClick: (popup: WordPopup) => void;
   onSelectChat: (id: string) => void;
   // "Upload file" im Plus-Menü: bindet ein PDF an den Chat tree (ein PDF pro
@@ -59,6 +78,14 @@ interface Props {
   // Branches (Highlight im Elternchat bzw. im PDF). Ohne Handler fällt der
   // Link auf onSelectChat(parent_id) zurück.
   onBranchedFromClick?: () => void;
+  // Titel des Elternchats — für den Rückweg-Link eines Zweigs OHNE Zitat
+  // (`/branch`, mockup-branch-trace.html §07). Fehlt er, trägt der Link
+  // stattdessen das generische "Branch aus".
+  parentTitle?: string | null;
+  // Klick auf das Zitat IN einer gesendeten Frage: springt zur Textstelle,
+  // aus der zitiert wurde (mockup-quote-jump-to-source.html, Variante A).
+  // Ohne Handler bleibt das Zitat toter Text wie zuvor.
+  onQuoteClick?: (message: Message) => void;
   // "Ask in chat"-Zitat, das vorbefüllt über der Textarea hängt. Beim Senden
   // wird es als Markdown-Blockquote über die Frage gestellt.
   composerQuote?: ComposerQuote | null;
@@ -67,6 +94,28 @@ interface Props {
   // Feedback-Dialog statt eine Nachricht zu senden; Resttext nach dem
   // Command wird als Startinhalt übernommen.
   onOpenFeedback?: (initialText: string) => void;
+  // /btw als zweiter reiner Composer-Trigger (design/mockup-btw-composer-fold.html):
+  // stellt eine Nebenfrage, die NIE im Verlauf landet. ChatArea meldet die
+  // Frage nur nach oben; die Antwort kommt als `aside` wieder herein und wird
+  // über der Textarea ausgeklappt. Ohne Handler bleibt /btw normaler Text.
+  onAskAside?: (question: string) => void;
+  // /branch als dritter reiner Composer-Trigger
+  // (design/mockup-branch-command.html): das getippte Thema wird zu einem
+  // Zweig — ohne Auswahl, also ohne Elternzitat. ChatArea entscheidet nichts
+  // über den Zweig selbst, es meldet nur Thema und gewähltes Elternteil nach
+  // oben. Ohne Handler bleibt /branch normaler Text.
+  onOpenTopicBranch?: (topic: string, parentId: string) => void;
+  // Die wählbaren Eltern für /branch — der Baum des aktiven Chats in
+  // Anzeigereihenfolge. Ohne Liste bleibt der aktuelle Chat das einzige Ziel.
+  branchTargets?: BranchTarget[];
+  aside?: Aside | null;
+  // Räumt die Nebenfrage weg. Drei Gesten lösen es aus — Tippen, Escape, das
+  // × im Panel — und keine davon wird in der UI erwähnt.
+  onDismissAside?: () => void;
+  // Die beiden Aktionen des Panels (Mockup §03): die Nebenfrage als zwei
+  // echte Nachrichten ans Thread-Ende hängen bzw. daraus einen Zweig öffnen.
+  onKeepAside?: () => void;
+  onBranchAside?: () => void;
   // Highlights-Drawer (mockup-highlights-overview.html, Variante A): der
   // Knopf im permanenten Header togglet; der Drawer selbst kommt als Slot
   // vom Owner (App) und legt sich über den Chat-Inhalt unterhalb des Headers.
@@ -89,6 +138,8 @@ interface Props {
   // Retry-Button der '*Failed*'-Fehlerzeile (MessageBubble reicht die
   // Nachricht hoch; App entscheidet zwischen Neu-Senden und Regenerate).
   onRetryMessage?: (message: Message) => void;
+  // Grows a cut-off answer in place (mockup-truncated-answer §01).
+  onContinueMessage?: (message: Message) => void;
   // Guided empty state (ADR-0008, grill 12b): active cloud provider without
   // an API key. Arrives fully composed from the owner (App, CloudSetupNotice)
   // and renders INSTEAD of the composer row — never a silent block.
@@ -143,10 +194,22 @@ export interface ChatAreaHandle {
     messageId: string,
     range?: { startOffset: number; endOffset: number; color: HighlightColor },
   ) => void;
+  // Rückweg einer Abzweigung (mockup-branch-trace.html §07): scrollt die
+  // Abzweig-Zeile dieses Zweigs in die Mitte und lässt sie aufleuchten.
+  scrollToBranchTrace: (branchChatId: string) => void;
+  // Keyboard navigation (ADR-0011). Any printable key hands the composer back
+  // and carries the character; Enter on a bubble takes it whole.
+  focusComposer: (text?: string) => void;
+  selectWholeMessage: (messageId: string) => void;
 }
 
-// Dauer des Aufblinkens nach einem Drawer-Sprung.
-const FLASH_MS = 1500;
+// Dauer des Aufglühens nach einem Sprung. MUSS zu den Flash-Animationen in
+// index.css passen (3 × 0,45 s) — steht der Wert höher, bleibt die Stelle nach
+// dem letzten Puls noch sichtbar markiert; steht er tiefer, wird der letzte
+// Puls abgeschnitten. Beide Seiten immer zusammen ändern.
+// 2026-08-15 von 2 × 0,75 s auf 3 × 0,45 s: zweimal langsam war schwer zu
+// bemerken (Nutzer-Report), dreimal kurz liest das Auge als Blinken.
+const FLASH_MS = 1350;
 
 // Ab dieser Haltedauer gilt die Leertaste im Eingabefeld als Push-to-Talk
 // statt als getipptes Leerzeichen. Kürzer als der macOS-Standard-Key-Repeat
@@ -161,9 +224,12 @@ function aliasBaseFor(mimetype: string): string {
   return '@datei';
 }
 
-// How close to the bottom (in px) counts as "at the bottom" — used to re-pin
-// auto-scroll once the user manually scrolls back down.
+// How close to the bottom (in px) counts as "at the bottom" — decides whether
+// the "scroll to latest" button is needed.
 const AT_BOTTOM_THRESHOLD = 8;
+
+// Air above a freshly sent question when it is parked at the top of the column.
+const QUESTION_ANCHOR_GAP = 12;
 
 // Rendert den Composer-Inhalt für das Highlight-Overlay: färbt ein führendes
 // "/feedback" (als vollständiges Wort) ein, der Rest bleibt normale Farbe.
@@ -172,8 +238,21 @@ const AT_BOTTOM_THRESHOLD = 8;
 // pre-wrap`-div aber nicht (bekannte Diskrepanz bei Highlight-Overlays).
 const TRAILING_NEWLINE_FILLER = String.fromCharCode(0x200b); // zero-width space
 
+// Ein Composer-Befehl im Slash-Menü. `fills` unterscheidet die zwei Arten:
+// ein Befehl, der noch Text braucht, setzt sich nur ins Feld (btw, branch);
+// ein Befehl, der sofort handeln kann, führt direkt aus (feedback).
+interface SlashCommand {
+  key: string;
+  label: string;
+  desc: string;
+  icon: React.ReactNode;
+  fills: string | null;
+}
+
 function renderComposerHighlight(text: string): React.ReactNode {
-  const match = text.match(/^\/feedback(?=\s|$)/i);
+  // Beide reinen Trigger werden im Composer blau markiert, damit sichtbar
+  // ist, dass die Zeile kein Chat-Inhalt mehr ist.
+  const match = text.match(/^\/(feedback|btw|branch)(?=\s|$)/i);
   const rest = (match ? text.slice(match[0].length) : text) + (text.endsWith('\n') ? TRAILING_NEWLINE_FILLER : '');
   if (!match) return rest;
   return (
@@ -184,7 +263,7 @@ function renderComposerHighlight(text: string): React.ReactNode {
   );
 }
 
-export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightClick, onSelectChat, onUploadPdf, onOpenPaperSearch, onOpenYouTubeSearch, videoBanner, transcriptDrawer, chatHighlights, onChatSelection, onHighlightContextMenu, pendingSelection, onBranchedFromClick, composerQuote, onClearComposerQuote, onOpenFeedback, onToggleHighlights, highlightsOpen, highlightsDrawer, modelPicker, onStopStreaming, streamingMessageIds, onRetryMessage, setupNotice, modelLabels, onRetryLocalModel, hasLocalModel, billingUrl, billingUrls, onOpenModelPicker, settingsChangedAt, onOpenSettings, providerLabels, localModelName, cloudFallback, onRetryCloudModel, freeFallback, onRetryFreeModel, onResendUnanswered, voiceRecorderFactory, ref }: Props) {
+export function ChatArea({ chat, videoYoutubeId, onTimeMarkClick, loading, streaming, onSendMessage, onWordRightClick, onSelectChat, onUploadPdf, onOpenPaperSearch, onOpenYouTubeSearch, videoBanner, transcriptDrawer, chatHighlights, onChatSelection, onHighlightContextMenu, pendingSelection, onBranchedFromClick, parentTitle, onQuoteClick, composerQuote, onClearComposerQuote, onOpenFeedback, onAskAside, onOpenTopicBranch, branchTargets, aside, onDismissAside, onKeepAside, onBranchAside, onToggleHighlights, highlightsOpen, highlightsDrawer, modelPicker, onStopStreaming, streamingMessageIds, onRetryMessage, onContinueMessage, setupNotice, modelLabels, onRetryLocalModel, hasLocalModel, billingUrl, billingUrls, onOpenModelPicker, settingsChangedAt, onOpenSettings, providerLabels, localModelName, cloudFallback, onRetryCloudModel, freeFallback, onRetryFreeModel, onResendUnanswered, voiceRecorderFactory, ref }: Props) {
   // UI-Texte in der App language — re-rendert beim Sprachwechsel mit.
   const S = useStrings().chatArea;
   const [input, setInput] = useState('');
@@ -200,22 +279,118 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
   // Menü, solange der Composer noch am Command-Wort tippt (kein Leerzeichen
   // dahinter) — reines Autocomplete, das eigentliche Öffnen übernimmt
   // handleSend/onOpenFeedback.
-  const showFeedbackSuggestion = !!onOpenFeedback
-    && input.length > 0
-    && input[0] === '/'
-    && !/\s/.test(input)
-    && '/feedback'.startsWith(input.toLowerCase());
+  // Die Composer-Befehle (ADR-0010 für /feedback, mockup-btw-composer-fold
+  // für /btw). Das Menü ist der Ort, an dem ein Nutzer sie überhaupt
+  // entdeckt, deshalb stehen beide in derselben Liste. `fills` unterscheidet
+  // sie: /feedback öffnet seinen Dialog sofort, /btw braucht erst noch die
+  // Frage und setzt darum nur den Befehl ins Feld.
+  const slashCommands = useMemo(() => {
+    if (input.length === 0 || input[0] !== '/' || /\s/.test(input)) return [];
+    const typed = input.toLowerCase();
+    const all: (SlashCommand | null)[] = [
+      onAskAside ? {
+        key: 'btw',
+        label: '/btw',
+        desc: S.btwCommandDesc,
+        icon: <MessageCircleQuestionMark size={16} className="text-blue-600 shrink-0" />,
+        fills: '/btw ',
+      } : null,
+      onOpenTopicBranch ? {
+        key: 'branch',
+        label: '/branch',
+        desc: S.branchCommandDesc,
+        icon: <GitBranch size={16} className="text-blue-600 shrink-0" />,
+        fills: '/branch ',
+      } : null,
+      onOpenFeedback ? {
+        key: 'feedback',
+        label: '/feedback',
+        desc: S.feedbackCommandDesc,
+        icon: <MessageSquarePlus size={16} className="text-blue-600 shrink-0" />,
+        fills: null,
+      } : null,
+    ];
+    // Typprädikat statt filter(Boolean): sonst behält TypeScript das `null`
+    // im Typ und der Produktions-Build bricht ab, obwohl `tsc --noEmit`
+    // durchläuft (gemerkt beim ersten echten Build 2026-08-09).
+    return all.filter((c): c is SlashCommand => c !== null && c.label.startsWith(typed));
+  }, [input, onAskAside, onOpenFeedback, onOpenTopicBranch, S]);
+
+
+  // /branch-Modus (design/mockup-branch-command.html §01): der Composer tippt
+  // gerade ein Zweig-Thema. Wie bei /btw nur am Zeilenanfang erkannt, damit
+  // ein "/branch" mitten im Satz nichts auslöst.
+  const branchMode = Boolean(onOpenTopicBranch && chat) && /^\/branch(?=\s|$)/.test(input);
+
+  // Der Chat, unter dem der Zweig entstehen wird. `null` heißt: der aktuelle
+  // Chat, also der Standard aus Mockup §02 Variante A. Eine getroffene Wahl
+  // gilt nur für diesen einen Befehl — sie stirbt mit dem /branch-Modus,
+  // damit sie nicht still den nächsten Zweig regiert.
+  const [branchTargetId, setBranchTargetId] = useState<string | null>(null);
+  const [branchPickerOpen, setBranchPickerOpen] = useState(false);
+  const branchPickerRef = useRef<HTMLDivElement>(null);
+  const branchTargetButtonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!branchMode) {
+      setBranchTargetId(null);
+      setBranchPickerOpen(false);
+    }
+  }, [branchMode]);
+
+  // Der aktuelle Chat steht oben, der Rest des Baums folgt in seiner
+  // Reihenfolge — der Chat, in dem man steht, ist der wahrscheinlichste Ort
+  // und der einzige, der doppelt vorkommen könnte.
+  const orderedBranchTargets = useMemo<BranchTarget[]>(() => {
+    if (!chat) return [];
+    const rest = (branchTargets ?? []).filter((t) => t.id !== chat.id);
+    const own = (branchTargets ?? []).find((t) => t.id === chat.id);
+    return [own ?? { id: chat.id, title: chat.title, depth: 0 }, ...rest];
+  }, [branchTargets, chat?.id, chat?.title]);
+
+  const effectiveBranchTargetId = branchTargetId ?? chat?.id ?? null;
+  const branchTargetTitle = plainMathText(
+    orderedBranchTargets.find((t) => t.id === effectiveBranchTargetId)?.title ?? chat?.title ?? ''
+  );
+
+  // Popover schließt sich beim Klick außerhalb — wie das Plus-Menü.
+  useEffect(() => {
+    if (!branchPickerOpen) return;
+    const onDocClick = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (branchPickerRef.current?.contains(target)) return;
+      if (branchTargetButtonRef.current?.contains(target)) return;
+      setBranchPickerOpen(false);
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, [branchPickerOpen]);
+  // Der hervorgehobene Eintrag; springt zurück auf den ersten, sobald sich
+  // die Liste ändert, damit nie ein Index ins Leere zeigt.
+  const [slashIndex, setSlashIndex] = useState(0);
+  useEffect(() => { setSlashIndex(0); }, [slashCommands.length]);
+
+  // /feedback öffnet direkt, /btw setzt nur den Befehl ins Feld — die Frage
+  // fehlt ja noch.
+  const runSlashCommand = (cmd: { fills: string | null }) => {
+    if (cmd.fills) {
+      setInput(cmd.fills);
+      textareaRef.current?.focus();
+      return;
+    }
+    setInput('');
+    onOpenFeedback?.('');
+  };
+
   // True, solange Dateien über dem Eingabebereich schweben — zeigt das Drop-Overlay.
   const [isDraggingFiles, setIsDraggingFiles] = useState(false);
   const dragDepthRef = useRef(0);
   const pickerMenuRef = useRef<HTMLDivElement>(null);
   const plusButtonRef = useRef<HTMLButtonElement>(null);
-  // Mirror state for rendering the "scroll to latest" button.
+  // Whether the view sits at the latest message — drives the "scroll to
+  // latest" button. Since 2026-08-06 nothing scrolls on its own while an
+  // answer streams, so this is a pure display concern.
   const [isPinnedToBottom, setIsPinnedToBottom] = useState(true);
-  // Authoritative pin state read by the auto-scroll effect. A ref avoids
-  // race conditions where a stale state value could pull the user back down
-  // a moment after they started scrolling up.
-  const isPinnedRef = useRef(true);
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -230,6 +405,11 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pdfInputRef = useRef<HTMLInputElement>(null);
   const chatColumnClass = 'shrink-0 px-6 sm:px-8';
+  // What the branch header and the quote chip SHOW: the passage with its math
+  // restored when the model managed it, otherwise the verbatim extraction
+  // (decision 2026-08-02). Never used as a search anchor — branch-word links
+  // and highlight matching keep using chat.parent_word.
+  const branchQuoteText = chat?.parent_word_display || chat?.parent_word || '';
   // maxWidth 100% (statt calc(100% - 3rem)): in der schmalen Drei-Spalten-
   // Chat-Spalte sind die px-Innenabstände Gutter genug — die zusätzlichen
   // 3rem Außenrand quetschten den Composer, bis der Senden-Knopf aus dem
@@ -274,7 +454,6 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
   };
 
   const setPinned = (pinned: boolean) => {
-    isPinnedRef.current = pinned;
     setIsPinnedToBottom(pinned);
   };
 
@@ -333,12 +512,44 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
     // again — leaving wheel/touch unpinning permanently broken.
   }, [chat?.id]);
 
-  // Auto-scroll on new content only when the user hasn't scrolled away.
+  // Where the view goes when messages change (user request 2026-08-06):
+  //   - opening a chat  → the latest message, as before;
+  //   - a new question  → that question moves to the top of the column and
+  //                       STAYS there while the answer streams in;
+  //   - answer deltas   → nothing at all.
+  // Following the growing answer used to drag the reader down the column, so
+  // the question they had just asked scrolled out of sight. Moving down is now
+  // the user's own decision — the ↓ button jumps to the latest.
+  const scrollAnchorRef = useRef<{ chatId: string | null; questionId: string | null }>({
+    chatId: null,
+    questionId: null,
+  });
   useEffect(() => {
-    if (isPinnedRef.current) {
+    const el = scrollContainerRef.current;
+    if (!chat || !el) return;
+    const lastQuestion = [...chat.messages].reverse().find((m) => m.role === 'user');
+    const questionId = lastQuestion?.id ?? null;
+    const anchor = scrollAnchorRef.current;
+
+    if (anchor.chatId !== chat.id) {
+      scrollAnchorRef.current = { chatId: chat.id, questionId };
       bottomRef.current?.scrollIntoView({ behavior: 'auto' });
+      return;
     }
-  }, [chat?.messages, streaming]);
+    if (!questionId || questionId === anchor.questionId) return;
+    scrollAnchorRef.current = { chatId: chat.id, questionId };
+
+    // Put the question just below the top edge. Not scrollIntoView: that would
+    // also scroll ancestor panes (the PDF column) on a short chat.
+    const row = el.querySelector(`[data-testid="message-row-${questionId}"]`);
+    if (row) {
+      const delta = row.getBoundingClientRect().top - el.getBoundingClientRect().top;
+      el.scrollTop += delta - QUESTION_ANCHOR_GAP;
+    }
+    // The view is now parked at the question, not at the bottom — so the ↓
+    // button has to appear.
+    setPinned(false);
+  }, [chat?.id, chat?.messages]);
 
   // Reset to pinned when the user opens a different chat.
   useEffect(() => {
@@ -426,12 +637,42 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
       onOpenFeedback(feedbackMatch[1]?.trim() ?? '');
       return;
     }
+    // /btw ist der zweite reine Trigger (design/mockup-btw-composer-fold.html):
+    // die Frage geht an die Nebenfragen-Route und NIE in den Verlauf. Ohne
+    // Fragetext passiert nichts — ein nacktes "/btw" ist ein halb getippter
+    // Befehl, keine Frage.
+    const asideMatch = text.match(/^\/btw(?:\s+([\s\S]*))?$/);
+    if (asideMatch && onAskAside) {
+      const question = asideMatch[1]?.trim() ?? '';
+      if (!question) return;
+      setInput('');
+      setMentionQuery(null);
+      onAskAside(question);
+      return;
+    }
+    // /branch ist der dritte reine Trigger (design/mockup-branch-command.html):
+    // das Thema wird zum Zweig, nicht zur Nachricht. Ein nacktes "/branch"
+    // ohne Thema tut nichts — ein halb getippter Befehl, kein leerer Zweig.
+    const branchMatch = text.match(/^\/branch(?:\s+([\s\S]*))?$/);
+    if (branchMatch && onOpenTopicBranch && chat) {
+      const topic = branchMatch[1]?.trim() ?? '';
+      if (!topic) return;
+      setInput('');
+      setMentionQuery(null);
+      onOpenTopicBranch(topic, branchTargetId ?? chat.id);
+      return;
+    }
     if ((!text && attachments.length === 0) || sending || !chat) return;
     // Zitat als Markdown-Blockquote über die Frage stellen — so landet es im
     // LLM-Kontext und MessageBubble rendert es als Zitatblock in der Bubble.
+    const usesQuote = Boolean(composerQuote && text);
     const content = composerQuote && text
       ? composerQuote.text.split('\n').map((l) => `> ${l}`).join('\n') + '\n\n' + text
       : text;
+    // Der Anker reist nur mit, wenn das Zitat auch wirklich im Text steht —
+    // sonst bekäme eine Frage ohne Zitatblock einen Sprung-Anker, der nirgends
+    // gerendert wird.
+    const quoteHighlightId = usesQuote ? composerQuote?.highlightId ?? null : null;
     const sentAttachments = attachments;
     setInput('');
     setAttachments([]);
@@ -442,7 +683,7 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
       // Resolves beim Stream-START (nicht -Ende): der Composer ist sofort
       // wieder frei, weitere Fragen reihen sich in die Backend-Warteschlange.
       // Die Objekt-URLs der Vorschau-Bilder gibt App am Stream-Ende frei.
-      await onSendMessage(content, sentAttachments);
+      await onSendMessage(content, sentAttachments, undefined, quoteHighlightId);
     } finally {
       setSending(false);
     }
@@ -474,14 +715,34 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
   useEffect(() => clearSpaceHold, [chat?.id]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    // ArrowUp (wie im Vorschlags-Menü "auswählen") oder Tab vervollständigen
-    // zu "/feedback " — Enter allein öffnet den Dialog schon (handleSend
-    // erkennt den vollen Command), das lässt nur Platz, um vorher noch Text
-    // anzuhängen.
-    if (showFeedbackSuggestion && (e.key === 'ArrowUp' || e.key === 'Tab')) {
-      e.preventDefault();
-      setInput('/feedback ');
-      return;
+    // Escape für die Nebenfrage hängt am Fenster, nicht hier — siehe den
+    // useEffect weiter unten. Nur die Mention-Navigation muss davon wissen:
+    // ein offenes Panel gewinnt gegen ein offenes Dropdown.
+    // Tastatur im Befehlsmenü: hoch/runter blättert, Tab und Enter wählen.
+    // Enter darf hier NICHT durchfallen — sonst schickt handleSend den halb
+    // getippten Befehl als Frage los.
+    if (slashCommands.length > 0) {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        const dir = e.key === 'ArrowDown' ? 1 : -1;
+        setSlashIndex((i) => (i + dir + slashCommands.length) % slashCommands.length);
+        return;
+      }
+      const chosen = slashCommands[slashIndex] ?? slashCommands[0];
+      // Tab vervollständigt nur — so lässt sich noch Text anhängen, bevor der
+      // Befehl läuft (bisheriges /feedback-Verhalten, jetzt für beide).
+      if (e.key === 'Tab') {
+        e.preventDefault();
+        setInput(chosen.fills ?? `${chosen.label} `);
+        return;
+      }
+      // Enter führt aus. Es darf NICHT durchfallen, sonst schickt handleSend
+      // den halb getippten Befehl als Frage los.
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        runSlashCommand(chosen);
+        return;
+      }
     }
     // Wenn das Mention-Dropdown gerade Vorschläge zeigt, übernimmt die Tastatur
     // die Navigation: Pfeiltasten blättern, Enter wählt, Escape schließt.
@@ -504,6 +765,9 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
         return;
       }
       if (e.key === 'Escape') {
+        // Steht ein Panel offen, ist es die auffälligere Sache auf dem
+        // Schirm: der globale Handler räumt es weg, das Dropdown bleibt.
+        if (aside) return;
         e.preventDefault();
         setMentionQuery(null);
         return;
@@ -572,6 +836,25 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  // Escape räumt die Nebenfrage weg — dieselbe Hausregel, mit der Escape
+  // schon den Highlights-Drawer und das Fragen-Popover schließt, und wie dort
+  // nirgends in der UI erwähnt. Der Listener hängt am FENSTER, nicht an der
+  // Textarea: die Nebenfrage überlebt einen Abstecher in die Einstellungen,
+  // und danach hat das Eingabefeld keinen Fokus mehr — ein Handler an der
+  // Textarea hätte den Tastendruck nie gesehen.
+  // Ein Dialog über der App beansprucht Escape für sich (`isOverlayOpen`) —
+  // sonst kostet das Schließen der Einstellungen nebenbei die Antwort, die
+  // gerade gelesen wurde. Escape schält eine Schicht pro Druck ab.
+  useEffect(() => {
+    if (!aside) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || isOverlayOpen()) return;
+      onDismissAside?.();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [aside, onDismissAside]);
+
   // Plus-Button → kleines Popover-Menü öffnen (statt direkt File-Picker).
   const handleTogglePickerMenu = () => {
     setPickerMenuOpen(prev => !prev);
@@ -605,8 +888,16 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
       if (plusButtonRef.current?.contains(target)) return;
       setPickerMenuOpen(false);
     };
+    // Escape closes it too — the house rule every other popup here follows,
+    // and without it the keyboard could walk into the menu but never out
+    // (user report 2026-08-11).
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setPickerMenuOpen(false); };
     document.addEventListener('mousedown', onDocClick);
-    return () => document.removeEventListener('mousedown', onDocClick);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDocClick);
+      document.removeEventListener('keydown', onKey);
+    };
   }, [pickerMenuOpen]);
 
   // Dateien (aus Picker oder Drop) in lokale Anhänge umwandeln, automatisch @-Aliase vergeben.
@@ -722,6 +1013,12 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
   // @-Autocomplete: prüft, ob der Cursor gerade hinter einem unvollständigen @-Token steht.
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const value = e.target.value;
+    // Die Nebenfrage verschwindet beim ERSTEN Zeichen, das den Text wirklich
+    // ändert — nicht schon beim Fokus (mockup-btw-composer-fold.html §00):
+    // wer ins Feld klickt, um beim Lesen die Hände zu sortieren, verliert die
+    // Antwort nicht. Kein Hinweistext begleitet das; die Geste muss sich
+    // erklären, nicht die UI.
+    if (aside && value !== input) onDismissAside?.();
     setInput(value);
     const cursor = e.target.selectionStart ?? value.length;
     const before = value.slice(0, cursor);
@@ -800,6 +1097,23 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
       flashTimersRef.current.push(window.setTimeout(fn, ms));
 
     if (range) {
+      // Nur die MARKIERUNG blinkt, nicht die ganze Blase (Nutzerentscheid
+      // 2026-07-22, festgehalten in App.highlights.test.tsx).
+      //
+      // Warum das Aufglühen im Chat lange schwächer wirkte als im PDF
+      // (Nutzer-Report 2026-08-15), und warum der Blasen-Glow NICHT die
+      // Antwort war: im PDF liegt um die Markierung ein echter Halo — die
+      // Rechtecke sind Elemente, `drop-shadow` läuft um ihre Silhouette. Im
+      // Chat ist die Markierung gar kein Element: sie wird über
+      // `::highlight()` auf einen Range gemalt, und dieses Pseudo-Element
+      // erlaubt weder `box-shadow` noch `outline`. Der Ersatz aus den Mitteln
+      // des Pseudos — dichter `text-shadow` plus pulsender Unterstrich —
+      // reichte nicht: unter der fast weiß aufgehellten Fläche blieb sichtbar
+      // nur der Strich („im Chat glüht einfach nur der Unterstrich auf",
+      // 2026-08-16). Seitdem misst `paintFlashChatRange` die Rechtecke des
+      // Ranges aus und legt DENSELBEN Halo darüber wie das PDF (flashGlow.ts).
+      // Hier ändert sich dadurch nichts: der Flash bleibt an der Markierung,
+      // nicht an der Blase.
       setFlashMessageId(null);
       setFlashRange({ messageId, ...range });
       // Der Fade selbst läuft in CSS (syflo-hl-range-flash) — hier nur noch
@@ -864,7 +1178,75 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
       scrollSettleRafRef.current = requestAnimationFrame(tick);
   };
 
-  useImperativeHandle(ref, () => ({ scrollToMessage: jumpToMessage }));
+  // ─── Branch trace (mockup-branch-trace.html, Variante A) ───
+  // Welche Abzweig-Zeile unter welcher Nachricht hängt. Der Anker wird gegen
+  // die WIRKLICH gerenderten Nachrichten geprüft: zeigt er ins Leere, wandert
+  // die Zeile nach oben, statt lautlos zu verschwinden.
+  const branchTraces = useMemo(
+    () => groupBranchTraces(chat?.children, (chat?.messages ?? []).map((m) => m.id)),
+    [chat?.children, chat?.messages],
+  );
+
+  // Rücksprung aus der Kopfzeile eines Zweigs: die zugehörige Zeile im
+  // Elternchat leuchtet kurz auf — derselbe Glow wie beim Sprung aus dem
+  // Highlights-Drawer, damit „hier bist du abgebogen" ohne Erklärung ankommt.
+  const [flashTraceChatId, setFlashTraceChatId] = useState<string | null>(null);
+  const jumpToTrace = (branchChatId: string) => {
+    const container = scrollContainerRef.current;
+    const row = container?.querySelector(`[data-testid="branch-trace-${branchChatId}"]`);
+    // Eingeklappte Stapel haben die Zeile noch nicht im DOM — das Setzen des
+    // Flash-Ziels klappt sie auf (BranchTrace), der Sprung folgt im nächsten
+    // Frame. Ohne Container/Chat bleibt es beim reinen Aufleuchten.
+    setFlashTraceChatId(branchChatId);
+    flashTimersRef.current.push(window.setTimeout(() => setFlashTraceChatId(null), FLASH_MS));
+    if (!container) return;
+    const scroll = () => {
+      const el = container.querySelector(`[data-testid="branch-trace-${branchChatId}"]`);
+      el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    };
+    if (row) scroll();
+    else requestAnimationFrame(scroll);
+  };
+
+  useImperativeHandle(ref, () => ({
+    focusComposer: (text?: string) => {
+      const ta = textareaRef.current;
+      if (!ta) return;
+      ta.focus();
+      if (text) setInput(prev => prev + text);
+    },
+    // Enter on a bubble selects the bubble whole and opens the same popup a
+    // drag-selection does — the keyboard cannot select part of a bubble, and
+    // says so rather than pretending (ADR-0011).
+    selectWholeMessage: (messageId: string) => {
+      if (!onChatSelection) return;
+      const row = document.querySelector(`[data-focus-item="${CSS.escape(messageId)}"]`);
+      const content = row?.querySelector<HTMLElement>('[data-chat-content]');
+      const message = chat?.messages.find(m => m.id === messageId);
+      if (!content || !message) return;
+      const range = document.createRange();
+      range.selectNodeContents(content);
+      const selection = window.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+      const text = content.textContent ?? '';
+      const rect = content.getBoundingClientRect();
+      onChatSelection(
+        {
+          messageId,
+          chatId: message.chat_id,
+          text: text.trim(),
+          startOffset: 0,
+          endOffset: text.length,
+        },
+        message.content,
+        rect.left + rect.width / 2,
+        rect.top,
+      );
+    },
+    scrollToMessage: jumpToMessage,
+    scrollToBranchTrace: jumpToTrace,
+  }));
 
   // ─── Fragen-Navigation (Grill 2026-07-22, mockup-question-nav.html 1+3) ───
   // Jede User-Nachricht ist eine Frage; Scroll-Spy leitet die "aktuelle" live
@@ -963,7 +1345,14 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
   };
 
   return (
-    <div className="syflo-chat-pane flex-1 flex flex-col bg-white overflow-hidden relative">
+    <div
+      // The chat column is a keyboard region only while it is actually
+      // visible: the highlights drawer's overlay variant covers it whole, and
+      // a ring walking behind it would be unreachable (ADR-0011, found in the
+      // running app 2026-08-10).
+      data-focus-region={highlightsDrawer ? undefined : 'chat'}
+      className="syflo-chat-pane flex-1 flex flex-col bg-white overflow-hidden relative"
+    >
       {/* Header: permanent für alle Chats (Grill 2026-07-21, Entscheidung 5) —
           der Highlights-Knopf braucht einen festen Ort. Bei Branch-Chats
           trägt statt des Titels das "Branched from"-Zitat den Kontext. */}
@@ -977,8 +1366,13 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
           (Nutzer-Screenshot 2026-07-22, Matrix-Theme). */}
       <div className="relative z-20 border-b border-gray-100 bg-white @container">
         <div className="flex justify-center">
+          {/* py-4 für BEIDE Header-Arten (Nutzerentscheidung 2026-08-06): der
+              Wurzel-Header stand auf py-7 und wuchs mit einem zweizeiligen
+              Titel auf 104 px — bei gleichem Innenabstand oben und unten, aber
+              zu viel davon. Der Titel trägt sein Gewicht über Schriftschnitt
+              und Größe, nicht über Leerraum. */}
           <div
-            className={`${chatColumnClass} ${chat.parent_word && chat.parent_id ? 'py-4' : 'py-7'}`}
+            className={`${chatColumnClass} py-4`}
             style={chatColumnStyle}
             data-testid="chat-header-shell"
           >
@@ -986,12 +1380,16 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
               /* Branch chats: the blue "Branched from …" link takes the
                  title's place (mockup-branch-header.html §01) — title and
                  quote were near-duplicates; the full title stays available
-                 as tooltip, in the sidebar and in the mind map. */
+                 as tooltip, in the sidebar and in the mind map.
+                 The quote is SHOWN as parent_word_display when the model
+                 restored its math ("σ 2 B ← 1 m m ∑ …" → a set formula,
+                 user report 2026-08-02); parent_word stays the verbatim
+                 anchor everything else searches for. */
               <div className={`group relative flex items-start gap-1 text-sm ${headerActionsPad}`}>
                 <span className="material-icons mt-0.5 shrink-0 text-[14px] text-gray-400">subdirectory_arrow_left</span>
                 <div
                   ref={branchQuoteRef}
-                  className={`min-w-0 flex-1 leading-relaxed whitespace-nowrap ${hasMath(chat.parent_word) ? 'syflo-math-fade' : 'truncate'}`}
+                  className={`min-w-0 flex-1 leading-relaxed whitespace-nowrap ${hasMath(branchQuoteText) ? 'syflo-math-fade' : 'truncate'}`}
                   data-testid="branched-from-quote"
                   title={plainMathText(chat.title)}
                 >
@@ -1014,7 +1412,7 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
                     }}
                     className="cursor-pointer text-blue-600 hover:text-blue-800 font-medium transition-colors"
                   >
-                    "<InlineMarkdown text={chat.parent_word} />"
+                    "<InlineMarkdown text={branchQuoteText} />"
                   </span>
                 </div>
                 {/* Hover/focus tooltip replaces the old chevron+dropdown
@@ -1031,17 +1429,80 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
                     className="pointer-events-none absolute left-5 top-full z-30 mt-2 max-w-sm rounded-lg border border-gray-100 bg-white px-3 py-2 text-[12.5px] leading-relaxed text-gray-700 opacity-0 shadow-2xl transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
                   >
                     <span className="absolute -top-1 left-4 h-2 w-2 rotate-45 border-l border-t border-gray-100 bg-white" />
-                    "<InlineMarkdown text={chat.parent_word} />"
+                    "<InlineMarkdown text={branchQuoteText} />"
                   </div>
                 )}
               </div>
+            ) : videoYoutubeId && !chat.parent_id ? (
+              /* Wurzel-Chat eines Video-Baums: der Titel steht hier NICHT
+                 (Variante C, Nutzerwahl 2026-08-15,
+                 design/mockup-video-header-merge.html). Er ist beim Wurzel-Chat
+                 identisch mit dem Video-Titel, den das Banner direkt darunter
+                 ohnehin nennt — zweimal derselbe Satz, zusammen 105 px, bevor
+                 die erste Antwort beginnt.
+
+                 Dieselbe Entscheidung wie bei Zweig-Chats einen Block weiter
+                 oben: von zwei Beinahe-Duplikaten bleibt eines. Dort gewinnt
+                 das Zitat, hier das Banner — weil dort auch Kanal, Dauer und
+                 die beiden Quellen-Knöpfe stehen, der Titel also bei seinen
+                 Angaben bleibt.
+
+                 Ohne Ersatztext (Nutzerkorrektur 2026-08-15): eine
+                 Einordnung „Video-Baum" stand kurz hier und war selbst
+                 überflüssig — das Banner darunter zeigt Symbol, Titel, Kanal
+                 und Dauer, damit ist die Art der Quelle beantwortet. Übrig
+                 bleibt eine leere Leiste, die nur noch die Aktionen trägt.
+
+                 Der Platzhalter ist trotzdem nötig: die Aktionen sind
+                 absolut positioniert (top-1/2), die Leiste bekäme sonst gar
+                 keine Höhe. NICHT die Knopfhöhe (h-8) — das war der erste
+                 Griff und ließ die Leiste auf 65 px wachsen, mehr als mit dem
+                 Titel davor. Die Knöpfe brauchen keine ebenso hohe Zeile,
+                 sondern eine ausreichend hohe LEISTE: h-4 plus py-4 ergibt
+                 48 px, also 8 px Luft über und unter den 32-px-Knöpfen —
+                 dieselbe Höhe wie die Textzeile, die hier vorher stand.
+
+                 In Zweigen desselben Baums greift dieser Zweig nicht: dort
+                 ist chat.parent_id gesetzt, und Kopf und Banner sagen zwei
+                 verschiedene Dinge. */
+              <div className="h-4" data-testid="video-root-header-spacer" aria-hidden="true" />
             ) : (
-              <h2
-                className={`font-semibold text-gray-900 break-words line-clamp-2 text-base ${headerActionsPad}`}
-                title={plainMathText(chat.title)}
-              >
-                <MathText text={chat.title} />
-              </h2>
+              <>
+                <h2
+                  className={`font-semibold text-gray-900 break-words line-clamp-2 text-base ${headerActionsPad}`}
+                  title={plainMathText(chat.title)}
+                >
+                  <MathText text={chat.title} />
+                </h2>
+                {/* Topic branch (`/branch`): no quote to put in the title's
+                    place, so the title stays and the way back is one quiet
+                    line under it (mockup-branch-trace.html §07 —
+                    the .bf-line shape of mockup-branch-command.html). It
+                    leads to the branch line in the parent transcript, which
+                    is the only record of where this topic came up. */}
+                {chat.parent_id && chat.branch_origin && (
+                  <div className={`mt-1 flex items-center gap-1 text-[11.5px] ${headerActionsPad}`}>
+                    <CornerDownRight size={12} className="shrink-0 text-gray-400" />
+                    <span className="shrink-0 text-gray-400">{S.traceBackTo}</span>
+                    <span
+                      role="link"
+                      tabIndex={0}
+                      data-testid="trace-back-link"
+                      onClick={handleBranchedFromActivate}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          handleBranchedFromActivate();
+                        }
+                      }}
+                      title={parentTitle ? plainMathText(parentTitle) : undefined}
+                      className="min-w-0 cursor-pointer truncate font-medium text-blue-600 transition-colors hover:text-blue-800"
+                    >
+                      {parentTitle ? <MathText text={parentTitle} /> : S.branchedFrom.trim()}
+                    </span>
+                  </div>
+                )}
+              </>
             )}
           </div>
         </div>
@@ -1052,12 +1513,16 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
               activeIndex={activeQuestion}
               onJump={(id) => jumpToMessage(id, undefined, { flash: false })}
             />
+            {/* Kein aria-label an diesem Knopf: seine Beschriftung steht als
+                Text darin. Die Kurzinfo erklärt nur die Symbol-Stufe unter
+                30rem — ein aria-label würde den sichtbaren Namen überschreiben. */}
             {onToggleHighlights && (
               <button
                 type="button"
                 aria-pressed={highlightsOpen ?? false}
-                title={S.toggleHighlightsTitle}
+                data-tip={S.toggleHighlightsTitle} data-tip-narrow-only="" data-tip-below="" data-tip-end=""
                 onClick={onToggleHighlights}
+                data-focus-item="chat-highlights"
                 className={`flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-[12.5px] font-medium transition-colors ${
                   highlightsOpen
                     ? 'bg-blue-50 text-blue-700'
@@ -1098,15 +1563,42 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
               </div>
             )}
 
+            {/* Branch lines whose anchor did not survive (empty chat at the
+                time, or the anchor message was deleted) open the transcript —
+                the fork happened, only its place in it is gone. */}
+            {branchTraces.leading.length > 0 && (
+              <div
+                style={
+                  chat.messages.length
+                    ? { marginBottom: '1.25rem' }
+                    // Leerer Chat: der Hinweistext darüber ist zentrierte
+                    // Fließschrift, die Zeile ein Bedienelement — ohne
+                    // eigenen Luftraum kleben beide aneinander
+                    // (Nutzer-Screenshot 2026-08-09, Matrix-Theme).
+                    : { marginTop: '3rem' }
+                }
+              >
+                <BranchTrace
+                  entries={branchTraces.leading}
+                  onOpen={onSelectChat}
+                  flashChatId={flashTraceChatId}
+                />
+              </div>
+            )}
+
             {orderMessages(chat.messages).map((msg, i, ordered) => {
               const isLastAssistant = msg.role === 'assistant' && i === ordered.length - 1;
               const branchWords = chat.children
                 .filter(c => c.parent_word)
                 .map(c => ({ word: c.parent_word!, chatId: c.id }));
+              const traces = branchTraces.byMessageId.get(msg.id);
               return (
+                <Fragment key={msg.id}>
                 <div
-                  key={msg.id}
                   data-testid={`message-row-${msg.id}`}
+                  // The bubble is one keyboard item (ADR-0011). Enter selects
+                  // it whole and opens the usual selection popup.
+                  data-focus-item={msg.id}
                   data-flash={flashMessageId === msg.id ? 'true' : undefined}
                   // Testbarer Marker für den punktgenauen Markierungs-Flash —
                   // jsdom hat keine Custom Highlight API, das Malen no-opt dort.
@@ -1114,10 +1606,13 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
                   className={flashMessageId === msg.id ? 'syflo-hl-flash rounded-xl' : undefined}
                   style={{
                     marginTop: i === 0 ? 0 : '2rem',
-                    // Glow in Blau (Nutzerkorrektur 2026-07-21: Glow statt
-                    // Ring) — die Zeile hat keine eigene Highlight-Farbe.
+                    // Glow in der Akzentfarbe (Nutzerkorrektur 2026-07-21:
+                    // Glow statt Ring) — die Zeile hat keine eigene
+                    // Highlight-Farbe. Über das blue-600-Token statt als
+                    // Hex-Wert, damit der Glow dem Theme folgt statt in jedem
+                    // Theme blau zu bleiben (Nutzerkorrektur 2026-08-09).
                     ...(flashMessageId === msg.id
-                      ? ({ '--flash-color': '#2563EB' } as React.CSSProperties)
+                      ? ({ '--flash-color': 'var(--color-blue-600, #2563EB)' } as React.CSSProperties)
                       : null),
                   }}
                 >
@@ -1136,6 +1631,7 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
                       streamingMessageIds ? streamingMessageIds.has(msg.id) : isLastAssistant
                     }
                     onRetryMessage={onRetryMessage}
+                    onContinueMessage={onContinueMessage}
                     modelLabels={modelLabels}
                     onRetryLocalModel={onRetryLocalModel}
                     hasLocalModel={hasLocalModel}
@@ -1154,10 +1650,15 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
                       onWordRightClick({ word, context, x, y })
                     }
                     branchWords={branchWords}
+                    videoYoutubeId={videoYoutubeId}
+                    onTimeMarkClick={onTimeMarkClick}
                     onBranchClick={onSelectChat}
                     // Ahead-link of the queued note (§07): jumps to the chat
                     // whose question the queue is answering right now.
                     onOpenChat={onSelectChat}
+                    // Klick auf das Zitat einer "Ask in chat"-Frage: zurück
+                    // zur Textstelle (mockup-quote-jump-to-source.html).
+                    onQuoteClick={onQuoteClick}
                     highlights={chatHighlights}
                     onChatSelection={onChatSelection}
                     onHighlightContextMenu={onHighlightContextMenu}
@@ -1167,6 +1668,20 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
                     }
                   />
                 </div>
+                {/* Branch trace (mockup-branch-trace.html §02): a sibling of
+                    the message row, never inside it — the row is what the
+                    scroll spy, the flash and the highlight anchoring measure,
+                    and a line drawn into it would shift all three. */}
+                {traces && traces.length > 0 && (
+                  <div style={{ marginTop: '1.25rem' }}>
+                    <BranchTrace
+                      entries={traces}
+                      onOpen={onSelectChat}
+                      flashChatId={flashTraceChatId}
+                    />
+                  </div>
+                )}
+                </Fragment>
               );
             })}
 
@@ -1206,41 +1721,59 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
         </div>
       </div>
 
-      {/* "Scroll to bottom" button — only shown when the user has scrolled up
-          away from the latest message. Lets them jump back in one click. */}
-      {!isPinnedToBottom && (
-        <button
-          onClick={scrollToBottom}
-          title={S.scrollToLatest}
-          className="absolute left-1/2 -translate-x-1/2 bottom-32 z-10 w-9 h-9 flex items-center justify-center rounded-full bg-white border border-gray-200 text-gray-600 shadow-md hover:text-gray-900 hover:bg-gray-50 transition-colors"
-        >
-          <ChevronDown size={18} strokeWidth={2} />
-        </button>
-      )}
-
-      {/* Fragen-Stepper — schwebt rechts über dem Composer, sobald die Liste
-          überläuft (Grill-Entscheidung 3); unter 2 Fragen gäbe es nichts zu
-          steppen. Gleiche Höhe wie der "Scroll to latest"-Knopf. */}
-      {listOverflows && questions.length >= 2 && (
-        <div className="absolute right-4 bottom-32 z-10">
-          <QuestionStepper
-            activeIndex={activeQuestion}
-            total={questions.length}
-            onJumpTo={jumpToQuestion}
-          />
-        </div>
-      )}
-
       {/* Input area — full width. Nimmt Drag-and-drop von Dateien entgegen
           (gleiche Typen wie der Datei-Picker); das Overlay zeigt die Drop-Zone. */}
       <div
-        className="bg-white pb-6 pt-3 relative"
+        /* Bewusst OHNE eigene Hintergrundfarbe (Nutzerreport 2026-08-09):
+           die Fläche erbt den Hintergrund der Chat-Spalte, damit er in JEDEM
+           Theme ohne Bruch durchläuft — der Matrix-Regen, Hyrules Lichtpfütze,
+           das schlichte Weiß der Standard-Themes. Ein eigenes bg-white schnitt
+           hier einen sichtbaren Kasten aus dem Hintergrund. Es wird auch nicht
+           gebraucht: die Nachrichtenliste ist ein eigener Scroll-Container und
+           endet über dieser Fläche, es scrollt also nichts dahinter durch. */
+        className="syflo-composer-area pb-6 pt-3 relative"
         onDragEnter={handleDragEnter}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
         data-testid="chat-input-dropzone"
       >
+        {/* Die zwei schwebenden Knöpfe — "Zur neuesten Nachricht" (mittig) und
+            der Fragen-Stepper (rechts, ab 2 Fragen und nur bei Überlauf,
+            Grill-Entscheidung 3). Sie hängen mit bottom-full an der OBERKANTE
+            dieses Containers, nicht mit einem festen bottom-32 am Spaltenboden:
+            der Composer wächst nach oben (bis 144 px), und in einer schmalen
+            Spalte erreicht er diese Höhe schon bei einer normalen Frage — dann
+            lagen die Knöpfe IM Eingabefeld (Nutzerreport 2026-08-10,
+            design/mockup-composer-narrow.html §05). Der Streifen selbst ist
+            klickdurchlässig, nur die Knöpfe fangen Klicks. */}
+        {(!isPinnedToBottom || (listOverflows && questions.length >= 2)) && (
+          <div
+            className="pointer-events-none absolute inset-x-0 bottom-full z-10 mb-2 h-9"
+            data-testid="composer-floaters"
+          >
+            {!isPinnedToBottom && (
+              <button
+                onClick={scrollToBottom}
+                data-tip={S.scrollToLatest}
+                aria-label={S.scrollToLatest}
+                className="pointer-events-auto absolute bottom-0 left-1/2 -translate-x-1/2 w-9 h-9 flex items-center justify-center rounded-full bg-white border border-gray-200 text-gray-600 shadow-md hover:text-gray-900 hover:bg-gray-50 transition-colors"
+              >
+                <ChevronDown size={18} strokeWidth={2} />
+              </button>
+            )}
+            {listOverflows && questions.length >= 2 && (
+              <div className="pointer-events-auto absolute bottom-0 right-4">
+                <QuestionStepper
+                  activeIndex={activeQuestion}
+                  total={questions.length}
+                  onJumpTo={jumpToQuestion}
+                />
+              </div>
+            )}
+          </div>
+        )}
+
         {isDraggingFiles && (
           <div
             className="pointer-events-none absolute inset-2 z-20 flex items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-blue-400 bg-blue-50/90 text-blue-600"
@@ -1302,6 +1835,76 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
               </div>
             )}
 
+            {/* /btw-Nebenfrage — klappt über dem Eingabefeld aus und ist
+                Teil des Composers, nie eine Nachricht
+                (design/mockup-btw-composer-fold.html). */}
+            {aside && <BtwPanel aside={aside} onDismiss={onDismissAside} onKeep={onKeepAside} onBranch={onBranchAside} modelLabels={modelLabels} providerLabels={providerLabels} />}
+
+            {/* /branch-Chip — nennt das Elternteil, unter dem der Zweig
+                entsteht, BEVOR Enter gedrückt wird
+                (design/mockup-branch-command.html §01). */}
+            {branchMode && (
+              <div
+                className="mb-2 mx-2 flex items-center gap-2 text-[11px]"
+                data-testid="branch-chip"
+              >
+                <span className="inline-flex items-center rounded-md border border-dashed border-gray-300 bg-gray-100 px-2 py-0.5 font-mono font-semibold text-gray-600">
+                  /branch
+                </span>
+                <div className="relative min-w-0">
+                  <button
+                    ref={branchTargetButtonRef}
+                    type="button"
+                    onClick={() => setBranchPickerOpen((open) => !open)}
+                    data-tip={S.branchTargetChange}
+                    aria-label={S.branchTargetChange}
+                    aria-haspopup="menu"
+                    aria-expanded={branchPickerOpen}
+                    data-testid="branch-target"
+                    className="inline-flex min-w-0 max-w-full items-center gap-1 rounded-md px-1 py-0.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700"
+                  >
+                    <CornerDownRight size={11} className="shrink-0" />
+                    <span className="truncate">{S.branchUnder(branchTargetTitle)}</span>
+                    <ChevronDown size={11} className="shrink-0" />
+                  </button>
+                  {branchPickerOpen && (
+                    <div
+                      ref={branchPickerRef}
+                      role="menu"
+                      data-testid="branch-target-picker"
+                      // max-h: ein tiefer Baum hat leicht zwanzig Chats — die
+                      // Liste scrollt, statt aus dem Fenster zu wachsen.
+                      className="absolute bottom-full left-0 z-30 mb-1 max-h-72 w-72 max-w-[calc(100vw-3rem)] overflow-y-auto rounded-xl border border-gray-200 bg-white py-1 shadow-lg"
+                    >
+                      <div className="px-3 py-1.5 text-[10px] font-medium uppercase tracking-wider text-gray-400">
+                        {S.branchTargetHeading}
+                      </div>
+                      {orderedBranchTargets.map((target, i) => (
+                        <button
+                          key={target.id}
+                          role="menuitem"
+                          onClick={() => { setBranchTargetId(target.id); setBranchPickerOpen(false); }}
+                          data-testid={`branch-target-item-${target.id}`}
+                          className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12.5px] transition-colors ${
+                            target.id === effectiveBranchTargetId
+                              ? 'bg-blue-50 font-medium text-blue-700'
+                              : 'text-gray-800 hover:bg-gray-50'
+                          }`}
+                          // Die Einrückung zeigt den Baum; der aktuelle Chat
+                          // steht oben und bleibt darum bündig.
+                          style={{ paddingLeft: i === 0 ? undefined : `${12 + target.depth * 14}px` }}
+                        >
+                          {i === 0 && <GitBranch size={12} className="shrink-0 text-current opacity-60" />}
+                          <span className="min-w-0 flex-1 truncate"><MathText text={target.title} /></span>
+                          {target.id === effectiveBranchTargetId && <Check size={12} className="shrink-0" />}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
             {/* "Ask in chat"-Zitatblock — dockt über dem Eingabefeld an
                 (mockup-chat-highlights-ask-in-chat.html, Sektion 02):
                 Farbbalken in der Highlight-Farbe (neutral grau ohne Farbe),
@@ -1327,7 +1930,7 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
                 </div>
                 <button
                   onClick={onClearComposerQuote}
-                  title={S.removeQuote}
+                  data-tip={S.removeQuote}
                   aria-label={S.removeQuote}
                   data-testid="composer-quote-remove"
                   className="shrink-0 p-1 rounded-md text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
@@ -1348,11 +1951,22 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
             {/* Recording state glows in the theme's accent (blue utilities
                 are theme-token mapped) instead of a hard red — user decision
                 2026-07-25. */}
-            <div className={`flex items-center gap-2 bg-white border border-gray-300 rounded-full pl-2 pr-3 py-2 shadow-sm transition-all ${
-              isListening
-                ? 'border-blue-300 ring-2 ring-blue-100'
-                : 'focus-within:border-gray-400'
-            }`}>
+            {/* Variante A aus design/mockup-composer-narrow.html §02: unter
+                30rem bricht die Zeile um. Der Textblock nimmt mit basis-full
+                die ganze Breite, alles Übrige rutscht dadurch auf eine zweite
+                Zeile — der getippte Text bekommt also die volle Spaltenbreite
+                statt der ~4 Zeichen, die zwischen Mikro, Modell-Chip und
+                Senden-Knopf übrig blieben (Nutzerreport 2026-08-10).
+                rounded-full passt nur zu einer Zeile; zweizeilig wird daraus
+                ein Rechteck mit großem Radius. */}
+            <div
+              data-testid="composer-box"
+              className={`flex items-center gap-2 bg-white border border-gray-300 rounded-full @max-[30rem]:flex-wrap @max-[30rem]:rounded-3xl @max-[30rem]:px-3 pl-2 pr-3 py-2 shadow-sm transition-all ${
+                isListening
+                  ? 'border-blue-300 ring-2 ring-blue-100'
+                  : 'focus-within:border-gray-400'
+              }`}
+            >
               {/* Hidden File-Input — wird vom Plus-Button getriggert */}
               <input
                 ref={fileInputRef}
@@ -1383,7 +1997,9 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
                       ? 'text-gray-900 bg-gray-100'
                       : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
                   }`}
-                  title={S.attach}
+                  data-tip={S.attach}
+                  aria-label={S.attach}
+                  data-focus-item="composer-attach"
                   data-testid="attach-plus-button"
                 >
                   <Plus size={20} strokeWidth={1.75} />
@@ -1443,19 +2059,24 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
                     getippt wird — an der oberen linken Ecke des Eingabefelds,
                     über dem Plus-Button (design/mockup-feedback.html §2,
                     Nutzerkorrektur 2026-08-01). */}
-                {showFeedbackSuggestion && (
+                {slashCommands.length > 0 && (
                   <div className="absolute bottom-full left-0 mb-2 z-20 bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden w-[22rem] max-w-[calc(100vw-3rem)]">
-                    <button
-                      onClick={() => { setInput(''); onOpenFeedback?.(''); }}
-                      className="w-full flex items-center gap-3 px-3 py-2.5 text-left bg-blue-50"
-                      data-testid="feedback-slash-item"
-                    >
-                      <MessageSquarePlus size={16} className="text-blue-600 shrink-0" />
-                      <span>
-                        <span className="block text-sm font-semibold text-blue-600">/feedback</span>
-                        <span className="block text-xs text-gray-500">{S.feedbackCommandDesc}</span>
-                      </span>
-                    </button>
+                    {slashCommands.map((cmd, i) => (
+                      <button
+                        key={cmd.key}
+                        onClick={() => runSlashCommand(cmd)}
+                        className={`w-full flex items-center gap-3 px-3 py-2.5 text-left ${
+                          i === slashIndex ? 'bg-blue-50' : 'hover:bg-gray-50'
+                        }`}
+                        data-testid={`slash-item-${cmd.key}`}
+                      >
+                        {cmd.icon}
+                        <span>
+                          <span className="block text-sm font-semibold text-blue-600">{cmd.label}</span>
+                          <span className="block text-xs text-gray-500">{cmd.desc}</span>
+                        </span>
+                      </button>
+                    ))}
                   </div>
                 )}
               </div>
@@ -1476,7 +2097,10 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
                   liegende Layer — identische Schrift/Padding/Zeilenhöhe/
                   Umbruch, Höhe und Scroll-Position werden aus der textarea
                   gespiegelt (autosizeTextarea/syncHighlightScroll oben). */}
-              <div className="relative flex-1 min-w-0 flex">
+              <div
+                data-testid="composer-text-block"
+                className="relative flex-1 min-w-0 flex @max-[30rem]:order-first @max-[30rem]:basis-full"
+              >
                 <div
                   ref={highlightRef}
                   aria-hidden="true"
@@ -1486,6 +2110,10 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
                   {renderComposerHighlight(input)}
                 </div>
                 <textarea
+                  // Last keyboard item of the chat region (ADR-0011): ↓ from
+                  // the final bubble lands here, and any printable key gives
+                  // the composer the focus back.
+                  data-focus-item="composer"
                   ref={textareaRef}
                   value={input}
                   onChange={handleInputChange}
@@ -1510,20 +2138,23 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
                 )}
               </div>
 
-              {/* In sehr schmalen Spalten (Branch-Chat neben dem PDF) hat das
-                  Mockup keinen Mikro-Knopf — ausblenden, damit der Platzhalter
-                  und die Eingabe genug Breite behalten. */}
+              {/* Der Mikro-Knopf war unter 24rem ausgeblendet, weil er dem
+                  Textfeld Breite wegnahm. Mit dem zweizeiligen Composer
+                  (Variante A, §02 des Mockups) steht er in der Steuerzeile und
+                  kostet keine Textbreite mehr — er darf also bleiben. */}
               {supported && (
                 <button
                   onClick={handleToggleListening}
-                  title={isTranscribing ? S.transcribing : isListening ? S.stopRecording : S.startRecording}
+                  data-tip={isTranscribing ? S.transcribing : isListening ? S.stopRecording : S.startRecording} data-tip-end=""
+                  aria-label={isTranscribing ? S.transcribing : isListening ? S.stopRecording : S.startRecording}
                   aria-pressed={isListening}
                   disabled={isTranscribing}
-                  className={`shrink-0 w-9 h-9 @max-[24rem]:hidden flex items-center justify-center rounded-full transition-colors ${
+                  className={`shrink-0 w-9 h-9 flex items-center justify-center rounded-full transition-colors ${
                     isListening
                       ? 'text-white bg-blue-500 hover:bg-blue-600'
                       : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
                   }`}
+                  data-focus-item="composer-mic"
                   data-testid="mic-button"
                 >
                   {isTranscribing
@@ -1544,10 +2175,12 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
                 // Theme heraus (Nutzerkorrektur 2026-07-22).
                 <button
                   onClick={onStopStreaming}
-                  title={S.stopResponse}
+                  data-tip={S.stopResponse} data-tip-end=""
                   aria-label={S.stopResponse}
                   data-testid="stop-button"
-                  className="shrink-0 w-9 h-9 flex items-center justify-center rounded-full bg-blue-600 text-white transition-all hover:bg-blue-700"
+                  /* ml-auto: in der zweizeiligen Steuerzeile (Variante A) sitzt
+                     der Knopf rechts, wie einzeilig am Zeilenende. */
+                  className="shrink-0 w-9 h-9 @max-[30rem]:ml-auto flex items-center justify-center rounded-full bg-blue-600 text-white transition-all hover:bg-blue-700"
                 >
                   <Square size={13} fill="currentColor" strokeWidth={0} />
                 </button>
@@ -1555,8 +2188,10 @@ export function ChatArea({ chat, loading, streaming, onSendMessage, onWordRightC
                 <button
                   onClick={handleSend}
                   disabled={isBusy || isListening || isTranscribing || (!input.trim() && attachments.length === 0)}
-                  title={S.send}
-                  className="shrink-0 w-9 h-9 flex items-center justify-center rounded-full bg-blue-600 text-white transition-all hover:bg-blue-700 disabled:opacity-30 disabled:cursor-not-allowed"
+                  data-tip={S.send} data-tip-end=""
+                  aria-label={S.send}
+                  data-focus-item="composer-send"
+                  className="shrink-0 w-9 h-9 @max-[30rem]:ml-auto flex items-center justify-center rounded-full bg-blue-600 text-white transition-all hover:bg-blue-700 disabled:opacity-30 disabled:cursor-not-allowed"
                 >
                   <ArrowUp size={20} strokeWidth={2.25} />
                 </button>

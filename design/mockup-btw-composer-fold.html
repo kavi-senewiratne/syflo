@@ -1,0 +1,1177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Syflo · /btw — Idea D, the composer fold-out (round 2)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  /* ============================================================
+     THEME TOKENS — copied verbatim from frontend/src/index.css so this
+     mockup shows the real five themes, not an approximation. Every colour
+     below is a token the app already remaps; nothing here is a literal
+     decoration colour. Switch with the row of buttons at the top, or load
+     the file with #theme=matrix.
+     ============================================================ */
+  :root {
+    /* default theme — Tailwind's own scale, what the app uses with no data-theme */
+    --t-white: #FFFFFF;
+    --t-gray-50: #F9FAFB; --t-gray-100: #F3F4F6; --t-gray-200: #E5E7EB; --t-gray-300: #D1D5DB;
+    --t-gray-400: #9CA3AF; --t-gray-500: #6B7280; --t-gray-600: #4B5563; --t-gray-700: #374151;
+    --t-gray-800: #1F2937; --t-gray-900: #111827;
+    --t-blue-50: #EFF6FF; --t-blue-100: #DBEAFE; --t-blue-500: #3B82F6; --t-blue-600: #2563EB; --t-blue-700: #1D4ED8;
+  }
+  :root[data-theme='mushroom-kingdom'] {
+    --t-white: #fffdf4;
+    --t-gray-50: #f7f4e4; --t-gray-100: #f0eddd; --t-gray-200: #e4decc; --t-gray-300: #cfc7ac;
+    --t-gray-400: #82829f; --t-gray-500: #6e6e8c; --t-gray-600: #565678; --t-gray-700: #3d3d63;
+    --t-gray-800: #2f2f55; --t-gray-900: #23234a;
+    --t-blue-50: #fbe6db; --t-blue-100: #f8d2c2; --t-blue-500: #dd4d44; --t-blue-600: #d8433b; --t-blue-700: #bc332c;
+  }
+  :root[data-theme='hyrule'] {
+    --t-white: #f8f5e8;
+    --t-gray-50: #f1eddc; --t-gray-100: #e8e3ce; --t-gray-200: #d9d3b9; --t-gray-300: #c6bfa0;
+    --t-gray-400: #8e9078; --t-gray-500: #767962; --t-gray-600: #5f624e; --t-gray-700: #4e5240;
+    --t-gray-800: #414534; --t-gray-900: #33372a;
+    --t-blue-50: #deede8; --t-blue-100: #cbe4dd; --t-blue-500: #2fa79d; --t-blue-600: #2aa198; --t-blue-700: #218880;
+  }
+  :root[data-theme='ink-blue'] {
+    /* ink-blue keeps the default blue ramp on purpose — only the neutrals move */
+    --t-white: #ffffff;
+    --t-gray-50: #f3f8fd; --t-gray-100: #eef4fb; --t-gray-200: #dbe6f3; --t-gray-300: #becfe4;
+    --t-gray-400: #6e82a3; --t-gray-500: #5c7194; --t-gray-600: #46597b; --t-gray-700: #2c4059;
+    --t-gray-800: #1f3049; --t-gray-900: #14263f;
+  }
+  :root[data-theme='matrix'] {
+    /* the gray ramp is INVERTED here: gray-900 is near-white, white is near-black.
+       This is exactly why nothing in the mockup may hardcode a colour. */
+    --t-white: #060c07;
+    --t-gray-50: #08130a; --t-gray-100: #0c160d; --t-gray-200: #12301a; --t-gray-300: #1a4224;
+    --t-gray-400: #3e6a48; --t-gray-500: #4c7e58; --t-gray-600: #64a272; --t-gray-700: #7bc188;
+    --t-gray-800: #9ad6a4; --t-gray-900: #b7e8bc;
+    --t-blue-50: #07290f; --t-blue-100: #0a3414; --t-blue-500: #24c95c; --t-blue-600: #2be76b; --t-blue-700: #5ef391;
+  }
+
+  /* Everything the mockup draws with is derived from the tokens above. */
+  :root {
+    --brand-blue: var(--t-blue-500);
+    --bg-app: var(--t-gray-50);
+    --surface: var(--t-white);
+    --text-strong: var(--t-gray-900);
+    --text-default: var(--t-gray-700);
+    --text-muted: var(--t-gray-500);
+    --border: var(--t-gray-200);
+    --blue-50: var(--t-blue-50); --blue-100: var(--t-blue-100);
+    --blue-500: var(--t-blue-500); --blue-600: var(--t-blue-600); --blue-700: var(--t-blue-700);
+    --gray-50: var(--t-gray-50); --gray-100: var(--t-gray-100); --gray-200: var(--t-gray-200);
+    --gray-300: var(--t-gray-300); --gray-400: var(--t-gray-400); --gray-500: var(--t-gray-500);
+    --gray-600: var(--t-gray-600);
+    --stage-bg: var(--t-gray-200);
+    --on-brand: var(--t-white);
+    --shadow: 0 1px 3px rgba(0,0,0,0.07), 0 1px 2px rgba(0,0,0,0.05);
+    --shadow-lg: 0 12px 28px rgba(0,0,0,0.16);
+  }
+
+  /* Theme switcher */
+  .themes { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 26px; }
+  .themes button {
+    font-family: inherit; font-size: 11.5px; font-weight: 500; cursor: pointer;
+    height: 28px; padding: 0 11px; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--surface); color: var(--text-muted);
+  }
+  .themes button:hover { background: var(--gray-100); color: var(--text-default); }
+  .themes button[aria-pressed='true'] {
+    background: var(--blue-50); border-color: var(--blue-100); color: var(--blue-700); font-weight: 600;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Inter', -apple-system, sans-serif; background: var(--bg-app);
+    color: var(--text-default); -webkit-font-smoothing: antialiased;
+    min-height: 100vh; padding: 48px 32px 120px;
+  }
+  .wrap { max-width: 1240px; margin: 0 auto; }
+
+  .intro { margin-bottom: 40px; }
+  .intro h1 { font-size: 24px; font-weight: 700; color: var(--text-strong); letter-spacing: -0.015em; margin-bottom: 8px; }
+  .intro p { font-size: 14px; color: var(--text-muted); line-height: 1.65; max-width: 830px; }
+  .intro strong { color: var(--text-default); }
+  code {
+    background: var(--gray-100); border-radius: 4px; padding: 1px 5px;
+    font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+
+  .decided {
+    margin-top: 16px; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: 14px 18px 15px; box-shadow: var(--shadow); max-width: 830px;
+  }
+  .decided h2 {
+    font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--gray-400); margin-bottom: 9px;
+  }
+  .decided ul { list-style: none; display: flex; flex-direction: column; gap: 7px; }
+  .decided li { font-size: 13px; line-height: 1.55; color: var(--text-muted); display: flex; gap: 8px; }
+  .decided li svg { color: var(--blue-600); flex: none; margin-top: 3px; }
+  .decided li strong { color: var(--text-default); }
+
+  .section { margin-bottom: 60px; }
+  .section-label {
+    font-size: 12px; font-weight: 600; color: var(--text-muted);
+    letter-spacing: 0.06em; text-transform: uppercase;
+    display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px;
+  }
+  .section-label .num { color: var(--brand-blue); font-weight: 700; }
+  .section-desc { font-size: 13px; color: var(--text-muted); line-height: 1.6; margin-bottom: 18px; max-width: 830px; }
+  .section-desc strong { color: var(--text-default); }
+
+  .stage {
+    background: var(--stage-bg); border-radius: 14px; padding: 36px 24px;
+    display: flex; justify-content: center; gap: 24px; align-items: flex-start; flex-wrap: wrap;
+  }
+  .stage.flow { gap: 10px; align-items: stretch; flex-wrap: nowrap; }
+  .col { display: flex; flex-direction: column; }
+  .state-label {
+    text-align: center; font-size: 10.5px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.06em; color: var(--text-muted); margin-bottom: 10px; line-height: 1.4;
+  }
+  .state-label .step { color: var(--brand-blue); }
+  .arrow { align-self: center; color: var(--gray-400); display: flex; align-items: center; padding-top: 120px; }
+
+  /* ── Chat pane shell ── */
+  .chat-pane {
+    width: 470px; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; overflow: hidden; box-shadow: var(--shadow);
+    position: relative; display: flex; flex-direction: column;
+  }
+  .chat-pane.narrow { width: 252px; flex: none; }
+  .chat-pane.mid { width: 370px; flex: none; }
+  .chat-pane.tall { min-height: 420px; }
+  .chat-header {
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px 12px 12px 16px; border-bottom: 1px solid var(--gray-100);
+  }
+  .chat-header .grow { flex: 1; min-width: 0; }
+  .chat-title { font-size: 13.5px; font-weight: 600; color: var(--text-strong); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+  .bf-line { display: flex; align-items: center; gap: 4px; min-width: 0; flex: 1; font-size: 12.5px; }
+  .bf-line svg { color: var(--gray-400); flex: none; }
+  .bf-label { color: var(--gray-400); }
+  .bf-link { color: var(--blue-600); font-weight: 500; }
+
+  .chat-msgs { padding: 16px; display: flex; flex-direction: column; gap: 10px; flex: 1; overflow: hidden; }
+  .bubble-user {
+    align-self: flex-end; background: var(--brand-blue); color: var(--on-brand);
+    font-size: 12px; line-height: 1.5; padding: 8px 11px;
+    border-radius: 12px 12px 4px 12px; max-width: 86%;
+  }
+  .bubble-ai {
+    align-self: flex-start; background: var(--bg-app); color: var(--text-default);
+    font-size: 12px; line-height: 1.5; padding: 8px 11px;
+    border-radius: 12px 12px 12px 4px; max-width: 86%;
+  }
+  .bubble-new { box-shadow: 0 0 0 2px var(--blue-100); }
+
+  /* ── Composer ── */
+  .composer { border-top: 1px solid var(--gray-100); padding: 10px 12px 12px; background: var(--surface); }
+  .composer-box {
+    border: 1px solid var(--border); border-radius: 12px; background: var(--surface);
+    padding: 8px 10px 8px 12px; display: flex; align-items: flex-end; gap: 8px;
+  }
+  .composer-box.focused { border-color: var(--blue-500); box-shadow: 0 0 0 3px var(--blue-50); }
+  .composer-box.with-chip { flex-direction: column; align-items: stretch; gap: 6px; }
+  .cb-row { display: flex; align-items: flex-end; gap: 8px; }
+  .composer-text { flex: 1; font-size: 12.5px; line-height: 1.5; color: var(--text-default); padding: 3px 0; min-height: 20px; }
+  .composer-text.ph { color: var(--gray-400); }
+  .caret { display: inline-block; width: 1.5px; height: 14px; background: var(--text-strong); vertical-align: -2px; margin-left: 1px; }
+  .composer-actions { display: flex; align-items: center; gap: 6px; }
+  .send-btn {
+    width: 28px; height: 28px; border-radius: 8px; border: none; background: var(--brand-blue);
+    color: var(--on-brand); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; flex: none;
+  }
+  .send-btn.idle { background: var(--gray-200); color: var(--gray-400); }
+  .composer-foot { display: flex; align-items: center; gap: 7px; margin-top: 7px; font-size: 11px; color: var(--gray-400); }
+  .model-chip {
+    display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 8px;
+    border-radius: 7px; border: 1px solid var(--border); background: var(--surface);
+    font-size: 11px; color: var(--text-muted); font-weight: 500;
+  }
+  .btw-chip {
+    display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 8px 0 6px;
+    border-radius: 6px; background: var(--gray-100); border: 1px dashed var(--gray-300);
+    font-size: 11px; font-weight: 600; color: var(--gray-600);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; align-self: flex-start;
+  }
+  .btw-chip svg { color: var(--gray-500); }
+
+  /* ── The fold-out panel ── */
+  .fold {
+    border: 1px solid var(--border); border-bottom: none;
+    border-radius: 12px 12px 0 0; background: var(--gray-50);
+    padding: 10px 12px 11px; position: relative;
+  }
+  .fold + .composer-box { border-radius: 0 0 12px 12px; border-top-color: var(--gray-200); }
+  .fold-head {
+    display: flex; align-items: center; gap: 6px; margin-bottom: 6px;
+    font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--gray-400);
+  }
+  .fold-head svg { color: var(--gray-400); flex: none; }
+  /* The command's own icon sits left of "/btw" — the same
+     MessageCircleQuestionMark the slash-command menu shows for it (user
+     decision 2026-08-11, revising "no icon, the name is the mark"): panel
+     and command now carry one mark, recognisable before the word is read. */
+  .fold-head .spacer { flex: 1; }
+  /* The panel names itself after the command that made it, not after a
+     translated noun — "/btw" needs no DE/EN pair and teaches the trigger
+     every time the panel opens (user decision 2026-08-08). */
+  /* The name wears the same dashed chip the command wears in the chat — next
+     to the input field (the /branch chip) and in the branch trace line (user
+     decision 2026-08-12). Plain monospace text made one command look like
+     three different things depending on where it appeared. The icon stays
+     OUTSIDE the chip, exactly as in the trace line. */
+  .fold-head .cmd {
+    display: inline-flex; align-items: center; padding: 1px 5px;
+    border-radius: 4px; border: 1px dashed var(--gray-300); background: var(--gray-100);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    text-transform: none; letter-spacing: 0; font-size: 11px;
+    font-weight: 600; color: var(--gray-600);
+  }
+  /* Die Frage bleibt stehen, während die Antwort unter ihr wegscrollt.
+     In reinem Fett war sie dabei nicht mehr von einer fetten Zeile IN der
+     Antwort zu unterscheiden (Nutzerbericht 2026-08-11) — deshalb die
+     Akzentfarbe, die jedes Theme auf seine eigene abbildet. */
+  .fold-q { font-size: 12px; font-weight: 600; color: var(--blue-700); line-height: 1.45; margin-bottom: 5px; }
+  .fold-a { font-size: 12px; line-height: 1.55; color: var(--text-default); }
+  /* Below a 30rem chat column the two labels together are wider than the
+     panel and pushed past its right edge (user report 2026-08-11); there
+     only the icons remain, with the full wording as a hover tooltip. */
+  .fold-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 9px; }
+  /* Grip: only rendered when the answer actually overflows the 40 % cap.
+     Dragging raises the panel to at most 75 % of the pane, for this aside
+     only — the next one opens at 40 % again. */
+  .fold-grip {
+    position: absolute; top: 0; left: 0; right: 0; height: 12px;
+    display: flex; align-items: center; justify-content: center; cursor: ns-resize;
+  }
+  .fold-grip span { width: 24px; height: 3px; border-radius: 999px; background: var(--gray-300); display: block; }
+  .fold-grip:hover span { background: var(--gray-400); }
+  .fold:has(.fold-grip) .fold-head { margin-top: 4px; }
+  /* Fade at the bottom edge — the "there is more" signal a 90 px scrollbar
+     cannot give on its own. */
+  .fold-scroll { position: relative; }
+  .fold-scroll::after {
+    content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 22px;
+    background: linear-gradient(to bottom, color-mix(in srgb, var(--gray-50), transparent 100%), var(--gray-50));
+    pointer-events: none;
+  }
+  /* The model line: shown ONLY when the answer did not come from the chat's
+     own model, i.e. after a silent switch. Never shown in the normal case. */
+  .fold-model {
+    display: inline-flex; align-items: center; gap: 5px; margin-top: 8px;
+    font-size: 10.5px; color: var(--gray-400); text-transform: none; letter-spacing: 0;
+  }
+  .fold-model svg { color: var(--gray-400); flex: none; }
+  .fold-model b { font-weight: 600; color: var(--gray-500); }
+
+  .mini-btn {
+    display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 9px;
+    border-radius: 7px; border: 1px solid var(--border); background: var(--surface);
+    font-family: inherit; font-size: 11px; font-weight: 500; color: var(--text-default);
+    cursor: pointer; white-space: nowrap;
+  }
+  .mini-btn:hover { background: var(--gray-100); }
+  .mini-btn svg { color: var(--gray-500); flex: none; }
+  .mini-btn.primary { background: var(--blue-50); border-color: var(--blue-100); color: var(--blue-700); }
+  .mini-btn.primary svg { color: var(--blue-700); }
+  .x-btn {
+    width: 20px; height: 20px; border-radius: 5px; border: none; background: none;
+    color: var(--gray-400); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; flex: none;
+  }
+  .x-btn:hover, .x-btn.hovered { background: var(--gray-200); color: var(--gray-600); }
+
+  .dots { display: inline-flex; gap: 3px; align-items: center; vertical-align: -1px; margin-left: 2px; }
+  .dots i { width: 4px; height: 4px; border-radius: 999px; background: var(--gray-400); display: block; }
+  /* The dots bounce, exactly like the chat's own thinking indicator
+     (.syflo-typing): a loading state looks the same everywhere in Syflo
+     (user request 2026-08-11). The same three dots also stand in the
+     answer field itself until the first token arrives. */
+  .dots i { animation: btw-dot-bounce 1.2s cubic-bezier(0.34, 1.56, 0.64, 1) infinite; }
+  .dots i:nth-child(2) { opacity: 0.6; animation-delay: 0.15s; }
+  .dots i:nth-child(3) { opacity: 0.3; animation-delay: 0.3s; }
+  @keyframes btw-dot-bounce { 0%, 60%, 100% { transform: translateY(0); } 30% { transform: translateY(-3px); } }
+
+  /* Sidebar sketch for the navigation section */
+  .app-frame {
+    display: flex; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; overflow: hidden; box-shadow: var(--shadow); width: 372px; flex: none;
+  }
+  .side {
+    width: 118px; flex: none; background: var(--gray-50); border-right: 1px solid var(--border);
+    padding: 12px 7px; display: flex; flex-direction: column; gap: 3px;
+  }
+  .side-title { font-size: 9.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--gray-400); padding: 0 5px 6px; }
+  .side-item {
+    display: flex; align-items: center; gap: 6px; padding: 6px 7px; border-radius: 6px;
+    font-size: 11px; color: var(--text-muted); line-height: 1.3; white-space: nowrap;
+  }
+  .side-item svg { color: var(--gray-400); flex: none; }
+  .side-item.active { background: var(--blue-50); color: var(--blue-700); font-weight: 600; }
+  .side-item.active svg { color: var(--blue-700); }
+  .side-item .dot-mark { margin-left: auto; width: 5px; height: 5px; border-radius: 999px; background: var(--gray-300); flex: none; }
+  .app-frame .chat-pane { border: none; border-radius: 0; box-shadow: none; width: auto; flex: 1; }
+
+  .notes { margin-top: 18px; font-size: 13px; color: var(--text-muted); line-height: 1.65; max-width: 870px; }
+  .notes ul { padding-left: 18px; display: flex; flex-direction: column; gap: 6px; }
+  .notes strong { color: var(--text-default); }
+  kbd {
+    font-family: inherit; font-size: 10.5px; border: 1px solid var(--gray-200);
+    border-bottom-width: 2px; border-radius: 4px; padding: 1px 5px; color: var(--gray-500); background: var(--gray-50);
+  }
+
+  .cmp { width: 100%; border-collapse: collapse; font-size: 12.5px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+  .cmp th, .cmp td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--gray-100); vertical-align: top; line-height: 1.5; }
+  .cmp th { background: var(--gray-50); font-weight: 600; color: var(--text-strong); font-size: 11.5px; }
+  .cmp td:first-child { font-weight: 600; color: var(--text-default); white-space: nowrap; }
+  .cmp tr:last-child td { border-bottom: none; }
+  .gone { color: var(--gray-400); }
+  .stays { color: var(--blue-700); font-weight: 600; }
+
+  .qbox { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px; box-shadow: var(--shadow); }
+  .qbox ol { padding-left: 20px; display: flex; flex-direction: column; gap: 12px; font-size: 13px; line-height: 1.6; color: var(--text-muted); }
+  .qbox li strong { color: var(--text-strong); display: block; margin-bottom: 2px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="themes" id="themes">
+    <button data-t="" aria-pressed="true">Default</button>
+    <button data-t="ink-blue" aria-pressed="false">Ink blue</button>
+    <button data-t="mushroom-kingdom" aria-pressed="false">Mushroom Kingdom</button>
+    <button data-t="hyrule" aria-pressed="false">Hyrule</button>
+    <button data-t="matrix" aria-pressed="false">Matrix</button>
+  </div>
+
+  <div class="intro">
+    <h1>/btw — Idea D, the composer fold-out</h1>
+    <p>
+      Round 3, 2026-08-08. The answer to a <code>/btw</code> side question appears <strong>above the input
+      field</strong>, as part of the composer — never as a message. The transcript is never written to.
+    </p>
+    <div class="decided">
+      <h2>Settled so far</h2>
+      <ul>
+        <li>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+          <span><strong>The panel is called <code>/btw</code></strong>, not "Side question" — it names the command that made it, so the label needs no translation and teaches the trigger every time it opens.</span>
+        </li>
+        <li>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+          <span><strong>The first keystroke makes it disappear</strong> — gone, not folded into a leftover line.</span>
+        </li>
+        <li>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+          <span><strong>The × stays</strong>, and clicking it does the same thing. Neither it nor <kbd>Esc</kbd> is ever explained in the UI.</span>
+        </li>
+        <li>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+          <span><strong>An exhausted model switches itself</strong> — the aside walks down the ladder without asking and mentions in one gray line who answered.</span>
+        </li>
+        <li>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+          <span><strong>Long answers scroll inside the panel</strong>, capped at 40 % of the pane — with a grip to drag it to 75 %, and a swap of the two buttons once an answer stops being an aside. Section 04.</span>
+        </li>
+        <li>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+          <span><strong>"Make a branch"</strong> opens the branch from section 03 — and the <strong>answer is the first bubble</strong>; the question lives in the "Branched from" header, not as a message.</span>
+        </li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ============================================================ -->
+  <div class="section" id="sec00">
+    <div class="section-label"><span class="num">00</span> The whole loop — ask, read, move on</div>
+    <p class="section-desc">
+      Four beats. Note what is <strong>not</strong> in beat 3: no hint line, no keyboard legend. And beat 4 leaves
+      <strong>nothing behind</strong> — the composer looks exactly as it did before the aside was ever asked.
+    </p>
+    <div class="stage flow">
+      <div class="col">
+        <div class="state-label"><span class="step">1</span> · btw mode, question typed</div>
+        <div class="chat-pane narrow tall">
+          <div class="chat-header"><div class="grow"><span class="chat-title">Attention Is All You Need</span></div></div>
+          <div class="chat-msgs">
+            <div class="bubble-user">Why divide by the square root of d_k?</div>
+            <div class="bubble-ai">Without the scaling the dot products grow with dimension, pushing softmax into regions with vanishing gradients…</div>
+          </div>
+          <div class="composer">
+            <div class="composer-box focused with-chip">
+              <span class="btw-chip">
+                btw
+              </span>
+              <div class="cb-row">
+                <div class="composer-text">what does <em>logit</em> mean again?<span class="caret"></span></div>
+                <div class="composer-actions"><button class="send-btn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg></button></div>
+              </div>
+            </div>
+            <div class="composer-foot">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><path d="m2 2 20 20"/></svg>
+              Not saved to this chat
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="arrow"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></div>
+
+      <div class="col">
+        <div class="state-label"><span class="step">2</span> · streaming into the panel</div>
+        <div class="chat-pane narrow tall">
+          <div class="chat-header"><div class="grow"><span class="chat-title">Attention Is All You Need</span></div></div>
+          <div class="chat-msgs">
+            <div class="bubble-user">Why divide by the square root of d_k?</div>
+            <div class="bubble-ai">Without the scaling the dot products grow with dimension, pushing softmax into regions with vanishing gradients…</div>
+          </div>
+          <div class="composer">
+            <div class="fold">
+              <div class="fold-head">
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg><span class="cmd">/btw</span>
+                <span class="spacer"></span>
+              </div>
+              <div class="fold-q">what does <em>logit</em> mean again?</div>
+              <div class="fold-a">A logit is the raw, unnormalised score a model produces<span class="caret" style="height: 12px;"></span></div>
+            </div>
+            <div class="composer-box">
+              <div class="composer-text ph">Ask anything…</div>
+              <div class="composer-actions"><button class="send-btn idle"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg></button></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="arrow"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></div>
+
+      <div class="col">
+        <div class="state-label"><span class="step">3</span> · done — two actions, no legend</div>
+        <div class="chat-pane narrow tall">
+          <div class="chat-header"><div class="grow"><span class="chat-title">Attention Is All You Need</span></div></div>
+          <div class="chat-msgs">
+            <div class="bubble-user">Why divide by the square root of d_k?</div>
+            <div class="bubble-ai">Without the scaling the dot products grow with dimension…</div>
+          </div>
+          <div class="composer">
+            <div class="fold">
+              <div class="fold-head">
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg><span class="cmd">/btw</span>
+                <span class="spacer"></span>
+                <button class="x-btn"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+              </div>
+              <div class="fold-q">what does <em>logit</em> mean again?</div>
+              <div class="fold-a">A logit is the raw, unnormalised score a model produces before softmax turns it into a probability.</div>
+              <div class="fold-acts">
+                <button class="mini-btn">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>
+                  Keep in chat
+                </button>
+                <button class="mini-btn">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
+                  Make a branch
+                </button>
+              </div>
+            </div>
+            <div class="composer-box">
+              <div class="composer-text ph">Ask anything…</div>
+              <div class="composer-actions"><button class="send-btn idle"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg></button></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="arrow"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></div>
+
+      <div class="col">
+        <div class="state-label"><span class="step">4</span> · first keystroke — gone without a trace</div>
+        <div class="chat-pane narrow tall">
+          <div class="chat-header"><div class="grow"><span class="chat-title">Attention Is All You Need</span></div></div>
+          <div class="chat-msgs">
+            <div class="bubble-user">Why divide by the square root of d_k?</div>
+            <div class="bubble-ai">Without the scaling the dot products grow with dimension, pushing softmax into regions with vanishing gradients…</div>
+          </div>
+          <div class="composer">
+            <div class="composer-box focused">
+              <div class="composer-text">So the temperature<span class="caret"></span></div>
+              <div class="composer-actions"><button class="send-btn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg></button></div>
+            </div>
+            <div class="composer-foot">
+              <span class="model-chip">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 9h6v6H9z"/><path d="M9 2v2"/><path d="M15 2v2"/><path d="M9 20v2"/><path d="M15 20v2"/><path d="M2 9h2"/><path d="M2 15h2"/><path d="M20 9h2"/><path d="M20 15h2"/></svg>
+                Gemini Flash
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="notes">
+      <ul>
+        <li><strong>No leftover line, no collapsed strip.</strong> The panel is removed and the composer springs back to its normal height — the transcript below grows back into the freed space. A ~120 ms fade-and-shrink covers the layout jump; after that there is no evidence an aside ever existed.</li>
+        <li><strong>The × does exactly the same thing</strong>, so there is only one disappearance to learn. It is never labelled and has no tooltip.</li>
+        <li><strong>Focus alone does not close it.</strong> Clicking into the input keeps the panel — only the first character that actually changes the text removes it, so a stray click costs nothing.</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ============================================================ -->
+  <div class="section" id="sec01">
+    <div class="section-label"><span class="num">01</span> The panel up close</div>
+    <p class="section-desc">
+      Two buttons, left-aligned, <em>Keep in chat</em> carrying the blue weight because it is the one action with a
+      lasting consequence. The × sits quietly in the header: gray, unlabelled, no tooltip — visible enough to be
+      found by a mouse, silent enough not to read as a warning.
+    </p>
+    <div class="stage">
+      <div class="col">
+        <div class="state-label">Resting</div>
+        <div class="chat-pane">
+          <div class="chat-header"><div class="grow"><span class="chat-title">Attention Is All You Need</span></div></div>
+          <div class="chat-msgs">
+            <div class="bubble-user">Why divide by the square root of d_k?</div>
+            <div class="bubble-ai">Without the scaling the dot products grow with dimension, pushing softmax into regions with vanishing gradients…</div>
+          </div>
+          <div class="composer">
+            <div class="fold">
+              <div class="fold-head">
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg><span class="cmd">/btw</span>
+                <span class="spacer"></span>
+                <button class="x-btn"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+              </div>
+              <div class="fold-q">what does <em>logit</em> mean again?</div>
+              <div class="fold-a">A logit is the raw, unnormalised score a model produces before softmax turns it into a probability. Higher logit means higher probability after normalisation.</div>
+              <div class="fold-acts">
+                <button class="mini-btn">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>
+                  Keep in chat
+                </button>
+                <button class="mini-btn">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
+                  Make a branch
+                </button>
+              </div>
+            </div>
+            <div class="composer-box">
+              <div class="composer-text ph">Ask anything…</div>
+              <div class="composer-actions"><button class="send-btn idle"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg></button></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="col">
+        <div class="state-label">× hovered — the only visible exit</div>
+        <div class="chat-pane">
+          <div class="chat-header"><div class="grow"><span class="chat-title">Attention Is All You Need</span></div></div>
+          <div class="chat-msgs">
+            <div class="bubble-user">Why divide by the square root of d_k?</div>
+            <div class="bubble-ai">Without the scaling the dot products grow with dimension, pushing softmax into regions with vanishing gradients…</div>
+          </div>
+          <div class="composer">
+            <div class="fold">
+              <div class="fold-head">
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg><span class="cmd">/btw</span>
+                <span class="spacer"></span>
+                <button class="x-btn hovered"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+              </div>
+              <div class="fold-q">what does <em>logit</em> mean again?</div>
+              <div class="fold-a">A logit is the raw, unnormalised score a model produces before softmax turns it into a probability. Higher logit means higher probability after normalisation.</div>
+              <div class="fold-acts">
+                <button class="mini-btn">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>
+                  Keep in chat
+                </button>
+                <button class="mini-btn">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
+                  Make a branch
+                </button>
+              </div>
+            </div>
+            <div class="composer-box">
+              <div class="composer-text ph">Ask anything…</div>
+              <div class="composer-actions"><button class="send-btn idle"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg></button></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="notes">
+      <ul>
+        <li><strong>Copy is dropped.</strong> The path to the clipboard is <em>Keep in chat</em> → the message's own copy button — one click more, but no second copy affordance to explain.</li>
+        <li><strong>Button order</strong> puts the far-reaching action second: <em>Make a branch</em> creates a chat in the sidebar and the mind map, so it stays out of the muscle-memory first slot.</li>
+        <li><strong>During streaming</strong> the header corner is empty — no × on a half answer — and the two buttons appear only when the answer is complete. The bouncing dots live in the answer field itself, until the first token arrives; they used to sit in the header too, which ran two loading signals for one state (user decision 2026-08-11). <kbd>Esc</kbd> then stops the stream <em>and</em> removes the panel — one key, both jobs.</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ============================================================ -->
+  <div class="section" id="sec02">
+    <div class="section-label"><span class="num">02</span> Every way out</div>
+    <p class="section-desc">
+      Everything in the "silent" column happens without a word of UI copy. There is <strong>no confirmation
+      anywhere</strong> — discarding an aside is the promise of the feature, not a loss.
+    </p>
+    <table class="cmp">
+      <tr>
+        <th style="width: 200px;">Gesture</th>
+        <th style="width: 90px;">Silent?</th>
+        <th>What happens</th>
+      </tr>
+      <tr>
+        <td>Type in the composer</td>
+        <td>Yes</td>
+        <td>The panel is removed on the first character that changes the text. The aside is discarded — not recoverable.</td>
+      </tr>
+      <tr>
+        <td><kbd>Esc</kbd></td>
+        <td>Yes</td>
+        <td>Same, immediately. While streaming it stops the stream first, then removes the panel.</td>
+      </tr>
+      <tr>
+        <td>× in the header</td>
+        <td>Visible, unlabelled</td>
+        <td>Same. The only exit a mouse-only user can see.</td>
+      </tr>
+      <tr>
+        <td>Send a normal message</td>
+        <td>Yes</td>
+        <td>Already gone by then — the first keystroke did it.</td>
+      </tr>
+      <tr>
+        <td>Ask a second <code>/btw</code></td>
+        <td>Yes</td>
+        <td>The new answer replaces the old one in the same panel. Only ever one aside at a time.</td>
+      </tr>
+      <tr>
+        <td>Open another chat or branch</td>
+        <td>Yes</td>
+        <td><span class="stays">Kept</span> — the panel belongs to its chat and is waiting when you come back. See section 05.</td>
+      </tr>
+      <tr>
+        <td>Mind map, home, settings</td>
+        <td>Yes</td>
+        <td><span class="stays">Kept</span> — the chat was never left, only covered.</td>
+      </tr>
+      <tr>
+        <td>Reload / restart the app</td>
+        <td>Yes</td>
+        <td><span class="gone">Gone.</span> Asides live in memory only and are never written to the database.</td>
+      </tr>
+      <tr>
+        <td>Click anywhere else</td>
+        <td>—</td>
+        <td>Nothing. Scrolling, selecting text, opening Highlights all leave the panel alone — it is part of the composer, not a popover.</td>
+      </tr>
+      <tr>
+        <td><em>Keep in chat</em></td>
+        <td>—</td>
+        <td>Panel closes, two real messages appear at the end of the thread.</td>
+      </tr>
+      <tr>
+        <td><em>Make a branch</em></td>
+        <td>—</td>
+        <td>Panel closes, a new branch opens with the answer as its first bubble.</td>
+      </tr>
+    </table>
+  </div>
+
+  <!-- ============================================================ -->
+  <div class="section" id="sec03">
+    <div class="section-label"><span class="num">03</span> What the two buttons do</div>
+    <p class="section-desc">
+      <strong>Keep in chat</strong> appends the pair at the end of the thread as two ordinary messages — from then
+      on they are normal in every way (branchable, highlightable, part of the context a child chat inherits).
+      <strong>Make a branch</strong> opens a branch chat whose <em>parent quote is the question</em> — so the
+      question lives in the header, and the <strong>answer is the first bubble</strong>. The current thread is
+      left untouched either way.
+    </p>
+    <div class="stage">
+      <div class="col">
+        <div class="state-label">After "Keep in chat"</div>
+        <div class="chat-pane tall">
+          <div class="chat-header"><div class="grow"><span class="chat-title">Attention Is All You Need</span></div></div>
+          <div class="chat-msgs">
+            <div class="bubble-user">Why divide by the square root of d_k?</div>
+            <div class="bubble-ai">Without the scaling the dot products grow with dimension, pushing softmax into regions with vanishing gradients…</div>
+            <div class="bubble-user bubble-new">what does <em>logit</em> mean again?</div>
+            <div class="bubble-ai bubble-new">A logit is the raw, unnormalised score a model produces before softmax turns it into a probability.</div>
+          </div>
+          <div class="composer">
+            <div class="composer-box">
+              <div class="composer-text ph">Ask anything…</div>
+              <div class="composer-actions"><button class="send-btn idle"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg></button></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="col">
+        <div class="state-label">After "Make a branch" — answer is bubble one</div>
+        <div class="chat-pane tall">
+          <div class="chat-header">
+            <div class="bf-line">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 10 4 15 9 20"/><path d="M20 4v7a4 4 0 0 1-4 4H4"/></svg>
+              <span><span class="bf-label">Branched from </span><span class="bf-link">"what does logit mean again?"</span></span>
+            </div>
+          </div>
+          <div class="chat-msgs">
+            <div class="bubble-ai bubble-new">A logit is the raw, unnormalised score a model produces before softmax turns it into a probability. Higher logit means higher probability after normalisation.</div>
+          </div>
+          <div class="composer">
+            <div class="composer-box focused">
+              <div class="composer-text ph">Ask anything…<span class="caret"></span></div>
+              <div class="composer-actions"><button class="send-btn idle"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg></button></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="notes">
+      <ul>
+        <li><strong>No duplicate question in the branch.</strong> The header already carries it as the branch quote — repeating it as a user bubble would say the same thing twice, and every other branch in Syflo starts the same way: quote above, answer below.</li>
+        <li><strong>The branch's parent</strong> is the chat the aside was asked in, so it hangs under that chat in the mind map exactly like a branch made from a highlight.</li>
+        <li><strong>The kept messages are not marked.</strong> No "was a side question" badge — once kept, an aside is just a message, and a badge would only invite "can I un-keep it?"</li>
+        <li><strong>Where they land:</strong> at the end of the thread, even if the user had scrolled up. Inserting mid-thread would rewrite message order for a chat that may already have branches hanging off it.</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ============================================================ -->
+  <div class="section" id="sec04">
+    <div class="section-label"><span class="num">04</span> When the answer is long</div>
+    <p class="section-desc">
+      Your question. A long answer is the one case where the panel's virtue — living inside the composer —
+      turns against it: it eats the transcript from below. Three answers, from the cheapest to the most
+      involved. They compose: <strong>1 is the floor, 2 is the escape valve, 3 is the honest admission</strong>
+      that this stopped being a side question.
+    </p>
+    <div class="stage">
+      <div class="col">
+        <div class="state-label">1 · cap at 40 % — scrolls, with a fade</div>
+        <div class="chat-pane tall mid">
+          <div class="chat-header"><div class="grow"><span class="chat-title">Attention Is All You Need</span></div></div>
+          <div class="chat-msgs" style="flex: 0 0 auto;">
+            <div class="bubble-user">Why divide by the square root of d_k?</div>
+            <div class="bubble-ai">Without the scaling the dot products grow with dimension…</div>
+          </div>
+          <div style="flex: 1;"></div>
+          <div class="composer">
+            <div class="fold">
+              <div class="fold-head">
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg><span class="cmd">/btw</span>
+                <span class="spacer"></span>
+                <button class="x-btn"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+              </div>
+              <div class="fold-q">how does layer normalisation differ from batch normalisation?</div>
+              <div class="fold-scroll">
+                <div class="fold-a" style="max-height: 92px; overflow: auto;">
+                  Batch norm normalises each feature across the examples in a batch, so its statistics depend on
+                  batch size and composition. Layer norm normalises across the features of a single example, so it
+                  is independent of the batch — which is why sequence models use it: sequences in a batch have
+                  different lengths, and inference often runs with a batch of one. In the Transformer, layer norm
+                  sits around every sub-layer together with the residual connection.
+                </div>
+              </div>
+              <div class="fold-acts">
+                <button class="mini-btn">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>
+                  Keep in chat
+                </button>
+                <button class="mini-btn">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
+                  Make a branch
+                </button>
+              </div>
+            </div>
+            <div class="composer-box">
+              <div class="composer-text ph">Ask anything…</div>
+              <div class="composer-actions"><button class="send-btn idle"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg></button></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="col">
+        <div class="state-label">2 · dragged up by the grip — max 75 %</div>
+        <div class="chat-pane tall mid">
+          <div class="chat-header"><div class="grow"><span class="chat-title">Attention Is All You Need</span></div></div>
+          <div class="chat-msgs" style="flex: 0 0 auto;">
+            <div class="bubble-user">Why divide by the square root of d_k?</div>
+          </div>
+          <div style="flex: 1;"></div>
+          <div class="composer">
+            <div class="fold">
+              <div class="fold-grip"><span></span></div>
+              <div class="fold-head">
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg><span class="cmd">/btw</span>
+                <span class="spacer"></span>
+                <button class="x-btn"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+              </div>
+              <div class="fold-q">how does layer normalisation differ from batch normalisation?</div>
+              <div class="fold-scroll"><div class="fold-a" style="max-height: 210px; overflow: auto;">
+                Batch norm normalises each feature across the examples in a batch, so its statistics depend on
+                batch size and composition. Layer norm normalises across the features of a single example, so it
+                is independent of the batch — which is why sequence models use it: sequences in a batch have
+                different lengths, and inference often runs with a batch of one. In the Transformer, layer norm
+                sits around every sub-layer together with the residual connection, and the "pre-norm" variant
+                that moved it in front of the sub-layer is what made deep Transformers trainable without a
+                warm-up schedule.
+              </div></div>
+              <div class="fold-acts">
+                <button class="mini-btn">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>
+                  Keep in chat
+                </button>
+                <button class="mini-btn">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
+                  Make a branch
+                </button>
+              </div>
+            </div>
+            <div class="composer-box">
+              <div class="composer-text ph">Ask anything…</div>
+              <div class="composer-actions"><button class="send-btn idle"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg></button></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="col">
+        <div class="state-label">3 · very long — the branch comes first</div>
+        <div class="chat-pane tall mid">
+          <div class="chat-header"><div class="grow"><span class="chat-title">Attention Is All You Need</span></div></div>
+          <div class="chat-msgs" style="flex: 0 0 auto;">
+            <div class="bubble-user">Why divide by the square root of d_k?</div>
+          </div>
+          <div style="flex: 1;"></div>
+          <div class="composer">
+            <div class="fold">
+              <div class="fold-grip"><span></span></div>
+              <div class="fold-head">
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg><span class="cmd">/btw</span>
+                <span class="spacer"></span>
+                <button class="x-btn"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+              </div>
+              <div class="fold-q">walk me through the whole encoder-decoder architecture</div>
+              <div class="fold-scroll">
+                <div class="fold-a" style="max-height: 132px; overflow: auto;">
+                  The encoder is a stack of six identical layers. Each layer has two sub-layers: multi-head
+                  self-attention and a position-wise feed-forward network, each wrapped in a residual connection
+                  followed by layer normalisation. The decoder adds a third sub-layer that attends over the
+                  encoder's output, and its self-attention is masked so a position can only attend to earlier
+                  positions. Positional encodings are added to the input embeddings because the architecture
+                  itself contains no notion of order…
+                </div>
+              </div>
+              <div class="fold-acts">
+                <button class="mini-btn">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
+                  Make a branch
+                </button>
+                <button class="mini-btn">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>
+                  Keep in chat
+                </button>
+              </div>
+            </div>
+            <div class="composer-box">
+              <div class="composer-text ph">Ask anything…</div>
+              <div class="composer-actions"><button class="send-btn idle"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg></button></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="notes">
+      <ul>
+        <li><strong>1 · The floor.</strong> The panel never grows past 40 % of the pane; the answer scrolls inside while question, header and buttons stay put. The <em>fade at the bottom edge</em> is the whole "there is more" signal — a scrollbar alone is easy to miss in a 90 px box.</li>
+        <li><strong>2 · The grip.</strong> A 24 px bar at the top edge, draggable up to 75 % of the pane. No button, no label, no state to remember: let go and the height stays for this aside only; the next one opens at 40 % again. This is the one place where a long answer is genuinely the user's problem to solve, and dragging is the gesture they already expect from a panel edge.</li>
+        <li><strong>3 · The admission.</strong> Past a threshold — I would take <em>roughly 900 characters, or any answer containing a code block or a table</em> — the two buttons swap places, so <em>Make a branch</em> comes first. Nothing is said, nothing is forced: the panel just makes the right exit the obvious one. An answer that long is not an aside any more, it is a conversation that deserves its own chat.</li>
+        <li><strong>What I did not choose:</strong> a "Show more" button (adds a third click and a second expanded state to reason about), letting the panel push the transcript off-screen (breaks the promise that the thread stays readable), and auto-branching without asking (a branch appears in the sidebar and the mind map — too permanent to happen by itself).</li>
+        <li><strong>While streaming a long answer</strong> the panel grows to the 40 % cap and then auto-scrolls with the text, exactly like the message list does. Once it is done, it stays scrolled at the top — the beginning is what the user asked for.</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ============================================================ -->
+  <div class="section" id="sec05">
+    <div class="section-label"><span class="num">05</span> An exhausted model switches itself</div>
+    <p class="section-desc">
+      When the chat's model is out of quota, the aside <strong>does not ask</strong> — it walks down the model
+      ladder by itself and says in one gray line who answered instead. A side question is not worth a decision.
+    </p>
+    <div class="stage">
+      <div class="col">
+        <div class="state-label">Quota hit — answered by the next model, no question asked</div>
+        <div class="chat-pane tall">
+          <div class="chat-header"><div class="grow"><span class="chat-title">Attention Is All You Need</span></div></div>
+          <div class="chat-msgs">
+            <div class="bubble-user">Why divide by the square root of d_k?</div>
+            <div class="bubble-ai">Without the scaling the dot products grow with dimension, pushing softmax into regions with vanishing gradients…</div>
+          </div>
+          <div class="composer">
+            <div class="fold">
+              <div class="fold-head">
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg><span class="cmd">/btw</span>
+                <span class="spacer"></span>
+                <button class="x-btn"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+              </div>
+              <div class="fold-q">what does <em>logit</em> mean again?</div>
+              <div class="fold-a">A logit is the raw, unnormalised score a model produces before softmax turns it into a probability.</div>
+              <div class="fold-model">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3 4 7l4 4"/><path d="M4 7h16"/><path d="m16 21 4-4-4-4"/><path d="M20 17H4"/></svg>
+                Gemini Flash was out of quota — answered by <b>Groq Llama 70B</b>
+              </div>
+              <div class="fold-acts">
+                <button class="mini-btn">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>
+                  Keep in chat
+                </button>
+                <button class="mini-btn">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
+                  Make a branch
+                </button>
+              </div>
+            </div>
+            <div class="composer-box">
+              <div class="composer-text ph">Ask anything…</div>
+              <div class="composer-actions"><button class="send-btn idle"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg></button></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="notes">
+      <ul>
+        <li><strong>The switch is automatic and silent while it happens</strong> — no "trying another model…" step, no dialog. The user sees a spinner, then an answer. The gray line appears <em>only</em> when the responder was not the chat's own model; in the normal case there is no model line at all.</li>
+        <li><strong>The chat's own model is not changed.</strong> The next real message goes to Gemini Flash again (or to whatever the quota rules say) — the aside borrows a model, it does not reconfigure anything.</li>
+        <li><strong>An aside is never queued.</strong> If the local queue is busy, the aside takes a cloud rung instead of waiting in line — a side question that arrives two minutes later has missed its moment.</li>
+        <li><strong>If every rung is exhausted</strong>, the panel says so in the same one-line gray voice ("No model available right now") and keeps its × — still no <em>Failed</em> entry in the transcript, because an aside has no message to fail.</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ============================================================ -->
+  <div class="section" id="sec06">
+    <div class="section-label"><span class="num">06</span> Navigating away — the panel belongs to its chat</div>
+    <p class="section-desc">
+      Your question: what if another branch is opened, or the mind map, or home? <strong>The aside is scoped to its
+      chat, not to the screen.</strong> Leaving for another chat leaves the panel behind, untouched; coming back
+      finds it exactly where it was. Nothing is marked, nothing is announced — the composer simply still has it.
+      Only a reload clears everything, because asides never reach the database.
+    </p>
+    <div class="stage">
+      <div class="col">
+        <div class="state-label">1 · aside open in "Attention Is All You Need"</div>
+        <div class="app-frame">
+          <div class="side">
+            <div class="side-title">Chats</div>
+            <div class="side-item active">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></svg>
+              Attention…
+            </div>
+            <div class="side-item" style="padding-left: 18px;">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
+              Softmax scale
+            </div>
+            <div class="side-item">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></svg>
+              Layer norm
+            </div>
+          </div>
+          <div class="chat-pane tall">
+            <div class="chat-header"><div class="grow"><span class="chat-title">Attention Is All You Need</span></div></div>
+            <div class="chat-msgs">
+              <div class="bubble-user">Why divide by the square root of d_k?</div>
+              <div class="bubble-ai">Without the scaling the dot products grow with dimension…</div>
+            </div>
+            <div class="composer">
+              <div class="fold">
+                <div class="fold-head">
+                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg><span class="cmd">/btw</span>
+                  <span class="spacer"></span>
+                  <button class="x-btn"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+                </div>
+                <div class="fold-q">what does <em>logit</em> mean again?</div>
+                <div class="fold-a">A logit is the raw, unnormalised score a model produces before softmax turns it into a probability.</div>
+                <div class="fold-acts">
+                  <button class="mini-btn">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>
+                    Keep in chat
+                  </button>
+                  <button class="mini-btn">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
+                    Make a branch
+                  </button>
+                </div>
+              </div>
+              <div class="composer-box">
+                <div class="composer-text ph">Ask anything…</div>
+                <div class="composer-actions"><button class="send-btn idle"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg></button></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="col">
+        <div class="state-label">2 · open the branch — its composer is clean</div>
+        <div class="app-frame">
+          <div class="side">
+            <div class="side-title">Chats</div>
+            <div class="side-item">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></svg>
+              Attention…
+              <span class="dot-mark"></span>
+            </div>
+            <div class="side-item active" style="padding-left: 18px;">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
+              Softmax scale
+            </div>
+            <div class="side-item">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></svg>
+              Layer norm
+            </div>
+          </div>
+          <div class="chat-pane tall">
+            <div class="chat-header">
+              <div class="bf-line">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 10 4 15 9 20"/><path d="M20 4v7a4 4 0 0 1-4 4H4"/></svg>
+                <span><span class="bf-label">Branched from </span><span class="bf-link">"square root of d_k"</span></span>
+              </div>
+            </div>
+            <div class="chat-msgs">
+              <div class="bubble-ai">The scaling keeps the variance of the dot products roughly constant as d_k grows…</div>
+            </div>
+            <div class="composer">
+              <div class="composer-box">
+                <div class="composer-text ph">Ask anything…</div>
+                <div class="composer-actions"><button class="send-btn idle"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg></button></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="col">
+        <div class="state-label">3 · back to the first chat — still there</div>
+        <div class="app-frame">
+          <div class="side">
+            <div class="side-title">Chats</div>
+            <div class="side-item active">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></svg>
+              Attention…
+            </div>
+            <div class="side-item" style="padding-left: 18px;">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
+              Softmax scale
+            </div>
+            <div class="side-item">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></svg>
+              Layer norm
+            </div>
+          </div>
+          <div class="chat-pane tall">
+            <div class="chat-header"><div class="grow"><span class="chat-title">Attention Is All You Need</span></div></div>
+            <div class="chat-msgs">
+              <div class="bubble-user">Why divide by the square root of d_k?</div>
+              <div class="bubble-ai">Without the scaling the dot products grow with dimension…</div>
+            </div>
+            <div class="composer">
+              <div class="fold">
+                <div class="fold-head">
+                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg><span class="cmd">/btw</span>
+                  <span class="spacer"></span>
+                  <button class="x-btn"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+                </div>
+                <div class="fold-q">what does <em>logit</em> mean again?</div>
+                <div class="fold-a">A logit is the raw, unnormalised score a model produces before softmax turns it into a probability.</div>
+                <div class="fold-acts">
+                  <button class="mini-btn">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>
+                    Keep in chat
+                  </button>
+                  <button class="mini-btn">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
+                    Make a branch
+                  </button>
+                </div>
+              </div>
+              <div class="composer-box">
+                <div class="composer-text ph">Ask anything…</div>
+                <div class="composer-actions"><button class="send-btn idle"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg></button></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="notes">
+      <ul>
+        <li><strong>Why keep it instead of discarding on every switch?</strong> Reading a paper means jumping constantly — into the mind map, into a branch, back. If the aside died on each jump it would die exactly when the user goes to check the thing the aside was about. Discarding is what typing and <kbd>Esc</kbd> are for, and both are one gesture away.</li>
+        <li><strong>One aside per chat, at most.</strong> Two chats can each hold one; a third <code>/btw</code> in the same chat replaces that chat's aside. No list, no counter, nothing to manage.</li>
+        <li><strong>The sidebar dot</strong> in beat 2 is <em>optional</em> — a 5 px gray dot on a chat that has an aside waiting. It is the one place a marker would help; it may also be too much bookkeeping for a throwaway feature. Say which you want.</li>
+        <li><strong>Streaming plus navigation:</strong> if the user leaves mid-stream, the answer keeps streaming into the panel in the background and is complete when they return. It is one request, already in flight — cancelling it would waste the tokens it already spent.</li>
+        <li><strong>Every aside dies on reload</strong>, in every chat, with no trace anywhere — that is what "not saved" is for.</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ============================================================ -->
+  <div class="section" id="sec07">
+    <div class="section-label"><span class="num">07</span> Still open</div>
+    <p class="section-desc">Everything else is decided. These four change code.</p>
+    <div class="qbox">
+      <ol>
+        <li>
+          <strong>The sidebar dot</strong>
+          Mark a chat that has an aside waiting, or leave the sidebar completely alone? A dot makes the "it is still
+          there" rule discoverable; no dot keeps the feature invisible, which is its whole point.
+        </li>
+        <li>
+          <strong>Does the aside read the thread?</strong>
+          Asymmetric is the useful default: the aside sees the conversation (so "what does <em>logit</em> mean"
+          lands in context), the conversation never sees the aside. Full isolation is cheaper but makes short
+          questions useless.
+        </li>
+        <li>
+          <strong>The long-answer threshold</strong>
+          Section 04's third state swaps the buttons past <em>roughly 900 characters, or any code block or
+          table</em>. That number is a guess and should be checked against real answers before it is written down —
+          too low and every second aside pushes toward a branch, too high and the swap never fires.
+        </li>
+        <li>
+          <strong>German wording</strong>
+          The panel header is now <code>/btw</code> in both languages, so only the buttons need their DE half —
+          "Im Chat behalten" and "Verzweigen" — plus one line for the automatic model switch.
+        </li>
+      </ol>
+    </div>
+  </div>
+
+</div>
+<script>
+  // Mockup-only: switch the five themes the app ships. Reads #theme=matrix
+  // on load so each theme can be screenshotted headlessly.
+  const root = document.documentElement;
+  const setTheme = (t) => {
+    if (t) root.setAttribute('data-theme', t); else root.removeAttribute('data-theme');
+    document.querySelectorAll('#themes button').forEach((b) => {
+      b.setAttribute('aria-pressed', String(b.dataset.t === (t || '')));
+    });
+  };
+  document.getElementById('themes').addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (b) setTheme(b.dataset.t);
+  });
+  const m = location.hash.match(/theme=([\w-]+)/);
+  if (m) setTheme(m[1] === 'default' ? '' : m[1]);
+</script>
+</body>
+</html>

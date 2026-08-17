@@ -1,5 +1,5 @@
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
 import { createRef } from 'react';
 import { ChatArea, type ChatAreaHandle } from '../components/ChatArea';
 import { CloudSetupNotice } from '../components/ChatArea/CloudSetupNotice';
@@ -52,7 +52,7 @@ describe('ChatArea', () => {
     const textarea = screen.getByPlaceholderText(/Ask anything/i);
     fireEvent.change(textarea, { target: { value: 'Hello!' } });
     fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false });
-    await waitFor(() => expect(defaultProps.onSendMessage).toHaveBeenCalledWith('Hello!', []));
+    await waitFor(() => expect(defaultProps.onSendMessage).toHaveBeenCalledWith('Hello!', [], undefined, null));
   });
 
   it('opens the feedback dialog on /feedback instead of sending a message', async () => {
@@ -73,7 +73,7 @@ describe('ChatArea', () => {
     const textarea = screen.getByPlaceholderText(/Ask anything/i);
 
     fireEvent.change(textarea, { target: { value: '/fee' } });
-    const suggestion = screen.getByTestId('feedback-slash-item');
+    const suggestion = screen.getByTestId('slash-item-feedback');
     expect(suggestion).toBeInTheDocument();
 
     fireEvent.click(suggestion);
@@ -81,12 +81,12 @@ describe('ChatArea', () => {
     expect(textarea).toHaveValue('');
   });
 
-  it('completes to "/feedback " on ArrowUp while the suggestion is shown', () => {
+  it('completes to "/feedback " on Tab while the suggestion is shown', () => {
     render(<ChatArea chat={mockChat} loading={false} {...defaultProps} onOpenFeedback={vi.fn()} />);
     const textarea = screen.getByPlaceholderText(/Ask anything/i);
 
     fireEvent.change(textarea, { target: { value: '/fee' } });
-    fireEvent.keyDown(textarea, { key: 'ArrowUp' });
+    fireEvent.keyDown(textarea, { key: 'Tab' });
 
     expect(textarea).toHaveValue('/feedback ');
   });
@@ -100,7 +100,7 @@ describe('ChatArea', () => {
     const overlay = screen.getByTestId('chat-textarea-highlight');
     expect(overlay).toHaveTextContent('/feedback ishlj');
     expect(overlay.querySelector('span')).toHaveTextContent('/feedback');
-    expect(screen.queryByTestId('feedback-slash-item')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('slash-item-feedback')).not.toBeInTheDocument();
   });
 
   it('does not highlight a word that only starts with /feedback without a boundary', () => {
@@ -117,7 +117,7 @@ describe('ChatArea', () => {
     const textarea = screen.getByPlaceholderText(/Ask anything/i);
 
     fireEvent.change(textarea, { target: { value: '/feedback hi' } });
-    expect(screen.queryByTestId('feedback-slash-item')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('slash-item-feedback')).not.toBeInTheDocument();
   });
 
   it('opens the feedback dialog with empty text for bare /feedback', async () => {
@@ -141,6 +141,33 @@ describe('ChatArea', () => {
     const childChat = { ...mockChat, parent_word: 'quantum', parent_id: '0' };
     render(<ChatArea chat={childChat} loading={false} {...defaultProps} />);
     expect(screen.getByText(/quantum/i)).toBeInTheDocument();
+  });
+
+
+  // Der Branch-Header zeigt die WIEDERHERGESTELLTE Passage, wenn das Modell
+  // eine geliefert hat: aus dem PDF kommt "σ 2 B ← 1 m m ∑ i =1 ( x i − μ B ) 2",
+  // angezeigt wird die gesetzte Formel (Nutzerentscheidung 2026-08-02,
+  // Variante B). parent_word bleibt der wörtliche Anker.
+  it('zeigt parent_word_display statt der rohen Passage im Branch-Header', () => {
+    const childChat = {
+      ...mockChat,
+      parent_id: '0',
+      parent_word: 'σ 2 B ← 1 m m ∑ i =1 ( x i − μ B ) 2',
+      parent_word_display: '$\\sigma_B^2 \\leftarrow \\frac{1}{m}\\sum_{i=1}^m (x_i - \\mu_B)^2$',
+    };
+    render(<ChatArea chat={childChat} loading={false} {...defaultProps} />);
+
+    const quote = screen.getByTestId('branched-from-quote');
+    expect(quote.textContent).not.toContain('σ 2 B ←');
+    expect(quote.querySelector('.katex')).toBeTruthy();
+  });
+
+  // Ohne Display-Fassung (Ollama, Kontingent leer) bleibt es beim Wortlaut.
+  it('fällt ohne parent_word_display auf die wörtliche Passage zurück', () => {
+    const childChat = { ...mockChat, parent_id: '0', parent_word: 'σ 2 B ← 1 m' };
+    render(<ChatArea chat={childChat} loading={false} {...defaultProps} />);
+
+    expect(screen.getByTestId('branched-from-quote').textContent).toContain('σ 2 B ← 1 m');
   });
 
   // Spec-Änderung 2026-07-21 (Highlights-Drawer, Grill-Entscheidung 5): der
@@ -653,7 +680,7 @@ describe('ChatArea', () => {
         resolveFetch({ ok: true, json: async () => ({ text: 'hallo welt' }) });
         await vi.advanceTimersByTimeAsync(10);
       });
-      expect(defaultProps.onSendMessage).toHaveBeenCalledWith('hallo welt', []);
+      expect(defaultProps.onSendMessage).toHaveBeenCalledWith('hallo welt', [], undefined, null);
     });
 
     it('Enter sendet auch, wenn das Eingabefeld nicht fokussiert ist', async () => {
@@ -664,7 +691,7 @@ describe('ChatArea', () => {
 
       fireEvent.keyDown(document.body, { key: 'Enter' });
       await act(async () => { await vi.advanceTimersByTimeAsync(10); });
-      expect(defaultProps.onSendMessage).toHaveBeenCalledWith('Hallo!', []);
+      expect(defaultProps.onSendMessage).toHaveBeenCalledWith('Hallo!', [], undefined, null);
     });
 
     it('Enter auf einem fokussierten Button sendet NICHT (nativer Klick gewinnt)', async () => {
@@ -748,6 +775,66 @@ describe('ChatArea – setupNotice ersetzt den Composer', () => {
   });
 });
 
+describe('Scroll-Verhalten während der Antwort (2026-08-06)', () => {
+  // Der Blick bleibt bei der Frage: kein Mitlaufen mit dem wachsenden Text.
+  // In jsdom gibt es kein Layout — geprüft wird deshalb, WELCHE Sprünge
+  // ausgelöst werden: scrollIntoView (ans Ende) nur beim Öffnen eines Chats,
+  // nie beim Nachwachsen der Antwort.
+  // Typed to the DOM signature: vitest 4's bare vi.fn() is a
+  // Mock<Procedure | Constructable>, which no longer satisfies
+  // scrollIntoView's call signature.
+  let scrollIntoView: Mock<typeof window.HTMLElement.prototype.scrollIntoView>;
+  let original: typeof window.HTMLElement.prototype.scrollIntoView;
+
+  beforeEach(() => {
+    scrollIntoView = vi.fn<typeof window.HTMLElement.prototype.scrollIntoView>();
+    original = window.HTMLElement.prototype.scrollIntoView;
+    window.HTMLElement.prototype.scrollIntoView = scrollIntoView;
+  });
+
+  afterEach(() => {
+    window.HTMLElement.prototype.scrollIntoView = original;
+  });
+
+  const withAnswer = (text: string): ChatDetail => ({
+    ...mockChat,
+    messages: [
+      mockChat.messages[0],
+      { ...mockChat.messages[1], content: text },
+    ],
+  });
+
+  it('springt beim Öffnen eines Chats an die neueste Nachricht', () => {
+    render(<ChatArea chat={mockChat} loading={false} {...defaultProps} />);
+    expect(scrollIntoView).toHaveBeenCalled();
+  });
+
+  it('scrollt nicht mit, während die Antwort wächst', () => {
+    const { rerender } = render(
+      <ChatArea chat={withAnswer('Hi')} loading={false} {...defaultProps} streaming />,
+    );
+    scrollIntoView.mockClear();
+
+    rerender(<ChatArea chat={withAnswer('Hi! How')} loading={false} {...defaultProps} streaming />);
+    rerender(<ChatArea chat={withAnswer('Hi! How can I help?')} loading={false} {...defaultProps} streaming />);
+
+    expect(scrollIntoView).not.toHaveBeenCalled();
+  });
+
+  it('zeigt den Sprung-Knopf, sobald eine neue Frage verankert wurde', async () => {
+    const { rerender } = render(<ChatArea chat={mockChat} loading={false} {...defaultProps} />);
+    const withNewQuestion: ChatDetail = {
+      ...mockChat,
+      messages: [
+        ...mockChat.messages,
+        { id: 'm3', chat_id: '1', role: 'user', content: 'Und warum?', created_at: new Date().toISOString() },
+      ],
+    };
+    rerender(<ChatArea chat={withNewQuestion} loading={false} {...defaultProps} streaming />);
+    await waitFor(() => expect(screen.getByLabelText(/scroll to latest/i)).toBeInTheDocument());
+  });
+});
+
 describe('CloudSetupNotice', () => {
   // W9 (mockup-model-cost-tiers, 2026-07-30): the notice is a PATH chooser
   // — a fresh install has every provider, so the card offers the three ways
@@ -769,5 +856,116 @@ describe('CloudSetupNotice', () => {
     expect(onOpenSettings).toHaveBeenLastCalledWith('openai');
     fireEvent.click(screen.getByTestId('setup-path-local'));
     expect(onOpenSettings).toHaveBeenLastCalledWith('ollama');
+  });
+});
+
+// Nutzerreport 2026-08-10 + design/mockup-composer-narrow.html §02, Variante A:
+// In einer schmalen Spalte belegten Mikro, Modell-Chip und Senden-Knopf ~290 px
+// derselben Zeile, und das Textfeld — das einzige Element mit flex-1 min-w-0 —
+// schrumpfte auf vier Zeichen. Unter 30rem klappt der Composer darum in zwei
+// Zeilen: Text über die ganze Breite, Steuerung darunter.
+describe('Composer in schmaler Spalte (Variante A)', () => {
+  const props = {
+    chat: mockChat,
+    loading: false,
+    streaming: false,
+    onSendMessage: vi.fn().mockResolvedValue(undefined),
+    onWordRightClick: vi.fn(),
+    onSelectChat: vi.fn(),
+  };
+
+  it('legt Text und Steuerung unter 30rem auf zwei Zeilen', () => {
+    render(<ChatArea {...props} />);
+    const box = screen.getByTestId('composer-box');
+    // Der Umbruch selbst: die Box darf umbrechen, und der Textblock nimmt die
+    // ganze Zeile — alles Übrige rutscht dadurch auf Zeile zwei.
+    expect(box).toHaveClass('@max-[30rem]:flex-wrap');
+    const textBlock = screen.getByTestId('composer-text-block');
+    expect(textBlock).toHaveClass('@max-[30rem]:basis-full');
+    // order-first: im DOM steht der Plus-Knopf VOR dem Text, sichtbar muss der
+    // Text aber die erste Zeile sein.
+    expect(textBlock).toHaveClass('@max-[30rem]:order-first');
+  });
+
+  it('rundet die Box im zweizeiligen Zustand ab statt voll (rounded-full passt nur zu einer Zeile)', () => {
+    render(<ChatArea {...props} />);
+    expect(screen.getByTestId('composer-box')).toHaveClass('@max-[30rem]:rounded-3xl');
+  });
+
+  it('blendet das Mikrofon nicht mehr aus — im zweizeiligen Composer kostet es keine Textbreite', () => {
+    // Der Knopf erscheint nur mit verfügbarem Mikrofon; jsdom hat keins, also
+    // wird mediaDevices für diesen einen Test vorgetäuscht.
+    Object.defineProperty(navigator, 'mediaDevices', {
+      configurable: true,
+      value: { getUserMedia: vi.fn() },
+    });
+    try {
+      render(<ChatArea {...props} />);
+      expect(screen.getByTestId('mic-button').className).not.toMatch(/@max-\[24rem\]:hidden/);
+    } finally {
+      delete (navigator as any).mediaDevices;
+    }
+  });
+
+  it('schiebt den Senden-Knopf in der Steuerzeile nach rechts', () => {
+    render(<ChatArea {...props} />);
+    // Leeres Feld → der Senden-Pfeil steht (kein Stop-Zustand).
+    const send = screen.getByLabelText('Send');
+    expect(send).toHaveClass('@max-[30rem]:ml-auto');
+  });
+});
+
+// Nutzerreport 2026-08-10 (zweiter Teil): in der schmalen Spalte erschien eine
+// HORIZONTALE Scrollleiste über der ganzen Nachrichtenliste. Ursache: die
+// Antwort-Blase war auf maxWidth 46rem ABSOLUT begrenzt, nicht auf die Spalte.
+// Eine Markdown-Tabelle wuchs damit auf 519 px in einer 253 px breiten Spalte
+// und schob die gesamte Liste seitwärts — obwohl Tabellen, Code-Blöcke und
+// Display-Formeln je einen eigenen overflow-x-auto-Container haben. Der greift
+// nur, wenn der Vorfahre überhaupt begrenzt ist.
+describe('Antwort-Blase überläuft die Spalte nicht (2026-08-10)', () => {
+  const tableChat: ChatDetail = {
+    ...mockChat,
+    messages: [
+      { id: 'm1', chat_id: '1', role: 'user', content: 'Zeig mir eine Tabelle', created_at: new Date().toISOString() },
+      {
+        id: 'm2', chat_id: '1', role: 'assistant',
+        content: '| Schicht | Rechenintensität | Analogie aus dem Alltag |\n| --- | --- | --- |\n| Lookup-Tabelle | O(1) | Griff ins Regal |',
+        created_at: new Date().toISOString(),
+      },
+    ],
+  };
+
+  it('begrenzt die Blase auf die Spaltenbreite statt auf 46rem absolut', () => {
+    render(
+      <ChatArea
+        chat={tableChat}
+        loading={false}
+        streaming={false}
+        onSendMessage={vi.fn().mockResolvedValue(undefined)}
+        onWordRightClick={vi.fn()}
+        onSelectChat={vi.fn()}
+      />,
+    );
+    const table = screen.getByRole('table');
+    const prose = table.closest('.prose') as HTMLElement;
+    expect(prose).not.toBeNull();
+    // min(): das Lesemaß von 46rem bleibt auf breiten Spalten, aber die Spalte
+    // gewinnt, sobald sie schmaler ist.
+    expect(prose.style.maxWidth).toBe('min(46rem, 100%)');
+  });
+
+  it('lässt die Tabelle in ihrem eigenen Container scrollen', () => {
+    render(
+      <ChatArea
+        chat={tableChat}
+        loading={false}
+        streaming={false}
+        onSendMessage={vi.fn().mockResolvedValue(undefined)}
+        onWordRightClick={vi.fn()}
+        onSelectChat={vi.fn()}
+      />,
+    );
+    const table = screen.getByRole('table');
+    expect(table.parentElement).toHaveClass('overflow-x-auto');
   });
 });

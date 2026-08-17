@@ -372,7 +372,7 @@ async function streamWithTools({ client, model, messages, onText, onToolEvent, o
     // missing finish chunk (connection cut) mean the text ended mid-answer
     // (live incident 2026-07-26: Gemini stopped mid-sentence). Warn loudly;
     // the reason also travels in the [perf] line via onPerf below.
-    if (roundFinishReason !== 'stop' && roundFinishReason !== 'tool_calls') {
+    if (isTruncatedFinish(roundFinishReason)) {
       console.warn(
         `[tools] Abnormal stream end: finish_reason=${roundFinishReason ?? 'MISSING'} ` +
         `round=${round} textLen=${roundText.length} tail=${JSON.stringify(roundText.slice(-40))}`
@@ -438,4 +438,17 @@ async function streamWithTools({ client, model, messages, onText, onToolEvent, o
   return finalText;
 }
 
-module.exports = { ALL_TOOLS, streamWithTools };
+/**
+ * Did the provider end this round mid-thought? 'stop' and 'tool_calls' are the
+ * clean endings; 'length' / 'content_filter' (Gemini: MAX_TOKENS, RECITATION)
+ * and a MISSING finish chunk (connection cut) are not.
+ *
+ * One rule, two readers: the warning above and the truncated flag the messages
+ * route persists on the answer. Split in two, they would drift and the UI
+ * would promise "continue writing" on answers that were never cut.
+ */
+function isTruncatedFinish(finishReason) {
+  return finishReason !== 'stop' && finishReason !== 'tool_calls';
+}
+
+module.exports = { ALL_TOOLS, streamWithTools, isTruncatedFinish };

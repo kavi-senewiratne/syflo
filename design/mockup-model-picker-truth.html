@@ -1,0 +1,904 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Syflo · Model picker — position, truth and workflow (round 1)</title>
+<style>
+  /* ============================================================
+     Model picker, round 1 of the 2026-08-11 rethink.
+
+     Three complaints, all reproduced and MEASURED against the live
+     Gemini key on 2026-08-11 23:31 UTC:
+
+       1. The drop-up is cut off on the left in narrow chat columns.
+          Cause: .syflo-chat-pane has overflow-hidden, the menu is a
+          plain `absolute right-0 w-72` child of the composer. No
+          portal exists anywhere in the frontend.
+
+       2. "Paid" models stay selectable even with a key in place —
+          the free/paid split comes from a STATIC registry flag, not
+          from what this key can actually do.
+
+       3. The cooldown countdown lies: it runs out, the limit is
+          still exhausted.
+          Cause A: Google's OpenAI-compat endpoint answers with a
+          JSON *array* — [{"error":{…}}]. The OpenAI SDK reads
+          body['error'], gets undefined, and builds the message
+          "429 status code (no body)". Every regex classifier in
+          quota.js is therefore BLIND against Gemini: a daily limit
+          is filed as a 90 s minute limit.
+          Cause B: even correctly classified, msUntilUtcMidnight()
+          is the wrong horizon — Google resets RPD at midnight
+          PACIFIC (07:00/08:00 UTC), so the countdown ends ~7 h early.
+          Cause C: the 0/20 meter counts only main chat answers that
+          SUCCEEDED (usage_log is written in exactly one place,
+          messages.js:1265) and groups them by UTC day. Titles, /btw,
+          explain and passage titles burn the same 20 requests
+          invisibly.
+
+     Same variable vocabulary as mockup-model-cost-tiers /
+     mockup-quota-states. Default Basic palette, Lucide icons only.
+     ============================================================ */
+
+  :root {
+    --bg-app: #EEF0F3;
+    --surface: #FFFFFF;
+    --surface-2: #F9FAFB;
+    --text-strong: #111827;
+    --text-default: #374151;
+    --text-muted: #9CA3AF;
+    --border: #E5E7EB;
+    --border-soft: #F3F4F6;   /* bg-gray-100 — the menu separator */
+    --text-sub: #6B7280;      /* text-gray-500 — every row subtitle */
+    --accent-strong: #1D4ED8; /* text-blue-700 — the active check mark */
+    --accent: #2563EB;
+    --accent-hover: #1D4ED8;
+    --accent-contrast: #FFFFFF;
+    --accent-soft: #EFF6FF;
+    --danger: #DC2626;
+    --danger-soft: #FEF2F2;
+    --warn: #B45309;
+    --warn-soft: #FFFBEB;
+    --ok: #15803D;
+    --ok-soft: #F0FDF4;
+    --radius-s: 8px;
+    --radius-m: 12px;
+    --radius-l: 16px;
+    --shadow: 0 1px 3px rgba(17, 24, 39, 0.08);
+    --shadow-lg: 0 10px 30px rgba(17, 24, 39, 0.10), 0 2px 8px rgba(17, 24, 39, 0.06);
+    --font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    --font-meta: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: var(--font-ui);
+    background: var(--bg-app);
+    color: var(--text-default);
+    -webkit-font-smoothing: antialiased;
+    padding: 40px 32px 100px;
+  }
+
+  .ic { width: 14px; height: 14px; stroke: currentColor; stroke-width: 2;
+        stroke-linecap: round; stroke-linejoin: round; fill: none; flex-shrink: 0; display: block; }
+  .ic.sm { width: 12px; height: 12px; }
+  .ic.xs { width: 10px; height: 10px; }
+  .ic.lg { width: 16px; height: 16px; }
+
+  /* ---------- page chrome ---------- */
+  .page-head { max-width: 1480px; margin: 0 auto 32px; }
+  .page-head h1 { font-size: 22px; font-weight: 700; color: var(--text-strong);
+                  letter-spacing: -0.01em; margin-bottom: 8px; }
+  .page-head p { font-size: 14px; color: var(--text-default); max-width: 940px; line-height: 1.6; }
+  .page-head p strong { color: var(--text-strong); }
+  .page-head p + p { margin-top: 10px; }
+
+  .findings { max-width: 1480px; margin: 0 auto 48px; display: grid;
+              grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px; }
+  .finding { background: var(--surface); border: 1px solid var(--border);
+             border-left: 3px solid var(--danger); border-radius: var(--radius-m);
+             padding: 14px 16px; box-shadow: var(--shadow); }
+  .finding h3 { font-size: 13.5px; font-weight: 700; color: var(--text-strong);
+                margin-bottom: 6px; display: flex; align-items: center; gap: 7px; }
+  .finding h3 .n { font-family: var(--font-meta); font-size: 11px; background: var(--text-strong);
+                   color: var(--surface); border-radius: 5px; padding: 2px 6px; }
+  .finding p { font-size: 12.5px; line-height: 1.55; }
+  .finding code { font-family: var(--font-meta); font-size: 11.5px; background: var(--surface-2);
+                  border: 1px solid var(--border); border-radius: 4px; padding: 1px 4px; }
+  .measured { margin-top: 8px; font-family: var(--font-meta); font-size: 11px;
+              color: var(--text-muted); }
+
+
+  .prov { max-width: 1480px; margin: 0 auto 44px; background: var(--surface);
+          border: 1px solid var(--border); border-left: 3px solid var(--accent);
+          border-radius: var(--radius-m); padding: 15px 18px; box-shadow: var(--shadow); }
+  .prov h3 { font-size: 13.5px; font-weight: 700; color: var(--text-strong); margin-bottom: 4px; }
+  .prov p { font-size: 12.5px; line-height: 1.75; max-width: 1100px; }
+  .prov code { font-family: var(--font-meta); font-size: 11px; background: var(--surface-2);
+               border: 1px solid var(--border); border-radius: 4px; padding: 1px 4px; }
+
+  .section { max-width: 1480px; margin: 0 auto 60px; }
+  .section-head { border-top: 2px solid var(--text-strong); padding-top: 12px; margin-bottom: 20px; }
+  .section-head h2 { font-size: 18px; font-weight: 700; color: var(--text-strong);
+                     display: flex; align-items: baseline; gap: 10px; }
+  .section-head h2 .num { font-family: var(--font-meta); font-size: 12px; color: var(--text-muted); }
+  .section-head p { font-size: 13.5px; color: var(--text-default); max-width: 940px;
+                    line-height: 1.6; margin-top: 6px; }
+
+  .variants { display: flex; gap: 26px; flex-wrap: wrap; align-items: flex-start; }
+  .variant { background: var(--surface); border: 1px solid var(--border);
+             border-radius: var(--radius-l); padding: 20px; box-shadow: var(--shadow);
+             flex: 1 1 420px; min-width: 380px; }
+  .variant.chosen { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft), var(--shadow); }
+  .variant-head { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; flex-wrap: wrap; }
+  .variant-badge { font-family: var(--font-meta); font-size: 11.5px; font-weight: 700;
+                   background: var(--text-strong); color: var(--surface);
+                   padding: 3px 8px; border-radius: 5px; letter-spacing: 0.05em; }
+  .variant-badge.rec { background: var(--accent); }
+  .variant-head h3 { font-size: 15.5px; font-weight: 700; color: var(--text-strong); }
+  .variant > .idea { font-size: 13px; color: var(--text-default); line-height: 1.55; margin-bottom: 16px; }
+  .verdict { margin-top: 14px; font-size: 12.5px; line-height: 1.55; padding: 10px 12px;
+             border-radius: var(--radius-s); background: var(--surface-2); border: 1px solid var(--border); }
+  .verdict b { color: var(--text-strong); }
+  .verdict.good { background: var(--ok-soft); border-color: #BBF7D0; }
+  .verdict.bad { background: var(--danger-soft); border-color: #FECACA; }
+
+  /* ---------- fake app frame (narrow column demo) ---------- */
+  .app-frame { position: relative; height: 420px; border: 1px solid var(--border);
+               border-radius: var(--radius-m); overflow: hidden; background: var(--bg-app);
+               display: flex; }
+  .app-frame.no-clip { overflow: visible; }
+  .col-pdf { width: 46%; background: #FAF8F2; border-right: 1px solid var(--border);
+             padding: 14px 12px; overflow: hidden; }
+  .col-pdf .ph { height: 7px; background: #E7E2D6; border-radius: 3px; margin-bottom: 7px; }
+  .col-pdf .ph.s { width: 62%; }
+  .col-pdf .ph.t { height: 11px; width: 45%; background: #D8D2C2; margin-bottom: 12px; }
+  .col-chat { flex: 1; background: var(--surface); position: relative;
+              display: flex; flex-direction: column; overflow: hidden; }
+  .col-chat.clipping::after { content: 'overflow-hidden'; position: absolute; top: 6px; left: 6px;
+              font-family: var(--font-meta); font-size: 9.5px; color: var(--danger);
+              background: var(--danger-soft); border: 1px solid #FECACA;
+              padding: 1px 5px; border-radius: 4px; }
+  .chat-body { flex: 1; padding: 14px 12px; overflow: hidden; }
+  .bubble { background: var(--surface-2); border: 1px solid var(--border);
+            border-radius: 10px; padding: 8px 10px; font-size: 11px; line-height: 1.5;
+            color: var(--text-default); margin-bottom: 8px; }
+  .bubble.me { background: var(--accent-soft); border-color: #BFDBFE; margin-left: 28px; }
+  .composer { border-top: 1px solid var(--border); padding: 10px; background: var(--surface); }
+  .composer-box { border: 1px solid var(--border); border-radius: 18px; padding: 8px 10px;
+                  display: flex; align-items: center; gap: 8px; background: var(--surface); }
+  .composer-box .ph-input { flex: 1; font-size: 11.5px; color: var(--text-muted); }
+  .pill { display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 9px;
+          border: 1px solid var(--border); background: var(--surface-2); border-radius: 999px;
+          font-size: 11px; font-weight: 600; color: var(--text-default); white-space: nowrap; }
+
+  /* ---------- the menu itself ---------- */
+  .menu { width: 288px; background: var(--surface); border: 1px solid var(--border);
+          border-radius: var(--radius-m); box-shadow: var(--shadow-lg); padding: 6px;
+          font-size: 12.5px; }
+  .menu.floating { position: absolute; z-index: 5; }
+  .menu-group-head { display: flex; align-items: center; gap: 4px; padding: 6px 10px 2px;
+                     font-family: var(--font-meta); font-size: 10px; font-weight: 700;
+                     letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted); }
+  .menu-group-head.ok { color: var(--ok); }
+  .menu-group-head.warn { color: var(--warn); }
+  .menu-sep { height: 1px; background: var(--border-soft); margin: 4px; }
+
+  .row { display: flex; align-items: flex-start; gap: 8px; padding: 8px 10px;
+         border-radius: var(--radius-s); cursor: pointer; }
+  .row:hover { background: var(--surface-2); }
+  .row.active { background: var(--accent-soft); }
+  .row.off { cursor: not-allowed; }
+  .row.off:hover { background: transparent; }
+  .row-main { flex: 1; min-width: 0; }
+  .row-name { font-size: 13px; font-weight: 600; color: var(--text-strong);
+              white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row.off .row-name, .row.dim .row-name { color: var(--text-muted); }
+  .row-sub { font-size: 11.5px; color: var(--text-sub); margin-top: 1px;
+             white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row-sub.warn { color: var(--warn); }
+  .row-sub.danger { color: var(--danger); }
+  .row-sub.ok { color: var(--ok); }
+
+  .meter { display: inline-flex; align-items: center; gap: 5px; font-family: var(--font-meta);
+           font-size: 9.5px; color: var(--text-muted); white-space: nowrap; margin-top: 2px; }
+  .meter .track { width: 32px; height: 4px; border-radius: 999px; background: var(--border); overflow: hidden; }
+  .meter .fill { display: block; height: 100%; border-radius: 999px; background: var(--ok); }
+  .meter.full { color: var(--danger); }
+  .meter.full .fill { background: var(--danger); }
+  .meter.unknown .track { background: repeating-linear-gradient(90deg, var(--border) 0 3px, transparent 3px 6px); }
+
+  .badge { display: inline-flex; align-items: center; gap: 4px; border-radius: 999px;
+           padding: 1px 6px; font-size: 10px; font-weight: 600; white-space: nowrap;
+           border: 1px solid transparent; margin-top: 2px; }
+  .badge.cool { background: var(--warn-soft); border-color: #FDE68A; color: var(--warn); }
+  .badge.gone { background: var(--danger-soft); border-color: #FECACA; color: var(--danger); }
+  .badge.unknown { background: var(--surface-2); border-color: var(--border); color: var(--text-muted); }
+  .badge.pay { background: var(--surface-2); border-color: var(--border); color: var(--text-default); }
+  .badge.live { background: var(--ok-soft); border-color: #BBF7D0; color: var(--ok); }
+
+  .menu-foot { display: flex; align-items: center; gap: 6px; padding: 7px 9px 4px;
+               font-size: 10.5px; color: var(--text-muted); }
+  .dot { width: 6px; height: 6px; border-radius: 999px; background: var(--text-muted); flex-shrink: 0; }
+  .dot.ok { background: #22C55E; }
+
+  .fold { display: flex; align-items: center; gap: 7px; padding: 7px 9px; border-radius: var(--radius-s);
+          font-size: 11.5px; color: var(--text-muted); cursor: pointer; }
+  .fold:hover { background: var(--surface-2); }
+  .fold .count { font-family: var(--font-meta); font-size: 10.5px; }
+
+  /* ---------- timeline (countdown workflow) ---------- */
+  .timeline { display: grid; grid-template-columns: 92px 1fr; gap: 0 14px; }
+  .tl-time { font-family: var(--font-meta); font-size: 11px; color: var(--text-muted);
+             padding-top: 9px; text-align: right; }
+  .tl-body { border-left: 2px solid var(--border); padding: 8px 0 18px 18px; position: relative; }
+  .tl-body::before { content: ''; position: absolute; left: -6px; top: 13px; width: 10px; height: 10px;
+                     border-radius: 999px; background: var(--surface); border: 2px solid var(--text-muted); }
+  .tl-body.bad::before { border-color: var(--danger); background: var(--danger); }
+  .tl-body.good::before { border-color: var(--ok); background: var(--ok); }
+  .tl-body h4 { font-size: 12.5px; font-weight: 700; color: var(--text-strong); margin-bottom: 3px; }
+  .tl-body p { font-size: 12px; line-height: 1.55; }
+  .tl-body .ui { margin-top: 8px; display: inline-block; }
+
+  /* ---------- state machine ---------- */
+  .states { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 14px; }
+  .state { border: 1px solid var(--border); border-radius: var(--radius-m); padding: 13px 14px;
+           background: var(--surface-2); }
+  .state h4 { font-size: 13px; font-weight: 700; color: var(--text-strong); margin-bottom: 3px;
+              display: flex; align-items: center; gap: 7px; }
+  .state .who { font-family: var(--font-meta); font-size: 10px; color: var(--text-muted);
+                text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 7px; }
+  .state p { font-size: 12px; line-height: 1.55; }
+  .state .shows { margin-top: 9px; }
+  .state.s-ok { border-left: 3px solid var(--ok); }
+  .state.s-cool { border-left: 3px solid var(--warn); }
+  .state.s-unknown { border-left: 3px solid var(--text-muted); }
+  .state.s-gone { border-left: 3px solid var(--danger); }
+  .state.s-pay { border-left: 3px solid var(--accent); }
+
+  /* ---------- misc ---------- */
+  .note { max-width: 940px; font-size: 12.5px; line-height: 1.6; color: var(--text-default);
+          background: var(--warn-soft); border: 1px solid #FDE68A; border-left: 3px solid var(--warn);
+          border-radius: var(--radius-s); padding: 11px 13px; margin-top: 18px; }
+  .note b { color: var(--text-strong); }
+  ul.tight { margin: 8px 0 0 18px; }
+  ul.tight li { font-size: 12.5px; line-height: 1.6; margin-bottom: 4px; }
+  .kbd { font-family: var(--font-meta); font-size: 11px; border: 1px solid var(--border);
+         background: var(--surface-2); border-radius: 4px; padding: 1px 5px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-m);
+          padding: 14px 16px; box-shadow: var(--shadow); }
+  .quota-card { max-width: 460px; border-left: 3px solid var(--warn); }
+  .quota-card h4 { font-size: 13.5px; font-weight: 700; color: var(--text-strong);
+                   display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .quota-card p { font-size: 12.5px; line-height: 1.6; }
+  .btn-row { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+  .btn { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600;
+         border-radius: var(--radius-s); padding: 6px 11px; border: 1px solid var(--border);
+         background: var(--surface); color: var(--text-default); cursor: pointer; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-contrast); }
+  .btn.ghost { background: transparent; }
+  .btn[disabled] { opacity: 0.5; cursor: not-allowed; }
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+    <symbol id="i-chevron-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+    <symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+    <symbol id="i-card" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
+    <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><path d="m10.3 3.9-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.7-3l-8-14a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 21v-5h5"/></symbol>
+    <symbol id="i-zap" viewBox="0 0 24 24"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></symbol>
+    <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></symbol>
+    <symbol id="i-lightbulb" viewBox="0 0 24 24"><path d="M9 18h6M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7V17h8v-2.3A7 7 0 0 0 12 2z"/></symbol>
+    <symbol id="i-eye-off" viewBox="0 0 24 24"><path d="M10.7 5.1A10.4 10.4 0 0 1 12 5c7 0 10 7 10 7a17 17 0 0 1-2.6 3.7"/><path d="M6.6 6.6A17 17 0 0 0 2 12s3 7 10 7a10 10 0 0 0 5.4-1.6"/><path d="m2 2 20 20"/></symbol>
+    <symbol id="i-cpu" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v4"/></symbol>
+  </defs>
+</svg>
+
+<div class="page-head">
+  <h1>Modell-Fenster: Position, Wahrheit und Ablauf</h1>
+  <p>
+    Drei Beschwerden vom <strong>11.08.2026</strong>: das Fenster wird links abgeschnitten, kostenpflichtige
+    Modelle bleiben wählbar, und der Countdown läuft ab, obwohl das Limit weiterhin erschöpft ist.
+    Alle drei sind reproduziert. Der Countdown-Fehler hat <strong>drei unabhängige Ursachen</strong> —
+    gemessen gegen den echten Gemini-Key, nicht vermutet.
+  </p>
+  <p>
+    Die Leitidee dieser Runde: <strong>das Fenster darf nur zeigen, was Syflo wirklich weiß.</strong>
+    Ein Countdown ist ein Versprechen. Wenn Syflo den Reset-Zeitpunkt nicht kennt, darf dort keine Uhr stehen —
+    dann steht dort „Status unbekannt“, und der nächste echte Versuch klärt es.
+  </p>
+</div>
+
+<div class="findings">
+  <div class="finding">
+    <h3><span class="n">B1</span> Geminis Fehlertext kommt nie im Code an</h3>
+    <p>
+      Der Body ist ein <em>Array</em>: <code>[{"error":{…}}]</code>. Das OpenAI-SDK liest
+      <code>body['error']</code> → <code>undefined</code> → die Fehlermeldung lautet wörtlich
+      <code>429 status code (no body)</code>. Damit greift <em>kein einziger</em> Klassifikator in
+      <code>quota.js</code>: Tageslimit, Abrechnungs-Sperre, „Modell abgeschaltet“, TPM-vs-RPM,
+      401/403-Erkennung — alles blind. Ein Tageslimit landet als 90-Sekunden-Minutenlimit.
+    </p>
+    <p class="measured">gemessen 2026-08-11 23:31 UTC · gemini-pro-latest · status 429 · e.error === undefined</p>
+  </div>
+  <div class="finding">
+    <h3><span class="n">B2</span> Falscher Reset-Zeitpunkt</h3>
+    <p>
+      <code>msUntilUtcMidnight()</code> rechnet bis Mitternacht UTC. Google setzt das Tageskontingent
+      aber um <strong>Mitternacht pazifischer Zeit</strong> zurück — in Austin also um 2 Uhr nachts.
+      Der Countdown endet dadurch rund <strong>7 Stunden zu früh</strong>. Selbst nach dem Fix von B1
+      wäre die Uhr falsch.
+    </p>
+    <p class="measured">ai.google.dev/gemini-api/docs/rate-limits · „RPD quotas reset at midnight Pacific time“</p>
+  </div>
+  <div class="finding">
+    <h3><span class="n">B3</span> Der Zähler 0/20 zählt das Falsche</h3>
+    <p>
+      In <code>usage_log</code> schreibt genau <em>eine</em> Stelle (<code>messages.js:1265</code>) — die
+      geglückte Chat-Antwort. Titel-Generierung, <code>/btw</code>, Explain und Passagen-Titel verbrauchen
+      dieselben 20 Anfragen, tauchen aber nirgends auf. Dazu wird nach <em>UTC</em>-Tag gruppiert.
+      Ergebnis: der Balken zeigt 0/20, während Google längst dichtmacht.
+    </p>
+    <p class="measured">10.08.: 4 Flash-Antworten protokolliert — Limit trotzdem erreicht</p>
+  </div>
+  <div class="finding">
+    <h3><span class="n">B4</span> Das Fenster wird abgeschnitten</h3>
+    <p>
+      Das Menü ist ein <code>absolute right-0 w-72</code>-Kind des Composers, und
+      <code>.syflo-chat-pane</code> trägt <code>overflow-hidden</code>. Sobald die Chat-Spalte schmaler
+      als 292&nbsp;px ist, ist das Menü links weg. Im ganzen Frontend gibt es
+      <strong>kein einziges Portal</strong> — jedes Popover hat dieses Problem potenziell.
+    </p>
+    <p class="measured">frontend/src/components/ChatArea/index.tsx:1323 · ModelPicker.tsx:229</p>
+  </div>
+</div>
+
+<div class="prov">
+  <h3>Design-Herkunft: 1:1 aus den echten Komponenten</h3>
+  <p>
+    Die Menüs und Zeilen dieser Seite benutzen exakt die Maße der laufenden App
+    (Standard-Theme „Basic“ = Tailwind-Grundwerte), damit aus dem Entwurf ohne Übersetzungsverluste
+    Code wird: Menü <code>w-72</code> (288 px) · Zeile <code>px-2.5 py-2</code> · Name
+    <code>text-[13px] font-semibold</code> · Unterzeile <code>text-[11.5px] text-gray-500</code> ·
+    Gruppen-Überschrift <code>text-[10px] font-bold uppercase tracking-wider</code> · Trennlinie
+    <code>bg-gray-100</code> · Abzeichen <code>text-[10px] font-semibold rounded-full</code> ·
+    Balken <code>w-8 h-1</code> · Häkchen <code>text-blue-700</code>. Farben ausschließlich über die
+    Familien <code>gray-*</code> / <code>blue-*</code>, damit alle fünf Themes tragen. Die
+    ausführliche Tabelle steht in <code>mockup-onboarding-flow.html</code>.
+  </p>
+</div>
+
+<!-- ============================================================ -->
+<div class="section">
+  <div class="section-head">
+    <h2><span class="num">§01</span> Position — das Fenster darf die Spalte verlassen</h2>
+    <p>
+      Links der Ist-Zustand, rechts die zwei Kandidaten. Beide brauchen dieselbe Grundlage: das Menü
+      wird per Portal an <code>document.body</code> gehängt und <code>position: fixed</code> an der Pille
+      ausgerichtet — dann kann kein <code>overflow-hidden</code> es mehr beschneiden.
+    </p>
+  </div>
+
+  <div class="variants">
+    <div class="variant">
+      <div class="variant-head">
+        <span class="variant-badge">IST</span>
+        <h3>Heute: im Container gefangen</h3>
+      </div>
+      <p class="idea">Das Menü ist 292&nbsp;px breit, die Spalte 240&nbsp;px. Der Rest liegt außerhalb — und wird weggeschnitten.</p>
+      <div class="app-frame">
+        <div class="col-pdf">
+          <div class="ph t"></div><div class="ph"></div><div class="ph"></div><div class="ph s"></div>
+          <div class="ph" style="margin-top:14px"></div><div class="ph"></div><div class="ph s"></div>
+        </div>
+        <div class="col-chat clipping">
+          <div class="chat-body"></div>
+          <div style="position:relative">
+            <div class="menu floating" style="right:8px; bottom:56px; left:auto;">
+              <div class="menu-group-head ok"><svg class="ic xs"><use href="#i-check"/></svg>Kostenlos</div>
+              <div class="row active">
+                <div class="row-main">
+                  <div class="row-name">Gemini Flash</div>
+                  <div class="row-sub">Gemini</div>
+                </div>
+                <span class="meter"><span class="track"><span class="fill" style="width:0%"></span></span>0/20</span>
+              </div>
+              <div class="row">
+                <div class="row-main">
+                  <div class="row-name">Gemini Flash Lite</div>
+                  <div class="row-sub">Gemini</div>
+                </div>
+                <span class="meter"><span class="track"><span class="fill" style="width:4%"></span></span>0/500</span>
+              </div>
+            </div>
+            <div class="composer">
+              <div class="composer-box">
+                <svg class="ic" style="color:var(--text-muted)"><use href="#i-plus"/></svg>
+                <svg class="ic" style="color:var(--text-muted)"><use href="#i-mic"/></svg>
+                <span class="ph-input"></span>
+                <span class="pill">Gemini Flash <svg class="ic sm"><use href="#i-chevron-down"/></svg></span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="verdict bad"><b>Genau der Screenshot.</b> Die Gruppen-Überschrift liest sich als „OSTENLOS“, die Balken sind halb weg, die Fußzeile unlesbar.</div>
+    </div>
+
+    <div class="variant">
+      <div class="variant-head">
+        <span class="variant-badge">A</span>
+        <h3>Portal + Anschlag am Fensterrand</h3>
+      </div>
+      <p class="idea">
+        Das Menü hängt am <code>body</code>, wird rechtsbündig an der Pille ausgerichtet und dann in den
+        sichtbaren Bereich geschoben: <code>left = clamp(8, pillRight − 292, viewportW − 300)</code>.
+        Es darf über die PDF-Spalte ragen — genau dafür ist ein Popover da.
+      </p>
+      <div class="app-frame no-clip">
+        <div class="col-pdf">
+          <div class="ph t"></div><div class="ph"></div><div class="ph"></div><div class="ph s"></div>
+          <div class="ph" style="margin-top:14px"></div><div class="ph"></div><div class="ph s"></div>
+        </div>
+        <div class="col-chat">
+          <div class="chat-body"></div>
+          <div class="composer">
+            <div class="composer-box">
+              <svg class="ic" style="color:var(--text-muted)"><use href="#i-plus"/></svg>
+              <svg class="ic" style="color:var(--text-muted)"><use href="#i-mic"/></svg>
+              <span class="ph-input"></span>
+              <span class="pill">Gemini Flash <svg class="ic sm"><use href="#i-chevron-down"/></svg></span>
+            </div>
+          </div>
+        </div>
+        <!-- portal layer: sits above both columns -->
+        <div class="menu floating" style="right:10px; bottom:58px;">
+          <div class="menu-group-head ok"><svg class="ic xs"><use href="#i-check"/></svg>Jetzt nutzbar</div>
+          <div class="row active">
+            <div class="row-main">
+              <div class="row-name">Gemini Flash Lite</div>
+              <div class="row-sub">Gemini · liest Bilder</div>
+              <span class="meter"><span class="track"><span class="fill" style="width:6%"></span></span>29 von 500 heute</span>
+            </div>
+            <svg class="ic" style="color:var(--accent-strong)"><use href="#i-check"/></svg>
+          </div>
+          <div class="row">
+            <div class="row-main">
+              <div class="row-name">Llama 3.3 70B</div>
+              <div class="row-sub">Groq · liest keine Bilder</div>
+            </div>
+          </div>
+          <div class="menu-sep"></div>
+          <div class="fold">
+            <svg class="ic sm"><use href="#i-chevron-right"/></svg>
+            Gerade nicht nutzbar <span class="count">(2)</span>
+          </div>
+          <div class="menu-sep"></div>
+          <div class="row">
+            <div class="row-main"><div class="row-name">Modelle verwalten</div></div>
+            <svg class="ic sm" style="color:var(--text-muted)"><use href="#i-chevron-right"/></svg>
+          </div>
+          <div class="menu-foot"><span class="dot"></span>Ollama läuft nicht · 2 Cloud-Anbieter</div>
+        </div>
+      </div>
+      <div class="verdict good"><b>Ein Mechanismus, alle Popover.</b> Derselbe Portal-Helfer räumt später auch das Anhang-Menü und den Zweig-Picker auf — die haben denselben Bau.</div>
+    </div>
+
+    <div class="variant">
+      <div class="variant-head">
+        <span class="variant-badge">B</span>
+        <h3>Unter 22&nbsp;rem: Blatt über der ganzen App</h3>
+      </div>
+      <p class="idea">
+        In sehr schmalen Spalten wird das Popover zum zentrierten Blatt (wie eine Befehlspalette).
+        Kein Ausrichten, kein Verschieben — es steht einfach mittig, mit abgedunkeltem Hintergrund.
+      </p>
+      <div class="app-frame no-clip" style="align-items:stretch">
+        <div class="col-pdf" style="opacity:0.45">
+          <div class="ph t"></div><div class="ph"></div><div class="ph s"></div>
+        </div>
+        <div class="col-chat" style="opacity:0.45">
+          <div class="chat-body"></div>
+          <div class="composer"><div class="composer-box"><span class="ph-input"></span></div></div>
+        </div>
+        <div style="position:absolute; inset:0; background:rgba(17,24,39,0.28); border-radius:var(--radius-m)"></div>
+        <div class="menu floating" style="left:50%; top:50%; transform:translate(-50%,-50%); width:300px">
+          <div style="display:flex; align-items:center; justify-content:space-between; padding:4px 8px 8px">
+            <span style="font-size:12.5px; font-weight:700; color:var(--text-strong)">Modell wählen</span>
+            <svg class="ic sm" style="color:var(--text-muted)"><use href="#i-x"/></svg>
+          </div>
+          <div class="menu-group-head ok"><svg class="ic xs"><use href="#i-check"/></svg>Jetzt nutzbar</div>
+          <div class="row active">
+            <div class="row-main"><div class="row-name">Gemini Flash Lite</div>
+              <span class="meter"><span class="track"><span class="fill" style="width:6%"></span></span>29 von 500 heute</span></div>
+            <svg class="ic" style="color:var(--accent-strong)"><use href="#i-check"/></svg>
+          </div>
+          <div class="row"><div class="row-main"><div class="row-name">Llama 3.3 70B</div>
+            <div class="row-sub">Groq · liest keine Bilder</div></div></div>
+        </div>
+      </div>
+      <div class="verdict"><b>Nur als Ergänzung sinnvoll.</b> Für die Bildschirmbreite im Screenshot reicht A. B lohnt erst, wenn die Spalte unter ~300&nbsp;px fällt — dann ist A zwar sichtbar, verdeckt aber die halbe App ohne Erklärung.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<div class="section">
+  <div class="section-head">
+    <h2><span class="num">§02</span> Ergibt das Fenster Sinn? — drei Zuschnitte</h2>
+    <p>
+      Die eigentliche Frage hinter der Beschwerde: <em>wonach</em> soll man hier eigentlich entscheiden?
+      Heute ist die Achse „kostenlos vs. kostenpflichtig“ — eine Eigenschaft der Preisliste, nicht der
+      Situation. Die Situation ist: <strong>was funktioniert jetzt, und was kostet es mich?</strong>
+    </p>
+  </div>
+
+  <div class="variants">
+    <div class="variant">
+      <div class="variant-head"><span class="variant-badge">S1</span><h3>Heute: nach Kosten-Stufe</h3></div>
+      <p class="idea">Gruppen KOSTENLOS / KOSTENPFLICHTIG / LOKAL. Alles ist immer sichtbar und immer klickbar.</p>
+      <div class="menu" style="margin:0 auto">
+        <div class="menu-group-head ok"><svg class="ic xs"><use href="#i-check"/></svg>Kostenlos</div>
+        <div class="row dim"><div class="row-main"><div class="row-name">Gemini Flash</div><div class="row-sub">Gemini</div></div>
+          <span class="badge cool"><svg class="ic xs"><use href="#i-clock"/></svg>in 74 s</span></div>
+        <div class="row"><div class="row-main"><div class="row-name">Gemini Flash Lite</div><div class="row-sub">Gemini</div></div>
+          <span class="meter"><span class="track"><span class="fill" style="width:6%"></span></span>0/500</span></div>
+        <div class="menu-group-head warn"><svg class="ic xs"><use href="#i-card"/></svg>Kostenpflichtig</div>
+        <div class="row"><svg class="ic sm" style="color:var(--text-muted);margin-top:2px"><use href="#i-lock"/></svg>
+          <div class="row-main"><div class="row-name">Gemini Pro</div><div class="row-sub">Gemini · Abrechnung nötig</div></div></div>
+      </div>
+      <div class="verdict bad">
+        <b>Zwei Lügen in vier Zeilen.</b> „in 74 s“ ist ein Tageslimit (B1). „0/500“ zählt nur geglückte
+        Chat-Antworten (B3). Und Gemini Pro lässt sich anklicken, obwohl der Klick garantiert scheitert.
+      </div>
+    </div>
+
+    <div class="variant">
+      <div class="variant-head"><span class="variant-badge">S3</span><h3>Nach Verfügbarkeit — Unbrauchbares klappt weg</h3></div>
+      <p class="idea">
+        Erste Achse: <strong>funktioniert es jetzt?</strong> Was gerade nicht geht, verschwindet nicht
+        (das wäre unehrlich), sondern rutscht in eine zugeklappte Zeile mit Zähler. Die Kosten stehen
+        weiter dran — als Zeile, nicht als Gruppe.
+      </p>
+      <div class="menu" style="margin:0 auto">
+        <div class="menu-group-head ok"><svg class="ic xs"><use href="#i-check"/></svg>Jetzt nutzbar</div>
+        <div class="row active">
+          <div class="row-main"><div class="row-name">Gemini Flash Lite</div>
+            <div class="row-sub">Gemini · kostenlos · liest Bilder</div>
+            <span class="meter"><span class="track"><span class="fill" style="width:6%"></span></span>29 von 500 heute</span></div>
+          <svg class="ic" style="color:var(--accent-strong)"><use href="#i-check"/></svg>
+        </div>
+        <div class="row">
+          <div class="row-main"><div class="row-name">Llama 3.3 70B</div>
+            <div class="row-sub">Groq · kostenlos · liest keine Bilder</div>
+            <span class="meter unknown"><span class="track"></span>Kontingent in Tokens</span></div>
+        </div>
+        <div class="menu-sep"></div>
+        <div class="fold" style="color:var(--warn)">
+          <svg class="ic sm"><use href="#i-chevron-down"/></svg>
+          Gerade nicht nutzbar <span class="count">(3)</span>
+        </div>
+        <div class="row off">
+          <div class="row-main"><div class="row-name">Gemini Flash</div>
+            <div class="row-sub warn">Tageslimit erreicht · Google setzt um 2:00 Uhr zurück</div></div>
+          <span class="badge cool"><svg class="ic xs"><use href="#i-clock"/></svg>7 h 32 m</span>
+        </div>
+        <div class="row off">
+          <div class="row-main"><div class="row-name">Gemini Pro</div>
+            <div class="row-sub">Dein Key hat keine Abrechnung · geprüft heute 18:31</div></div>
+          <span class="badge pay"><svg class="ic xs"><use href="#i-card"/></svg>Einrichten</span>
+        </div>
+        <div class="row off">
+          <div class="row-main"><div class="row-name">qwen3.5:9b</div>
+            <div class="row-sub">Ollama läuft nicht · starten</div></div>
+          <span class="badge unknown"><svg class="ic xs"><use href="#i-cpu"/></svg>Lokal</span>
+        </div>
+        <div class="menu-sep"></div>
+        <div class="row"><svg class="ic sm" style="color:var(--text-muted);margin-top:2px"><use href="#i-lightbulb"/></svg>
+          <div class="row-main"><div class="row-name" style="font-weight:600">Denken</div></div>
+          <span style="font-size:11.5px;color:var(--text-muted)">Aus</span></div>
+        <div class="row"><div class="row-main"><div class="row-name" style="font-weight:600">Modelle verwalten</div></div>
+          <svg class="ic sm" style="color:var(--text-muted)"><use href="#i-chevron-right"/></svg></div>
+        <div class="menu-foot"><span class="dot"></span>Ollama läuft nicht · 2 Cloud-Anbieter</div>
+      </div>
+      <div class="verdict good">
+        <b>Beantwortet die Beschwerde strukturell.</b> Ein Modell, das mit diesem Key nicht funktioniert,
+        ist keine Wahlmöglichkeit mehr, sondern eine <em>Aufgabe</em> („Einrichten“). Und die Kosten-Stufe
+        verschwindet nicht — sie steht in der Unterzeile, wo sie zum Modell gehört.
+      </div>
+    </div>
+
+    <div class="variant">
+      <div class="variant-head"><span class="variant-badge">S2</span><h3>Radikal: nur zwei Entscheidungen</h3></div>
+      <p class="idea">
+        Die Pille bietet nur noch <em>Schnell / Stark</em> und <em>Privat</em>. Welches Modell dahinter
+        steckt, wählt die Leiter selbst — die Modellliste liegt unter „Alle Modelle“.
+      </p>
+      <div class="menu" style="margin:0 auto">
+        <div class="menu-group-head">Antwortstil</div>
+        <div class="row active"><svg class="ic sm" style="color:var(--accent);margin-top:2px"><use href="#i-zap"/></svg>
+          <div class="row-main"><div class="row-name">Schnell</div><div class="row-sub">gerade: Gemini Flash Lite</div></div>
+          <svg class="ic" style="color:var(--accent-strong)"><use href="#i-check"/></svg></div>
+        <div class="row"><svg class="ic sm" style="color:var(--text-muted);margin-top:2px"><use href="#i-lightbulb"/></svg>
+          <div class="row-main"><div class="row-name">Gründlich</div><div class="row-sub">gerade: Llama 3.3 70B · langsamer</div></div></div>
+        <div class="row"><svg class="ic sm" style="color:var(--text-muted);margin-top:2px"><use href="#i-eye-off"/></svg>
+          <div class="row-main"><div class="row-name">Privat</div><div class="row-sub danger">Ollama läuft nicht</div></div></div>
+        <div class="menu-sep"></div>
+        <div class="row"><div class="row-main"><div class="row-name" style="font-weight:600">Alle Modelle</div>
+          <div class="row-sub">3 von 6 gerade nutzbar</div></div>
+          <svg class="ic sm" style="color:var(--text-muted)"><use href="#i-chevron-right"/></svg></div>
+      </div>
+      <div class="verdict">
+        <b>Verlockend, aber zu früh.</b> Solange die Leiter mit falschen Limit-Daten arbeitet (B1–B3),
+        würde „Schnell“ dich unbemerkt auf ein schlechteres Modell schieben. Erst die Wahrheit, dann
+        die Abstraktion — S2 ist die logische Runde&nbsp;2 nach S3.
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<div class="section">
+  <div class="section-head">
+    <h2><span class="num">§03</span> Fünf Zustände statt „an/aus“</h2>
+    <p>
+      Jede Zeile trägt genau einen Zustand, und jeder Zustand hat eine <em>Quelle</em>. Alles, was Syflo
+      nicht gemessen hat, heißt „unbekannt“ — nicht „verfügbar“ und nicht „in 74 s“.
+    </p>
+  </div>
+  <div class="states">
+    <div class="state s-ok">
+      <h4><svg class="ic sm" style="color:var(--ok)"><use href="#i-check"/></svg>Nutzbar</h4>
+      <div class="who">Quelle: letzte Antwort kam durch</div>
+      <p>Der letzte echte Aufruf war erfolgreich. Der Balken zeigt Syflos <em>eigene</em> Zählung des Tages — alle Aufrufe, auch Titel und /btw.</p>
+      <div class="shows"><span class="meter"><span class="track"><span class="fill" style="width:35%"></span></span>7 von 20 heute</span></div>
+    </div>
+    <div class="state s-cool">
+      <h4><svg class="ic sm" style="color:var(--warn)"><use href="#i-clock"/></svg>Limit erreicht — mit Uhr</h4>
+      <div class="who">Quelle: Anbieter nannte eine Zeit</div>
+      <p>Nur wenn der Anbieter selbst eine Wartezeit geliefert hat („Please retry in 32s“, <code>RetryInfo</code>) oder es ein Tageslimit mit bekanntem Reset ist. Die Zeile sagt <em>warum</em> und <em>wessen</em> Uhr das ist.</p>
+      <div class="shows"><span class="badge cool"><svg class="ic xs"><use href="#i-clock"/></svg>7 h 32 m · Google, 2:00 Uhr</span></div>
+    </div>
+    <div class="state s-unknown">
+      <h4><svg class="ic sm"><use href="#i-help"/></svg>Status unbekannt</h4>
+      <div class="who">Quelle: Wartezeit abgelaufen, nichts geprüft</div>
+      <p><strong>Der neue Zustand, und der wichtigste.</strong> Wenn ein Countdown ausläuft, wird die Zeile nicht grün — sie wird grau. Grün wird sie erst wieder, wenn ein echter Aufruf durchgeht.</p>
+      <div class="shows"><span class="badge unknown"><svg class="ic xs"><use href="#i-help"/></svg>Status unbekannt</span></div>
+    </div>
+    <div class="state s-pay">
+      <h4><svg class="ic sm" style="color:var(--accent)"><use href="#i-card"/></svg>Braucht Abrechnung</h4>
+      <div class="who">Quelle: Key geprüft, Kontingent = 0</div>
+      <p>Kein Registry-Etikett mehr, sondern ein Messwert: Google antwortet mit <code>limit: 0</code>. Die Zeile nennt das Prüfdatum — und ist nicht wählbar, sondern führt zur Einrichtung.</p>
+      <div class="shows"><span class="badge pay"><svg class="ic xs"><use href="#i-card"/></svg>Einrichten</span></div>
+    </div>
+    <div class="state s-gone">
+      <h4><svg class="ic sm" style="color:var(--danger)"><use href="#i-alert"/></svg>Abgeschaltet</h4>
+      <div class="who">Quelle: 404 vom Anbieter</div>
+      <p>Der Anbieter kennt das Modell nicht mehr. Keine Uhr, keine Hoffnung — die Zeile bietet an, das Modell aus der Liste zu nehmen.</p>
+      <div class="shows"><span class="badge gone"><svg class="ic xs"><use href="#i-alert"/></svg>Nicht mehr verfügbar</span></div>
+    </div>
+  </div>
+  <div class="note">
+    <b>Die Regel dahinter:</b> ein Zustand darf nur von einem <em>Ereignis</em> gesetzt werden, nie vom
+    Ablauf einer Uhr. Eine ablaufende Uhr darf nur nach „unbekannt“ führen. Damit ist der gemeldete Fehler
+    („Countdown vorbei, Limit trotzdem erschöpft“) nicht mehr möglich — im schlimmsten Fall steht dort
+    „unbekannt“, und das ist wahr.
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<div class="section">
+  <div class="section-head">
+    <h2><span class="num">§04</span> Der Ablauf: heute gelogen, künftig gemessen</h2>
+    <p>
+      Dieselbe Situation — Tageslimit von Gemini Flash um 18:27 Uhr erreicht — einmal wie es heute abläuft,
+      einmal wie es ablaufen soll.
+    </p>
+  </div>
+
+  <div class="variants">
+    <div class="variant">
+      <div class="variant-head"><span class="variant-badge">IST</span><h3>Heute</h3></div>
+      <div class="timeline">
+        <div class="tl-time">18:27:04</div>
+        <div class="tl-body bad">
+          <h4>Google antwortet 429</h4>
+          <p>Body: <code>[{"error":{… "limit: 0 … Please retry in 32s"}}]</code>. Im Code kommt an: <code>429 status code (no body)</code>.</p>
+        </div>
+        <div class="tl-time">18:27:04</div>
+        <div class="tl-body bad">
+          <h4>Falsch einsortiert</h4>
+          <p><code>isDailyQuota()</code> findet nichts → <em>Minutenlimit</em> → Merkzettel: 90 Sekunden.</p>
+        </div>
+        <div class="tl-time">18:27:05</div>
+        <div class="tl-body bad">
+          <h4>Die Karte verspricht 90 Sekunden</h4>
+          <div class="ui">
+            <div class="card quota-card">
+              <h4><svg class="ic" style="color:var(--warn)"><use href="#i-clock"/></svg>Limit erreicht</h4>
+              <p>Gemini Flash ist ausgelastet. Neuer Versuch in <b>74 s</b>.</p>
+              <div class="btn-row"><button class="btn" disabled>Erneut in 74 s</button>
+                <button class="btn ghost">Modell wechseln</button></div>
+            </div>
+          </div>
+        </div>
+        <div class="tl-time">18:28:35</div>
+        <div class="tl-body bad">
+          <h4>Uhr abgelaufen → Zeile wird wieder grün</h4>
+          <p>Der Badge verschwindet, der Balken zeigt weiter 0/20. Nichts wurde geprüft.</p>
+        </div>
+        <div class="tl-time">18:28:40</div>
+        <div class="tl-body bad">
+          <h4>Nächste Frage scheitert identisch</h4>
+          <p>Und der Kreislauf beginnt von vorn — 90 Sekunden lang, bis 2 Uhr nachts.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="variant chosen">
+      <div class="variant-head"><span class="variant-badge rec">SOLL</span><h3>Nach dem Umbau</h3></div>
+      <div class="timeline">
+        <div class="tl-time">18:27:04</div>
+        <div class="tl-body good">
+          <h4>Der Fehler wird ausgepackt</h4>
+          <p>Ein Gemini-Adapter erkennt das Array und legt Text, <code>quotaId</code> und <code>retryDelay</code> frei. Alle Klassifikatoren sehen wieder etwas.</p>
+        </div>
+        <div class="tl-time">18:27:04</div>
+        <div class="tl-body good">
+          <h4>Richtig einsortiert</h4>
+          <p><code>GenerateRequestsPerDayPerProjectPerModel</code> → Tageslimit. Horizont: nächste Mitternacht <em>pazifisch</em> = 2:00 Uhr Ortszeit.</p>
+        </div>
+        <div class="tl-time">18:27:05</div>
+        <div class="tl-body good">
+          <h4>Die Karte sagt die Wahrheit — und handelt</h4>
+          <div class="ui">
+            <div class="card quota-card" style="border-left-color:var(--accent)">
+              <h4><svg class="ic" style="color:var(--warn)"><use href="#i-clock"/></svg>Tageslimit von Gemini Flash erreicht</h4>
+              <p>
+                Die 20 kostenlosen Anfragen des Tages sind aufgebraucht. Google setzt um <b>2:00 Uhr</b>
+                zurück (Mitternacht pazifischer Zeit) — das ist in 7 h 32 m.
+                <br><span style="color:var(--text-muted)">Syflo hat heute 20 Anfragen an dieses Modell gestellt: 12 Antworten, 6 Titel, 2 × /btw.</span>
+              </p>
+              <div class="btn-row">
+                <button class="btn primary"><svg class="ic sm"><use href="#i-refresh"/></svg>Mit Flash Lite antworten</button>
+                <button class="btn ghost">Anderes Modell</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="tl-time">18:27:05</div>
+        <div class="tl-body good">
+          <h4>Die Zeile im Fenster passt dazu</h4>
+          <div class="ui">
+            <div class="menu" style="width:280px">
+              <div class="row off"><div class="row-main"><div class="row-name">Gemini Flash</div>
+                <div class="row-sub warn">Tageslimit · Google setzt um 2:00 Uhr zurück</div>
+                <span class="meter full"><span class="track"><span class="fill" style="width:100%"></span></span>20 von 20 heute</span></div>
+                <span class="badge cool"><svg class="ic xs"><use href="#i-clock"/></svg>7 h 32 m</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="tl-time">02:00</div>
+        <div class="tl-body">
+          <h4>Uhr abgelaufen → <em>unbekannt</em>, nicht grün</h4>
+          <p>Der Zähler springt auf 0 von 20, der Zustand auf „Status unbekannt“. Erst die nächste geglückte Antwort macht die Zeile wieder grün.</p>
+          <div class="ui">
+            <div class="menu" style="width:280px">
+              <div class="row"><div class="row-main"><div class="row-name">Gemini Flash</div>
+                <div class="row-sub">Gemini · kostenlos</div></div>
+                <span class="badge unknown"><svg class="ic xs"><use href="#i-help"/></svg>Status unbekannt</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="verdict good">
+        <b>Kein Versprechen ohne Deckung.</b> Jede Zahl in dieser Spalte hat eine Quelle: der Anbieter,
+        Syflos eigener Zähler oder der letzte echte Aufruf.
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<div class="section">
+  <div class="section-head">
+    <h2><span class="num">§05</span> Kostenpflichtige Modelle — geprüft statt behauptet</h2>
+    <p>
+      Heute steht „Abrechnung nötig“ in <code>registry.json</code>. Das ist eine Aussage über die
+      <em>Preisliste</em>, nicht über <em>deinen Key</em>. Syflo kann das aber messen: ein einziger
+      Aufruf genügt, und ein <code>429</code> mit <code>limit: 0</code> kostet nichts.
+    </p>
+  </div>
+  <div class="states">
+    <div class="state s-pay">
+      <h4>Fall 1 · Key ohne Abrechnung</h4>
+      <div class="who">gemessen: limit 0</div>
+      <p>Die Zeile ist nicht wählbar und trägt eine Aufgabe, keinen Preis. Der Klick öffnet die Abrechnungsseite des Anbieters.</p>
+      <div class="shows">
+        <div class="menu" style="width:100%">
+          <div class="row off"><svg class="ic sm" style="color:var(--text-muted);margin-top:2px"><use href="#i-lock"/></svg>
+            <div class="row-main"><div class="row-name">Gemini Pro</div>
+              <div class="row-sub">Dein Key hat keine Abrechnung · geprüft 18:31</div></div>
+            <span class="badge pay">Einrichten</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="state s-ok">
+      <h4>Fall 2 · Key mit Abrechnung</h4>
+      <div class="who">gemessen: Aufruf ging durch</div>
+      <p>Das Modell rutscht nach oben zu „Jetzt nutzbar“. Die Kosten-Gruppe verschwindet ganz — stattdessen nennt die Unterzeile den Preis pro Antwort.</p>
+      <div class="shows">
+        <div class="menu" style="width:100%">
+          <div class="row"><div class="row-main"><div class="row-name">Gemini Pro</div>
+            <div class="row-sub">Gemini · ca. 0,02 $ pro Antwort</div></div>
+            <span class="badge live">Bezahlt</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="state s-unknown">
+      <h4>Fall 3 · Noch nie geprüft</h4>
+      <div class="who">keine Messung</div>
+      <p>Wählbar, aber ehrlich beschriftet. Der erste Aufruf entscheidet — und schreibt das Ergebnis in Fall 1 oder 2.</p>
+      <div class="shows">
+        <div class="menu" style="width:100%">
+          <div class="row"><div class="row-main"><div class="row-name">Gemini Pro</div>
+            <div class="row-sub">kostet Geld, falls dein Key Abrechnung hat</div></div>
+            <span class="badge unknown">Ungeprüft</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="note">
+    <b>Wann wird geprüft?</b> Nie im Hintergrund und nie automatisch — das würde Kontingent verbrennen.
+    Geprüft wird genau dann, wenn ohnehin ein Aufruf stattfindet: beim ersten Senden an dieses Modell,
+    beim Hinterlegen eines neuen Keys (ein Ein-Token-Aufruf im Einstellungs-Dialog, sichtbar als
+    „Key testen“) und bei jedem Fehler. Das Ergebnis bekommt einen Zeitstempel und steht in der Zeile.
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<div class="section">
+  <div class="section-head">
+    <h2><span class="num">§06</span> Was das für den Bau bedeutet</h2>
+    <p>Reihenfolge nach Wirkung. Die ersten drei Punkte sind reine Fehlerbehebungen ohne neue UI — sie
+      könnten sofort gebaut werden, unabhängig von der Freigabe der Entwürfe oben.</p>
+  </div>
+  <div class="variants">
+    <div class="variant" style="flex:1 1 100%">
+      <ul class="tight">
+        <li><b>B1 · Gemini-Fehler auspacken.</b> Ein <code>fetch</code>-Wrapper für den Gemini-Client
+          normalisiert <code>[{error}]</code> zu <code>{error}</code>, bevor das SDK den Body liest. Danach
+          greifen <em>alle</em> bestehenden Klassifikatoren wieder — inklusive der Abrechnungs-Erkennung,
+          die seit dem 06.08. wirkungslos ist. Nebenbei: 400 „Invalid Auth key“ wird endlich als
+          Key-Problem erkannt statt als generischer Fehler.</li>
+        <li><b>B2 · Reset-Horizont pro Anbieter.</b> <code>msUntilUtcMidnight()</code> wird zu
+          <code>msUntilQuotaReset(provider)</code> — Gemini: Mitternacht pazifisch; Groq: Mitternacht UTC.
+          Gehört in <code>registry.json</code> als <code>resetTimezone</code>, nicht in den Code.</li>
+        <li><b>B3 · Jeden Cloud-Aufruf protokollieren.</b> <code>usage_log</code> bekommt eine Zeile für
+          <em>jeden</em> Aufruf (Titel, /btw, Explain, Passagen-Titel) mit <code>kind</code> und
+          <code>outcome</code>. Der Tag wird in der Zeitzone des Anbieters gebildet. Erst dann stimmt
+          „20 von 20 heute“ — und die Karte kann aufschlüsseln, wohin die 20 Anfragen gingen.</li>
+        <li><b>B4 · Portal-Helfer.</b> Ein <code>&lt;Popover&gt;</code> mit
+          <code>createPortal</code> + <code>position: fixed</code> + Anschlag am Fensterrand, zuerst im
+          ModelPicker, danach für die drei anderen Popover im Composer.</li>
+        <li><b>S3 · Umbau des Fensters</b> auf „Jetzt nutzbar / Gerade nicht nutzbar“ mit den fünf
+          Zuständen aus §03. Braucht B1–B3, sonst sortiert die Liste nach falschen Daten.</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

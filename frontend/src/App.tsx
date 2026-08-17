@@ -15,15 +15,19 @@
  */
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { FileText } from 'lucide-react';
+import { FileText, TvMinimalPlay, ArrowDown } from 'lucide-react';
 import { Sidebar } from './components/Sidebar';
+import { useKeyboardNavigation } from './hooks/useKeyboardNavigation';
+import type { FocusPosition } from './keyboard/focusMap';
+import { findItem } from './keyboard/readScreen';
 import { MatrixRain } from './components/MatrixRain';
 import { ChatArea, type ChatAreaHandle } from './components/ChatArea';
 import { ModelPicker } from './components/ChatArea/ModelPicker';
 import { CloudSetupNotice } from './components/ChatArea/CloudSetupNotice';
 import { SettingsModal, type SettingsTab } from './components/SettingsModal';
 import { FeedbackDialog } from './components/FeedbackDialog';
-import { MindMap } from './components/MindMap';
+import { MindMap, findRoot } from './components/MindMap';
+import { branchSourceJump } from './chat/branchSource';
 import { ParentContextPane } from './components/ParentContextPane';
 import { MathText } from './components/MathText';
 import { PdfView, type PdfHighlightSelection, type PdfViewHandle } from './components/PdfView';
@@ -33,8 +37,9 @@ import { YouTubeSearchModal } from './components/YouTubeSearch';
 import { structurePrompt } from './components/YouTubeSearch/autoPrompt';
 import { getAppLanguage } from './appLanguage';
 import { useStrings } from './strings';
-import { VideoBanner } from './components/VideoBanner';
-import { TranscriptDrawer } from './components/TranscriptDrawer';
+import { VideoPane, type VideoPaneHandle } from './components/VideoPane';
+import { pickOverviewMessage } from './markdown/chapters';
+import { formatDuration } from './components/VideoBanner';
 import { FloatingPopup } from './components/FloatingPopup';
 import { HighlightsDrawer } from './components/HighlightsDrawer';
 import { api, StreamFailedError, TreeHasSourceError } from './api';
@@ -42,11 +47,16 @@ import { TextSmoother } from './streaming/TextSmoother';
 import { orderMessages } from './chat/messageOrder';
 import { buildPickerGroups } from './chat/pickerGroups';
 import { awaitTitle, startPassageTitle, type PendingTitle } from './chat/passageTitle';
+import { branchTargetsFor } from './chat/branchTargets';
 import { useHighlights } from './hooks/useHighlights';
+import { createFulltextQueue } from './hooks/fulltextQueue';
+import { useCitations } from './hooks/useCitations';
+import { CitationCard, browserUrlFor, type CitationCardTarget } from './components/CitationCard';
 import { useChatHighlights } from './hooks/useChatHighlights';
+import { invalidateTreeHighlights } from './hooks/useTreeHighlights';
 import { contextAroundSelection } from './pdf/selection';
 import { CLOUD_PROVIDERS, FAILED_MARKER, INTERRUPTED_MARKER } from './types';
-import type { Chat, ChatDetail, ChatSelection, ComposerQuote, FailoverInfo, Highlight, HighlightColor, LLMProvider, LocalAttachment, Message, MessageHighlight, OllamaModelInfo, Paper, Registry, SearchResult, SearchSource, Settings, ToolEvent, TreeHighlight, Video, VideoSearchResult, WordPopup } from './types';
+import type { Aside, Category, Chat, ChatDetail, ChatSelection, ComposerQuote, FailoverInfo, Highlight, HighlightColor, LLMProvider, LocalAttachment, Message, MessageHighlight, OllamaModelInfo, Paper, PaperReference, Registry, SearchResult, SearchSource, Settings, ToolEvent, TranscriptHighlight, TreeHighlight, Video, VideoSearchResult, WordPopup } from './types';
 
 // Ein laufender Antwort-Stream. Antworten laufen beim Chat-Wechsel im
 // Hintergrund weiter (Nutzerkorrektur 2026-07-22) — der Puffer hält den
@@ -82,6 +92,9 @@ interface ActiveStream {
   // Visible auto-retry after a cloud provider 429 (ADR-0008) — null as soon
   // as the next attempt delivers tokens.
   rateLimit: { retryInSeconds: number; attempt: number; scope?: 'requests' | 'tokens'; model?: string } | null;
+  // The provider's servers are busy (503) and the backend retries the same
+  // model — like rateLimit, gone as soon as tokens arrive.
+  overloaded: { retryInSeconds: number; attempt: number; maxAttempts: number; provider?: string } | null;
   // Another provider stepped in for this answer (ADR-0008 failover). Unlike
   // rateLimit this STAYS for the whole answer — it explains who it is from.
   failover: FailoverInfo | null;
@@ -101,12 +114,25 @@ interface ActiveStream {
   abort: AbortController;
 }
 
+/**
+ * Every chat id in a node's subtree, the node itself included. Deleting a chat
+ * takes its branched chats with it, so the frontend needs the whole list to
+ * know which local state (streams, active selection) the deletion invalidates.
+ */
+function subtreeIds(chat: Chat): string[] {
+  return [chat.id, ...(chat.children ?? []).flatMap(subtreeIds)];
+}
+
 export default function App() {
   // UI-Texte in der App language — re-rendert beim Sprachwechsel mit.
   const STR = useStrings();
   const S = STR.app;
   // chats: the full tree shown in the sidebar
   const [chats, setChats] = useState<Chat[]>([]);
+  // Sidebar categories — the user's own grouping of root chats, one nesting
+  // level deep (design/mockup-sidebar-categories-v2.html). Kept flat here
+  // exactly as the backend stores it; the sidebar nests them for display.
+  const [categories, setCategories] = useState<Category[]>([]);
 
   // activeChat: the currently open chat including its messages
   const [activeChat, setActiveChat] = useState<ChatDetail | null>(null);
@@ -314,14 +340,26 @@ export default function App() {
   const [treeVideo, setTreeVideo] = useState<Video | null>(null);
   // Video-Such-Modal, geöffnet über "YouTube Transcript" im Plus-Menü.
   const [youtubeSearchOpen, setYoutubeSearchOpen] = useState(false);
-  // Roh-Transkript-Drawer (Banner-Klick).
-  const [transcriptOpen, setTranscriptOpen] = useState(false);
+
+  // Die Video overview, aus der die Kapitel unter dem Player entstehen
+  // (mockup-youtube-embed-layout.html §02, Variante C). Sie steht im Chat, in
+  // dem der Import lief — also in der Wurzel. Ein Zweig-Chat holt deshalb
+  // einmal die Wurzel-Historie nach, damit der Player auch dort navigierbar
+  // bleibt.
+  // The Video overview as a MESSAGE, not just text (mockup-truncated-answer
+  // §02): the chapter list needs to know whether it was cut short and which
+  // message "continue" means — and that message may live in the ROOT chat
+  // while a branch is open, hence the chat id travels with it.
+  const [videoOverview, setVideoOverview] = useState<{ chatId: string; message: Message } | null>(null);
 
   // Width of the right chat column in the three-column PDF layout. The user
   // drags the divider between PDF and chat to resize; persisted so the
   // preferred width survives reloads.
   const CHAT_PANE_MIN = 300;
   const CHAT_PANE_MAX = 800;
+  // Width the center pane (PDF desk or parent context) keeps no matter how wide
+  // the chat column is dragged — see the maxWidth on the chat column below.
+  const CENTER_PANE_MIN = 320;
   const [chatPaneWidth, setChatPaneWidth] = useState<number>(() => {
     const stored = Number(localStorage.getItem('syflo.chatPaneWidth'));
     return Number.isFinite(stored) && stored >= CHAT_PANE_MIN && stored <= CHAT_PANE_MAX
@@ -396,7 +434,41 @@ export default function App() {
     create: createHighlight,
     update: updateHighlight,
     remove: removeHighlight,
+    reload: reloadHighlights,
   } = useHighlights(treePaper?.id ?? null);
+
+  // ─── Reference links (design/mockup-paper-reference-links.html) ───────────
+  // The citations this paper prints, their click rects, and the card one
+  // click opens. Loaded in the background after import; 'none' means this
+  // PDF has no citation links and never will.
+  const citationsData = useCitations(treePaper?.id ?? null);
+  const [citationCard, setCitationCard] = useState<CitationCardTarget | null>(null);
+  // Which reference is being fetched, and which one just failed. Syflo has no
+  // toast system — the card itself reports both (§ 07 of the mockup).
+  const [citationLoadingId, setCitationLoadingId] = useState<string | null>(null);
+  const [citationFailedId, setCitationFailedId] = useState<string | null>(null);
+  // referenceId → chatId for works already opened in Syflo. The card's second
+  // door then reads "Go to tree" and can never create a duplicate.
+  const [citedTrees, setCitedTrees] = useState<Map<string, string>>(new Map());
+  // The silent full-text search, prefetched by proximity
+  // (design/mockup-citation-card-standard.html § 05): the citations of the
+  // page on screen, and whatever the mouse points at, ahead of them. One
+  // request at a time — a burst of them gets SearXNG's engines to serve
+  // captchas instead of results.
+  const ensureFulltext = citationsData.ensureFulltext;
+  const fulltextQueue = useMemo(
+    // Two seconds apart: twenty back-to-back searches got every engine behind
+    // SearXNG to answer with a CAPTCHA (measured in the running app
+    // 2026-08-10), and a blocked search looks exactly like "nothing found".
+    () => createFulltextQueue((referenceId) => ensureFulltext(referenceId), { spacingMs: 2000 }),
+    [ensureFulltext],
+  );
+  // The card renders the LIVE reference, not the one captured at click time:
+  // the silent search fills `pdfUrl` and `fulltextHost` seconds after the
+  // card opens (§ 04), and with a frozen snapshot the door never appeared.
+  const citationReference = citationCard
+    ? citationsData.referenceById(citationCard.reference.id) ?? citationCard.reference
+    : null;
 
   // Selection captured by PdfView at mouseup time — read when the user
   // picks a color or opens a branch, so the highlight can be saved even
@@ -442,6 +514,13 @@ export default function App() {
   // Title lookup for the passage in the open popup — started when the popup
   // opens, consumed when a branch is created (chat/passageTitle.ts).
   const pendingTitleRef = useRef<PendingTitle | null>(null);
+  // A branch is being created right now. The click blocks on the title lookup
+  // above (measured 0.5 s, capped at TITLE_WAIT_MS), so the popup shows a
+  // loading state instead of a dead button (user report 2026-08-08). The ref
+  // is the actual re-entrancy guard — state alone can't stop a second click
+  // dispatched before React has re-rendered the disabled button.
+  const [creatingChild, setCreatingChild] = useState(false);
+  const creatingChildRef = useRef(false);
   // Chat twin of pdfHighlightCreatePromiseRef — same race, same fix.
   const chatHighlightCreatePromiseRef = useRef<Promise<unknown> | null>(null);
   const [popupHasChatSelection, setPopupHasChatSelection] = useState(false);
@@ -471,8 +550,15 @@ export default function App() {
   // Highlights-Drawer über der Chat-Spalte (mockup-highlights-overview.html,
   // Variante A). Startet geschlossen, wird nicht persistiert (Grill 2026-07-21).
   const [highlightsOpen, setHighlightsOpen] = useState(false);
+  // Highlight the drawer should lift into view — set when a mind-map node
+  // click jumped to its source (2026-08-02). Cleared by the drawer once it
+  // has scrolled, so a second click on the same node works again.
+  const [focusedHighlightId, setFocusedHighlightId] = useState<string | null>(null);
   // Sprungziele für Drawer-Karten (Grill-Entscheidung 8: punktgenau + Flash).
   const pdfViewRef = useRef<PdfViewHandle>(null);
+  // Der eingebettete Player der Mittelspalte (mockup-youtube-embed-layout.html):
+  // Zeitmarken im Chat springen über diesen Griff, statt YouTube zu öffnen.
+  const videoPaneRef = useRef<VideoPaneHandle>(null);
   const chatAreaRef = useRef<ChatAreaHandle>(null);
   // Chat-Karte eines ANDEREN Branches: erst Branch laden, dann scrollen —
   // der Effekt unten feuert, sobald der Ziel-Chat aktiv geworden ist.
@@ -486,10 +572,134 @@ export default function App() {
     endOffset?: number;
     color?: HighlightColor;
   } | null>(null);
+  // Rückweg einer Abzweigung ohne Passage (mockup-branch-trace.html §07):
+  // Elternchat laden, dann die Abzweig-Zeile DIESES Zweigs anleuchten. Gleiche
+  // Mechanik wie oben, nur ist das Ziel eine Zeile statt einer Nachricht.
+  const pendingTraceScrollRef = useRef<{ chatId: string; branchChatId: string } | null>(null);
 
   // "Ask in chat" quote waiting in a chat's composer. Keyed by chatId so a
   // quote never leaks into a different chat's composer.
   const [composerQuote, setComposerQuote] = useState<(ComposerQuote & { chatId: string }) | null>(null);
+
+  // /btw side questions, keyed by chatId (design/mockup-btw-composer-fold.html).
+  // The aside belongs to its CHAT, not to the screen: opening another branch or
+  // the mind map leaves it behind untouched and coming back finds it where it
+  // was. At most one per chat — a second /btw replaces the first. Deliberately
+  // plain React state and nothing else: a reload clears every aside, which is
+  // exactly what "not saved" means.
+  const [asides, setAsides] = useState<Record<string, Aside>>({});
+
+  // Räumt die Nebenfrage des Chats weg. Drei Gesten enden hier (Tippen,
+  // Escape, ×) und keine wird in der UI erklärt — dazu die beiden Aktionen,
+  // nachdem sie die Nebenfrage dauerhaft gemacht haben.
+  const dismissAside = (chatId: string) =>
+    setAsides((prev) => {
+      if (!prev[chatId]) return prev;
+      const next = { ...prev };
+      delete next[chatId];
+      return next;
+    });
+
+  // "Im Chat behalten": Frage + Antwort ans Ende des Threads. Ab jetzt sind
+  // es gewöhnliche Nachrichten — ohne Abzeichen, dass sie mal eine
+  // Nebenfrage waren (Mockup §03).
+  const handleKeepAside = async () => {
+    const chatId = activeChatId;
+    const aside = chatId ? asides[chatId] : null;
+    if (!chatId || !aside || aside.streaming) return;
+    dismissAside(chatId);
+    try {
+      const messages = await api.keepAside(chatId, aside.answer, aside.question);
+      setActiveChat((prev) =>
+        prev && prev.id === chatId ? { ...prev, messages: [...prev.messages, ...messages] } : prev,
+      );
+    } catch (err) {
+      console.error('Keep in chat failed:', err);
+    }
+  };
+
+  // "Verzweigen": der Zweig trägt die Frage als Zitat in der Kopfzeile, also
+  // wird nur die Antwort geschrieben — sie ist die erste Blase (Nutzer-
+  // entscheidung 2026-08-08). Der aktuelle Thread bleibt unberührt.
+  const handleBranchAside = async () => {
+    const chatId = activeChatId;
+    const aside = chatId ? asides[chatId] : null;
+    if (!chatId || !aside || aside.streaming) return;
+    dismissAside(chatId);
+    try {
+      // Der Zweigtitel wird verkürzt wie bei jedem anderen Zweig — eine
+      // Nebenfrage kann ein ganzer Satz sein, und der Baum soll keine Sätze
+      // tragen. Schlägt die Kürzung fehl oder dauert sie zu lange, steht die
+      // Frage selbst im Titel; ein Titel ist nie ein Grund zu warten.
+      const { title } = await awaitTitle(startPassageTitle(aside.question), aside.question);
+      // 'btw' lässt den Elternchat eine Abzweig-Zeile an genau der Stelle
+      // zeichnen, an der die Nebenfrage gestellt wurde
+      // (mockup-branch-trace.html).
+      const child = await api.createChat(
+        S.aboutChatTitle(title), chatId, aside.question, undefined, undefined, 'btw',
+      );
+      await api.keepAside(child.id, aside.answer);
+      await refreshTree();
+      await handleSelectChat(child.id);
+    } catch (err) {
+      console.error('Make a branch failed:', err);
+    }
+  };
+
+  // /branch <topic> — the other door into the tree
+  // (design/mockup-branch-command.html). No passage was selected, so the
+  // branch gets NO parent_word: its header shows the parent link alone and
+  // its map node has no highlight kind. The topic is asked verbatim as the
+  // first message (mockup §03 A) — one command, one answer, and the outcome
+  // line is written by the title call that already follows that answer.
+  // Die wählbaren Eltern für /branch: der Baum, in dem der aktive Chat steht.
+  const branchTargets = useMemo(() => branchTargetsFor(chats, activeChatId), [chats, activeChatId]);
+
+  const handleOpenTopicBranch = async (topic: string, parentId: string) => {
+    try {
+      // Same title path as every other branch: the tree never shows a raw
+      // passage, and a slow model never holds the branch hostage.
+      const { title } = await awaitTitle(startPassageTitle(topic), topic);
+      const child = await api.createChat(
+        S.aboutChatTitle(title), parentId, undefined, undefined, undefined, 'topic',
+      );
+      await refreshTree();
+      await handleSelectChat(child.id, parentId);
+      // targetChatId: activeChatId lags the switch by one render.
+      await handleSendMessage(topic, [], child.id);
+    } catch (err) {
+      console.error('/branch failed:', err);
+    }
+  };
+
+  const handleAskAside = async (question: string) => {
+    const chatId = activeChatId;
+    if (!chatId) return;
+    setAsides((prev) => ({ ...prev, [chatId]: { question, answer: '', streaming: true } }));
+    try {
+      const { answer, model } = await api.askAside(chatId, question, (delta) => {
+        setAsides((prev) => {
+          const current = prev[chatId];
+          // A newer aside (or a dismissal) has taken over — drop the delta
+          // instead of resurrecting a panel the user already left behind.
+          if (!current || current.question !== question) return prev;
+          return { ...prev, [chatId]: { ...current, answer: current.answer + delta } };
+        });
+      });
+      setAsides((prev) => {
+        const current = prev[chatId];
+        if (!current || current.question !== question) return prev;
+        return { ...prev, [chatId]: { question, answer, streaming: false, model } };
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : S.unknownError;
+      setAsides((prev) => {
+        const current = prev[chatId];
+        if (!current || current.question !== question) return prev;
+        return { ...prev, [chatId]: { question, answer: '', streaming: false, error: message } };
+      });
+    }
+  };
 
   // Load the parent chat for the center context view — only when the active
   // chat is a branch and the tree has no PDF (with a PDF the center belongs
@@ -627,11 +837,16 @@ export default function App() {
   // Seitenleiste behalten. Nur unzweifelhaft wertlose Chats werden gelöscht:
   // keine Nachrichten, keine Branches, kein gebundenes PDF, kein laufender
   // Stream — und nur Wurzel-Chats (Branches tragen ihr parent_word als Kontext).
-  const cleanupAbandonedChat = (nextId: string) => {
+  // keepId: ein Chat, der gerade zum Elternteil geworden ist. Die Kinderzahl
+  // in `activeChat` ist dann noch die alte (der Baum wird nebenher neu
+  // geladen), und ohne diesen Schutz löscht /branch in einem frischen,
+  // leeren Wurzel-Chat genau den Chat, unter den es eben verzweigt hat.
+  const cleanupAbandonedChat = (nextId: string, keepId?: string) => {
     const prev = activeChat;
     if (
       prev &&
       prev.id !== nextId &&
+      prev.id !== keepId &&
       !prev.parent_id &&
       prev.messages.length === 0 &&
       prev.children.length === 0 &&
@@ -645,8 +860,8 @@ export default function App() {
   // Load a chat's messages and mark it as active in the sidebar. The tree's
   // paper is fetched alongside so the three-column view survives a reload
   // (and closes when switching to a tree without a PDF).
-  const handleSelectChat = async (id: string) => {
-    cleanupAbandonedChat(id);
+  const handleSelectChat = async (id: string, keepChatId?: string) => {
+    cleanupAbandonedChat(id, keepChatId);
     setActiveChatId(id);
     activeChatIdRef.current = id;
     setLoadingChat(true);
@@ -680,7 +895,6 @@ export default function App() {
       );
       setTreePaper(paper);
       setTreeVideo(video);
-      setTranscriptOpen(false);
       // Prefix-Warm-up (fire-and-forget): das lokale Modell liest Paper +
       // Historie schon jetzt ein — die erste Frage trifft auf warmen Cache.
       // Nicht während ein Stream in diesem Chat läuft (der Prefix ist dann
@@ -713,6 +927,7 @@ export default function App() {
           }
         : null),
       ...(s.rateLimit !== null ? { rateLimit: s.rateLimit } : null),
+      ...(s.overloaded !== null ? { overloaded: s.overloaded } : null),
       ...(s.failover !== null ? { failover: s.failover } : null),
     };
     if (s.started || s.isRegenerate) return [assistant];
@@ -726,6 +941,42 @@ export default function App() {
     return [user, assistant];
   };
 
+  // ─── The two doors of a citation card ─────────────────────────────────────
+
+  // Door A — the browser. Syflo changes nothing at all: no tree, no entry, no
+  // state. That is the point of the door: a look that costs nothing.
+  const handleCitationBrowser = (reference: PaperReference) => {
+    const url = browserUrlFor(reference);
+    if (url) window.open(url, '_blank', 'noopener,noreferrer');
+  };
+
+  // Door B — Syflo. A tree holds one source (ADR-0005), so the cited paper
+  // becomes its OWN tree, imported through the existing from-url path. The
+  // view deliberately does NOT jump: being thrown out of the paragraph you
+  // were reading is worse than one extra click, so the card's button simply
+  // becomes "Go to tree" when the download lands.
+  const handleCitationOpenInSyflo = async (reference: PaperReference) => {
+    if (!reference.pdfUrl) return;
+    setCitationLoadingId(reference.id);
+    setCitationFailedId(null);
+    try {
+      const chat = await api.createChat(reference.title || S.newChatTitle);
+      try {
+        await api.importPaperFromUrl(chat.id, reference.pdfUrl, reference.title ?? undefined);
+      } catch (err) {
+        // The empty tree would linger as a stray "New chat" in the sidebar.
+        await api.deleteChat(chat.id).catch(() => {});
+        throw err;
+      }
+      await refreshTree();
+      setCitedTrees((prev) => new Map(prev).set(reference.id, chat.id));
+    } catch {
+      setCitationFailedId(reference.id);
+    } finally {
+      setCitationLoadingId(null);
+    }
+  };
+
   // Create a blank chat and immediately open it.
   const handleNewChat = async () => {
     const chat = await api.createChat(S.newChatTitle);
@@ -733,19 +984,51 @@ export default function App() {
     await handleSelectChat(chat.id);
   };
 
-  // Delete a chat; if it was the active chat, clear the chat area.
+  // Delete a chat — and, on the backend, its whole branched subtree.
+  //
+  // Staying in the current view matters (user report 2026-08-08): clearing the
+  // active chat closed the mind map and dropped the user on the empty start
+  // screen, so the deletion was never seen happening. The selection climbs to
+  // the deleted node's PARENT instead (user decision 2026-08-08), which keeps
+  // the mind map open and shows the node vanishing from the tree. Only when
+  // the deletion leaves no parent — a whole root tree — is the chat area
+  // cleared, and the effect above then falls back to chat view.
   const handleDeleteChat = async (id: string) => {
-    // Noch laufende/wartende Streams dieses Chats wären verwaist — abbrechen.
-    streamsForChat(id).forEach(s => s.abort.abort());
+    const node = findChatInTree(chats, id);
+    // Noch laufende/wartende Streams wären verwaist — abbrechen. Das gilt für
+    // den ganzen Teilbaum: die Branches verschwinden mit.
+    const doomed = node ? subtreeIds(node) : [id];
+    doomed.forEach(chatId => streamsForChat(chatId).forEach(s => s.abort.abort()));
+
     await api.deleteChat(id);
-    if (activeChatId === id) {
-      setActiveChatId(null);
-      activeChatIdRef.current = null;
-      setActiveChat(null);
-      setTreePaper(null);
-      setTreeVideo(null);
-    }
     await refreshTree();
+
+    // Die markierte Stelle überlebt ihren Zweig, die VERKNÜPFUNG nicht: das
+    // Backend setzt highlights.chat_id bzw. message_highlights.child_chat_id
+    // auf NULL. Beide Listen hängen im Frontend aber an paperId/chatId und die
+    // ändern sich beim Löschen eines Zweigs nicht — ohne diesen Neuaufbau bot
+    // das Highlight-Menü weiter "Zum verknüpften Chat" für einen Chat an, den
+    // es nicht mehr gibt (Nutzerreport 2026-08-10). Auch der baum-weite Drawer
+    // führt die Verknüpfung, darum wird sein Cache mit invalidiert.
+    reloadHighlights();
+    activeChatHl.reload();
+    parentChatHl.reload();
+    invalidateTreeHighlights();
+
+    // Does the deletion take the active chat with it? A descendant loses its
+    // home just like the deleted chat itself.
+    const activeIsDoomed = activeChatId !== null && doomed.includes(activeChatId);
+    if (!activeIsDoomed) return;
+
+    if (node?.parent_id) {
+      await handleSelectChat(node.parent_id);
+      return;
+    }
+    setActiveChatId(null);
+    activeChatIdRef.current = null;
+    setActiveChat(null);
+    setTreePaper(null);
+    setTreeVideo(null);
   };
 
   // "Upload file" from the plus menu: bind the PDF to the active chat's tree.
@@ -834,15 +1117,63 @@ export default function App() {
     }
   };
 
-  // Banner-Klick: Drawer öffnen; das Transkript lazy nachladen, wenn nur die
-  // Import-Antwort (ohne Transkript) im State liegt.
-  const handleOpenTranscript = async () => {
-    setTranscriptOpen(true);
-    if (treeVideo && !treeVideo.transcript && activeChatId) {
-      const full = await api.getTreeVideo(activeChatId).catch(() => null);
-      if (full) setTreeVideo(full);
-    }
+  // Lädt das Transkript nach, ohne den Drawer zu öffnen — die Transkript-
+  // Ansicht des Players braucht denselben Text (nur nach dem Import fehlt er).
+  const ensureTranscript = async () => {
+    if (!treeVideo || treeVideo.transcript || !activeChatId) return;
+    const full = await api.getTreeVideo(activeChatId).catch(() => null);
+    if (full) setTreeVideo(full);
   };
+
+  // Kapitel-Quelle bestimmen: erst im offenen Chat suchen, sonst in der Wurzel
+  // des Baums. Läuft mit den Nachrichten mit, also erscheinen die Kapitel,
+  // sobald die Übersicht fertig gestreamt ist.
+  useEffect(() => {
+    if (!treeVideo || !activeChatId) {
+      setVideoOverview(null);
+      return;
+    }
+    const own = pickOverviewMessage(activeChat?.messages ?? []);
+    if (own) {
+      setVideoOverview({ chatId: activeChatId, message: own });
+      return;
+    }
+    const root = findRoot(chats, activeChatId);
+    if (!root || root.id === activeChatId) {
+      setVideoOverview(null);
+      return;
+    }
+    let cancelled = false;
+    void api
+      .getChat(root.id)
+      .then((detail) => {
+        if (cancelled) return;
+        const picked = pickOverviewMessage(detail.messages);
+        setVideoOverview(picked ? { chatId: root.id, message: picked } : null);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [treeVideo, activeChatId, activeChat?.messages, chats]);
+
+  // The transcript's marks belong to the VIDEO, so they are loaded once per
+  // tree and shown in every branch of it — like PDF highlights.
+  useEffect(() => {
+    if (!treeVideo) {
+      setTranscriptHighlights([]);
+      return;
+    }
+    let cancelled = false;
+    // Wrapped in Promise.resolve: a transport that throws SYNCHRONOUSLY (an
+    // old backend without the route, a stubbed client) must not take the
+    // whole pane down with it — the marks are an enhancement, the video is not.
+    void Promise.resolve()
+      .then(() => api.listTranscriptHighlights(treeVideo.id))
+      .then((list) => { if (!cancelled && Array.isArray(list)) setTranscriptHighlights(list); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [treeVideo]);
 
   // Confirmed the new-tree prompt: create a fresh root chat, attach the held
   // source (PDF upload, URL import, or YouTube video) there, and switch to
@@ -882,6 +1213,60 @@ export default function App() {
     await refreshTree();
   };
 
+  // Pin or unpin a root chat. Der Baum wird danach neu geladen — die
+  // Seitenleiste entscheidet allein anhand von pinned_at, in welchem
+  // Abschnitt der Chat landet (design/mockup-pinned-chats.html, Variante A).
+  const handleTogglePin = async (id: string, pinned: boolean) => {
+    await api.setChatPinned(id, pinned);
+    await refreshTree();
+  };
+
+  // ---- Categories ---------------------------------------------------------
+  // Every mutation re-reads the list rather than patching it locally: the
+  // backend owns the two-level cap and the "chats survive a delete" rule, and
+  // a hand-patched copy would be the place those two truths drift apart.
+  const refreshCategories = useCallback(async () => {
+    setCategories(await api.getCategories());
+  }, []);
+
+  // Returns the created category: the sidebar may have a chat waiting to be
+  // filed into it, and the id only exists once the backend has written it.
+  const handleCreateCategory = async (name: string, parentId: string | null) => {
+    const created = await api.createCategory(name, parentId);
+    await refreshCategories();
+    return created;
+  };
+
+  const handleRenameCategory = async (id: string, name: string) => {
+    await api.updateCategory(id, { name });
+    await refreshCategories();
+  };
+
+  const handleDeleteCategory = async (id: string) => {
+    await api.deleteCategory(id);
+    // Both, and in this order: the chats it held are now uncategorised, so the
+    // tree is as stale as the category list.
+    await refreshCategories();
+    await refreshTree();
+  };
+
+  const handleToggleCategoryCollapsed = async (id: string, collapsed: boolean) => {
+    // Optimistic: opening a category must feel like opening a folder, not like
+    // a round trip. The refresh behind it corrects a failed write.
+    setCategories(prev => prev.map(c => (c.id === id ? { ...c, collapsed: collapsed ? 1 : 0 } : c)));
+    await api.updateCategory(id, { collapsed });
+    await refreshCategories();
+  };
+
+  const handleMoveChatToCategory = async (chatId: string, categoryId: string | null) => {
+    await api.setChatCategory(chatId, categoryId);
+    await refreshTree();
+  };
+
+  // Categories load once, alongside the tree. A failure is not fatal: the
+  // sidebar falls back to the date sections, which is the sidebar as it was.
+  useEffect(() => { refreshCategories().catch(() => {}); }, [refreshCategories]);
+
   // Send a message with optimistic UI and real-time streaming. Der Stream
   // gehört dem Chat, in dem gesendet wurde — wechselt der Nutzer den Chat,
   // läuft er im Hintergrund weiter (Puffer in activeStreamsRef); alle
@@ -889,7 +1274,15 @@ export default function App() {
   // nie in einen fremden Chat schreiben. Resolves, sobald der Stream
   // GESTARTET ist (nicht wenn er fertig ist) — der Composer ist damit sofort
   // wieder frei, weitere Fragen landen in der Backend-Warteschlange (FIFO).
-  const handleSendMessage = async (content: string, attachments: LocalAttachment[] = [], targetChatId?: string) => {
+  const handleSendMessage = async (
+    content: string,
+    attachments: LocalAttachment[] = [],
+    targetChatId?: string,
+    // quoteHighlightId: der Composer schickt den Anker des Zitats mit, das er
+    // gerade in den Text eingebaut hat — die persistierte Frage bleibt damit
+    // anklickbar (mockup-quote-jump-to-source.html).
+    quoteHighlightId?: string | null,
+  ) => {
     // targetChatId: für programmatische Sends in einen gerade erst
     // gewechselten Chat (Auto-Prompt nach Video-Import in einen neuen Baum) —
     // der activeChatId-State hinkt dem Wechsel um einen Render hinterher.
@@ -913,7 +1306,7 @@ export default function App() {
 
     // Immediately add the user's message and an empty assistant placeholder
     // so the UI feels instant and shows the streaming cursor right away.
-    const tempUser: Message = { id: tempUserId, chat_id: chatId, role: 'user', content, created_at: now, attachments: optimisticAttachments };
+    const tempUser: Message = { id: tempUserId, chat_id: chatId, role: 'user', content, created_at: now, attachments: optimisticAttachments, quote_highlight_id: quoteHighlightId ?? null };
     const tempAssistant: Message = { id: tempAssistantId, chat_id: chatId, role: 'assistant', content: '', created_at: now };
 
     const stream: ActiveStream = {
@@ -930,6 +1323,7 @@ export default function App() {
       queuedCurrent: null,
       started: false,
       rateLimit: null,
+      overloaded: null,
       failover: null,
       smoother: null,
       isRegenerate: false,
@@ -954,6 +1348,7 @@ export default function App() {
     void runMessageStream(stream, (h) =>
       api.sendMessageStream(chatId, content, h.onDelta, attachments, h.onToolEvent, {
         think: thinkByChat[chatId] || undefined,
+        quoteHighlightId: quoteHighlightId ?? null,
         ...h.opts,
       }),
     ).finally(revokePreviews);
@@ -1011,10 +1406,14 @@ export default function App() {
     try {
       const { userMessage, assistantMessage } = await start({
         onDelta: (delta) => {
-          // Tokens flowing again = the rate-limit retry succeeded.
+          // Tokens flowing again = the retry succeeded, whichever wait it was.
           if (stream.rateLimit !== null) {
             stream.rateLimit = null;
             patchAssistant({ rateLimit: undefined });
+          }
+          if (stream.overloaded !== null) {
+            stream.overloaded = null;
+            patchAssistant({ overloaded: undefined });
           }
           // Content is revealed smoothly — the smoother updates
           // stream.content + the bubble via onReveal.
@@ -1034,10 +1433,15 @@ export default function App() {
           },
           onReasoning: (delta) => {
             stream.reasoning += delta;
-            // Reasoning chunks flowing = the rate-limit retry succeeded.
+            // Reasoning chunks flowing = the retry succeeded.
             if (stream.rateLimit !== null) {
               stream.rateLimit = null;
               patchAssistant({ reasoning: stream.reasoning, rateLimit: undefined });
+              return;
+            }
+            if (stream.overloaded !== null) {
+              stream.overloaded = null;
+              patchAssistant({ reasoning: stream.reasoning, overloaded: undefined });
               return;
             }
             patchAssistant({ reasoning: stream.reasoning });
@@ -1055,6 +1459,13 @@ export default function App() {
               queuedModel: info?.model,
               queuedCurrent: info?.current,
             });
+          },
+          onOverloaded: (info) => {
+            // The provider is busy and the backend is retrying the SAME
+            // model. Announced in the same spot as the 429 countdown — the
+            // user is waiting either way and deserves to know on whom.
+            stream.overloaded = info;
+            patchAssistant({ overloaded: info });
           },
           onRateLimit: (info) => {
             // Cloud provider 429: the backend waits out Retry-After and tries
@@ -1186,7 +1597,7 @@ export default function App() {
           // Stop-Button (Nutzerentscheid 2026-07-22): der Teiltext wird
           // verworfen, es bleibt nur die "Interrupted"-Markierung — das
           // Backend persistiert denselben Marker.
-          patchAssistant({ content: INTERRUPTED_MARKER, reasoning: undefined, sources: undefined, queuedAhead: undefined, queuedModel: undefined, queuedCurrent: undefined, rateLimit: undefined });
+          patchAssistant({ content: INTERRUPTED_MARKER, reasoning: undefined, sources: undefined, queuedAhead: undefined, queuedModel: undefined, queuedCurrent: undefined, rateLimit: undefined, overloaded: undefined });
           refreshTree().catch(() => {});
           // Der Marker ersetzt die halb generierte Antwort — der KV-Zustand
           // im Slot passt nicht mehr zur Historie, und das Hybrid-Modell
@@ -1245,7 +1656,7 @@ export default function App() {
         // catch-all persisted *Interrupted* — render the interrupted row
         // (its retry reconciles via non-anchored regenerate), never a failed
         // row whose anchored retry would 409 forever.
-        patchAssistant({ content: INTERRUPTED_MARKER, reasoning: undefined, sources: undefined, queuedAhead: undefined, queuedModel: undefined, queuedCurrent: undefined, rateLimit: undefined });
+        patchAssistant({ content: INTERRUPTED_MARKER, reasoning: undefined, sources: undefined, queuedAhead: undefined, queuedModel: undefined, queuedCurrent: undefined, rateLimit: undefined, overloaded: undefined });
         console.error('Stream dropped mid-answer:', err);
       } else {
         // Netzwerk-/Clientfehler ohne persistierte Spur: lokale Fehlerzeile —
@@ -1262,6 +1673,7 @@ export default function App() {
           queuedModel: undefined,
           queuedCurrent: undefined,
           rateLimit: undefined,
+          overloaded: undefined,
           ...(err instanceof StreamFailedError
             ? {
                 ...(err.quotaExhausted ? { quotaExhausted: true, retryAt: err.retryAt, quotaReason: err.quotaReason, failProvider: err.failProvider } : null),
@@ -1331,6 +1743,7 @@ export default function App() {
       queuedCurrent: null,
       started: false,
       rateLimit: null,
+      overloaded: null,
       failover: null,
       smoother: null,
       isRegenerate: true,
@@ -1360,6 +1773,76 @@ export default function App() {
         ...h.opts,
       }),
     );
+  };
+
+  // Continue an answer the provider cut short (mockup-truncated-answer §01).
+  // Deliberately NOT built on runMessageStream: that machinery creates a new
+  // assistant bubble, and the whole point here is that no second bubble
+  // appears — the deltas are appended to the message that already exists, so
+  // the chapter list keeps seeing ONE overview.
+  const handleContinueMessage = (cut: Message) => {
+    const chat = activeChat;
+    if (!chat) return;
+    const chatId = chat.id;
+    const patch = (fields: Partial<Message>) =>
+      setActiveChat(prev =>
+        prev && prev.id === chatId
+          ? { ...prev, messages: prev.messages.map(m => (m.id === cut.id ? { ...m, ...fields } : m)) }
+          : prev,
+      );
+
+    // The card goes as the continuation starts — it would otherwise sit under
+    // a text that is visibly still growing.
+    let grown = cut.content;
+    patch({ truncated: 0 });
+
+    void api
+      .continueMessage(
+        chatId,
+        cut.id,
+        (delta) => {
+          grown += delta;
+          patch({ content: grown });
+        },
+        { think: thinkByChat[chatId] || undefined },
+      )
+      .then(({ assistantMessage }) => {
+        // The server's version wins: it knows whether THIS round finished or
+        // was cut short again.
+        patch({ content: assistantMessage.content, truncated: assistantMessage.truncated ?? 0 });
+      })
+      .catch((err) => {
+        // Nothing was appended — put the card back, the answer is still cut.
+        patch({ content: cut.content, truncated: 1 });
+        console.error('Failed to continue message:', err);
+      });
+  };
+
+  // Continue from the chapter list. Usually the same click as the card in the
+  // chat — but the overview can live in the ROOT chat while a branch is open,
+  // and then there is no bubble on screen to patch: only the pane updates.
+  const handleContinueOverview = () => {
+    if (!videoOverview) return;
+    const { chatId, message } = videoOverview;
+    if (chatId === activeChatId) {
+      handleContinueMessage(message);
+      return;
+    }
+    let grown = message.content;
+    const patchPane = (fields: Partial<Message>) =>
+      setVideoOverview(v => (v && v.message.id === message.id ? { ...v, message: { ...v.message, ...fields } } : v));
+    patchPane({ truncated: 0 });
+    void api
+      .continueMessage(chatId, message.id, (delta) => {
+        grown += delta;
+        patchPane({ content: grown });
+      }, {})
+      .then(({ assistantMessage }) =>
+        patchPane({ content: assistantMessage.content, truncated: assistantMessage.truncated ?? 0 }))
+      .catch((err) => {
+        patchPane({ content: message.content, truncated: 1 });
+        console.error('Failed to continue the overview:', err);
+      });
   };
 
   // Named cloud exit of the local_missing card (mockup-model-flow §11):
@@ -1424,6 +1907,7 @@ export default function App() {
       queuedCurrent: null,
       started: false,
       rateLimit: null,
+      overloaded: null,
       failover: null,
       smoother: null,
       isRegenerate: true,
@@ -1512,6 +1996,72 @@ export default function App() {
   // Finishing a drag-selection in a chat bubble (right pane or parent
   // context pane, mouseup — no right-click needed, user request
   // 2026-07-31): open the popup with the color row + "Ask in chat".
+  // A passage selected in the transcript (mockup-transcript-selection.html,
+  // variant A). Its own pending ref for the same reason the PDF and the chat
+  // have theirs: the popup's actions have to know which SOURCE the passage
+  // came from, because that decides where a branch hangs.
+  const pendingTranscriptSelectionRef = useRef<{
+    text: string; seconds: number | null; startOffset: number; endOffset: number;
+    x: number; y: number; markSource?: 'transcript' | 'chapter';
+  } | null>(null);
+  // Renders the popup's "Ask in chat" for transcript passages. The color row
+  // stays hidden for now: nothing persists a transcript highlight yet, and a
+  // swatch that saves nothing is worse than no swatch.
+  const [popupHasTranscriptSelection, setPopupHasTranscriptSelection] = useState(false);
+  // Anchored in the transcript (colorable) as opposed to a chapter passage,
+  // which can be quoted and branched from but not marked.
+  const [popupHasTranscriptMark, setPopupHasTranscriptMark] = useState(false);
+  // The marks of the tree's transcript. They belong to the VIDEO, so every
+  // branch of the tree shows the same ones.
+  const [transcriptHighlights, setTranscriptHighlights] = useState<TranscriptHighlight[]>([]);
+  const savedTranscriptHighlightIdRef = useRef<string | null>(null);
+  const transcriptHighlightCreatePromiseRef = useRef<Promise<TranscriptHighlight> | null>(null);
+
+  const handleTranscriptSelection = (sel: {
+    text: string; seconds: number | null; startOffset: number; endOffset: number;
+    x: number; y: number; markSource?: 'transcript' | 'chapter';
+  }) => {
+    pendingPdfSelectionRef.current = null;
+    savedHighlightIdRef.current = null;
+    setPopupHasPdfSelection(false);
+    pendingChatSelectionRef.current = null;
+    savedChatHighlightIdRef.current = null;
+    setPopupHasChatSelection(false);
+    setPendingChatSelection(null);
+    setHoldPdfSelection(false);
+    pendingTranscriptSelectionRef.current = sel;
+    savedTranscriptHighlightIdRef.current = null;
+    setPopupHasTranscriptSelection(true);
+    setPopupHasTranscriptMark(sel.startOffset >= 0);
+    void openPopupWithExplanation({
+      word: sel.text,
+      context: contextAroundSelection(sel.text),
+      x: sel.x,
+      y: sel.y,
+    });
+  };
+
+  // A passage selected in a CHAPTER (user request 2026-08-16). It goes through
+  // the same popup and opens the same kind of branch, but it saves no colored
+  // mark: chapters are rendered from the overview MESSAGE, so a mark here
+  // would have to anchor into that message — a different anchor for what looks
+  // like the same gesture. Quote and branch work; the color row stays hidden.
+  const handleChapterSelection = (sel: { text: string; seconds: number | null; x: number; y: number }) => {
+    // The anchor of a chapter mark is the OVERVIEW text the chapter list is
+    // rendered from (user request 2026-08-16, chapters became colorable). The
+    // pane reports the passage as it reads on screen, so its place in the
+    // overview is found by searching — unambiguous in practice, because a
+    // selection long enough to be worth keeping rarely repeats verbatim.
+    const source = videoOverview?.message.content ?? '';
+    const at = source.indexOf(sel.text);
+    handleTranscriptSelection({
+      ...sel,
+      startOffset: at >= 0 ? at : -1,
+      endOffset: at >= 0 ? at + sel.text.length : -1,
+      markSource: 'chapter',
+    });
+  };
+
   const handleChatSelection = (sel: ChatSelection, context: string, x: number, y: number) => {
     pendingPdfSelectionRef.current = null;
     savedHighlightIdRef.current = null;
@@ -1535,7 +2085,9 @@ export default function App() {
     // formula already set — never with the raw passage
     // (user requirement 2026-08-02, chat/passageTitle.ts).
     // Only for real selections; a right-clicked single word is its own title.
-    const isPassage = Boolean(pendingPdfSelectionRef.current || pendingChatSelectionRef.current);
+    const isPassage = Boolean(
+      pendingPdfSelectionRef.current || pendingChatSelectionRef.current || pendingTranscriptSelectionRef.current,
+    );
     pendingTitleRef.current = isPassage ? startPassageTitle(wordPopup.word) : null;
     try {
       // chatId für KV-Prefix-Sharing: die Erklärung nutzt den Gesprächs-
@@ -1585,6 +2137,40 @@ export default function App() {
     // Pending-Overlay würde nur doppelt darüberliegen.
     setPendingChatSelection(null);
     setHoldPdfSelection(false);
+    const transcriptSel = pendingTranscriptSelectionRef.current;
+    // startOffset < 0 means "no anchor in the transcript" — a chapter passage.
+    if (transcriptSel && transcriptSel.startOffset >= 0 && treeVideo) {
+      // Same contract as the other two surfaces: the FIRST pick persists the
+      // mark, further picks recolor that same one — trying colors must not
+      // leave a trail of duplicates.
+      const saved = savedTranscriptHighlightIdRef.current;
+      if (saved) {
+        const updated = await api.updateTranscriptHighlight(saved, { color });
+        if (updated) setTranscriptHighlights(prev => prev.map(h => (h.id === saved ? updated : h)));
+        return;
+      }
+      const createPromise = api.createTranscriptHighlight(treeVideo.id, {
+        color,
+        text: transcriptSel.text,
+        startOffset: transcriptSel.startOffset,
+        endOffset: transcriptSel.endOffset,
+        startSeconds: transcriptSel.seconds,
+        source: transcriptSel.markSource ?? 'transcript',
+      });
+      transcriptHighlightCreatePromiseRef.current = createPromise;
+      try {
+        const created = await createPromise;
+        if (created) {
+          savedTranscriptHighlightIdRef.current = created.id;
+          setTranscriptHighlights(prev => [...prev, created]);
+        }
+      } catch (err) {
+        console.error('Failed to save the transcript highlight:', err);
+      } finally {
+        transcriptHighlightCreatePromiseRef.current = null;
+      }
+      return;
+    }
     if (popupHasChatSelection) {
       const sel = pendingChatSelectionRef.current;
       if (!sel) return;
@@ -1637,6 +2223,9 @@ export default function App() {
   // highlight a swatch click already created.
   const handleOpenChildChat = async (word: string, context?: string) => {
     if (!activeChatId) return;
+    if (creatingChildRef.current) return;
+    creatingChildRef.current = true;
+    setCreatingChild(true);
     const fromPdf = popupHasPdfSelection;
     const sel = pendingPdfSelectionRef.current;
     // A swatch click just before this one may still be creating the
@@ -1654,7 +2243,20 @@ export default function App() {
       await chatHighlightCreatePromiseRef.current.catch(() => null);
     }
     const savedChatHl = savedChatHighlightIdRef.current;
-    const parentId = popupHasChatSelection && chatSel ? chatSel.chatId : activeChatId;
+    // The parent follows the ORIGIN of the selection, not whichever chat
+    // happens to be active (user report 2026-08-06: selecting PDF text while a
+    // grandchild chat was open hung the branch under that grandchild). A chat
+    // selection branches from the chat it lives in; a PDF selection belongs to
+    // the tree ROOT, because that is where the source is bound
+    // (ADR-0002 / backend/routes/papers.js binds the paper to root.id).
+    const transcriptSel = pendingTranscriptSelectionRef.current;
+    const parentId = popupHasChatSelection && chatSel
+      ? chatSel.chatId
+      // A transcript passage belongs to the tree ROOT for the same reason a
+      // PDF passage does: that is where the source is bound (ADR-0005).
+      : fromPdf || transcriptSel
+        ? findRoot(chats, activeChatId)?.id ?? activeChatId
+        : activeChatId;
 
     // Create the chat FIRST. If the backend is unreachable this used to be an
     // unhandled rejection that left the app dead after the popup had already
@@ -1675,28 +2277,71 @@ export default function App() {
       // routes/messages.js still improves the title later either way.
       // Titles keep their $…$ math source — every render site goes through
       // <MathText> (2026-07-26), so "$V$" shows as set math.
-      const title = await awaitTitle(pendingTitleRef.current, word);
+      // quote: the same passage with its math restored — display only, so
+      // the branch header shows a set formula while parent_word stays the
+      // verbatim extraction (decision 2026-08-02, option B).
+      const { title, quote } = await awaitTitle(pendingTitleRef.current, word);
       pendingTitleRef.current = null;
       child = await api.createChat(
         S.aboutChatTitle(title), parentId, word,
         fromPdf && context ? context : undefined,
+        quote ?? undefined,
       );
     } catch (err) {
       const msg = err instanceof Error ? err.message : S.unknownError;
       setExplanation(S.couldNotCreateChat(msg));
       console.error('createChat failed:', err);
+      // The popup stays open with the error in its body, so the button has to
+      // become clickable again — the user's retry is the only way forward.
+      creatingChildRef.current = false;
+      setCreatingChild(false);
       return;
     }
+    // The chat exists; the popup closes now, so the loading state has done its
+    // job. Everything below is bookkeeping the user no longer waits on.
+    creatingChildRef.current = false;
+    setCreatingChild(false);
     setPopup(null);
     pendingPdfSelectionRef.current = null;
     savedHighlightIdRef.current = null;
     pendingChatSelectionRef.current = null;
     savedChatHighlightIdRef.current = null;
+    pendingTranscriptSelectionRef.current = null;
     setPopupHasChatSelection(false);
     setPendingChatSelection(null);
     setHoldPdfSelection(false);
     if (!fromPdf && chatSel) {
       setParentScrollTarget({ chatId: chatSel.chatId, messageId: chatSel.messageId });
+    }
+    // A transcript branch leaves its mark behind, exactly like a PDF branch:
+    // either the one the color pick already saved, or a fresh one in the
+    // active color — otherwise the passage this chat came from would be
+    // invisible in the transcript.
+    if (transcriptSel && transcriptSel.startOffset >= 0 && treeVideo) {
+      if (transcriptHighlightCreatePromiseRef.current) {
+        await transcriptHighlightCreatePromiseRef.current.catch(() => null);
+      }
+      const savedTh = savedTranscriptHighlightIdRef.current;
+      try {
+        if (savedTh) {
+          const updated = await api.updateTranscriptHighlight(savedTh, { childChatId: child.id });
+          if (updated) setTranscriptHighlights(prev => prev.map(h => (h.id === savedTh ? updated : h)));
+        } else {
+          const created = await api.createTranscriptHighlight(treeVideo.id, {
+            color: activeColor,
+            text: transcriptSel.text,
+            startOffset: transcriptSel.startOffset,
+            endOffset: transcriptSel.endOffset,
+            startSeconds: transcriptSel.seconds,
+            source: transcriptSel.markSource ?? 'transcript',
+            childChatId: child.id,
+          });
+          if (created) setTranscriptHighlights(prev => [...prev, created]);
+        }
+      } catch (err) {
+        console.error('Failed to link the transcript highlight:', err);
+      }
+      savedTranscriptHighlightIdRef.current = null;
     }
     try {
       if (fromPdf) {
@@ -1746,13 +2391,23 @@ export default function App() {
   // 2026-07-21): ohne Swatch-Klick entsteht ein Highlight in der aktiven
   // Farbe. Nur PDF-Selektionen bleiben ohne Farbwahl unmarkiert (graue
   // Quote-Leiste).
-  const handleAskInChat = (word: string) => {
+  const handleAskInChat = async (word: string) => {
     if (!activeChatId) return;
+    const quoteChatId = activeChatId;
     setPopup(null);
     const fromPdf = popupHasPdfSelection;
+    const transcriptSel = pendingTranscriptSelectionRef.current;
     const chatSel = pendingChatSelectionRef.current;
-    if (chatSel && !savedChatHighlightIdRef.current) {
-      void hlApiFor(chatSel.chatId).create({
+    // The highlight this quote will be anchored to, so the sent message can
+    // jump back to it (mockup-quote-jump-to-source.html, variant A). A swatch
+    // click may still be creating it — the same race "Open as new chat"
+    // guards against; here the quote is shown at once and its anchor patched
+    // in when the create settles, so the composer never waits on the network.
+    const savedPdfHl = savedHighlightIdRef.current;
+    const savedChatHl = savedChatHighlightIdRef.current;
+    let pendingCreate: Promise<MessageHighlight | null> | null = null;
+    if (chatSel && !savedChatHl) {
+      pendingCreate = hlApiFor(chatSel.chatId).create({
         messageId: chatSel.messageId,
         color: activeColor,
         text: chatSel.text,
@@ -1760,24 +2415,49 @@ export default function App() {
         endOffset: chatSel.endOffset,
       });
     }
-    const quoteColor =
-      savedHighlightIdRef.current || savedChatHighlightIdRef.current || chatSel
-        ? activeColor
-        : null;
+    const quoteColor = savedPdfHl || savedChatHl || chatSel ? activeColor : null;
     pendingPdfSelectionRef.current = null;
     savedHighlightIdRef.current = null;
     pendingChatSelectionRef.current = null;
     savedChatHighlightIdRef.current = null;
+    pendingTranscriptSelectionRef.current = null;
+    setPopupHasTranscriptSelection(false);
+    setPopupHasTranscriptMark(false);
     setPopupHasPdfSelection(false);
     setPopupHasChatSelection(false);
     setPendingChatSelection(null);
     setHoldPdfSelection(false);
 
-    const sourceLabel = fromPdf
-      ? treePaper?.title ?? 'PDF'
-      : (chatSel?.chatId === parentContext?.id ? parentContext?.title : activeChat?.title) ??
-        S.chatFallbackLabel;
-    setComposerQuote({ chatId: activeChatId, text: word, sourceLabel, color: quoteColor });
+    const sourceLabel = transcriptSel
+      // The transcript quote names its MOMENT (mockup-transcript-selection
+      // §02): "Transcript · 8:58". The chat title would say nothing the
+      // reader cannot already see, while the time is the way back.
+      ? `${STR.videoPane.transcript}${transcriptSel.seconds !== null ? ` · ${formatDuration(transcriptSel.seconds)}` : ''}`
+      : fromPdf
+        ? treePaper?.title ?? 'PDF'
+        : (chatSel?.chatId === parentContext?.id ? parentContext?.title : activeChat?.title) ??
+          S.chatFallbackLabel;
+    setComposerQuote({
+      chatId: quoteChatId,
+      text: word,
+      sourceLabel,
+      color: quoteColor,
+      // A PDF selection without a color pick saves no highlight at all
+      // (decision 2026-07-21) — that quote stays unanchored and renders as
+      // plain text, exactly as before.
+      highlightId: savedPdfHl ?? savedChatHl ?? savedTranscriptHighlightIdRef.current ?? null,
+    });
+
+    if (pendingCreate) {
+      const created = await pendingCreate.catch(() => null);
+      if (created) {
+        setComposerQuote((prev) =>
+          prev && prev.chatId === quoteChatId && prev.text === word
+            ? { ...prev, highlightId: created.id }
+            : prev,
+        );
+      }
+    }
   };
 
   // Close the popup and forget the captured selection. A highlight created
@@ -1862,6 +2542,12 @@ export default function App() {
       pdfViewRef.current?.scrollToHighlight(item.id);
       return;
     }
+    // A video mark lives in the pane, not in a chat: the pane opens the right
+    // view, seeks the player and lets it glow (2026-08-16).
+    if (item.kind === 'transcript' || item.kind === 'chapter') {
+      videoPaneRef.current?.showHighlight(item.id);
+      return;
+    }
     // Branch layout (no PDF, parent context in the center pane): a card
     // pointing into the parent chat scrolls the visible center pane instead
     // of switching chats — the drawer stays open, target and list remain
@@ -1886,6 +2572,37 @@ export default function App() {
     }
   };
 
+  // Click on the quote inside a user bubble (mockup-quote-jump-to-source.html,
+  // variant A): jump to the passage the quote was taken from — the same
+  // landing as a drawer card, so PDF, parent chat and same chat all behave
+  // exactly as the user already knows them.
+  //
+  // The message stores only the highlight id; WHICH kind it is (PDF or chat
+  // text) and where it lives are resolved from the tree-highlight list. That
+  // lookup doubles as the existence check: a highlight the user has since
+  // deleted simply isn't in the list, and the click does nothing rather than
+  // scrolling somewhere wrong.
+  const handleQuoteJump = async (message: Message) => {
+    const anchorId = message.quote_highlight_id;
+    if (!anchorId || !activeChatId) return;
+    // A transcript or chapter mark lives in the video pane, not in the chat
+    // or the PDF — it glows there instead (user request 2026-08-16).
+    if (transcriptHighlights.some((h) => h.id === anchorId)) {
+      videoPaneRef.current?.showHighlight(anchorId);
+      return;
+    }
+    let items: TreeHighlight[] = [];
+    try {
+      items = await api.listTreeHighlights(activeChatId);
+    } catch {
+      return; // Backend unreachable — better nothing than a wrong jump
+    }
+    const target = items.find((h) => h.id === anchorId);
+    if (!target) return;
+    setFocusedHighlightId(target.id);
+    handleDrawerJump(target);
+  };
+
   // Nachgelagertes Scrollen nach einem Branch-Wechsel aus dem Drawer: sobald
   // der Ziel-Chat geladen und gerendert ist, zur Nachricht springen.
   useEffect(() => {
@@ -1900,6 +2617,16 @@ export default function App() {
           ? { startOffset: pending.startOffset, endOffset: pending.endOffset, color: pending.color }
           : undefined,
       );
+    }
+  }, [activeChat]);
+
+  // Gegenstück für den Rückweg zur Abzweig-Zeile: der Elternchat ist da, die
+  // Zeile darf leuchten. Eingeklappte Stapel klappt ChatArea selbst auf.
+  useEffect(() => {
+    const pending = pendingTraceScrollRef.current;
+    if (pending && activeChat?.id === pending.chatId) {
+      pendingTraceScrollRef.current = null;
+      chatAreaRef.current?.scrollToBranchTrace(pending.branchChatId);
     }
   }, [activeChat]);
 
@@ -1920,6 +2647,26 @@ export default function App() {
     const linkedPdfHighlight = highlights.find((h) => h.chatId === chat.id);
     if (linkedPdfHighlight && treePaper) {
       pdfViewRef.current?.scrollToHighlight(linkedPdfHighlight.id);
+      return;
+    }
+    // Same move for a video tree (user report 2026-08-16: "going back from the
+    // chat does not make it glow"): the mark that opened this branch lives in
+    // the transcript or in a chapter, so the pane shows it — right view, right
+    // second, and the glow.
+    const linkedTranscriptMark = transcriptHighlights.find((h) => h.childChatId === chat.id);
+    if (linkedTranscriptMark && treeVideo) {
+      videoPaneRef.current?.showHighlight(linkedTranscriptMark.id);
+      return;
+    }
+    // Zweig ohne Passage (`/btw`, `/branch`): sein Rückweg ist die eigene
+    // Abzweig-Zeile im Elternchat (mockup-branch-trace.html §07). Die
+    // Highlight-Suche unten fände nichts — es gibt keine markierte Stelle,
+    // nur einen Zeitpunkt. Anders als beim Passagen-Zweig wird hier bewusst
+    // GEWECHSELT: die Zeile steht im Verlauf des Elternchats, und der
+    // Eltern-Kontext-Streifen zeigt nur Nachrichten, keine Abzweigungen.
+    if (chat.branch_origin) {
+      pendingTraceScrollRef.current = { chatId: parentId, branchChatId: chat.id };
+      await handleSelectChat(parentId);
       return;
     }
     let match: MessageHighlight | undefined;
@@ -1948,17 +2695,169 @@ export default function App() {
     await handleSelectChat(parentId);
   };
 
+  // Find a chat anywhere in the loaded tree — the mind map hands back only
+  // an id, but the jump needs the node's parent_id.
+  const findChatInTree = (list: Chat[], id: string): Chat | null => {
+    for (const chat of list) {
+      if (chat.id === id) return chat;
+      const hit = chat.children ? findChatInTree(chat.children, id) : null;
+      if (hit) return hit;
+    }
+    return null;
+  };
+
+  // Titel des Elternchats für den Rückweg-Link eines Topic branch — der
+  // geladene Baum weiß ihn bereits, ein eigener Request wäre Verschwendung.
+  const activeParentTitle = useMemo(
+    () => (activeChat?.parent_id ? findChatInTree(chats, activeChat.parent_id)?.title ?? null : null),
+    [chats, activeChat?.parent_id],
+  );
+
+  // Click on a mind-map node (user request 2026-08-02): open the chat AND
+  // jump to the passage it was opened from — the PDF highlight is scrolled to
+  // and blinks, the drawer lifts the matching card. Same mechanics as the
+  // "Branched from" link, the decision itself lives in chat/branchSource.ts.
+  // A branch without a highlight keeps the old behaviour: switch only.
+  // ── Keyboard navigation (ADR-0011, design/mockup-keyboard-navigation.html)
+  // Escape hands focus to the structure once nothing is left to close, arrows
+  // walk the regions, Enter acts, any printable key gives the composer back.
+  // The regions themselves are read off the DOM, so this only has to supply
+  // what the DOM cannot say: what is open, and what "activate" means.
+
+  // Collapse state of the chat tree, lifted here so ← can collapse a node
+  // before the key overflows into the region to the left.
+  const [collapsedChatIds, setCollapsedChatIds] = useState<Set<string>>(new Set());
+  const treeCollapse = useMemo(
+    () => ({
+      collapsedIds: collapsedChatIds,
+      onToggle: (chatId: string, expanded: boolean) =>
+        setCollapsedChatIds(prev => {
+          const next = new Set(prev);
+          if (expanded) next.delete(chatId);
+          else next.add(chatId);
+          return next;
+        }),
+    }),
+    [collapsedChatIds],
+  );
+
+  // A modal takes the keyboard entirely — nothing behind it can be navigated.
+  // Listed explicitly rather than sniffed from the DOM: Escape's chain is a
+  // promise to the user, and a forgotten entry would silently break a close
+  // gesture.
+  const modalOpen =
+    settingsOpen ||
+    feedbackOpen ||
+    paperSearchOpen ||
+    youtubeSearchOpen;
+
+  // These only take Escape away. The highlights drawer is a REGION the ring
+  // can walk into, so freezing the arrows with it locked navigation entirely
+  // while it was open (user report 2026-08-11).
+  const escapeTaken =
+    modalOpen ||
+    popup !== null ||
+    // The highlight actions menus are MENUS, not modals: the ring walks into
+    // them and their colour swatches answer to ← → (user request 2026-08-12).
+    // Listing them as modal froze every arrow key while one was open.
+    highlightMenu !== null ||
+    chatHighlightMenu !== null ||
+    highlightsOpen ||
+    (activeChatId ? asides[activeChatId] !== undefined : false);
+
+  const handleKeyboardActivate = (position: FocusPosition) => {
+    // A control is pressed, whatever region it sits in — the sidebar's header
+    // and footer, the composer's row, a menu entry, a PDF highlight.
+    //
+    // NOT `el.click()`: a synthetic click carries clientX/clientY = 0, so the
+    // highlight actions menu opened in the screen's top-left corner instead of
+    // beside the highlight (user report 2026-08-11). The event is dispatched
+    // from the element's own centre so every handler that reads coordinates
+    // gets the truth.
+    const el = findItem(position.region, position.item);
+    if (el?.tagName === 'BUTTON') {
+      const r = el.getBoundingClientRect();
+      el.dispatchEvent(
+        new MouseEvent('click', {
+          bubbles: true,
+          cancelable: true,
+          view: window,
+          clientX: r.left + r.width / 2,
+          clientY: r.top + r.height / 2,
+        }),
+      );
+      return;
+    }
+
+    if (position.region === 'sidebar' || position.region === 'map') {
+      void handleSelectChat(position.item);
+      return;
+    }
+    if (position.region === 'chat') {
+      if (position.item === 'composer') {
+        chatAreaRef.current?.focusComposer();
+        return;
+      }
+      // Enter takes the bubble whole and opens the usual selection popup —
+      // colours, "Open as new chat", "Ask in chat" (decision 2026-08-10).
+      chatAreaRef.current?.selectWholeMessage?.(position.item);
+    }
+  };
+
+  useKeyboardNavigation({
+    escapeTaken,
+    modalOpen,
+    onActivate: handleKeyboardActivate,
+    onToggleNode: (chatId, expanded) => treeCollapse.onToggle(chatId, expanded),
+    onReturnToComposer: text => chatAreaRef.current?.focusComposer(text),
+  });
+
+  const handleMindMapSelect = async (chatId: string) => {
+    const node = findChatInTree(chats, chatId);
+    await handleSelectChat(chatId);
+    if (!node?.parent_id) return;
+
+    let parentHighlights: MessageHighlight[] = [];
+    try {
+      parentHighlights = await api.listMessageHighlights(node.parent_id);
+    } catch {
+      /* Backend unreachable — the chat switch above already happened */
+    }
+    const jump = branchSourceJump(chatId, { pdfHighlights: highlights, parentHighlights });
+    if (!jump) return;
+
+    // The drawer, if open, lifts the same highlight into view.
+    setFocusedHighlightId(jump.highlightId);
+    if (jump.kind === 'pdf') {
+      if (treePaper) pdfViewRef.current?.scrollToHighlight(jump.highlightId);
+      return;
+    }
+    // Chat-text source: the parent pane shows it when the branch layout has
+    // one; otherwise remember it for the parent chat.
+    if (parentContext?.id === jump.chatId) {
+      setParentScrollTarget({ chatId: jump.chatId, messageId: jump.messageId });
+    }
+  };
+
   return (
     <div className="flex h-screen overflow-hidden bg-white relative isolate">
       <MatrixRain />
       {/* Sidebar: chat list, new chat button, and mind map toggle */}
       <Sidebar
+        collapse={treeCollapse}
         chats={chats}
         activeChatId={activeChatId}
         onSelect={handleSelectChat}
         onNewChat={handleNewChat}
         onDelete={handleDeleteChat}
         onRename={handleRenameChat}
+        onTogglePin={handleTogglePin}
+        categories={categories}
+        onCreateCategory={handleCreateCategory}
+        onRenameCategory={handleRenameCategory}
+        onDeleteCategory={handleDeleteCategory}
+        onToggleCategoryCollapsed={handleToggleCategoryCollapsed}
+        onMoveChatToCategory={handleMoveChatToCategory}
         viewMode={viewMode}
         onToggleView={() => setViewMode(v => v === 'chat' ? 'mindmap' : 'chat')}
         onOpenSettings={openSettings}
@@ -1975,11 +2874,11 @@ export default function App() {
             (20–80% of the column, persisted). */}
         {viewMode === 'mindmap' && (
           <>
-            <div style={{ height: `${mapPaneHeightPct}%` }}>
+            <div data-focus-region="map" style={{ height: `${mapPaneHeightPct}%` }}>
               <MindMap
                 chats={chats}
                 activeChatId={activeChatId}
-                onSelect={handleSelectChat}
+                onSelect={handleMindMapSelect}
               />
             </div>
             <div
@@ -2013,12 +2912,80 @@ export default function App() {
                 setHighlightMenu({ highlight: h, x: e.clientX, y: e.clientY })
               }
               keepSelectionVisible={holdPdfSelection && popup !== null}
+              citations={citationsData.citations}
+              onCitationClick={(citation, point) => {
+                const reference = citationsData.referenceFor(citation);
+                if (!reference) return;
+                setCitationFailedId(null);
+                setCitationCard({ reference, x: point.clientX, y: point.clientY });
+                // Nothing is looked up at import time (that rate-limited
+                // OpenAlex), so an unresolved reference is searched exactly
+                // now — while the reader looks at its card. The result
+                // replaces the row in place.
+                void citationsData.resolve(reference).then((filled) => {
+                  if (filled !== reference) {
+                    setCitationCard((open) =>
+                      open && open.reference.id === filled.id ? { ...open, reference: filled } : open,
+                    );
+                  }
+                  // …and if the paper linked no PDF for it, the web is asked
+                  // for one. Usually this has already run while the page was
+                  // drawn or the mouse hovered (§ 05), in which case it is a
+                  // no-op and the door is there before the card is.
+                  // Not through the queue: an opened card is an explicit
+                  // request, so it asks even when prefetching has backed off.
+                  if (!filled.pdfUrl) void citationsData.ensureFulltext(filled.id).catch(() => {});
+                });
+              }}
+              // Hovering a citation mark is the earliest honest signal that
+              // it is about to be clicked (§ 05).
+              onCitationHover={(citation) => {
+                const reference = citationsData.referenceFor(citation);
+                if (reference && !reference.pdfUrl) fulltextQueue.prioritize(reference.id);
+              }}
+              // Whatever page is on screen, its citations get their full text
+              // looked up quietly — about four per page, instead of ~25 in one
+              // burst at import (measured 2026-08-10).
+              onVisibleCitationsChange={(visible) => {
+                fulltextQueue.clearPending();
+                fulltextQueue.enqueue(
+                  visible
+                    .map((c) => citationsData.referenceFor(c))
+                    .filter((r): r is PaperReference => Boolean(r) && !r!.pdfUrl)
+                    .map((r) => r.id),
+                );
+              }}
+            />
+          )}
+          {/* Video tree: the player takes the center pane, the chapters of the
+              Video overview stand under it (mockup-youtube-embed-layout.html,
+              variant C). A tree has exactly one source (ADR-0005), so this
+              never competes with the PDF pane. */}
+          {treeVideo && activeChatId && (
+            <VideoPane
+              ref={videoPaneRef}
+              video={treeVideo}
+              overview={videoOverview?.message.content ?? null}
+              overviewStreaming={
+                // Only while there is nothing to show yet: once headings are
+                // in, the list itself is the progress and a spinner under a
+                // growing list would just flicker.
+                !videoOverview &&
+                Boolean(activeChatId && (streamingChatIds.has(activeChatId) || queuedChatIds.has(activeChatId)))
+              }
+              overviewTruncated={Boolean(videoOverview?.message.truncated)}
+              onContinueOverview={handleContinueOverview}
+              onTranscriptSelection={handleTranscriptSelection}
+              transcriptHighlights={transcriptHighlights}
+              onChapterSelection={handleChapterSelection}
+              onOpenHighlightChat={(chatId) => void handleSelectChat(chatId)}
+              onRequestTranscript={() => void ensureTranscript()}
             />
           )}
           {/* No-PDF branch layout (mockup-chat-highlights-ask-in-chat.html,
               section 03): the parent chat takes the center pane as read-only
               context while the branch lives in the right pane. */}
-          {!treePaper && parentContext && activeChatId && (
+          {!treePaper && !treeVideo && parentContext && activeChatId && (
             <ParentContextPane
               chat={parentContext}
               highlights={parentChatHl.highlights}
@@ -2034,12 +3001,13 @@ export default function App() {
                   : null
               }
               onScrollTargetConsumed={() => setParentScrollTarget(null)}
+              onQuoteClick={handleQuoteJump}
             />
           )}
           {/* Divider between center pane (PDF or parent context) and chat —
               drag to resize the chat column sideways (min 300px, max 800px).
               Only present in the three-column layout. */}
-          {(treePaper || parentContext) && activeChatId && (
+          {(treePaper || treeVideo || parentContext) && activeChatId && (
             <div
               role="separator"
               aria-orientation="vertical"
@@ -2052,24 +3020,45 @@ export default function App() {
               className="w-1.5 shrink-0 cursor-col-resize bg-gray-200 hover:bg-blue-300 active:bg-blue-400 transition-colors"
             />
           )}
+          {/* The chat column. maxWidth reserves CENTER_PANE_MIN for the center
+              pane on narrow windows — chatPaneWidth alone squeezes it down to a
+              sliver (user report 2026-08-08); the max() keeps the chat itself
+              usable once not even that fits. */}
           <div
             className={
-              (treePaper || parentContext) && activeChatId
+              (treePaper || treeVideo || parentContext) && activeChatId
                 ? 'shrink-0 flex overflow-hidden border-l border-gray-200'
                 : 'flex-1 flex overflow-hidden'
             }
-            style={(treePaper || parentContext) && activeChatId ? { width: chatPaneWidth } : undefined}
-            data-testid={(treePaper || parentContext) && activeChatId ? 'chat-pane-right' : undefined}
+            style={
+              (treePaper || treeVideo || parentContext) && activeChatId
+                ? {
+                    width: chatPaneWidth,
+                    maxWidth: `max(${CHAT_PANE_MIN}px, calc(100% - ${CENTER_PANE_MIN}px))`,
+                  }
+                : undefined
+            }
+            data-testid={(treePaper || treeVideo || parentContext) && activeChatId ? 'chat-pane-right' : undefined}
           >
             <ChatArea
               ref={chatAreaRef}
               chat={activeChat}
+              videoYoutubeId={treeVideo?.youtube_id}
+              onTimeMarkClick={treeVideo ? (seconds) => videoPaneRef.current?.seekTo(seconds) : undefined}
               loading={loadingChat}
               streaming={activeChatId ? streamingChatIds.has(activeChatId) || queuedChatIds.has(activeChatId) : false}
               streamingMessageIds={streamingMessageIds}
               onSendMessage={handleSendMessage}
               onOpenFeedback={(initialText) => { setFeedbackInitialText(initialText); setFeedbackOpen(true); }}
+              onAskAside={handleAskAside}
+              onOpenTopicBranch={handleOpenTopicBranch}
+              branchTargets={branchTargets}
+              aside={activeChatId ? asides[activeChatId] ?? null : null}
+              onDismissAside={() => activeChatId && dismissAside(activeChatId)}
+              onKeepAside={handleKeepAside}
+              onBranchAside={handleBranchAside}
               onRetryMessage={handleRetryMessage}
+              onContinueMessage={handleContinueMessage}
               onRetryLocalModel={(m) => handleRetryMessage(m, 'ollama')}
               hasLocalModel={ollamaModels.length > 0}
               billingUrl={settings ? registry?.providers[settings.llm_provider]?.billingUrl ?? null : null}
@@ -2091,19 +3080,11 @@ export default function App() {
               onWordRightClick={handleWordRightClick}
               onSelectChat={handleSelectChat}
               onBranchedFromClick={handleBranchedFromClick}
+              parentTitle={activeParentTitle}
+              onQuoteClick={handleQuoteJump}
               onUploadPdf={handleUploadPdf}
               onOpenPaperSearch={() => setPaperSearchOpen(true)}
               onOpenYouTubeSearch={() => setYoutubeSearchOpen(true)}
-              videoBanner={
-                treeVideo ? (
-                  <VideoBanner video={treeVideo} onOpenTranscript={() => void handleOpenTranscript()} />
-                ) : undefined
-              }
-              transcriptDrawer={
-                treeVideo && transcriptOpen ? (
-                  <TranscriptDrawer video={treeVideo} onClose={() => setTranscriptOpen(false)} />
-                ) : undefined
-              }
               chatHighlights={activeChatHl.highlights}
               onChatSelection={handleChatSelection}
               onHighlightContextMenu={(h, x, y) => setChatHighlightMenu({ highlight: h, x, y })}
@@ -2154,12 +3135,13 @@ export default function App() {
               highlightsDrawer={
                 // Nur im 3-Spalten-Layout als Overlay über der Chat-Spalte —
                 // ohne PDF/Parent-Kontext rendert die rechte Panel-Spalte unten.
-                highlightsOpen && activeChatId && (treePaper || parentContext) ? (
+                highlightsOpen && activeChatId && (treePaper || treeVideo || parentContext) ? (
                   <HighlightsDrawer
                     chatId={activeChatId}
                     onClose={() => setHighlightsOpen(false)}
                     onJump={handleDrawerJump}
                     onItemContextMenu={handleDrawerItemContextMenu}
+                    focusHighlightId={focusedHighlightId}
                   />
                 ) : null
               }
@@ -2178,6 +3160,7 @@ export default function App() {
                 onClose={() => setHighlightsOpen(false)}
                 onJump={handleDrawerJump}
                 onItemContextMenu={handleDrawerItemContextMenu}
+                focusHighlightId={focusedHighlightId}
               />
             </div>
           )}
@@ -2190,23 +3173,91 @@ export default function App() {
         <div
           className="fixed inset-0 z-50 bg-black/30 flex items-center justify-center"
           data-testid="new-tree-prompt"
+          data-overlay
         >
           <div className="bg-white rounded-xl shadow-xl w-[26rem] max-w-[calc(100vw-2rem)] p-6">
             <div className="flex items-center gap-2.5 mb-2">
               <FileText size={18} className="text-blue-500 shrink-0" />
               <h3 className="text-[15px] font-medium text-gray-900">{S.newTreeTitle}</h3>
             </div>
-            <p className="text-sm text-gray-600 leading-relaxed mb-5">
-              {S.newTreeLead}{' '}
-              {S.newTreeAskPrefix}
-              <span className="font-medium text-gray-800">
-                {pendingAttach.kind === 'file'
-                  ? pendingAttach.file.name
-                  : <MathText text={pendingAttach.title} />}
-              </span>
-              {S.newTreeAskSuffix}
+            {/* Variante C (Nutzerwahl 2026-08-15,
+                design/mockup-new-tree-prompt.html): die beiden Quellen als
+                Karten untereinander, statt den Titel in einen Satz zu setzen.
+
+                Zwei Gründe. Erstens die Lesbarkeit: der Titel stand mitten im
+                Satz („Neuen Baum mit <Titel> starten?"), und bei 368 px
+                Textbreite braucht ein Video-Titel schon mal drei Zeilen — das
+                „starten?" landete allein in der vierten. Zweitens die
+                Auskunft: die Überschrift behauptet „hat bereits eine Quelle",
+                nannte sie aber nicht. Der Baum kennt sie längst.
+
+                Die Frage im Text entfällt ganz — der Bestätigen-Knopf sagt
+                schon, was passiert. */}
+            <p className="text-sm text-gray-600 leading-relaxed mb-3.5">{S.newTreeLead}</p>
+
+            {/* Die Quelle, die schon im Baum hängt. Gedämpft, weil sie hier
+                nur der Bezugspunkt ist — gehandelt wird mit der neuen. */}
+            {(treeVideo || treePaper) && (
+              <>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-gray-400 mb-1.5">
+                  {S.newTreeCurrent}
+                </p>
+                <div className="flex items-start gap-2.5 rounded-[10px] border border-gray-200 bg-gray-50 px-2.5 py-2">
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-gray-100 text-gray-500">
+                    {treeVideo ? <TvMinimalPlay size={13} /> : <FileText size={13} />}
+                  </span>
+                  <span className="min-w-0">
+                    {/* line-clamp-2 + title: ein sehr langer Name darf den
+                        Dialog nicht wachsen lassen, muss aber vollständig
+                        erreichbar bleiben. */}
+                    <span
+                      className="line-clamp-2 text-[13px] font-medium leading-snug text-gray-600"
+                      title={treeVideo ? treeVideo.title : (treePaper?.title ?? undefined)}
+                    >
+                      {treeVideo
+                        ? <MathText text={treeVideo.title} />
+                        : <MathText text={treePaper?.title ?? S.newTreeUntitledPdf} />}
+                    </span>
+                    <span className="mt-0.5 block text-[11.5px] text-gray-500">
+                      {treeVideo
+                        ? `${S.newTreeKindVideo}${treeVideo.channel ? ` · ${treeVideo.channel}` : ''}`
+                        : `${S.newTreeKindPdf}${treePaper?.authors?.[0] ? ` · ${treePaper.authors[0]}` : ''}`}
+                    </span>
+                  </span>
+                </div>
+                <div className="grid place-items-center py-1 text-gray-300" aria-hidden="true">
+                  <ArrowDown size={15} />
+                </div>
+              </>
+            )}
+
+            <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-gray-400 mb-1.5">
+              {S.newTreeNext}
             </p>
-            <div className="flex justify-end gap-2">
+            <div
+              className="flex items-start gap-2.5 rounded-[10px] border border-gray-200 bg-gray-50 px-2.5 py-2"
+              data-testid="new-tree-next-source"
+            >
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-blue-50 text-blue-700">
+                {pendingAttach.kind === 'video' ? <TvMinimalPlay size={13} /> : <FileText size={13} />}
+              </span>
+              <span className="min-w-0">
+                <span
+                  className="line-clamp-2 text-[13px] font-semibold leading-snug text-gray-900"
+                  title={pendingAttach.kind === 'file' ? pendingAttach.file.name : pendingAttach.title}
+                >
+                  {pendingAttach.kind === 'file'
+                    ? pendingAttach.file.name
+                    : <MathText text={pendingAttach.title} />}
+                </span>
+                <span className="mt-0.5 block text-[11.5px] text-gray-500">
+                  {pendingAttach.kind === 'video' ? S.newTreeKindVideo : S.newTreeKindPdf}
+                </span>
+              </span>
+            </div>
+            {/* mt-5: der Abstand hing vorher am mb-5 des Fließtext-Absatzes,
+                den Variante C ersetzt hat. */}
+            <div className="mt-5 flex justify-end gap-2">
               <button
                 onClick={() => setPendingAttach(null)}
                 className="px-3.5 py-1.5 rounded-lg text-sm text-gray-700 border border-gray-200 hover:bg-gray-50 transition-colors"
@@ -2248,15 +3299,62 @@ export default function App() {
 
       {/* Floating popup: appears near the right-clicked word with its explanation.
           For PDF selections it also shows the highlight color row. */}
+      {/* The citation card — same surface for a mark in the running text and
+          for a row of the reference list, because those are the same thing. */}
+      <CitationCard
+        // The card renders the LIVE reference, not the one captured at click
+        // time. The silent search fills `pdfUrl` and `fulltextHost` seconds
+        // after the card opens — with a frozen snapshot the door never
+        // appeared and a blocked search still read "no full text found"
+        // (seen in the running app 2026-08-10).
+        target={citationCard && citationReference ? { ...citationCard, reference: citationReference } : null}
+        existingChatId={citationCard ? citedTrees.get(citationCard.reference.id) ?? null : null}
+        loading={citationCard?.reference.id === citationLoadingId}
+        failed={citationCard?.reference.id === citationFailedId}
+        // The silent search, as far as the card is allowed to know it
+        // (§ 04): still looking, looked and found nothing, or could not look.
+        searching={
+          citationCard
+            ? citationsData.fulltextState[citationCard.reference.id] === 'searching'
+            : false
+        }
+        searchDone={
+          citationCard
+            ? citationsData.fulltextState[citationCard.reference.id] === 'done'
+            : false
+        }
+        searchFailed={Boolean(citationReference?.fulltextSearchFailed)}
+        searchRetryAt={citationReference?.fulltextRetryAt ?? null}
+        onRetrySearch={() => {
+          if (citationReference) void citationsData.ensureFulltext(citationReference.id).catch(() => {});
+        }}
+        onClose={() => setCitationCard(null)}
+        onOpenInSyflo={handleCitationOpenInSyflo}
+        onOpenInBrowser={handleCitationBrowser}
+        onGoToTree={(chatId) => {
+          setCitationCard(null);
+          void handleSelectChat(chatId);
+        }}
+      />
+
       <FloatingPopup
         popup={popup}
         explanation={explanation}
         loading={loadingExplanation}
         onClose={handleClosePopup}
         onOpenChildChat={handleOpenChildChat}
-        onPickColor={popupHasPdfSelection || popupHasChatSelection ? handlePickColor : undefined}
+        onPickColor={
+          popupHasPdfSelection || popupHasChatSelection || popupHasTranscriptMark
+            ? handlePickColor
+            : undefined
+        }
         activeColor={activeColor}
-        onAskInChat={popupHasPdfSelection || popupHasChatSelection ? handleAskInChat : undefined}
+        onAskInChat={
+          popupHasPdfSelection || popupHasChatSelection || popupHasTranscriptSelection
+            ? handleAskInChat
+            : undefined
+        }
+        creating={creatingChild}
       />
 
       {/* Paper-search modal (Slice 07): search OpenAlex + arXiv and import

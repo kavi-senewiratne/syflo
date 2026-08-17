@@ -3,6 +3,12 @@ export interface Chat {
   title: string;
   parent_id: string | null;
   parent_word: string | null;
+  // The same passage with its math restored, for DISPLAY only (branch header,
+  // quote chip, mindmap badge — decision 2026-08-02). parent_word stays the
+  // verbatim extraction: it is the model's context and the anchor that
+  // branch-word links and highlight matching search for. Null → show
+  // parent_word.
+  parent_word_display?: string | null;
   created_at: string;
   child_count?: number;
   children?: Chat[];
@@ -10,13 +16,67 @@ export interface Chat {
   // auf einen Blick sieht, worum es im Chat geht.
   preview?: string | null;
   message_count?: number;
+  // Answers that actually said something — '*Failed*'/'*Interrupted*' markers
+  // excluded. The mindmap only promises an outcome ("Ergebnis folgt …") where
+  // an answer exists to derive one from (2026-08-03).
+  answer_count?: number;
+  // Color of the highlight this branch was opened from — the mindmap node's
+  // color bar (decision 2026-08-02,
+  // design/mockup-mindmap-node-final.html). Null for branches opened without
+  // a highlight and for root chats.
+  highlight_color?: HighlightColor | null;
+  // 4–8 words on what this chat established — the mindmap node's second line.
+  // Written by the title call that runs after the first answer; null until
+  // then, and the node shows the title alone.
+  outcome?: string | null;
   // ID des an den Tree gebundenen PDFs — nur am Root gesetzt (ADR-0002).
   // Rendert den PDF-Tag am Root-Knoten im Chat tree.
   paper_id?: string | null;
   // ID des an den Tree gebundenen YouTube transcript (ADR-0005) — nur am
   // Root gesetzt. Rendert den YT-Tag am Root-Knoten im Chat tree.
   video_id?: string | null;
+  // Branch trace (design/mockup-branch-trace.html, Variante A): Woher im
+  // Elternchat dieser Zweig stammt. `/btw` und `/branch` haben keine
+  // markierte Passage — ihr Anker ist die letzte Nachricht, die im
+  // Elternchat existierte, als der Befehl abging. Der Verlauf des
+  // Elternchats zeichnet danach eine Abzweig-Zeile, und die Kopfzeile des
+  // Zweigs verlinkt zurück auf genau diese Zeile.
+  // Selektions-Zweige haben beide Felder null: ihre farbige Passage ist die
+  // bessere Spur (Entscheidung 2026-08-09).
+  branch_origin?: BranchOrigin | null;
+  branch_anchor_message_id?: string | null;
+  // Wann dieser Root-Chat angepinnt wurde (ISO-Zeitstempel), sonst null.
+  // Angepinnte Chats verlassen die Datums-Abschnitte und stehen zusammen im
+  // Abschnitt „Angepinnt" ganz oben in der Seitenleiste, zuletzt Angepinntes
+  // zuerst (design/mockup-pinned-chats.html, Variante A). Nur Roots können
+  // angepinnt werden — der Abschnitt listet Bäume.
+  pinned_at?: string | null;
+  // Which category this root chat is filed into, or null for uncategorised.
+  // Points at either level — a subcategory is a category, so filing into
+  // "Robotics" and into "Robotics / Teleop data" is the same field
+  // (design/mockup-sidebar-categories-v2.html, decided 2026-08-16).
+  category_id?: string | null;
 }
+
+// A user-made container for root chats in the sidebar, next to the two
+// groupings the system imposes (Pinned, and the relative date sections).
+// A subcategory is a category with a parent_id — one type, not two, because
+// renaming, deleting and collapsing are the same gesture at both levels.
+// Nesting stops at two levels; the backend refuses anything deeper.
+export interface Category {
+  id: string;
+  name: string;
+  parent_id: string | null;
+  position: number;
+  // SQLite has no boolean — 0/1, exactly as the row is stored.
+  collapsed: number;
+  created_at: string;
+}
+
+// Woraus ein Zweig ohne Passage entstanden ist. Die Abzweig-Zeile trägt den
+// Befehlsnamen selbst — er ist in beiden App-Sprachen gleich, genau wie das
+// /btw-Panel (Entscheidung 2026-08-08).
+export type BranchOrigin = 'btw' | 'topic';
 
 export interface Attachment {
   id: string;
@@ -67,6 +127,13 @@ export interface Message {
   content: string;
   created_at: string;
   attachments?: Attachment[];
+  // Persisted anchor of an "Ask in chat" quote: the highlight the quoted
+  // passage was taken from (design/mockup-quote-jump-to-source.html,
+  // variant A). The quote text itself lives in `content` as blockquote
+  // lines; this makes it clickable, so the bubble can jump back to the
+  // passage. Null on plain questions, on messages sent before the feature,
+  // and on PDF quotes saved without a color (no highlight row exists then).
+  quote_highlight_id?: string | null;
   // Transient (not persisted): sources surfaced from a web_search tool call
   // during the streaming session this message was produced in. Populated by
   // the streaming client; lost on page reload.
@@ -96,6 +163,11 @@ export interface Message {
   // scope/model (mockup-quota-states §10, variant C): WHICH minute limit
   // bit — tokens or requests — and on which model; optional for older events.
   rateLimit?: { retryInSeconds: number; attempt: number; scope?: 'requests' | 'tokens'; model?: string };
+  // Transient (not persisted): the provider's own servers are saturated (503
+  // "high demand") and the backend is retrying the SAME model
+  // (design/mockup-truncated-answer.html §03). Sibling of rateLimit and shown
+  // in the same spot — a different cause, not a different kind of waiting.
+  overloaded?: { retryInSeconds: number; attempt: number; maxAttempts: number; provider?: string };
   // Transient (not persisted): the active model hit a limit and another
   // provider with a stored key stepped in for THIS answer (the global
   // setting stays unchanged). Renders the quiet failover note that stays
@@ -126,6 +198,11 @@ export interface Message {
   // Persisted column behind failReason (returned raw by GET /api/chats/:id;
   // api.getChat maps valid values onto failReason).
   fail_reason?: string | null;
+  // 1 when the provider ended this answer mid-thought (finish_reason
+  // 'length'/'content_filter'/MAX_TOKENS or a missing finish chunk,
+  // design/mockup-truncated-answer.html §01). Persisted, because a cut-off
+  // answer is indistinguishable from a finished one by its text alone.
+  truncated?: number;
   // Persisted at enqueue, still waiting for its answer (mockup-model-flow
   // §10). 1 while queued server-side; a trailing pending question without a
   // live stream renders the "left without an answer" row.
@@ -149,12 +226,16 @@ export type FailReason =
   | 'no_vision'
   | 'network'
   | 'local_missing'
-  | 'local_unreachable';
+  | 'local_unreachable'
+  // The provider's servers were saturated for every retry (503, §03 of
+  // mockup-truncated-answer). Unlike a quota, repeating really can work.
+  | 'overloaded';
 export const FAIL_REASONS: readonly FailReason[] = [
   'no_key',
   'bad_key',
   'no_vision',
   'network',
+  'overloaded',
   'local_missing',
   'local_unreachable',
 ] as const;
@@ -195,6 +276,12 @@ export interface ChatAncestor {
   id: string;
   title: string;
   parent_word: string | null;
+  // The same passage with its math restored, for DISPLAY only (branch header,
+  // quote chip, mindmap badge — decision 2026-08-02). parent_word stays the
+  // verbatim extraction: it is the model's context and the anchor that
+  // branch-word links and highlight matching search for. Null → show
+  // parent_word.
+  parent_word_display?: string | null;
   summary: string | null;
   // Anzeige-Ableitung der Summary (Kernaussage + Stichpunkte), die das
   // Backend mitliefert. null bei alten Summaries oder wenn der Summarizer
@@ -211,6 +298,81 @@ export interface Paper {
   uploaded_at: string;
   status: 'parsing' | 'ready' | 'failed';
   pdf_url: string;
+}
+
+// ─── Reference links (design/mockup-paper-reference-links.html) ─────────────
+
+// A CITATION is the mark in the running text ("[13]", "(Vaswani et al.,
+// 2017)"); a REFERENCE is the row it points at in the bibliography. The PDF's
+// own link annotations give one citation per cited work, so "[38, 24, 15]" is
+// three separate click targets.
+
+export interface PaperReference {
+  id: string;
+  // The PDF's internal anchor name, e.g. "cite.hochreiter1997".
+  anchor: string;
+  // The printed label, e.g. "[24]" — null in an author-year bibliography.
+  label: string | null;
+  // The row exactly as typeset. Shown when nothing resolved it.
+  rawText: string;
+  openalexId: string | null;
+  title: string | null;
+  authors: string[];
+  year: number | null;
+  citations: number | null;
+  doi: string | null;
+  arxivId: string | null;
+  // Where the PDF can be downloaded from, or null — this is what decides
+  // whether the "Open in Syflo" door appears at all.
+  pdfUrl: string | null;
+  // Read off the printed row (reference-parse.js). Fills the same card layout
+  // when nothing resolved the reference, so an unknown work still shows a
+  // title and one meta line instead of a wall of text.
+  // Where the RESOLVED record says the work appeared — spelled out, unlike
+  // the abbreviation the printed row carries (2026-08-12).
+  venue?: string | null;
+  parsedTitle: string | null;
+  parsedAuthors: string[];
+  parsedVenue: string | null;
+  parsedYear: number | null;
+  // The host the silent web search found the full text on, when the paper
+  // itself linked none (design/mockup-citation-card-standard.html § 04). It is
+  // the ONE thing the card admits about the search — everything else about it
+  // is meant to be invisible.
+  fulltextHost?: string | null;
+  // Set when the search backend itself failed. Not the same as "no PDF
+  // exists": SearXNG being down says nothing about the paper.
+  fulltextSearchFailed?: boolean;
+  // When it is worth asking again, ISO — set only when the failure was a
+  // rate limit, which time alone repairs. The card counts it down.
+  fulltextRetryAt?: string | null;
+}
+
+export interface PaperCitation {
+  referenceId: string | null;
+  anchor: string;
+  pageNumber: number;
+  // PDF user space [x0, y0, x1, y1], origin bottom-left. The view converts it
+  // to viewport coordinates at its current zoom.
+  rect: [number, number, number, number];
+  // The line the mark's glyphs sit on, in the same space. The rect is the
+  // PDF's LINK BOX, and how far its bottom edge sits below the text differs
+  // per paper — so the underline hangs off this instead (pdf-citations.js).
+  // null on geometry stored before it was measured; the view then falls back
+  // to the rect and the backend re-measures in the background.
+  baseline: number | null;
+}
+
+// 'pending' → the background pass is still running, ask again shortly.
+// 'ready'   → paint the underlines.
+// 'none'    → this PDF carries no citation links and never will (a Word
+//             export or a scan). Nothing to show, nothing to announce.
+export type ReferencesStatus = 'pending' | 'ready' | 'none';
+
+export interface PaperCitations {
+  status: ReferencesStatus;
+  references: PaperReference[];
+  citations: PaperCitation[];
 }
 
 // ─── Highlights (Syflo-Port, Slices 04–06) ──────────────────────────────────
@@ -234,16 +396,15 @@ export const HIGHLIGHT_HEX: Record<HighlightColor, string> = {
   orange: '#FED7AA',
 };
 
-// Global per-color labels. User-renamable via the FloatingPopup's edit mode.
-// Stored server-side so they survive reloads.
+// Global per-color labels, as every consumer sees them: one name per color.
 export type HighlightLabels = Record<HighlightColor, string>;
-export const DEFAULT_HIGHLIGHT_LABELS: HighlightLabels = {
-  yellow: 'Important',
-  green: 'Agree',
-  blue: 'Reference',
-  pink: 'Question',
-  orange: 'Disagree',
-};
+
+// What the SERVER stores: only the names the user typed in the FloatingPopup's
+// edit mode. A color the user never renamed is null, and its name then comes
+// from strings.ts in the active App language (user request 2026-08-06) — the
+// defaults are UI copy, not data, so they must not sit in the database.
+// useLabels merges the two into HighlightLabels.
+export type HighlightLabelOverrides = Record<HighlightColor, string | null>;
 
 // One rectangle in *unscaled* (zoom=1) page-local coordinates. All four
 // values are normalized by the capture zoom and multiplied by the live zoom
@@ -289,6 +450,28 @@ export interface CreateHighlightPayload {
 // Gleiche fünf Farben und globale Labels wie PDF-Highlights, aber anderer
 // Anker: message_id + Zeichen-Offsets in den gerenderten Klartext der Bubble
 // (textContent) — reflow-sicher, keine Geometrie.
+
+/**
+ * A colored mark inside a video's TRANSCRIPT
+ * (design/mockup-transcript-selection.html, variant A, 2026-08-16). Anchored
+ * to the video plus character offsets into its transcript text — and carrying
+ * the second of the block it starts in, which is what lets the way back land
+ * on the sentence AND the moment.
+ */
+export interface TranscriptHighlight {
+  id: string;
+  videoId: string;
+  childChatId: string | null;
+  startOffset: number;
+  endOffset: number;
+  text: string;
+  startSeconds: number | null;
+  /** Which text the offsets point into (chapters became colorable 2026-08-16). */
+  source?: 'transcript' | 'chapter';
+  color: HighlightColor;
+  createdAt: string;
+  updatedAt: string;
+}
 
 export interface MessageHighlight {
   id: string;
@@ -348,7 +531,24 @@ export interface TreeChatHighlight {
   updatedAt: string;
 }
 
-export type TreeHighlight = TreePdfHighlight | TreeChatHighlight;
+// A mark in the tree's VIDEO — its transcript or its chapters. The third kind
+// in the drawer since 2026-08-16 (user report: "die pinken stehen nicht in
+// Highlights"). `startSeconds` is why the jump can land on the moment too.
+export interface TreeVideoHighlight {
+  kind: 'transcript' | 'chapter';
+  id: string;
+  color: HighlightColor;
+  text: string;
+  videoId: string;
+  startOffset: number;
+  endOffset: number;
+  startSeconds: number | null;
+  childChatId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type TreeHighlight = TreePdfHighlight | TreeChatHighlight | TreeVideoHighlight;
 
 // Eine Auswahl in einer Chat-Nachricht (vor dem Speichern) — von
 // MessageBubble beim Rechtsklick erfasst, von App an Popup/Composer gereicht.
@@ -366,6 +566,33 @@ export interface ComposerQuote {
   text: string;
   sourceLabel: string;
   color: HighlightColor | null;
+  // The highlight this quote was taken from — travels with the message so
+  // the sent quote stays clickable (mockup-quote-jump-to-source.html).
+  // Null when no highlight exists for the selection (PDF selection without
+  // a color pick).
+  highlightId: string | null;
+}
+
+// Ein Ziel für `/branch` (design/mockup-branch-command.html §02, Variante C):
+// ein Chat des aktuellen Baums, unter dem der getippte Zweig entstehen kann.
+// `depth` ist nur die Einrückung im Picker — die Wurzel steht auf 0.
+export interface BranchTarget {
+  id: string;
+  title: string;
+  depth: number;
+}
+
+// Eine Nebenfrage (`/btw`, design/mockup-btw-composer-fold.html). Lebt NUR im
+// Speicher, pro Chat höchstens eine — sie erreicht die Datenbank nie, deshalb
+// hat sie auch keine id. `model` wird nur gesetzt, wenn NICHT das Modell des
+// Chats geantwortet hat (Kontingent erschöpft → Leiter), und ist genau dann
+// die eine graue Zeile unter der Antwort.
+export interface Aside {
+  question: string;
+  answer: string;
+  streaming: boolean;
+  model?: { was: string; answered: string; fromProvider?: string; toProvider?: string } | null;
+  error?: string | null;
 }
 
 // Ein Treffer der Paper-Suche (GET /api/papers/search) — gemergte Form aus

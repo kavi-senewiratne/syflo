@@ -44,7 +44,9 @@ const SS_REC = 'https://api.semanticscholar.org/recommendations/v1';
 // Fields we always request from /paper endpoints. SS returns minimal data when
 // `fields` is omitted (just paperId + title), so the explicit list is required
 // to get fieldsOfStudy / s2FieldsOfStudy populated.
-const PAPER_FIELDS = 'paperId,title,authors,year,citationCount,openAccessPdf,abstract,fieldsOfStudy,s2FieldsOfStudy,externalIds';
+// `venue` rides along for the citation card's fold — where the work appeared
+// (2026-08-12). One more field on a request we already make.
+const PAPER_FIELDS = 'paperId,title,authors,year,citationCount,venue,openAccessPdf,abstract,fieldsOfStudy,s2FieldsOfStudy,externalIds';
 const RECOMMENDATION_FIELDS = 'paperId,title,authors,year,citationCount,openAccessPdf,abstract';
 
 // TTLs.

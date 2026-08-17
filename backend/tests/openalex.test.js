@@ -1183,6 +1183,38 @@ describe('fetchReferences (batched references resolver)', () => {
     expect(refs[1].id).toBe('https://openalex.org/W2');
   });
 
+  it('keeps the citation count and the venue OpenAlex already sent', async () => {
+    // Measured over the stored corpus 2026-08-12: 33 references carried an
+    // OpenAlex id and NO citation count, and not one carried a venue — while
+    // both sat in the very response we had just parsed. The card then showed
+    // an empty fold for a work OpenAlex knows everything about.
+    const fetchFn = async () => ({
+      ok: true,
+      status: 200,
+      async json() {
+        return {
+          results: [
+            {
+              id: 'https://openalex.org/W1',
+              display_name: 'Attention Is All You Need',
+              publication_year: 2017,
+              cited_by_count: 143_000,
+              primary_location: { source: { display_name: 'Neural Information Processing Systems' } },
+              authorships: [{ author: { display_name: 'Ashish Vaswani' } }],
+            },
+          ],
+        };
+      },
+    });
+
+    const [ref] = await oa.fetchReferences(['W1'], fetchFn);
+
+    expect(ref).toMatchObject({
+      citations: 143_000,
+      venue: 'Neural Information Processing Systems',
+    });
+  });
+
   it('returns [] when given no references', async () => {
     const fetchFn = jest.fn();
     expect(await oa.fetchReferences([], fetchFn)).toEqual([]);

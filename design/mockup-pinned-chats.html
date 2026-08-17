@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Syflo · Sidebar — pinned chats in their own section at the top</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg-app: #F8FAFC;
+    --surface: #FFFFFF;
+    --text-strong: #0F172A;
+    --text-default: #334155;
+    --text-muted: #64748B;
+    --border: #E2E8F0;
+    --blue-50: #EFF6FF; --blue-100: #DBEAFE; --blue-400: #60A5FA; --blue-600: #2563EB; --blue-700: #1D4ED8;
+    --gray-50: #F9FAFB; --gray-100: #F3F4F6; --gray-200: #E5E7EB; --gray-300: #D1D5DB;
+    --gray-400: #9CA3AF; --gray-500: #6B7280; --gray-700: #374151; --gray-900: #111827;
+    --shadow: 0 1px 3px rgba(15,23,42,0.06), 0 1px 2px rgba(15,23,42,0.04);
+    --shadow-menu: 0 10px 24px rgba(15,23,42,0.14), 0 2px 6px rgba(15,23,42,0.08);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Inter', -apple-system, sans-serif; background: var(--bg-app);
+    color: var(--text-default); -webkit-font-smoothing: antialiased;
+    min-height: 100vh; padding: 48px 32px 96px;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; }
+
+  .intro h1 { font-size: 24px; font-weight: 700; color: var(--text-strong); letter-spacing: -0.015em; margin-bottom: 8px; }
+  .intro p { font-size: 14px; color: var(--text-muted); line-height: 1.6; max-width: 860px; }
+  .intro p + p { margin-top: 10px; }
+
+  .rule {
+    margin: 26px 0 30px; padding: 14px 16px; border-left: 3px solid var(--blue-400);
+    background: var(--blue-50); border-radius: 0 8px 8px 0;
+    font-size: 13.5px; line-height: 1.65; color: var(--text-default); max-width: 860px;
+  }
+  .rule b { color: var(--text-strong); }
+  .rule code { font-size: 12.5px; background: rgba(15,23,42,0.05); padding: 1px 5px; border-radius: 4px; }
+
+  h2.section {
+    font-size: 13px; font-weight: 700; color: var(--text-muted);
+    letter-spacing: 0.08em; text-transform: uppercase;
+    margin: 46px 0 18px; padding-bottom: 8px; border-bottom: 1px solid var(--border);
+  }
+
+  .row-states { display: flex; gap: 30px; flex-wrap: wrap; align-items: flex-start; }
+  .state { width: 306px; }
+  .state-label {
+    font-size: 12px; font-weight: 600; color: var(--text-muted);
+    letter-spacing: 0.04em; text-transform: uppercase;
+    display: flex; align-items: baseline; gap: 8px; margin-bottom: 4px;
+  }
+  .state-label .num { color: var(--blue-700); font-weight: 700; }
+  .state-desc { font-size: 12.5px; color: var(--text-muted); line-height: 1.55; margin-bottom: 12px; min-height: 72px; }
+
+  /* ---- Sidebar frame: geometry mirrors Sidebar/index.tsx (w-64, px-2) ---- */
+  .sidebar-frame {
+    width: 264px; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; box-shadow: var(--shadow);
+    position: relative; padding-bottom: 10px;
+  }
+  .sidebar-top {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 14px; border-bottom: 1px solid var(--gray-100);
+  }
+  .sidebar-top .logo { font-size: 13px; font-weight: 700; color: var(--text-strong); letter-spacing: -0.01em; }
+  .sidebar-top .icons { display: flex; gap: 6px; color: var(--gray-400); }
+  .sidebar-top .icons svg { width: 14px; height: 14px; }
+  .sidebar-body { padding: 8px; }
+
+  /* Group label — EXACT match of the date groups today:
+     text-[11px] text-gray-400 font-medium px-2.5 pb-1 uppercase tracking-wider */
+  .group-label {
+    font-size: 11px; color: var(--gray-400); font-weight: 500;
+    padding: 0 10px 4px; text-transform: uppercase; letter-spacing: 0.05em;
+  }
+  .group-label.first { padding-top: 8px; }
+  .group-label.later { padding-top: 20px; }
+  /* The pinned label is the same line, with the icon inline before the text. */
+  .group-label.pinned { display: flex; align-items: center; gap: 5px; }
+  .group-label.pinned svg { width: 11px; height: 11px; flex-shrink: 0; }
+  .group-label.pinned.accent { color: var(--blue-600); }
+
+  .rows { display: flex; flex-direction: column; gap: 2px; }
+  .row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 6px 10px; border-radius: 6px;
+    font-size: 13px; color: var(--gray-700);
+  }
+  .row .title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row.active { background: var(--blue-50); color: var(--blue-700); }
+  .row.hover { background: var(--gray-100); color: var(--gray-900); }
+  .row .tag {
+    display: inline-flex; align-items: center; gap: 3px; margin-left: auto;
+    font-size: 10px; line-height: 14px; font-weight: 600; letter-spacing: 0.03em;
+    color: var(--gray-500); background: var(--gray-50);
+    border: 1px solid var(--gray-200); border-radius: 5px; padding: 0 5px;
+  }
+  .row .tag svg { width: 9px; height: 9px; }
+
+  .divider { height: 1px; background: var(--gray-100); margin: 10px 10px 0; }
+
+  /* Context menu — same styling as Sidebar/index.tsx */
+  .menu {
+    position: absolute; z-index: 5;
+    background: var(--surface); border: 1px solid var(--gray-200);
+    border-radius: 8px; box-shadow: var(--shadow-menu);
+    padding: 4px 0; min-width: 150px;
+  }
+  .menu-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 12px; font-size: 13px; color: var(--gray-700); white-space: nowrap;
+  }
+  .menu-item.hl { background: var(--gray-100); color: var(--gray-900); }
+  .menu-item svg { width: 13px; height: 13px; flex-shrink: 0; color: var(--gray-500); }
+
+  .verdict {
+    margin-top: 14px; font-size: 12.5px; line-height: 1.6; color: var(--text-muted);
+    border-left: 2px solid var(--gray-200); padding-left: 10px;
+  }
+  .verdict b { color: var(--text-strong); }
+
+  .footnote { margin-top: 46px; font-size: 12.5px; color: var(--text-muted); line-height: 1.7; max-width: 860px; }
+  .footnote b { color: var(--text-strong); }
+  .footnote code { font-size: 12px; background: rgba(15,23,42,0.05); padding: 1px 5px; border-radius: 4px; }
+  .footnote ul { margin: 8px 0 0 18px; }
+  .footnote li { margin-bottom: 6px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="intro">
+    <h1>Sidebar — pinned chats in their own section at the top</h1>
+    <p>
+      The root list is grouped into relative date sections today (“Today”, “Yesterday”, …). A chat
+      you return to every day sinks out of those sections as soon as newer chats arrive, and the only
+      way back is scrolling or reading titles.
+    </p>
+    <p>
+      A pinned chat leaves the date grouping and moves into <b>one section of its own, above every
+      date section</b>. The section is announced exactly the way the date sections are — the same
+      11 px uppercase label — with a pin icon in front of it. The rows themselves carry no per-row
+      marking: the heading already says what they are (user decision 2026-08-11).
+    </p>
+  </div>
+
+  <div class="rule">
+    <b>The rule.</b> Pinning changes <em>where a root chat is listed</em>, nothing else. The section
+    only exists while at least one chat is pinned; a pinned chat appears in no date section; the
+    rows keep the identical geometry, PDF/YT tags, streaming dots and active pill they have today —
+    and no control of their own: pinning and unpinning are both the right-click menu.
+    Colors stay in the standard token families (<code>gray-*</code> for the label, <code>blue-*</code>
+    for the active row), so all five themes remap them.
+  </div>
+
+  <h2 class="section">The section heading — two candidates</h2>
+  <div class="row-states">
+
+    <div class="state">
+      <div class="state-label"><span class="num">A</span> neutral label (recommended)</div>
+      <div class="state-desc">
+        The heading is a date-section heading in every respect — <code>gray-400</code>, 11 px,
+        uppercase — with the pin icon inline before the word. It reads as one more section of the
+        same list, which is what it is.
+      </div>
+      <div class="sidebar-frame">
+        <div class="sidebar-top">
+          <span class="logo">Syflo</span>
+          <span class="icons">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/></svg>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+          </span>
+        </div>
+        <div class="sidebar-body">
+          <div class="group-label pinned first">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1Z"/></svg>
+            Pinned
+          </div>
+          <div class="rows">
+            <div class="row active">
+              <span class="title">Attention is all you need</span>
+              <span class="tag"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v5h5"/></svg>PDF</span>
+            </div>
+            <div class="row"><span class="title">Batch normalisation — read‑through</span></div>
+          </div>
+          <div class="divider"></div>
+          <div class="group-label later">Today</div>
+          <div class="rows">
+            <div class="row"><span class="title">Why scale by √d_k?</span></div>
+            <div class="row"><span class="title">Diffusion sampling steps</span></div>
+          </div>
+          <div class="group-label later">Yesterday</div>
+          <div class="rows">
+            <div class="row"><span class="title">Reward shaping in RL</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="verdict">
+        <b>Why this one.</b> The list keeps exactly one visual language for “this is a section”.
+        The pin icon carries the whole difference, and it sits where the eye already goes.
+      </div>
+    </div>
+
+    <div class="state">
+      <div class="state-label"><span class="num">B</span> accented label</div>
+      <div class="state-desc">
+        Same layout, but the heading is <code>blue-600</code> so the section reads as special.
+        Costs the list its uniformity — and blue is already the active‑chat colour, so the heading
+        starts competing with the selection.
+      </div>
+      <div class="sidebar-frame">
+        <div class="sidebar-top">
+          <span class="logo">Syflo</span>
+          <span class="icons">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/></svg>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+          </span>
+        </div>
+        <div class="sidebar-body">
+          <div class="group-label pinned accent first">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1Z"/></svg>
+            Pinned
+          </div>
+          <div class="rows">
+            <div class="row active">
+              <span class="title">Attention is all you need</span>
+              <span class="tag"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v5h5"/></svg>PDF</span>
+            </div>
+            <div class="row"><span class="title">Batch normalisation — read‑through</span></div>
+          </div>
+          <div class="divider"></div>
+          <div class="group-label later">Today</div>
+          <div class="rows">
+            <div class="row"><span class="title">Why scale by √d_k?</span></div>
+            <div class="row"><span class="title">Diffusion sampling steps</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="verdict">
+        <b>Why not.</b> Blue means “selected” everywhere else in the sidebar. A blue heading above a
+        blue row makes the eye ask which of the two is the current chat.
+      </div>
+    </div>
+
+  </div>
+
+  <h2 class="section">Pinning and unpinning</h2>
+  <div class="row-states">
+
+    <div class="state">
+      <div class="state-label"><span class="num">1</span> pin — context menu</div>
+      <div class="state-desc">
+        Right‑click on any root row. The pin entry joins the existing menu above Rename, so the
+        gesture that already renames and deletes now also pins.
+      </div>
+      <div class="sidebar-frame">
+        <div class="sidebar-top"><span class="logo">Syflo</span></div>
+        <div class="sidebar-body">
+          <div class="group-label pinned first">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1Z"/></svg>
+            Pinned
+          </div>
+          <div class="rows">
+            <div class="row"><span class="title">Attention is all you need</span></div>
+          </div>
+          <div class="divider"></div>
+          <div class="group-label later">Today</div>
+          <div class="rows">
+            <div class="row hover"><span class="title">Reward shaping in RL</span></div>
+            <div class="row"><span class="title">Diffusion sampling steps</span></div>
+          </div>
+        </div>
+        <div class="menu" style="left: 96px; top: 150px;">
+          <div class="menu-item hl">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1Z"/></svg>
+            Pin chat
+          </div>
+          <div class="menu-item">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+            Rename
+          </div>
+          <div class="menu-item">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg>
+            Delete
+          </div>
+        </div>
+      </div>
+      <div class="verdict">
+        The row keeps its held pill while the menu is open — the rule from
+        <code>mockup-context-menu-target.html</code> applies unchanged.
+      </div>
+    </div>
+
+    <div class="state">
+      <div class="state-label"><span class="num">2</span> unpin — same menu</div>
+      <div class="state-desc">
+        A pinned row carries <b>no control of its own</b> (user decision 2026‑08‑11, reversing an
+        earlier hover button): right‑clicking it offers “Unpin chat” where “Pin chat” stood, and
+        the chat returns to its date section. One gesture, both directions.
+      </div>
+      <div class="sidebar-frame">
+        <div class="sidebar-top"><span class="logo">Syflo</span></div>
+        <div class="sidebar-body">
+          <div class="group-label pinned first">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1Z"/></svg>
+            Pinned
+          </div>
+          <div class="rows">
+            <div class="row hover"><span class="title">Attention is all you need</span></div>
+            <div class="row"><span class="title">Batch normalisation — read‑through</span></div>
+          </div>
+          <div class="divider"></div>
+          <div class="group-label later">Today</div>
+          <div class="rows">
+            <div class="row"><span class="title">Reward shaping in RL</span></div>
+          </div>
+        </div>
+        <div class="menu" style="left: 96px; top: 118px;">
+          <div class="menu-item hl">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m2 2 20 20"/><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h11"/><path d="M15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H9.24"/></svg>
+            Unpin chat
+          </div>
+          <div class="menu-item">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+            Rename
+          </div>
+          <div class="menu-item">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg>
+            Delete
+          </div>
+        </div>
+      </div>
+      <div class="verdict">
+        The resting list is exactly as clean as the user asked for: <b>no per‑row pin marking and
+        no per‑row control</b> — the section heading says everything.
+      </div>
+    </div>
+
+    <div class="state">
+      <div class="state-label"><span class="num">3</span> nothing pinned</div>
+      <div class="state-desc">
+        With no pinned chat the section does not exist — no heading, no empty state, no reserved
+        space. The sidebar is byte‑for‑byte what it is today.
+      </div>
+      <div class="sidebar-frame">
+        <div class="sidebar-top"><span class="logo">Syflo</span></div>
+        <div class="sidebar-body">
+          <div class="group-label first">Today</div>
+          <div class="rows">
+            <div class="row active"><span class="title">Attention is all you need</span></div>
+            <div class="row"><span class="title">Why scale by √d_k?</span></div>
+          </div>
+          <div class="group-label later">Yesterday</div>
+          <div class="rows">
+            <div class="row"><span class="title">Reward shaping in RL</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="verdict">
+        A feature that costs nothing when unused: the first pin is what creates the section.
+      </div>
+    </div>
+
+  </div>
+
+  <div class="footnote">
+    <b>What this implies for the code.</b>
+    <ul>
+      <li><code>chats.pinned_at</code> (TEXT, nullable) — one migration in <code>backend/database.js</code>.
+        A timestamp rather than a flag, so the pinned section can order itself
+        <b>most recently pinned first</b> without a second column.</li>
+      <li><code>PATCH /api/chats/:id</code> gains <code>pinned</code> — the same endpoint that renames.</li>
+      <li><code>groupChatsByDate.ts</code> stays untouched; the pinned roots are split off
+        <em>before</em> it is called, so a pinned chat never appears twice.</li>
+      <li>Only ROOT chats can be pinned — the section lists roots, and a pinned branch would have
+        no tree to sit in. The expanded single-tree view is unaffected.</li>
+      <li>Strings: <code>sidebar.pinned</code> / <code>sidebar.pin</code> / <code>sidebar.unpin</code>,
+        EN and DE in <code>frontend/src/strings.ts</code> (“Angepinnt”, “Chat anpinnen”, “Nicht mehr anpinnen”).</li>
+      <li>Keyboard navigation (ADR-0011) needs nothing new: the pinned rows are ordinary
+        <code>data-focus-item</code> rows and come first in DOM order.</li>
+    </ul>
+  </div>
+</div>
+</body>
+</html>

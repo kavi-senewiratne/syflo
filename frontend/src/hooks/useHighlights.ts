@@ -29,6 +29,9 @@ export function useHighlights(paperId: string | null) {
     error: null,
   });
 
+  // Bumped by reload() below to re-run the effect without a paper change.
+  const [reloadToken, setReloadToken] = useState(0);
+
   // (Re)load whenever the paper changes. Empty-string / null paperId skips
   // the fetch — used while no PDF is bound to the active chat tree.
   useEffect(() => {
@@ -51,7 +54,14 @@ export function useHighlights(paperId: string | null) {
     return () => {
       active = false;
     };
-  }, [paperId]);
+  }, [paperId, reloadToken]);
+
+  // Re-fetch the list for the SAME paper. Needed whenever the server changes a
+  // highlight behind this hook's back: deleting a chat clears chat_id on every
+  // highlight that pointed at it (ON DELETE SET NULL), and without a reload the
+  // menu kept offering "Open linked chat" for a chat that was gone
+  // (user report 2026-08-10).
+  const reload = useCallback(() => setReloadToken((n) => n + 1), []);
 
   // Create — optimistic insert with a temp ID. The temp row is replaced
   // when the server responds; on failure we remove it and surface the
@@ -159,5 +169,6 @@ export function useHighlights(paperId: string | null) {
     create,
     update,
     remove,
+    reload,
   };
 }

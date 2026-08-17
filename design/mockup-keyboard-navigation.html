@@ -1,0 +1,659 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Syflo · Keyboard navigation — one focus ring, no mode</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --brand-blue: #3B82F6;
+    --bg-app: #F8FAFC;
+    --surface: #FFFFFF;
+    --text-strong: #0F172A;
+    --text-default: #334155;
+    --text-muted: #64748B;
+    --border: #E2E8F0;
+    --blue-50: #EFF6FF; --blue-100: #DBEAFE; --blue-500: #3B82F6; --blue-600: #2563EB; --blue-700: #1D4ED8;
+    --gray-50: #F9FAFB; --gray-100: #F3F4F6; --gray-200: #E5E7EB; --gray-400: #9CA3AF; --gray-500: #6B7280;
+    --shadow: 0 1px 3px rgba(15,23,42,0.06), 0 1px 2px rgba(15,23,42,0.04);
+    /* Two-tone focus ring: a halo in the surface colour, then the ring in the
+       text colour. Text always contrasts with surface — by definition, in every
+       theme — so the ring stays readable on the blue "open chat" pill, on all
+       five highlight colours, and on a dark theme's near-black ground. */
+    --ring: 0 0 0 2px var(--surface), 0 0 0 4px var(--text-strong);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Inter', -apple-system, sans-serif; background: var(--bg-app);
+    color: var(--text-default); -webkit-font-smoothing: antialiased;
+    min-height: 100vh; padding: 48px 32px 96px;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; }
+
+  .intro { margin-bottom: 44px; }
+  .intro h1 { font-size: 24px; font-weight: 700; color: var(--text-strong); letter-spacing: -0.015em; margin-bottom: 8px; }
+  .intro p { font-size: 14px; color: var(--text-muted); line-height: 1.65; max-width: 800px; }
+  .intro p + p { margin-top: 10px; }
+  .intro strong { color: var(--text-default); }
+
+  .section { margin-bottom: 56px; }
+  .section-label {
+    font-size: 12px; font-weight: 600; color: var(--text-muted);
+    letter-spacing: 0.06em; text-transform: uppercase;
+    display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px;
+  }
+  .section-label .num { color: var(--brand-blue); font-weight: 700; }
+  .section-desc { font-size: 13px; color: var(--text-muted); line-height: 1.6; margin-bottom: 18px; max-width: 820px; }
+  .section-desc strong { color: var(--text-default); }
+  .section-desc code, .kbd-inline {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px;
+    background: var(--gray-100); border: 1px solid var(--gray-200);
+    border-radius: 4px; padding: 1px 5px; color: var(--text-default);
+  }
+
+  .stage { background: #E2E8F0; border-radius: 14px; padding: 30px 24px; }
+
+  /* ── key caps ───────────────────────────────────────── */
+  .kbd {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 26px; height: 26px; padding: 0 7px;
+    font-size: 12px; font-weight: 600; color: var(--text-default);
+    background: var(--surface); border: 1px solid var(--gray-200);
+    border-bottom-width: 2px; border-radius: 6px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  .kbd.hot { background: var(--blue-50); border-color: #93C5FD; color: var(--blue-700); }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 8px 20px; margin-bottom: 20px; }
+  .legend-item { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text-default); }
+  .legend-item .what { color: var(--text-muted); }
+
+  /* ── app frame (shared miniature) ───────────────────── */
+  .app {
+    display: flex; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; overflow: hidden; box-shadow: var(--shadow);
+    height: 372px; margin: 0 auto; max-width: 1000px;
+  }
+  .region { position: relative; display: flex; flex-direction: column; min-width: 0; outline: none; }
+  .region-head {
+    font-size: 10px; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase;
+    color: var(--text-muted); padding: 10px 12px 8px; display: flex; align-items: center; gap: 6px;
+  }
+  .region-head .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--gray-400); }
+
+  .r-sidebar { width: 208px; border-right: 1px solid var(--gray-100); background: var(--gray-50); }
+  .r-center  { flex: 1; border-right: 1px solid var(--gray-100); }
+  .r-chat    { width: 300px; border-right: 1px solid var(--gray-100); }
+  .r-drawer  { width: 190px; background: var(--gray-50); }
+
+  /* No region-level ring (decision 2026-08-10): the item ring already says
+     which region the keyboard is in, and a second outline would be a second
+     new UI element for no new information. Regions with nothing to focus are
+     skipped outright, exactly like regions that aren't on screen. */
+
+  /* ── rows inside regions ────────────────────────────── */
+  .rows { padding: 0 8px 8px; display: flex; flex-direction: column; gap: 2px; overflow: hidden; }
+  .row {
+    position: relative; display: flex; align-items: center; gap: 7px;
+    padding: 6px 8px; border-radius: 6px; font-size: 12.5px; color: var(--text-default);
+    cursor: default; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .row .chev { width: 12px; font-size: 10px; color: var(--gray-400); flex-shrink: 0; text-align: center; }
+  .row .bar { width: 3px; height: 13px; border-radius: 2px; flex-shrink: 0; }
+  .row.indent-1 { margin-left: 14px; }
+  .row.indent-2 { margin-left: 28px; }
+  .row.current { background: var(--blue-50); color: var(--blue-700); font-weight: 500; }
+  .row.item-active { box-shadow: var(--ring); background: var(--surface); }
+  .row.item-active.current { background: var(--blue-50); }
+  .row.hidden-child { display: none; }
+
+  /* ── center pane: pdf-ish ───────────────────────────── */
+  .page { margin: 0 12px 12px; background: var(--surface); border: 1px solid var(--gray-100); border-radius: 6px; padding: 14px 14px; flex: 1; overflow: hidden; }
+  .line { height: 6px; border-radius: 3px; background: var(--gray-100); margin-bottom: 7px; }
+  .line.w90 { width: 90%; } .line.w75 { width: 75%; } .line.w60 { width: 60%; } .line.w100 { width: 100%; }
+  .line.hl-y { background: #FEF3C7; } .line.hl-b { background: #DBEAFE; }
+
+  /* ── chat column ────────────────────────────────────── */
+  .bubbles { flex: 1; padding: 0 12px; display: flex; flex-direction: column; gap: 8px; overflow: hidden; }
+  .bubble { position: relative; border-radius: 8px; padding: 8px 10px; font-size: 12px; line-height: 1.5; }
+  .bubble.user { background: var(--blue-600); color: #fff; align-self: flex-end; max-width: 80%; }
+  .bubble.bot { background: var(--gray-100); color: var(--text-default); max-width: 92%; }
+  .bubble.item-active { box-shadow: var(--ring); }
+  .composer {
+    margin: 10px 12px 12px; border: 1px solid var(--gray-200); border-radius: 9px;
+    background: var(--surface); padding: 8px 10px; display: flex; align-items: center; gap: 8px;
+  }
+  .composer .ph { font-size: 12px; color: var(--gray-400); flex: 1; }
+  .composer .caret { width: 1px; height: 14px; background: var(--blue-600); animation: blink 1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+  .composer.item-active { box-shadow: var(--ring); border-color: var(--blue-500); }
+  .composer:not(.item-active) .caret { display: none; }
+
+  /* ── drawer ─────────────────────────────────────────── */
+  .hl-card { background: var(--surface); border: 1px solid var(--gray-100); border-radius: 7px; padding: 7px 8px; font-size: 11.5px; line-height: 1.45; color: var(--text-muted); position: relative; display: flex; gap: 7px; }
+  .hl-card .bar { width: 3px; border-radius: 2px; flex-shrink: 0; }
+  .hl-card.item-active { box-shadow: var(--ring); }
+
+  /* ── live demo chrome ───────────────────────────────── */
+  .demo-bar {
+    display: flex; align-items: center; justify-content: space-between; gap: 16px;
+    max-width: 1000px; margin: 0 auto 14px; padding: 9px 14px;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 9px;
+  }
+  .demo-state { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text-muted); }
+  .demo-state b { color: var(--text-strong); font-weight: 600; }
+  .demo-hint { font-size: 12px; color: var(--text-muted); }
+  .demo-log {
+    max-width: 1000px; margin: 12px auto 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11.5px; color: var(--text-muted); min-height: 17px; text-align: center;
+  }
+  .demo-log b { color: var(--blue-700); }
+  .focus-catch { outline: none; }
+
+  /* ── comparison table ───────────────────────────────── */
+  table.keys { width: 100%; max-width: 900px; border-collapse: collapse; background: var(--surface); border: 1px solid var(--border); border-radius: 9px; overflow: hidden; }
+  table.keys th, table.keys td { text-align: left; padding: 9px 14px; font-size: 12.5px; border-bottom: 1px solid var(--gray-100); vertical-align: top; }
+  table.keys th { background: var(--gray-50); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); font-weight: 600; }
+  table.keys tr:last-child td { border-bottom: none; }
+  table.keys td.k { white-space: nowrap; width: 1%; }
+  table.keys td strong { color: var(--text-strong); }
+
+  /* ── escape chain ───────────────────────────────────── */
+  .chain { display: flex; align-items: stretch; gap: 10px; flex-wrap: wrap; justify-content: center; }
+  .chain-step {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 9px;
+    padding: 12px 14px; width: 210px; box-shadow: var(--shadow);
+  }
+  .chain-step .n { font-size: 10px; font-weight: 700; color: var(--brand-blue); letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 5px; }
+  .chain-step .t { font-size: 13px; font-weight: 600; color: var(--text-strong); margin-bottom: 4px; }
+  .chain-step .d { font-size: 11.5px; color: var(--text-muted); line-height: 1.5; }
+  .chain-arrow { display: flex; align-items: center; color: var(--gray-400); font-size: 16px; }
+  .chain-step.last { border-color: #93C5FD; background: var(--blue-50); }
+  .chain-step.last .t { color: var(--blue-700); }
+
+  /* ── overflow rule diagram ──────────────────────────── */
+  .two-up { display: flex; gap: 22px; justify-content: center; flex-wrap: wrap; }
+  .mini {
+    width: 300px; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 9px; box-shadow: var(--shadow); overflow: hidden;
+  }
+  .mini-head { font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); padding: 9px 12px; border-bottom: 1px solid var(--gray-100); }
+  .mini-body { padding: 8px; display: flex; flex-direction: column; gap: 2px; }
+  .mini-note { font-size: 11.5px; color: var(--text-muted); line-height: 1.5; padding: 8px 12px 11px; border-top: 1px solid var(--gray-100); }
+  .mini-note b { color: var(--text-default); }
+
+  .callout {
+    max-width: 900px; margin: 18px auto 0; background: var(--blue-50); border: 1px solid #BFDBFE;
+    border-radius: 9px; padding: 13px 16px; font-size: 12.5px; color: var(--blue-700); line-height: 1.6;
+  }
+  .callout b { font-weight: 600; }
+  .callout.warn { background: #FFFBEB; border-color: #FDE68A; color: #92400E; }
+
+  /* ── §03 ring comparison ────────────────────────────── */
+  .ring-compare { display: flex; gap: 24px; justify-content: center; flex-wrap: wrap; }
+  .rc-col { width: 400px; }
+  .rc-box {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 9px;
+    padding: 18px 16px; display: flex; flex-direction: column; gap: 18px; box-shadow: var(--shadow);
+  }
+  .rc-note { font-size: 12px; color: var(--text-muted); line-height: 1.55; margin-top: 11px; }
+  .rc-note b { color: var(--text-default); }
+  .ring-blue { box-shadow: 0 0 0 2px var(--blue-500); }
+  /* ── §01 the L-shaped map: the mind map lies across the top ─────── */
+  .lshape { max-width: 1000px; margin: 0 auto; }
+  .map-band {
+    background: var(--surface); border: 1px solid var(--border); border-bottom: none;
+    border-radius: 10px 10px 0 0; padding: 10px 12px 14px;
+  }
+  .map-band .region-head { padding: 0 0 10px; }
+  .map-band .nodes { display: flex; gap: 10px; justify-content: center; align-items: center; }
+  .map-band .grip { height: 4px; width: 46px; border-radius: 2px; background: var(--gray-200); margin: 12px auto 0; }
+  .lshape .app { border-radius: 0 0 10px 10px; height: 300px; max-width: none; }
+  .overflow-tag {
+    display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--text-muted);
+    background: var(--surface); border: 1px solid var(--border); border-radius: 999px;
+    padding: 3px 10px 3px 6px; margin: 0 auto;
+  }
+  .overflow-row { display: flex; justify-content: center; margin: 10px 0 0; }
+
+  .map-node {
+    display: flex; gap: 9px; align-items: stretch; background: var(--surface);
+    border: 1px solid var(--gray-200); border-radius: 8px; padding: 8px 10px 8px 8px;
+  }
+  .map-node .bar { width: 3px; border-radius: 2px; flex-shrink: 0; height: auto; }
+  .map-node .mn-t { font-size: 12.5px; font-weight: 600; color: var(--text-strong); }
+  .map-node .mn-o { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="intro">
+    <h1>Keyboard navigation — one focus ring, no mode</h1>
+    <p style="font-size:12.5px;color:var(--text-muted);margin-bottom:10px">
+      Decided 2026-08-10 · <strong>ADR-0011</strong> · glossary: <strong>keyboard region</strong>,
+      <strong>focus ring</strong>, <strong>edge overflow</strong></p>
+    <p>Every region of Syflo reachable from the keyboard, using <strong>arrow keys only</strong> — and adding
+      exactly <strong>one</strong> new visual element to the app: the focus ring. No mode indicator, no status bar,
+      no new panel, no new button.</p>
+    <p>The trick that makes a mode unnecessary: <strong>a text field and a list item are different focus targets</strong>.
+      The browser already knows which one holds focus, so <span class="kbd-inline">←</span> can move the caret in the
+      composer and jump between regions on a chat row — same key, no hidden state to remember.</p>
+  </div>
+
+  <!-- ══════════════ 01 ══════════════ -->
+  <div class="section">
+    <div class="section-label"><span class="num">01</span> The focus map</div>
+    <div class="section-desc">The map is an <strong>L</strong>, not a row: four regions left to right, plus the mind
+      map lying across the top (<code>App.tsx:2270</code>). So <span class="kbd-inline">←</span>
+      <span class="kbd-inline">→</span> alone cannot reach everything — <span class="kbd-inline">↑</span> from the
+      topmost item of a column overflows into the map, and <span class="kbd-inline">↓</span> from the map drops back
+      into the column below it (decision 2026-08-10). Each region is a single stop: entering it lands on the item you
+      last used there, not on its first item.</div>
+    <div class="section-desc">A region that <strong>isn't on screen</strong> — mind map while the chat is showing,
+      highlights drawer while it's closed — is skipped. A region that <strong>is</strong> on screen is never skipped,
+      even when it has nothing in it yet: a paper with no highlights falls back to focusing <strong>the page</strong>,
+      so <span class="kbd-inline">↑</span> <span class="kbd-inline">↓</span> turn pages. The map must stay memorable,
+      and a region that appears the moment you make your first highlight would make it un-memorable
+      (decision 2026-08-10).</div>
+    <table class="keys" style="margin-bottom:18px">
+      <tr><th>Region</th><th>What an item is</th><th>What ↵ does</th></tr>
+      <tr><td class="k"><strong>Mind map</strong></td><td>a node</td><td>opens that chat</td></tr>
+      <tr><td class="k"><strong>Sidebar</strong></td><td>a chat row — and while the sidebar is folded to its rail, each rail button</td><td>opens that chat · presses the button</td></tr>
+      <tr><td class="k"><strong>Source</strong></td><td><strong>a highlight on the page</strong>, in document order — and when the page carries none, <strong>the page itself</strong> (decision 2026-08-10)</td><td>on a highlight: opens the highlight actions menu · on a bare page: nothing</td></tr>
+      <tr><td class="k"><strong>Chat</strong></td><td>a message bubble, then the composer <em>and its controls</em> — attach, mic, model, send</td><td>on a bubble: <strong>selects the whole bubble</strong> and opens the usual selection popup — colours, "Open as new chat", "Ask in chat" (decision 2026-08-10) · on the composer: starts typing</td></tr>
+      <tr><td class="k"><strong>Highlights</strong></td><td>a drawer card</td><td>scrolls the source to it and flashes it</td></tr>
+    </table>
+    <div class="section-desc"><strong>Everything interactive is an item</strong> (revised 2026-08-11) — not only the
+      obvious lists. The composer's own buttons and the collapsed sidebar's rail count too; without them the arrows
+      walked past whole controls, and a folded sidebar dropped out of the map so <span class="kbd-inline">←</span>
+      out of the PDF hit a wall. A control the layout has <em>hidden</em> is not an item: the model picker is
+      <code>display:none</code> in a narrow chat column, and a ring on it simply vanished.</div>
+    <div class="section-desc">The source region and the drawer both list highlights — deliberately, and they are not
+      the same list. The <strong>source</strong> holds the highlights of the page you are looking at, in reading
+      order; the <strong>drawer</strong> holds every highlight of the whole tree, grouped by colour. Same objects,
+      two different questions: "what is marked here?" versus "what have I marked at all?"</div>
+    <div class="stage">
+      <div class="legend">
+        <div class="legend-item"><span class="kbd hot">←</span><span class="kbd hot">→</span><span class="what">move between regions</span></div>
+        <div class="legend-item"><span class="kbd hot">↑</span><span class="kbd hot">↓</span><span class="what">move between items inside a region</span></div>
+        <div class="legend-item"><span class="kbd hot">↵</span><span class="what">activate</span></div>
+        <div class="legend-item"><span class="kbd hot">esc</span><span class="what">leave the composer for the structure</span></div>
+      </div>
+      <div class="lshape">
+        <div class="map-band">
+          <div class="region-head"><span class="dot"></span>Mind map — lies across the top, only in map mode</div>
+          <div class="nodes">
+            <div class="map-node"><span class="bar" style="background:#FBBF24"></span><div><div class="mn-t">Self-attention</div><div class="mn-o">Every token weighs every other</div></div></div>
+            <div class="map-node"><span class="bar" style="background:#2563EB"></span><div><div class="mn-t">Query / Key / Value</div><div class="mn-o">Keys are what tokens offer for matching</div></div></div>
+            <div class="map-node"><span class="bar" style="background:#16A34A"></span><div><div class="mn-t">Positional encoding</div><div class="mn-o">Order enters through added waves</div></div></div>
+          </div>
+          <div class="grip"></div>
+        </div>
+        <div class="app">
+        <div class="region r-sidebar">
+          <div class="region-head"><span class="dot"></span>Sidebar</div>
+          <div class="rows">
+            <div class="row"><span class="chev">▾</span><span>Attention Is All You…</span></div>
+            <div class="row indent-1 item-active current"><span class="chev">▾</span><span>Self-attention</span></div>
+            <div class="row indent-2"><span class="chev"></span><span>Query / Key / Value</span></div>
+            <div class="row indent-1"><span class="chev"></span><span>Positional encoding</span></div>
+            <div class="row"><span class="chev">▸</span><span>Diffusion policies</span></div>
+          </div>
+        </div>
+        <div class="region r-center">
+          <div class="region-head"><span class="dot"></span>Source (PDF) — items are the highlights</div>
+          <div class="page">
+            <div class="line w90"></div><div class="line w100"></div>
+            <div class="line w75 hl-y"></div><div class="line w100"></div>
+            <div class="line w60"></div><div class="line w100 hl-b"></div>
+            <div class="line w90"></div><div class="line w75"></div>
+            <div class="line w100"></div><div class="line w60"></div>
+          </div>
+        </div>
+        <div class="region r-chat">
+          <div class="region-head"><span class="dot"></span>Chat</div>
+          <div class="bubbles">
+            <div class="bubble user">What is a key vector?</div>
+            <div class="bubble bot">A key is what each token offers up for matching — the query asks, the key answers…</div>
+          </div>
+          <div class="composer"><span class="ph">Ask something…</span></div>
+        </div>
+        <div class="region r-drawer">
+          <div class="region-head"><span class="dot"></span>Highlights</div>
+          <div class="rows">
+            <div class="hl-card"><span class="bar" style="background:#FBBF24"></span><span>…scaled dot-product attention…</span></div>
+            <div class="hl-card"><span class="bar" style="background:#60A5FA"></span><span>…positional encodings have the same dimension…</span></div>
+          </div>
+        </div>
+        </div>
+        <div class="overflow-row">
+          <span class="overflow-tag"><span class="kbd">↑</span> from the top item of any column overflows into the mind map — the same edge-overflow rule as §04</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════ 02 ══════════════ -->
+  <div class="section">
+    <div class="section-label"><span class="num">02</span> Live — press the keys</div>
+    <div class="section-desc">Click the frame once, then use <span class="kbd-inline">←</span>
+      <span class="kbd-inline">→</span> <span class="kbd-inline">↑</span> <span class="kbd-inline">↓</span>
+      <span class="kbd-inline">esc</span> <span class="kbd-inline">↵</span>. Start position is the composer, exactly
+      where a user is after sending a question. Nothing on screen tells you what "mode" you're in — because there
+      isn't one.</div>
+    <div class="stage">
+      <div class="demo-bar">
+        <div class="demo-state">Focus: <b id="stateText">composer (caret in the text field)</b></div>
+        <div class="demo-hint">click the frame, then press keys</div>
+      </div>
+      <div class="app focus-catch" id="demo" tabindex="0">
+        <div class="region r-sidebar" data-region="sidebar">
+          <div class="region-head"><span class="dot"></span>Sidebar</div>
+          <div class="rows" id="sidebarRows">
+            <div class="row" data-item data-children="open"><span class="chev">▾</span><span>Attention Is All You…</span></div>
+            <div class="row indent-1 current" data-item data-children="open"><span class="chev">▾</span><span>Self-attention</span></div>
+            <div class="row indent-2" data-item data-child-of="1"><span class="chev"></span><span>Query / Key / Value</span></div>
+            <div class="row indent-1" data-item><span class="chev"></span><span>Positional encoding</span></div>
+            <div class="row" data-item data-children="closed"><span class="chev">▸</span><span>Diffusion policies</span></div>
+          </div>
+        </div>
+        <div class="region r-center" data-region="source">
+          <div class="region-head"><span class="dot"></span>Source (PDF) — items are the highlights</div>
+          <div class="page">
+            <div class="line w90"></div><div class="line w100"></div>
+            <div class="line w75 hl-y" data-item></div><div class="line w100"></div>
+            <div class="line w60"></div><div class="line w100 hl-b" data-item></div>
+            <div class="line w90"></div><div class="line w75"></div>
+            <div class="line w100"></div><div class="line w60"></div>
+          </div>
+        </div>
+        <div class="region r-chat" data-region="chat">
+          <div class="region-head"><span class="dot"></span>Chat</div>
+          <div class="bubbles">
+            <div class="bubble user" data-item>What is a key vector?</div>
+            <div class="bubble bot" data-item>A key is what each token offers up for matching — the query asks, the key answers…</div>
+          </div>
+          <div class="composer item-active" data-item data-composer><span class="ph">Ask something…</span><span class="caret"></span></div>
+        </div>
+        <div class="region r-drawer" data-region="highlights">
+          <div class="region-head"><span class="dot"></span>Highlights</div>
+          <div class="rows">
+            <div class="hl-card" data-item><span class="bar" style="background:#FBBF24"></span><span>…scaled dot-product attention…</span></div>
+            <div class="hl-card" data-item><span class="bar" style="background:#60A5FA"></span><span>…positional encodings have the same dimension…</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="demo-log" id="log">—</div>
+    </div>
+    <div class="callout"><b>What to feel for:</b> in the composer, <span class="kbd-inline">←</span> moves the caret
+      like it always has. One <span class="kbd-inline">esc</span> later, the very same key leaves for the source pane.
+      The ring is the only thing that changed, and it is always visible.</div>
+  </div>
+
+  <!-- ══════════════ 03 ══════════════ -->
+  <div class="section">
+    <div class="section-label"><span class="num">03</span> Why the ring cannot be blue</div>
+    <div class="section-desc">Colour is already spoken for in three places. <strong>Blue means "this chat is open"</strong>
+      (the sidebar's <code>bg-blue-50 / text-blue-700</code> pill), <strong>blue is also one of the five highlight
+      kinds</strong> (<code>#2563EB</code> — the drawer's left bar and the map node's colour bar), and the map fades
+      filtered nodes. A blue focus ring would land on top of all three and say nothing new.</div>
+    <div class="section-desc">The ring therefore carries <strong>no hue of its own</strong>: a halo in the surface
+      colour, then a line in the text colour. Those two contrast with each other by definition, in every theme, on
+      every ground — including a highlight card that happens to be blue.</div>
+    <div class="stage">
+      <div class="ring-compare">
+        <div class="rc-col">
+          <div class="state-label">Blue ring — reads as one more blue thing</div>
+          <div class="rc-box">
+            <div class="row current ring-blue"><span class="chev">▾</span><span>Self-attention</span></div>
+            <div class="hl-card ring-blue"><span class="bar" style="background:#2563EB"></span><span>…positional encodings have the same dimension…</span></div>
+            <div class="map-node ring-blue"><span class="bar" style="background:#2563EB"></span><div><div class="mn-t">Query / Key / Value</div><div class="mn-o">Keys are what tokens offer for matching</div></div></div>
+          </div>
+          <div class="rc-note">On the open chat it is blue on blue. On a blue highlight it merges with the colour bar.
+            The user cannot tell "focused" from "already coloured".</div>
+        </div>
+        <div class="rc-col">
+          <div class="state-label">Neutral two-tone ring — reads as "the keyboard is here"</div>
+          <div class="rc-box">
+            <div class="row current item-active"><span class="chev">▾</span><span>Self-attention</span></div>
+            <div class="hl-card item-active"><span class="bar" style="background:#2563EB"></span><span>…positional encodings have the same dimension…</span></div>
+            <div class="map-node item-active"><span class="bar" style="background:#2563EB"></span><div><div class="mn-t">Query / Key / Value</div><div class="mn-o">Keys are what tokens offer for matching</div></div></div>
+          </div>
+          <div class="rc-note">The blue pill still means "open", the colour bar still means "highlight kind".
+            The ring adds a <b>third, separate</b> channel and never competes with either.</div>
+        </div>
+      </div>
+      <div class="callout"><b>Three signals, three channels:</b> <b>fill</b> = which chat is open ·
+        <b>left bar</b> = highlight kind · <b>outline</b> = where the keyboard is. All three can be true of the same
+        row at once, and all three stay legible. The ring uses <code>--surface</code> and <code>--text-strong</code>
+        only — no <code>blue-*</code>, no hardcoded colour, so every theme carries it for free.</div>
+    </div>
+  </div>
+
+  <!-- ══════════════ 04 ══════════════ -->
+  <div class="section">
+    <div class="section-label"><span class="num">04</span> The chevron conflict — the edge-overflow rule</div>
+    <div class="section-desc">The chat tree already collapses with a chevron (<code>ChatTree.tsx</code>), and the
+      standard tree pattern gives <span class="kbd-inline">←</span> / <span class="kbd-inline">→</span> to
+      collapse / expand. That collides with using them to change region. The rule that resolves it:
+      <strong>arrow keys serve the tree first, and only leave the region once the tree has nothing left to do.</strong>
+      The same rule carries the vertical axis (§01): <span class="kbd-inline">↑</span> moves between items, and only
+      once there is no item above does it overflow into the mind map. One rule, both axes, nothing extra to learn.</div>
+    <div class="stage">
+      <div class="two-up">
+        <div class="mini">
+          <div class="mini-head">← on an expanded node</div>
+          <div class="mini-body">
+            <div class="row indent-1 item-active"><span class="chev">▾</span><span>Self-attention</span></div>
+            <div class="row indent-2"><span class="chev"></span><span>Query / Key / Value</span></div>
+          </div>
+          <div class="mini-note">Collapses the node. Focus <b>stays</b> in the sidebar.</div>
+        </div>
+        <div class="mini">
+          <div class="mini-head">← again, now collapsed</div>
+          <div class="mini-body">
+            <div class="row indent-1 item-active"><span class="chev">▸</span><span>Self-attention</span></div>
+            <div class="row indent-2 hidden-child"><span class="chev"></span><span>Query / Key / Value</span></div>
+          </div>
+          <div class="mini-note">Nothing left to collapse → the key <b>overflows</b> and moves to the region on the
+            left. In the sidebar there is none, so it does nothing.</div>
+        </div>
+        <div class="mini">
+          <div class="mini-head">→ from a leaf</div>
+          <div class="mini-body">
+            <div class="row indent-1 item-active"><span class="chev"></span><span>Positional encoding</span></div>
+            <div class="row"><span class="chev">▸</span><span>Diffusion policies</span></div>
+          </div>
+          <div class="mini-note">A leaf has nothing to expand → <b>overflows</b> straight into the source pane.</div>
+        </div>
+      </div>
+      <div class="callout warn"><b>The cost:</b> leaving the sidebar to the right can take two presses instead of one
+        when the focused node is an expanded parent. That is the price of not breaking the tree pattern — and it only
+        ever affects the sidebar, which is the only region with a hierarchy.</div>
+    </div>
+  </div>
+
+  <!-- ══════════════ 04 ══════════════ -->
+  <div class="section">
+    <div class="section-label"><span class="num">05</span> Escape keeps its old job — it just gains a last step</div>
+    <div class="section-desc">Escape closes the topmost open thing today, in twelve places. It keeps doing exactly that.
+      The new behaviour sits at the <strong>end</strong> of that chain: when there is nothing left to close, Escape
+      hands focus to the structure. A user who never learns this loses nothing.</div>
+    <div class="stage">
+      <div class="chain">
+        <div class="chain-step">
+          <div class="n">Escape · 1</div>
+          <div class="t">Something is open</div>
+          <div class="d">Popup, modal, drawer, context menu, /btw panel, question nav… closes it. Unchanged.</div>
+        </div>
+        <div class="chain-arrow">→</div>
+        <div class="chain-step">
+          <div class="n">Escape · 2</div>
+          <div class="t">Text is selected</div>
+          <div class="d">Clears the pending selection and its floating popup. Unchanged.</div>
+        </div>
+        <div class="chain-arrow">→</div>
+        <div class="chain-step last">
+          <div class="n">Escape · 3 — new</div>
+          <div class="t">Nothing left to close</div>
+          <div class="d">The ring appears on whatever the app already marks as current — the open chat's row in the
+            sidebar. Afterwards it returns to wherever it was left (revised 2026-08-11).</div>
+        </div>
+      </div>
+      <div class="callout"><b>And back:</b> any printable key returns focus to the composer and types that character —
+        the same silent rule <code>/btw</code> already uses for dismissal. So there is no "how do I get out of here"
+        moment, which is precisely what a mode would create.</div>
+    </div>
+  </div>
+
+  <!-- ══════════════ 05 ══════════════ -->
+  <div class="section">
+    <div class="section-label"><span class="num">06</span> The whole keymap</div>
+    <div class="section-desc">Nine bindings, all of them arrows or keys the user already presses. Nothing to memorise
+      in order to get started — the first <span class="kbd-inline">esc</span> is enough, everything after it is
+      discoverable by pressing arrows and watching the ring.</div>
+    <div class="stage">
+      <table class="keys">
+        <tr><th>Key</th><th>In the composer / a text field</th><th>On a focused item</th></tr>
+        <tr><td class="k"><span class="kbd">esc</span></td><td>Closes what's open; if nothing is, <strong>leaves for the structure</strong></td><td>Closes what's open; otherwise nothing</td></tr>
+        <tr><td class="k"><span class="kbd">←</span> <span class="kbd">→</span></td><td>Moves the caret. Unchanged.</td><td><strong>Previous / next region</strong> — in the tree, collapse / expand first</td></tr>
+        <tr><td class="k"><span class="kbd">↑</span> <span class="kbd">↓</span></td><td>Moves the caret between lines. Unchanged.</td><td><strong>Previous / next item</strong> in the region</td></tr>
+        <tr><td class="k"><span class="kbd">↵</span></td><td>Sends. Unchanged.</td><td><strong>Activates</strong> — opens the chat, jumps to the highlight, or <strong>selects the whole bubble</strong> and opens the selection popup (§01)</td></tr>
+        <tr><td class="k"><span class="kbd">a</span>–<span class="kbd">z</span></td><td>Types. Unchanged.</td><td><strong>Returns to the composer</strong> and types the character</td></tr>
+        <tr><td class="k"><span class="kbd">tab</span></td><td>Browser default inside a text field or an open dialog — forms still need it.</td><td><strong>Nothing.</strong> Two focus indicators read as two places the keyboard is (revised 2026-08-11)</td></tr>
+      </table>
+      <div class="callout"><b>New UI elements: one — and one only.</b> The focus ring on the item:
+        <code>box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--text-strong)</code>. No region outline, no mode
+        badge, no status bar (decision 2026-08-10). It borrows no hue from anything that already means something
+        (§03) and uses only surface/text tokens, so all five themes carry it for free.</div>
+      <div class="callout warn"><b>What the keyboard still cannot do, stated plainly:</b> select <i>part</i> of a
+        bubble. <span class="kbd-inline">↵</span> takes the bubble whole, so you can branch off an entire answer but
+        not off the one sentence inside it — that stays a mouse gesture. Character-level selection with
+        <span class="kbd-inline">shift</span>+arrows was considered and dropped: it would hand
+        <span class="kbd-inline">←</span> <span class="kbd-inline">→</span> back to the caret inside a bubble, which
+        is exactly the ambiguity this whole design exists to avoid.</div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+(function () {
+  const demo = document.getElementById('demo');
+  const stateText = document.getElementById('stateText');
+  const log = document.getElementById('log');
+
+  const regionEls = Array.from(demo.querySelectorAll('[data-region]'));
+  const regionNames = { sidebar: 'Sidebar', source: 'Source (PDF)', chat: 'Chat', highlights: 'Highlights' };
+
+  // Focus lives in the composer at the start — no mode, no state to show.
+  let inComposer = true;
+  let ri = 2;                       // region index — chat
+  const lastItem = [1, 0, 2, 0];    // per region, the item each one remembers
+
+  const itemsOf = (i) => Array.from(regionEls[i].querySelectorAll('[data-item]'))
+                              .filter(el => !el.classList.contains('hidden-child'));
+
+  function paint() {
+    demo.querySelectorAll('.item-active').forEach(el => el.classList.remove('item-active'));
+    const items = itemsOf(ri);
+    const el = items[Math.min(lastItem[ri], items.length - 1)];
+    if (el) el.classList.add('item-active');
+    const key = regionEls[ri].dataset.region;
+    stateText.textContent = inComposer
+      ? 'composer (caret in the text field)'
+      : regionNames[key] + ' · item ' + (Math.min(lastItem[ri], items.length - 1) + 1) + ' of ' + items.length;
+  }
+
+  function say(html) { log.innerHTML = html; }
+
+  // The sidebar tree owns ←/→ until it has nothing left to do (§03).
+  function treeHandled(dir) {
+    if (regionEls[ri].dataset.region !== 'sidebar') return false;
+    const el = itemsOf(ri)[lastItem[ri]];
+    if (!el) return false;
+    const state = el.dataset.children;
+    if (dir === -1 && state === 'open') {
+      el.dataset.children = 'closed';
+      el.querySelector('.chev').textContent = '▸';
+      demo.querySelectorAll('[data-child-of="1"]').forEach(c => c.classList.add('hidden-child'));
+      say('<b>←</b> collapsed the node — focus stays in the sidebar');
+      return true;
+    }
+    if (dir === 1 && state === 'closed') {
+      el.dataset.children = 'open';
+      el.querySelector('.chev').textContent = '▾';
+      demo.querySelectorAll('[data-child-of="1"]').forEach(c => c.classList.remove('hidden-child'));
+      say('<b>→</b> expanded the node — focus stays in the sidebar');
+      return true;
+    }
+    return false;
+  }
+
+  demo.addEventListener('keydown', (e) => {
+    const k = e.key;
+    if (!['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Escape','Enter'].includes(k) && k.length !== 1) return;
+    e.preventDefault();
+
+    if (inComposer) {
+      if (k === 'Escape') {
+        inComposer = false;
+        ri = 2; lastItem[2] = 1;     // last-used item of the chat region
+        say('<b>esc</b> — nothing was open, so focus left the composer');
+      } else if (k.length === 1) {
+        say('typed "' + k + '" — the composer has focus, keys go into the text');
+      } else {
+        say('<b>' + k.replace('Arrow','') + '</b> — moves the caret inside the text field, unchanged');
+      }
+      paint();
+      return;
+    }
+
+    if (k === 'Escape') { say('<b>esc</b> — nothing open to close'); return; }
+
+    if (k.length === 1) {                       // any printable key goes back to typing
+      inComposer = true; ri = 2; lastItem[2] = 2;
+      say('typed "' + k + '" — focus returned to the composer, silently');
+      paint(); return;
+    }
+
+    if (k === 'Enter') {
+      const name = regionNames[regionEls[ri].dataset.region];
+      say('<b>↵</b> activated the focused item in ' + name);
+      return;
+    }
+
+    if (k === 'ArrowUp' || k === 'ArrowDown') {
+      const items = itemsOf(ri);
+      const step = k === 'ArrowDown' ? 1 : -1;
+      const next = Math.min(Math.max(lastItem[ri] + step, 0), items.length - 1);
+      if (next === lastItem[ri]) { say('<b>' + (step > 0 ? '↓' : '↑') + '</b> — end of the region, focus stays put'); return; }
+      lastItem[ri] = next;
+      const el = items[next];
+      if (el.dataset.composer) say('<b>↓</b> — the composer is the last item of the chat region');
+      else say('<b>' + (step > 0 ? '↓' : '↑') + '</b> — next item inside ' + regionNames[regionEls[ri].dataset.region]);
+      paint(); return;
+    }
+
+    const dir = k === 'ArrowRight' ? 1 : -1;
+    if (treeHandled(dir)) { paint(); return; }
+    const next = ri + dir;
+    if (next < 0 || next >= regionEls.length) {
+      say('<b>' + (dir > 0 ? '→' : '←') + '</b> — no region that way, focus stays put');
+      return;
+    }
+    ri = next;
+    say('<b>' + (dir > 0 ? '→' : '←') + '</b> — entered ' + regionNames[regionEls[ri].dataset.region] +
+        ', on the item it remembered');
+    paint();
+  });
+
+  demo.addEventListener('focus', () => { if (log.textContent === '—') say('ready — press <b>esc</b> to leave the composer'); });
+  paint();
+})();
+</script>
+</body>
+</html>

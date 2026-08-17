@@ -3,8 +3,9 @@
  *
  * Read-only aggregation for the highlights drawer (design/
  * mockup-highlights-overview.html, Variant A): every highlight of a whole
- * chat tree — the tree paper's PDF highlights plus the message highlights
- * of every chat in the tree — as one unified list.
+ * chat tree — the tree paper's PDF highlights, the message highlights of
+ * every chat in the tree, and (since 2026-08-16) the marks in the tree's
+ * VIDEO: its transcript and its chapters — as one unified list.
  *
  * Accepts ANY chat id of the tree and resolves the root itself, so the
  * frontend can call it with whatever chat is active.
@@ -57,6 +58,26 @@ function chatRowToItem(row) {
   };
 }
 
+// A mark in the tree's video. `kind` distinguishes the two texts it can sit
+// in, because the drawer's jump goes to different places: the transcript view
+// or the chapter list. startSeconds is what lets that jump land on the moment
+// as well (user decision 2026-08-16).
+function videoRowToItem(row) {
+  return {
+    kind: row.source === 'chapter' ? 'chapter' : 'transcript',
+    id: row.id,
+    color: row.color,
+    text: row.text,
+    videoId: row.video_id,
+    startOffset: row.start_offset,
+    endOffset: row.end_offset,
+    startSeconds: row.start_seconds,
+    childChatId: row.child_chat_id,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
 module.exports = (db) => {
   const router = express.Router();
 
@@ -70,13 +91,13 @@ module.exports = (db) => {
     // easier to read and each is bounded by the tree size.
     const root = db
       .prepare(
-        `WITH RECURSIVE up(id, parent_id, paper_id) AS (
-           SELECT id, parent_id, paper_id FROM chats WHERE id = ?
+        `WITH RECURSIVE up(id, parent_id, paper_id, video_id) AS (
+           SELECT id, parent_id, paper_id, video_id FROM chats WHERE id = ?
            UNION ALL
-           SELECT c.id, c.parent_id, c.paper_id
+           SELECT c.id, c.parent_id, c.paper_id, c.video_id
              FROM chats c JOIN up ON c.id = up.parent_id
          )
-         SELECT id, paper_id FROM up WHERE parent_id IS NULL`,
+         SELECT id, paper_id, video_id FROM up WHERE parent_id IS NULL`,
       )
       .get(chatId);
 
@@ -117,7 +138,21 @@ module.exports = (db) => {
       .all(root.id)
       .map(chatRowToItem);
 
-    res.json([...pdfItems, ...chatItems]);
+    // The video's marks, in reading order of the text they sit in.
+    const videoItems = root.video_id
+      ? db
+          .prepare(
+            `SELECT id, color, text, video_id, start_offset, end_offset,
+                    start_seconds, source, child_chat_id, created_at, updated_at
+               FROM transcript_highlights
+              WHERE video_id = ?
+              ORDER BY start_offset ASC, created_at ASC`,
+          )
+          .all(root.video_id)
+          .map(videoRowToItem)
+      : [];
+
+    res.json([...pdfItems, ...videoItems, ...chatItems]);
   });
 
   return router;

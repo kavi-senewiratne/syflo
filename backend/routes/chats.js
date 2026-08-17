@@ -1,11 +1,11 @@
 const express = require('express');
 const fs = require('fs');
 const { warmUpAncestorSummaries, getAncestorPath } = require('../ancestor-context');
-const { getLLMClientFor, getSetting, noThinkExtras } = require('../llm');
-const { MAX_PASSAGE_CHARS, sanitizeTitle, branchTitleInstruction } = require('../title');
+const { getSetting } = require('../llm');
 const {
-  isRateLimit, isDailyQuota, isModelUnavailable, msUntilUtcMidnight, cloudCandidates,
-} = require('../quota');
+  MAX_PASSAGE_CHARS, sanitizeTitle, branchTitleInstruction, parseBranchTitleReply,
+} = require('../title');
+const { callCloudLadder } = require('../quota');
 
 // options.isQuotaCoolingDown / markQuotaCooldown: the chat's quota memory
 // (server.js injects it) — the passage-title endpoint shares that ladder.
@@ -40,7 +40,30 @@ module.exports = (db, { isQuotaCoolingDown, markQuotaCooldown } = {}) => {
           WHERE m.chat_id = c.id AND m.role = 'user'
           ORDER BY m.created_at ASC
           LIMIT 1) AS preview,
-        (SELECT COUNT(*) FROM messages m WHERE m.chat_id = c.id) AS message_count
+        (SELECT COUNT(*) FROM messages m WHERE m.chat_id = c.id) AS message_count,
+        -- Answers that actually said something: the '*Failed*'/'*Interrupted*'
+        -- markers are UI state, not content (same exclusion as
+        -- ancestor-context.js). The mindmap's "Ergebnis folgt …" placeholder
+        -- hangs off this — a branch whose only answer failed established
+        -- nothing, so promising an outcome there is a lie (2026-08-03).
+        (SELECT COUNT(*) FROM messages m
+          WHERE m.chat_id = c.id AND m.role = 'assistant'
+            AND TRIM(m.content) NOT IN ('*Failed*', '*Interrupted*')) AS answer_count,
+        -- Highlight kind of the branch: the color of the highlight it was
+        -- opened from (mockup-mindmap-node-final.html — the node's color bar).
+        -- ALL THREE anchor kinds count: a PDF highlight points at its branch
+        -- via highlights.chat_id, a chat-text highlight and a transcript /
+        -- chapter mark via child_chat_id. The third was missing until
+        -- 2026-08-16 (user report with screenshot: video branches sat in the
+        -- mindmap without a color bar).
+        COALESCE(
+          (SELECT h.color FROM highlights h WHERE h.chat_id = c.id
+            ORDER BY h.created_at ASC LIMIT 1),
+          (SELECT mh.color FROM message_highlights mh WHERE mh.child_chat_id = c.id
+            ORDER BY mh.created_at ASC LIMIT 1),
+          (SELECT th.color FROM transcript_highlights th WHERE th.child_chat_id = c.id
+            ORDER BY th.created_at ASC LIMIT 1)
+        ) AS highlight_color
       FROM chats c
       ORDER BY c.created_at ASC
     `).all();
@@ -139,7 +162,9 @@ module.exports = (db, { isQuotaCoolingDown, markQuotaCooldown } = {}) => {
 
   // Create new chat
   router.post('/', (req, res) => {
-    const { title, parent_id, parent_word, parent_context } = req.body;
+    const {
+      title, parent_id, parent_word, parent_context, parent_word_display, branch_origin,
+    } = req.body;
     if (!title) return res.status(400).json({ error: 'title is required' });
 
     const id = crypto.randomUUID();
@@ -151,9 +176,31 @@ module.exports = (db, { isQuotaCoolingDown, markQuotaCooldown } = {}) => {
       ? parent_context.trim().slice(0, 600)
       : null;
 
+    // parent_word_display: the same passage with its math restored, for the
+    // UI only (decision 2026-08-02). parent_word stays verbatim — it is what
+    // the model gets as context, and a reconstruction is a guess.
+    const display = parent_word && typeof parent_word_display === 'string' && parent_word_display.trim()
+      ? parent_word_display.trim().slice(0, 600)
+      : null;
+
+    // Branch trace (design/mockup-branch-trace.html, variant A): only the two
+    // commands WITHOUT a passage leave a line in the parent transcript, and
+    // the anchor is resolved here rather than sent by the client — the client
+    // would have to guess which message is currently last, and it is wrong
+    // exactly when it matters (an answer that finished while the composer was
+    // open). ORDER BY rowid: message ids are UUIDs since 2026-08-08, so id
+    // order is not chronological, and created_at ties on kept /btw pairs.
+    const origin = branch_origin === 'btw' || branch_origin === 'topic' ? branch_origin : null;
+    const anchor = origin && parent_id
+      ? db.prepare('SELECT id FROM messages WHERE chat_id = ? ORDER BY rowid DESC LIMIT 1')
+        .get(parent_id)?.id ?? null
+      : null;
+
     db.prepare(
-      'INSERT INTO chats (id, title, parent_id, parent_word, parent_context, created_at) VALUES (?, ?, ?, ?, ?, ?)'
-    ).run(id, title, parent_id || null, parent_word || null, context, now);
+      'INSERT INTO chats (id, title, parent_id, parent_word, parent_context, parent_word_display,'
+      + ' branch_origin, branch_anchor_message_id, created_at)'
+      + ' VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    ).run(id, title, parent_id || null, parent_word || null, context, display, origin, anchor, now);
 
     // Warm-up (design 2026-07-20): The branch-off is the earliest signal
     // that the ancestor summaries will be needed shortly. Fire-and-forget —
@@ -188,99 +235,101 @@ module.exports = (db, { isQuotaCoolingDown, markQuotaCooldown } = {}) => {
     if (!passage) return res.status(400).json({ error: 'passage is required' });
 
     const activeProvider = getSetting(db, 'llm_provider');
-    if (activeProvider === 'ollama') return res.json({ title: null });
+    if (activeProvider === 'ollama') return res.json({ title: null, quote: null });
 
-    const messages = [branchTitleInstruction(passage.slice(0, MAX_PASSAGE_CHARS))];
-    // A server-side hiccup is worth one retry: Gemini answered 503 on the
-    // first of three live calls (measured 2026-08-02) and fine right after.
-    const transient = (err) => {
-      const status = err?.status ?? err?.response?.status;
-      return typeof status === 'number' && status >= 500;
-    };
+    // Same failover ladder as chat, explain and the outcome line — it lives in
+    // ../quota.js so no route invents its own (an exhausted Gemini quota must
+    // not send the user back to raw PDF text when a Groq key is sitting right
+    // there; that was the live failure measured 2026-08-02).
+    // The budget is the point of the exercise: a title is a nicety, the
+    // frontend waits ~2.5 s and then shows the tidied passage anyway.
+    const result = await callCloudLadder(db, {
+      activeProvider,
+      messages: [branchTitleInstruction(passage.slice(0, MAX_PASSAGE_CHARS))],
+      budgetMs: TITLE_BUDGET_MS,
+      callMs: TITLE_CALL_MS,
+      isCoolingDown: isQuotaCoolingDown,
+      markCooldown: markQuotaCooldown,
+      label: 'passage title',
+    });
 
-    // Same failover ladder as chat and explain (../quota.js): an exhausted
-    // Gemini quota must not send the user back to raw PDF text when a Groq
-    // key is sitting right there — that was exactly the live failure
-    // (429, measured 2026-08-02). Known-cold models are skipped, new walls
-    // are written into the SAME cooldown memory the picker badges read.
-    const cooling = isQuotaCoolingDown || (() => false);
-    const all = cloudCandidates(db, activeProvider);
-    let candidates = all.filter((c) => !cooling(c.provider, c.model));
-    if (candidates.length === 0) candidates = all;
+    // Every candidate was rate-limited, retired or gated — the caller tidies
+    // the passage instead.
+    if (!result) return res.json({ title: null, quote: null });
 
-    // Hard time budget. A title is a nicety: the frontend waits ~2.5 s and
-    // then shows the tidied passage, so anything beyond that is wasted work.
-    // Without it one hanging candidate blocked the whole ladder for minutes
-    // (measured 2026-08-02 — the request never returned).
-    const deadline = Date.now() + TITLE_BUDGET_MS;
-    const remaining = () => deadline - Date.now();
+    // {title, quote}: the tree gets the short title, the branch header and
+    // quote chip get the passage with its math restored (user decision
+    // 2026-08-02, option B).
+    return res.json(parseBranchTitleReply(result.raw, { maxQuoteChars: MAX_PASSAGE_CHARS, passage }));
+  });
 
-    for (const cand of candidates) {
-      if (remaining() <= 0) break;
-      let client;
-      try {
-        ({ client } = getLLMClientFor(db, cand.provider));
-      } catch {
-        continue; // no key / unknown provider — next candidate
+  // Update a chat: rename it, pin it, or both.
+  //
+  // `pinned` is a boolean and gets turned into a timestamp here rather than
+  // being sent by the client — the sidebar's Pinned section orders itself
+  // most-recently-pinned first, and only the server knows a clock the whole
+  // app agrees on (design/mockup-pinned-chats.html, variant A).
+  router.patch('/:id', (req, res) => {
+    const { title, pinned } = req.body;
+    const wantsPin = typeof pinned === 'boolean';
+    // Filing into a category. `category_id: null` is a real instruction
+    // ("unfile"), so presence of the key decides, not truthiness
+    // (design/mockup-sidebar-categories-v2.html).
+    const wantsFile = 'category_id' in req.body;
+    if (!title && !wantsPin && !wantsFile) {
+      return res.status(400).json({ error: 'title, pinned or category_id is required' });
+    }
+
+    const chat = db.prepare('SELECT * FROM chats WHERE id = ?').get(req.params.id);
+    if (!chat) return res.status(404).json({ error: 'Chat not found' });
+
+    // Only root chats can be pinned: the section lists trees, so a pinned
+    // branch would be a row without the tree it belongs to.
+    if (wantsPin && chat.parent_id) {
+      return res.status(400).json({ error: 'Only root chats can be pinned' });
+    }
+
+    // Same scope for filing: a category lists TREES. A filed branch would sit
+    // in the sidebar without the tree it belongs to, which is exactly the
+    // reason pinning is root-only.
+    if (wantsFile && req.body.category_id) {
+      if (chat.parent_id) {
+        return res.status(400).json({ error: 'Only root chats can be filed into a category' });
       }
-      let plain = false;   // set when the model rejects the no-thinking flag
-      for (let attempt = 0; attempt < 2; attempt++) {
-        if (remaining() <= 0) break;
-        try {
-          const completion = await client.chat.completions.create({
-            model: cand.model,
-            ...(plain ? {} : noThinkExtras(cand.provider)),
-            messages,
-          }, { signal: AbortSignal.timeout(Math.min(TITLE_CALL_MS, remaining())) });
-          const raw = completion.choices[0]?.message?.content || '';
-          return res.json({ title: raw.trim() ? sanitizeTitle(raw) : null });
-        } catch (err) {
-          if (attempt === 0 && transient(err)) {
-            await new Promise((resolve) => setTimeout(resolve, 400));
-            continue;
-          }
-          // Some models reject the no-thinking flag outright (Groq's
-          // llama-3.3: "400 `reasoning_effort` is not supported with this
-          // model", measured 2026-08-02) — one plain retry makes them usable.
-          if (attempt === 0 && /reasoning_effort/i.test(err?.message || '')) {
-            plain = true;
-            continue;
-          }
-          const unavailable = isModelUnavailable(err);
-          if (markQuotaCooldown) {
-            if (unavailable) markQuotaCooldown(cand.provider, cand.model, 24 * 60 * 60 * 1000, 'retired');
-            else if (isRateLimit(err) && isDailyQuota(err)) {
-              markQuotaCooldown(cand.provider, cand.model, msUntilUtcMidnight(), 'daily');
-            } else if (isRateLimit(err)) {
-              markQuotaCooldown(cand.provider, cand.model, 90_000, 'minute');
-            }
-          }
-          // EVERY failure moves on to the next candidate — a timeout or a
-          // 400 used to end the whole ladder and hand back the raw passage
-          // even though the very next model would have answered in 0.5 s
-          // (measured 2026-08-02).
-          if (!isRateLimit(err) && !unavailable) {
-            console.error(`[chats] passage title via ${cand.provider}/${cand.model}: ${err.message}`);
-          }
-          break; // next candidate
-        }
+      const category = db.prepare('SELECT id FROM categories WHERE id = ?').get(req.body.category_id);
+      if (!category) return res.status(400).json({ error: 'Category not found' });
+    }
+
+    if (title) db.prepare('UPDATE chats SET title = ? WHERE id = ?').run(title, req.params.id);
+
+    // Filing and pinning both answer ONE question — where does this tree live —
+    // so they cancel each other out. Holding both produced a chat that sat in a
+    // category while its own menu still offered "Unpin"; the user hit exactly
+    // that on 2026-08-16, and it is the logical completion of "filing wins".
+    //
+    // Only the POSITIVE gesture clears the other. Taking a chat out of a
+    // category must not quietly unpin it, and unpinning must not unfile it —
+    // otherwise undoing one action would silently undo a second.
+    if (wantsFile) {
+      db.prepare('UPDATE chats SET category_id = ? WHERE id = ?')
+        .run(req.body.category_id ?? null, req.params.id);
+      if (req.body.category_id) {
+        db.prepare('UPDATE chats SET pinned_at = NULL WHERE id = ?').run(req.params.id);
+      }
+    }
+    if (wantsPin) {
+      // Re-pinning an already pinned chat refreshes its timestamp, which moves
+      // it to the top of the section — the same gesture, a stronger statement.
+      db.prepare('UPDATE chats SET pinned_at = ? WHERE id = ?')
+        .run(pinned ? new Date().toISOString() : null, req.params.id);
+      // The mirror image of the rule above: pinning takes the chat out of its
+      // category, so the Pinned section can actually show it.
+      if (pinned) {
+        db.prepare('UPDATE chats SET category_id = NULL WHERE id = ?').run(req.params.id);
       }
     }
 
-    // Every candidate was rate-limited or retired — the caller tidies the
-    // passage instead.
-    return res.json({ title: null });
-  });
-
-  // Update chat title
-  router.patch('/:id', (req, res) => {
-    const { title } = req.body;
-    if (!title) return res.status(400).json({ error: 'title is required' });
-
-    db.prepare('UPDATE chats SET title = ? WHERE id = ?').run(title, req.params.id);
-    const chat = db.prepare('SELECT * FROM chats WHERE id = ?').get(req.params.id);
-    if (!chat) return res.status(404).json({ error: 'Chat not found' });
-    res.json(chat);
+    res.json(db.prepare('SELECT * FROM chats WHERE id = ?').get(req.params.id));
   });
 
   // Delete a chat, all its branched children, all their messages, and any
@@ -293,9 +342,12 @@ module.exports = (db, { isQuotaCoolingDown, markQuotaCooldown } = {}) => {
     const deleteMessagesForChat = db.prepare('DELETE FROM messages WHERE chat_id = ?');
     const deleteChat = db.prepare('DELETE FROM chats WHERE id = ?');
     const findChildren = db.prepare('SELECT id FROM chats WHERE parent_id = ?');
-    // Highlights outlive their branch (Issue 06): only unlink, never
-    // delete. Explicit instead of via FK, because foreign_keys are not
-    // globally enabled here — the schema SET NULL alone would do nothing.
+    // Highlights outlive their branch (Issue 06): only unlink, never delete.
+    // Belt and braces — the schema's ON DELETE SET NULL already does this
+    // (better-sqlite3 runs with foreign_keys ON), but keeping the UPDATE means
+    // the unlink survives a future schema rebuild that drops the constraint.
+    // message_highlights.child_chat_id relies on the FK alone and is covered by
+    // tests/message-highlights.test.js.
     const unlinkHighlightsForChat = db.prepare('UPDATE highlights SET chat_id = NULL WHERE chat_id = ?');
 
     const pathsToUnlink = [];

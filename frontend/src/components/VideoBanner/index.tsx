@@ -45,7 +45,14 @@ export function VideoBanner({ video, onOpenTranscript }: Props) {
         <TvMinimalPlay size={16} />
       </div>
       <div className="min-w-0 flex-1">
-        <p className="truncate text-[13px] font-semibold text-gray-900">{video.title}</p>
+        {/* 14px statt 13: im Wurzel-Chat ist das seit dem 2026-08-15 der
+            EINZIGE Ort, an dem der Video-Titel steht — die Kopfzeile darüber
+            hat ihn abgegeben (Variante C, design/mockup-video-header-merge.html).
+            In Zweig-Chats trägt der Kopf weiter das Zitat, das Banner den
+            Titel; auch dort ist die etwas kräftigere Zeile richtig, weil sie
+            die Quelle des ganzen Baums benennt. `title` bleibt: die Zeile
+            schneidet ab, der volle Titel muss erreichbar sein. */}
+        <p className="truncate text-sm font-semibold text-gray-900" title={video.title}>{video.title}</p>
         <p className="truncate text-[11.5px] text-gray-500">
           {video.channel}
           {duration ? ` · ${duration}` : ''}

@@ -17,7 +17,10 @@ const ALLOWED_PROVIDERS = new Set(['ollama', ...CLOUD_PROVIDERS]);
 
 // Cap for the custom instructions: they eat into the RESERVED_TOKENS buffer
 // (ancestor-context.js) — ~570 tokens at 2000 characters leave enough room
-// for tool definitions, history and the answer itself.
+// for tool definitions, history and the answer itself. Since the instruction
+// sandwich (2026-08-09) the block is sent TWICE per request (front of the
+// system prompt + reminder behind the history), so budget for ~1140 tokens
+// at the cap.
 const MAX_CUSTOM_INSTRUCTIONS_CHARS = 2000;
 
 function buildResponse(db) {

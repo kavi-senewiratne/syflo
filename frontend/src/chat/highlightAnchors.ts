@@ -22,6 +22,7 @@
 
 import type { HighlightColor, MessageHighlight } from '../types';
 import { HIGHLIGHT_COLORS } from '../types';
+import { showFlashGlow, scrollParentOf, type GlowTarget } from '../flashGlow';
 
 // Style names referenced by ::highlight() rules in index.css.
 const styleName = (color: HighlightColor) => `syflo-chat-hl-${color}`;
@@ -108,6 +109,7 @@ export function highlightAtPoint(
 const FORMULA_ATTR = 'data-syflo-hl';
 const FORMULA_LINKED_ATTR = 'data-syflo-hl-linked';
 const FORMULA_FLASH_ATTR = 'data-syflo-hl-flash';
+const FORMULA_PENDING_ATTR = 'data-syflo-hl-pending';
 
 export interface FormulaSpan {
   el: HTMLElement;
@@ -179,10 +181,11 @@ function clearFormulaMarks(root: Node, ...attrs: string[]): void {
 // `.katex` is an inline-block, and Chromium paints no decoration across an
 // atomic inline (measured 2026-08-01 on a rendered formula — the red test
 // line stopped dead for the exact width of the box, and putting the rule on
-// the inner .katex-html, an inline-block too, changed nothing). A 1px
-// background gradient spans the whole box instead (see index.css), but it
-// must sit on the LINE's baseline: the box bottom is 0.3em of padding below
-// the descenders, which drew the line visibly lower than the prose one.
+// the inner .katex-html, an inline-block too, changed nothing). An absolutely
+// positioned 1px bar spans the whole box instead (see index.css), but it
+// must sit on the LINE's baseline, which is nowhere near the box edge: the
+// box bottom used to be 0.3em of padding BELOW the descenders, and since the
+// 2026-08-09 rework it is the text box's own bottom, a hair ABOVE the line.
 //
 // A zero-height empty inline-block is baseline-aligned with its bottom edge
 // ON the baseline — inserting one next to the formula, measuring, and
@@ -193,9 +196,10 @@ const UNDERLINE_VAR = '--syflo-hl-underline-bottom';
 // baseline — measured across 12/13/14/16/18/22/28px type, constant 3.0px, so
 // the prose rule and this one meet at the same y.
 const UNDERLINE_OFFSET_PX = 3;
-// …plus one: in `background-position`, 100% means "container height MINUS
-// image height", so a 1px line placed at 100% already sits 1px high. Keep in
-// sync with background-size in index.css.
+// …plus one: the value feeds CSS `bottom`, which positions the bar's BOTTOM
+// edge, so the bar's own height has to come off. Keep in sync with the
+// ::after height in index.css. A negative result is normal and correct — it
+// means the line belongs below the box.
 const UNDERLINE_THICKNESS_PX = 1;
 
 function setUnderlineOffset(el: HTMLElement): void {
@@ -311,10 +315,26 @@ export function clearMessageHighlights(messageId: string): void {
 //
 // Es gibt höchstens EINE pending Selektion app-weit; der Besitzer ist die
 // Nachricht, in der sie erfasst wurde.
+//
+// AUSNAHME Formeln (Nutzer-Report 2026-08-08: "Lücken im markierten Text"):
+// Berührt die Auswahl eine KaTeX-Box, fällt Stufe 1 weg. Die native Selektion
+// kennt in Chromium nur EINE Range, lässt sich also nicht um die Formel herum
+// aufteilen — sie malt zwangsläufig gestreift über die margin-/.mspace-Lücken.
+// Also übernimmt hier ausschließlich der Highlight-Pfad: Box als Element
+// (data-syflo-hl-pending, Regel in index.css), Prosa als geschnittene Ranges,
+// native Selektion beiseitegeräumt. Beide Pfade teilen sich die Farbvariable,
+// damit Box und Prosa exakt gleich aussehen.
 
 const PENDING_STYLE = 'syflo-chat-hl-pending';
 let pendingOwner: string | null = null;
 let pendingRange: Range | null = null;
+// Wurzel der pending Nachricht — dropPending muss die Formel-Attribute auch
+// dann abräumen, wenn es aus einem globalen Listener ohne root kommt.
+let pendingRoot: Node | null = null;
+// Die um jede Formel geschnittenen Stücke; leer, solange keine Formel im
+// Spiel ist (dann malt Stufe 1 die native Selektion wie bisher).
+let pendingPieces: Range[] = [];
+let pendingHasFormula = false;
 
 // Links-Drag-Tracking: während der Nutzer eine NEUE Auswahl aufzieht, darf
 // die Wiederherstellung nicht dazwischenfunken.
@@ -375,6 +395,18 @@ function liveSelectionShowsPending(range: Range): boolean {
 function tryShowPending(): void {
   if (!pendingRange) return;
   const live = window.getSelection?.();
+  if (pendingHasFormula) {
+    // Die native Selektion würde die Formel streifen — sie tritt beiseite,
+    // sobald der Nutzer nicht mehr zieht (während des Drags gehört die
+    // Selektion ihm; removeAllRanges würde sie ihm unter der Maus wegziehen).
+    if (live && !leftMouseDown && liveSelectionShowsPending(pendingRange)) {
+      live.removeAllRanges();
+    }
+    // Auswahl komplett INNERHALB der Formel: die Box allein zeigt alles.
+    if (pendingPieces.length === 0) CSS.highlights.delete(PENDING_STYLE);
+    else CSS.highlights.set(PENDING_STYLE, new Highlight(...pendingPieces));
+    return;
+  }
   if (live && liveSelectionShowsPending(pendingRange)) {
     // Die Selektion zeigt das Zitat bereits — nichts doppelt malen (der
     // Fallback-Stil unter der halbtransparenten Selektion verdunkelt sie).
@@ -408,8 +440,12 @@ function dropPending(): void {
   if (pendingRange && live && liveSelectionShowsPending(pendingRange)) {
     live.removeAllRanges();
   }
+  if (pendingRoot) clearFormulaMarks(pendingRoot, FORMULA_PENDING_ATTR);
   pendingOwner = null;
   pendingRange = null;
+  pendingRoot = null;
+  pendingPieces = [];
+  pendingHasFormula = false;
   CSS.highlights.delete(PENDING_STYLE);
 }
 
@@ -428,11 +464,27 @@ export function paintPendingChatSelection(
   }
   installPendingListeners();
   pendingOwner = messageId;
+  pendingRoot = root;
   pendingRange = rangeFromOffsets(root, sel.startOffset, sel.endOffset);
   if (!pendingRange) {
+    clearFormulaMarks(root, FORMULA_PENDING_ATTR);
+    pendingPieces = [];
+    pendingHasFormula = false;
     CSS.highlights.delete(PENDING_STYLE);
     return;
   }
+  // Formel-Boxen bei jedem Commit neu bestimmen — der Markdown-DOM wird beim
+  // Öffnen des Popups ersetzt, alte Elementreferenzen sind dann tot.
+  clearFormulaMarks(root, FORMULA_PENDING_ATTR);
+  const spans = formulaSpans(root);
+  const touched = spans.filter((s) => touches(s, sel.startOffset, sel.endOffset));
+  for (const span of touched) span.el.setAttribute(FORMULA_PENDING_ATTR, '');
+  pendingHasFormula = touched.length > 0;
+  pendingPieces = pendingHasFormula
+    ? offsetsOutsideFormulas(sel.startOffset, sel.endOffset, spans)
+        .map(([start, end]) => rangeFromOffsets(root, start, end))
+        .filter((r): r is Range => r !== null)
+    : [];
   tryShowPending();
 }
 
@@ -455,37 +507,75 @@ const flashStyleName = (color: HighlightColor) => `syflo-chat-hl-flash-${color}`
 let flashOwner: string | null = null;
 let flashStyle: string | null = null;
 
+// Der Halo um die aufglühende Stelle — dieselbe Gruppe wie im PDF
+// (flashGlow.ts). Er lebt hier und nicht in der Komponente, weil hier die
+// Ranges entstehen: `targets` liest bei jedem Frame diese Liste, und dieser
+// Effekt läuft bei JEDEM Commit neu — ein neu gebauter Markdown-DOM liefert
+// also frische Ranges, ohne dass der Halo neu startet.
+let flashGlowKey: string | null = null;
+let flashGlowStop: (() => void) | null = null;
+let flashGlowTargets: GlowTarget[] = [];
+
+function stopFlashGlow(): void {
+  flashGlowStop?.();
+  flashGlowStop = null;
+  flashGlowKey = null;
+  flashGlowTargets = [];
+}
+
 export function paintFlashChatRange(
   messageId: string,
   root: Node,
   sel: { startOffset: number; endOffset: number; color: HighlightColor } | null,
 ): void {
-  if (!supportsCustomHighlights) return;
   clearFormulaMarks(root, FORMULA_FLASH_ATTR);
   if (!sel) {
     if (flashOwner === messageId) {
       flashOwner = null;
-      if (flashStyle) CSS.highlights.delete(flashStyle);
+      if (flashStyle && supportsCustomHighlights) CSS.highlights.delete(flashStyle);
       flashStyle = null;
+      stopFlashGlow();
     }
     return;
   }
   flashOwner = messageId;
   const style = flashStyleName(sel.color);
-  if (flashStyle && flashStyle !== style) CSS.highlights.delete(flashStyle);
+  if (flashStyle && flashStyle !== style && supportsCustomHighlights) {
+    CSS.highlights.delete(flashStyle);
+  }
   // Same formula treatment as the static highlights: the box flashes as one
   // element, the prose around it as ranges.
   const spans = formulaSpans(root);
   const ranges: Range[] = [];
+  const targets: GlowTarget[] = [];
   for (const span of spans) {
     if (touches(span, sel.startOffset, sel.endOffset)) {
       span.el.setAttribute(FORMULA_FLASH_ATTR, sel.color);
+      // Die Formel ist EIN Kasten und gehört mit ihrer vollen Höhe in die
+      // Silhouette — sonst liefe der Halo um die Prosa herum und schnitte
+      // die Formel in der Mitte aus.
+      targets.push(span.el);
     }
   }
   for (const [start, end] of offsetsOutsideFormulas(sel.startOffset, sel.endOffset, spans)) {
     const range = rangeFromOffsets(root, start, end);
     if (range) ranges.push(range);
   }
+  flashGlowTargets = [...targets, ...ranges];
+  // Der Halo startet EINMAL pro Sprung. Ohne diesen Schlüssel würde jeder
+  // Re-Render währenddessen die Animation von vorn beginnen lassen — dieser
+  // Effekt hat bewusst keine Dependency-Liste.
+  const key = `${messageId}|${sel.startOffset}|${sel.endOffset}|${sel.color}`;
+  if (key !== flashGlowKey && flashGlowTargets.length > 0) {
+    flashGlowStop?.();
+    flashGlowKey = key;
+    flashGlowStop = showFlashGlow({
+      targets: () => flashGlowTargets,
+      color: sel.color,
+      clip: scrollParentOf(root),
+    });
+  }
+  if (!supportsCustomHighlights) return;
   if (ranges.length > 0) {
     const highlight = new Highlight(...ranges);
     highlight.priority = 2;
@@ -498,9 +588,9 @@ export function paintFlashChatRange(
 }
 
 export function clearFlashChatRange(messageId: string): void {
-  if (!supportsCustomHighlights) return;
   if (flashOwner !== messageId) return;
   flashOwner = null;
-  if (flashStyle) CSS.highlights.delete(flashStyle);
+  if (flashStyle && supportsCustomHighlights) CSS.highlights.delete(flashStyle);
   flashStyle = null;
+  stopFlashGlow();
 }

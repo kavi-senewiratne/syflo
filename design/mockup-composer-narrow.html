@@ -1,0 +1,675 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Syflo · Composer in a narrow column — readability variants</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  /* ============================================================
+     THEME TOKENS — copied verbatim from frontend/src/index.css so this
+     mockup shows the real five themes, not an approximation. Nothing below
+     is a literal decoration colour; every value is a token the app remaps.
+     Switch with the row of buttons at the top, or load with #theme=matrix.
+     ============================================================ */
+  :root {
+    --t-white: #FFFFFF;
+    --t-gray-50: #F9FAFB; --t-gray-100: #F3F4F6; --t-gray-200: #E5E7EB; --t-gray-300: #D1D5DB;
+    --t-gray-400: #9CA3AF; --t-gray-500: #6B7280; --t-gray-600: #4B5563; --t-gray-700: #374151;
+    --t-gray-800: #1F2937; --t-gray-900: #111827;
+    --t-blue-50: #EFF6FF; --t-blue-100: #DBEAFE; --t-blue-500: #3B82F6; --t-blue-600: #2563EB; --t-blue-700: #1D4ED8;
+  }
+  :root[data-theme='mushroom-kingdom'] {
+    --t-white: #fffdf4;
+    --t-gray-50: #f7f4e4; --t-gray-100: #f0eddd; --t-gray-200: #e4decc; --t-gray-300: #cfc7ac;
+    --t-gray-400: #82829f; --t-gray-500: #6e6e8c; --t-gray-600: #565678; --t-gray-700: #3d3d63;
+    --t-gray-800: #2f2f55; --t-gray-900: #23234a;
+    --t-blue-50: #fbe6db; --t-blue-100: #f8d2c2; --t-blue-500: #dd4d44; --t-blue-600: #d8433b; --t-blue-700: #bc332c;
+  }
+  :root[data-theme='hyrule'] {
+    --t-white: #f8f5e8;
+    --t-gray-50: #f1eddc; --t-gray-100: #e8e3ce; --t-gray-200: #d9d3b9; --t-gray-300: #c6bfa0;
+    --t-gray-400: #8e9078; --t-gray-500: #767962; --t-gray-600: #5f624e; --t-gray-700: #4e5240;
+    --t-gray-800: #414534; --t-gray-900: #33372a;
+    --t-blue-50: #deede8; --t-blue-100: #cbe4dd; --t-blue-500: #2fa79d; --t-blue-600: #2aa198; --t-blue-700: #218880;
+  }
+  :root[data-theme='ink-blue'] {
+    --t-white: #ffffff;
+    --t-gray-50: #f3f8fd; --t-gray-100: #eef4fb; --t-gray-200: #dbe6f3; --t-gray-300: #becfe4;
+    --t-gray-400: #6e82a3; --t-gray-500: #5c7194; --t-gray-600: #46597b; --t-gray-700: #2c4059;
+    --t-gray-800: #1f3049; --t-gray-900: #14263f;
+    --t-blue-50: #EFF6FF; --t-blue-100: #DBEAFE; --t-blue-500: #3B82F6; --t-blue-600: #2563EB; --t-blue-700: #1D4ED8;
+  }
+  :root[data-theme='matrix'] {
+    /* the gray ramp is INVERTED here: gray-900 is near-white, white near-black. */
+    --t-white: #060c07;
+    --t-gray-50: #08130a; --t-gray-100: #0c160d; --t-gray-200: #12301a; --t-gray-300: #1a4224;
+    --t-gray-400: #3e6a48; --t-gray-500: #4c7e58; --t-gray-600: #64a272; --t-gray-700: #7bc188;
+    --t-gray-800: #9ad6a4; --t-gray-900: #b7e8bc;
+    --t-blue-50: #07290f; --t-blue-100: #0a3414; --t-blue-500: #24c95c; --t-blue-600: #2be76b; --t-blue-700: #5ef391;
+  }
+
+  :root {
+    --brand-blue: var(--t-blue-500);
+    --bg-app: var(--t-gray-50);
+    --surface: var(--t-white);
+    --text-strong: var(--t-gray-900);
+    --text-default: var(--t-gray-700);
+    --text-muted: var(--t-gray-500);
+    --border: var(--t-gray-200);
+    --blue-50: var(--t-blue-50); --blue-100: var(--t-blue-100);
+    --blue-500: var(--t-blue-500); --blue-600: var(--t-blue-600); --blue-700: var(--t-blue-700);
+    --gray-50: var(--t-gray-50); --gray-100: var(--t-gray-100); --gray-200: var(--t-gray-200);
+    --gray-300: var(--t-gray-300); --gray-400: var(--t-gray-400); --gray-500: var(--t-gray-500);
+    --gray-600: var(--t-gray-600);
+    --stage-bg: var(--t-gray-200);
+    --on-brand: var(--t-white);
+    --shadow: 0 1px 3px rgba(0,0,0,0.07), 0 1px 2px rgba(0,0,0,0.05);
+    --shadow-md: 0 4px 10px rgba(0,0,0,0.12);
+    --shadow-lg: 0 12px 28px rgba(0,0,0,0.16);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Inter', -apple-system, sans-serif; background: var(--bg-app);
+    color: var(--text-default); -webkit-font-smoothing: antialiased;
+    min-height: 100vh; padding: 44px 32px 120px;
+  }
+  .wrap { max-width: 1300px; margin: 0 auto; }
+
+  .themes { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 26px; }
+  .themes button {
+    font-family: inherit; font-size: 11.5px; font-weight: 500; cursor: pointer;
+    height: 28px; padding: 0 11px; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--surface); color: var(--text-muted);
+  }
+  .themes button:hover { background: var(--gray-100); color: var(--text-default); }
+  .themes button[aria-pressed='true'] {
+    background: var(--blue-50); border-color: var(--blue-100); color: var(--blue-700); font-weight: 600;
+  }
+
+  .intro { margin-bottom: 38px; }
+  .intro h1 { font-size: 24px; font-weight: 700; color: var(--text-strong); letter-spacing: -0.015em; margin-bottom: 8px; }
+  .intro p { font-size: 14px; color: var(--text-muted); line-height: 1.65; max-width: 860px; }
+  .intro strong { color: var(--text-default); }
+  code {
+    background: var(--gray-100); border-radius: 4px; padding: 1px 5px;
+    font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+
+  .decided {
+    margin-top: 16px; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: 14px 18px 15px; box-shadow: var(--shadow); max-width: 860px;
+  }
+  .decided h2 {
+    font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--gray-400); margin-bottom: 9px;
+  }
+  .decided ul { list-style: none; display: flex; flex-direction: column; gap: 7px; }
+  .decided li { font-size: 13px; line-height: 1.55; color: var(--text-muted); display: flex; gap: 8px; }
+  .decided li svg { color: var(--blue-600); flex: none; margin-top: 3px; }
+  .decided li strong { color: var(--text-default); }
+
+  .section { margin-bottom: 58px; }
+  .section-label {
+    font-size: 12px; font-weight: 600; color: var(--text-muted);
+    letter-spacing: 0.06em; text-transform: uppercase;
+    display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px;
+  }
+  .section-label .num { color: var(--brand-blue); font-weight: 700; }
+  .section-desc { font-size: 13px; color: var(--text-muted); line-height: 1.6; margin-bottom: 18px; max-width: 860px; }
+  .section-desc strong { color: var(--text-default); }
+  .section-desc .bad { color: var(--blue-700); font-weight: 600; }
+
+  .stage {
+    background: var(--stage-bg); border-radius: 14px; padding: 34px 24px;
+    display: flex; justify-content: center; gap: 26px; align-items: flex-start; flex-wrap: wrap;
+  }
+  .col { display: flex; flex-direction: column; }
+  .state-label {
+    text-align: center; font-size: 10.5px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.06em; color: var(--text-muted); margin-bottom: 10px; line-height: 1.45;
+  }
+  .state-label .w { color: var(--brand-blue); }
+
+  /* ── Chat pane shell ── */
+  .pane {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; box-shadow: var(--shadow);
+    position: relative; display: flex; flex-direction: column; overflow: hidden;
+    height: 340px;
+  }
+  .pane.w300 { width: 300px; flex: none; }
+  .pane.w420 { width: 420px; flex: none; }
+  .pane.w560 { width: 560px; flex: none; }
+
+  .pane-header {
+    display: flex; align-items: center; gap: 8px; flex: none;
+    padding: 10px 12px; border-bottom: 1px solid var(--gray-100);
+  }
+  .pane-title { font-size: 13px; font-weight: 600; color: var(--text-strong); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
+  .hl-btn {
+    display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 8px; flex: none;
+    border: 1px solid var(--border); border-radius: 8px; color: var(--gray-500); font-size: 11.5px; font-weight: 500;
+  }
+
+  .msgs { flex: 1; padding: 14px 12px; display: flex; flex-direction: column; gap: 9px; overflow: hidden; position: relative; }
+  .b-user {
+    align-self: flex-end; background: var(--brand-blue); color: var(--on-brand);
+    font-size: 11.5px; line-height: 1.5; padding: 7px 10px;
+    border-radius: 12px 12px 4px 12px; max-width: 86%;
+  }
+  .b-ai {
+    align-self: flex-start; background: var(--bg-app); color: var(--text-default);
+    font-size: 11.5px; line-height: 1.5; padding: 7px 10px;
+    border-radius: 12px 12px 12px 4px; max-width: 90%;
+  }
+
+  /* ── Floating controls above the composer ── */
+  .floaters { position: absolute; left: 0; right: 0; z-index: 10; pointer-events: none; height: 0; }
+  /* BUG variant: fixed distance from the pane bottom — the app's bottom-32 */
+  .floaters.fixed-offset { bottom: 128px; }
+  /* FIX variant: rides on the composer's real top edge, whatever its height */
+  .floaters.anchored { bottom: 100%; margin-bottom: 8px; }
+  .float-mid {
+    position: absolute; left: 50%; transform: translateX(-50%);
+    width: 30px; height: 30px; border-radius: 999px;
+    background: var(--surface); border: 1px solid var(--border); color: var(--gray-600);
+    display: flex; align-items: center; justify-content: center; box-shadow: var(--shadow-md);
+  }
+  .float-right {
+    position: absolute; right: 14px;
+    display: inline-flex; align-items: center; gap: 2px; height: 30px; padding: 0 4px;
+    border-radius: 999px; background: var(--surface); border: 1px solid var(--border);
+    box-shadow: var(--shadow-md); font-size: 11.5px; color: var(--gray-500);
+  }
+  .float-right .step { width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; border-radius: 999px; color: var(--gray-600); }
+  .float-right .count { padding: 0 4px; white-space: nowrap; }
+  .float-right .count b { color: var(--text-strong); font-weight: 600; }
+
+  /* ── Composer ── */
+  .composer-area { position: relative; flex: none; padding: 10px 12px 14px; }
+  .box {
+    border: 1px solid var(--border); border-radius: 20px; background: var(--surface);
+    padding: 6px 6px 6px 8px; display: flex; align-items: flex-end; gap: 6px;
+  }
+  .icon-btn {
+    width: 30px; height: 30px; flex: none; border-radius: 999px;
+    display: flex; align-items: center; justify-content: center; color: var(--gray-600);
+  }
+  .send {
+    width: 30px; height: 30px; flex: none; border-radius: 999px;
+    background: var(--brand-blue); color: var(--on-brand);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .model-chip {
+    display: inline-flex; align-items: center; gap: 4px; height: 28px; padding: 0 9px; flex: none;
+    border-radius: 999px; border: 1px solid var(--border); background: var(--surface);
+    font-size: 11.5px; color: var(--text-muted); font-weight: 500; white-space: nowrap;
+  }
+  .model-chip.icon-only { padding: 0 6px; }
+  .model-chip .dot { width: 8px; height: 8px; border-radius: 999px; background: var(--brand-blue); flex: none; }
+
+  /* the typed text. min-width mirrors the app's textarea: a <textarea> keeps an
+     intrinsic minimum even under min-w-0, which is why the screenshot shows a
+     four-character column rather than a hairline. */
+  .text {
+    flex: 1; min-width: 46px; font-size: 14px; line-height: 1.5; color: var(--text-strong);
+    padding: 5px 2px; overflow-wrap: break-word; word-break: break-word;
+    max-height: 108px; overflow: hidden;
+  }
+  .text.ph { color: var(--gray-400); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .caret { display: inline-block; width: 1.5px; height: 15px; background: var(--text-strong); vertical-align: -3px; margin-left: 1px; }
+
+  /* Variant A — two rows: text on its own line, controls below */
+  .box.stacked { flex-direction: column; align-items: stretch; gap: 4px; padding: 8px 8px 6px 10px; border-radius: 18px; }
+  .box.stacked .text { padding: 2px 0 4px; max-height: 108px; }
+  .ctrl-row { display: flex; align-items: center; gap: 6px; }
+  .ctrl-row .spacer { flex: 1; }
+
+  /* Variant C — everything folded into the plus menu */
+  .fold-menu {
+    position: absolute; bottom: calc(100% + 8px); left: 0; z-index: 20;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+    box-shadow: var(--shadow-lg); overflow: hidden; width: 218px;
+  }
+  .fold-menu .item { display: flex; align-items: center; gap: 9px; padding: 8px 11px; font-size: 12.5px; color: var(--text-default); }
+  .fold-menu .item svg { color: var(--gray-500); flex: none; }
+  .fold-menu .item + .item { border-top: 1px solid var(--gray-100); }
+  .fold-menu .item .tail { margin-left: auto; color: var(--gray-400); font-size: 11.5px; }
+
+  .note {
+    margin-top: 12px; font-size: 12px; line-height: 1.6; color: var(--text-muted);
+    max-width: 300px; text-align: center;
+  }
+  .note.wide { max-width: 420px; }
+  .note strong { color: var(--text-default); }
+
+  .verdict {
+    display: flex; gap: 9px; align-items: flex-start; margin-top: 18px;
+    background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--brand-blue);
+    border-radius: 10px; padding: 13px 16px; max-width: 860px; box-shadow: var(--shadow);
+  }
+  .verdict svg { color: var(--brand-blue); flex: none; margin-top: 2px; }
+  .verdict p { font-size: 13px; line-height: 1.6; color: var(--text-muted); }
+  .verdict strong { color: var(--text-strong); }
+
+  .ruler { display: flex; align-items: center; gap: 7px; margin: 0 auto 14px; font-size: 11px; color: var(--text-muted); justify-content: center; }
+  .ruler .bar { height: 3px; border-radius: 2px; background: var(--brand-blue); }
+  .ruler .bar.thin { background: var(--gray-400); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="themes" id="themes">
+    <button data-theme="" aria-pressed="true">Standard</button>
+    <button data-theme="ink-blue">Ink Blue</button>
+    <button data-theme="mushroom-kingdom">Mushroom Kingdom</button>
+    <button data-theme="hyrule">Hyrule</button>
+    <button data-theme="matrix">Matrix</button>
+  </div>
+
+  <div class="intro">
+    <h1>Der Composer in einer schmalen Spalte</h1>
+    <p>
+      Zwei Beobachtungen aus dem Nutzerreport vom <strong>2026-08-10</strong>, beide nur sichtbar,
+      wenn die Chat-Spalte schmal wird (Branch-Chat neben dem PDF, eingeklappte rechte Seitenleiste):
+      der <strong>Fragen-Stepper</strong> und der <strong>„Zur neuesten Nachricht"-Knopf</strong> legen sich
+      über das Eingabefeld, und der getippte Text quetscht sich in eine <strong>Spalte von vier Zeichen</strong>,
+      weil Mikrofon, Modell-Chip und Senden-Knopf in derselben Zeile stehen und ihre Breite behalten.
+    </p>
+    <div class="decided">
+      <h2>Was der Code heute tut</h2>
+      <ul>
+        <li><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6 9 17l-5-5"/></svg>
+          <span>Beide schwebenden Knöpfe sitzen auf <code>bottom-32</code> — ein <strong>fester Abstand</strong> vom Spaltenboden, der einen einzeiligen Composer annimmt (<code>ChatArea/index.tsx:1602</code> und <code>:1612</code>).</span></li>
+        <li><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6 9 17l-5-5"/></svg>
+          <span>Das Textfeld ist <code>flex-1 min-w-0</code> und gibt als einziges Element nach: <code>+</code> (36) + Mikro (36) + Modell-Chip (~160) + Senden (36) + Lücken ≈ <strong>290 px fest belegt</strong>.</span></li>
+        <li><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6 9 17l-5-5"/></svg>
+          <span>Es gibt schon Container-Queries: das Mikro verschwindet unter <code>24rem</code>, die Highlights-Beschriftung unter <code>30rem</code>. Der Modell-Chip <strong>schrumpft nie</strong>.</span></li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ═══════════════ §01 IST-ZUSTAND ═══════════════ -->
+  <div class="section">
+    <div class="section-label"><span class="num">§01</span><span>Ist-Zustand — was der Screenshot zeigt</span></div>
+    <p class="section-desc">
+      Links bei 300 px: der Text bricht nach vier Zeichen um, wächst auf die maximale Höhe (144 px) —
+      und weil der Composer nach oben wächst, wandern Stepper und Chevron <span class="bad">in das Eingabefeld hinein</span>.
+      Rechts bei 560 px passiert nichts davon: der Fehler ist unsichtbar, solange die Spalte breit ist.
+    </p>
+    <div class="stage">
+      <div class="col">
+        <div class="state-label">Ist-Zustand · <span class="w">300 px</span></div>
+        <div class="pane w300">
+          <div class="pane-header">
+            <span class="pane-title">Attention Is All You Need</span>
+            <span class="hl-btn"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 11-6 6v3h9l3-3"/><path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"/></svg></span>
+          </div>
+          <div class="msgs">
+            <div class="b-user">Was ist Multi-Head Attention?</div>
+            <div class="b-ai">Mehrere Attention-Köpfe lesen dieselbe Sequenz parallel …</div>
+          </div>
+          <div class="composer-area">
+            <div class="floaters fixed-offset">
+              <span class="float-mid"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></span>
+              <span class="float-right">
+                <span class="step"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m18 15-6-6-6 6"/></svg></span>
+                <span class="count"><b>3</b>/3</span>
+                <span class="step"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></span>
+              </span>
+            </div>
+            <div class="box">
+              <span class="icon-btn"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/><path d="M12 5v14"/></svg></span>
+              <div class="text">gemeint Sie auf 1. Wenn das Richtige Wort Katze ich und das Modell die<span class="caret"></span></div>
+              <span class="icon-btn"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19v3"/><rect x="9" y="2" width="6" height="13" rx="3"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg></span>
+              <span class="model-chip"><span class="dot"></span>Gemini Flash Lite<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></span>
+              <span class="send"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg></span>
+            </div>
+          </div>
+        </div>
+        <p class="note">Vier Zeichen pro Zeile. Die schwebenden Knöpfe liegen auf dem Feld — genau der Screenshot.</p>
+      </div>
+
+      <div class="col">
+        <div class="state-label">Ist-Zustand · <span class="w">560 px</span> — Fehler unsichtbar</div>
+        <div class="pane w560">
+          <div class="pane-header">
+            <span class="pane-title">Attention Is All You Need</span>
+            <span class="hl-btn"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 11-6 6v3h9l3-3"/><path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"/></svg> Highlights</span>
+          </div>
+          <div class="msgs">
+            <div class="b-user">Was ist Multi-Head Attention?</div>
+            <div class="b-ai">Mehrere Attention-Köpfe lesen dieselbe Sequenz parallel und lernen jeweils andere Beziehungen zwischen den Wörtern.</div>
+          </div>
+          <div class="composer-area">
+            <div class="floaters fixed-offset">
+              <span class="float-mid"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></span>
+              <span class="float-right">
+                <span class="step"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m18 15-6-6-6 6"/></svg></span>
+                <span class="count"><b>3</b>/3</span>
+                <span class="step"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></span>
+              </span>
+            </div>
+            <div class="box">
+              <span class="icon-btn"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/><path d="M12 5v14"/></svg></span>
+              <div class="text">gemeint Sie auf 1. Wenn das Richtige Wort Katze ich und das Modell die<span class="caret"></span></div>
+              <span class="icon-btn"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19v3"/><rect x="9" y="2" width="6" height="13" rx="3"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg></span>
+              <span class="model-chip"><span class="dot"></span>Gemini Flash Lite<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></span>
+              <span class="send"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg></span>
+            </div>
+          </div>
+        </div>
+        <p class="note wide">Zwei Zeilen, alles lesbar. Deshalb ist der Fehler bisher nie aufgefallen.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════ §02 VARIANTE A ═══════════════ -->
+  <div class="section">
+    <div class="section-label"><span class="num">§02</span><span>Variante A — zweizeiliger Composer (Empfehlung)</span></div>
+    <p class="section-desc">
+      Unter einer Schwelle (<code>@max-[30rem]</code>) klappt der Composer in <strong>zwei Zeilen</strong>:
+      der Text bekommt die ganze Spaltenbreite, die Steuerung setzt sich darunter.
+      Über der Schwelle bleibt alles exakt wie heute — auf breiten Spalten ändert sich nichts.
+      Der Modell-Name bleibt lesbar, und das Mikro darf zurückkommen, weil es keinen Platz mehr wegnimmt.
+    </p>
+    <div class="stage">
+      <div class="col">
+        <div class="state-label">Variante A · <span class="w">300 px</span></div>
+        <div class="pane w300">
+          <div class="pane-header">
+            <span class="pane-title">Attention Is All You Need</span>
+            <span class="hl-btn"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 11-6 6v3h9l3-3"/><path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"/></svg></span>
+          </div>
+          <div class="msgs">
+            <div class="b-user">Was ist Multi-Head Attention?</div>
+            <div class="b-ai">Mehrere Attention-Köpfe lesen dieselbe Sequenz parallel …</div>
+          </div>
+          <div class="composer-area">
+            <div class="floaters anchored">
+              <span class="float-mid"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></span>
+              <span class="float-right">
+                <span class="step"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m18 15-6-6-6 6"/></svg></span>
+                <span class="count"><b>3</b>/3</span>
+                <span class="step"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></span>
+              </span>
+            </div>
+            <div class="box stacked">
+              <div class="text">gemeint Sie auf 1. Wenn das Richtige Wort Katze ich und das Modell die<span class="caret"></span></div>
+              <div class="ctrl-row">
+                <span class="icon-btn"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/><path d="M12 5v14"/></svg></span>
+                <span class="icon-btn"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19v3"/><rect x="9" y="2" width="6" height="13" rx="3"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg></span>
+                <span class="model-chip"><span class="dot"></span>Gemini Flash Lite<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></span>
+                <span class="spacer"></span>
+                <span class="send"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg></span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="note"><strong>≈ 34 Zeichen pro Zeile</strong> statt vier. Modell-Name bleibt sichtbar, Mikro kehrt zurück.</p>
+      </div>
+
+      <div class="col">
+        <div class="state-label">Variante A · <span class="w">300 px</span> · leeres Feld</div>
+        <div class="pane w300">
+          <div class="pane-header">
+            <span class="pane-title">Branch: Positional Encoding</span>
+            <span class="hl-btn"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 11-6 6v3h9l3-3"/><path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"/></svg></span>
+          </div>
+          <div class="msgs">
+            <div class="b-ai">Positional Encoding gibt jedem Token seine Position mit …</div>
+          </div>
+          <div class="composer-area">
+            <div class="box stacked">
+              <div class="text ph">Frag irgendetwas</div>
+              <div class="ctrl-row">
+                <span class="icon-btn"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/><path d="M12 5v14"/></svg></span>
+                <span class="icon-btn"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19v3"/><rect x="9" y="2" width="6" height="13" rx="3"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg></span>
+                <span class="model-chip"><span class="dot"></span>Gemini Flash Lite<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></span>
+                <span class="spacer"></span>
+                <span class="send" style="background:var(--gray-200);color:var(--gray-400)"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg></span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="note">Der Platzhalter passt endlich vollständig hinein, ohne Ellipse.</p>
+      </div>
+
+      <div class="col">
+        <div class="state-label">Variante A · <span class="w">560 px</span> — unverändert einzeilig</div>
+        <div class="pane w560">
+          <div class="pane-header">
+            <span class="pane-title">Attention Is All You Need</span>
+            <span class="hl-btn"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 11-6 6v3h9l3-3"/><path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"/></svg> Highlights</span>
+          </div>
+          <div class="msgs">
+            <div class="b-user">Was ist Multi-Head Attention?</div>
+            <div class="b-ai">Mehrere Attention-Köpfe lesen dieselbe Sequenz parallel und lernen jeweils andere Beziehungen zwischen den Wörtern.</div>
+          </div>
+          <div class="composer-area">
+            <div class="box">
+              <span class="icon-btn"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/><path d="M12 5v14"/></svg></span>
+              <div class="text">gemeint Sie auf 1. Wenn das Richtige Wort Katze ich und das Modell die<span class="caret"></span></div>
+              <span class="icon-btn"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19v3"/><rect x="9" y="2" width="6" height="13" rx="3"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg></span>
+              <span class="model-chip"><span class="dot"></span>Gemini Flash Lite<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></span>
+              <span class="send"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg></span>
+            </div>
+          </div>
+        </div>
+        <p class="note wide">Über <code>30rem</code> greift die Umschaltung nicht — die gewohnte Form bleibt.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════ §03 VARIANTE B ═══════════════ -->
+  <div class="section">
+    <div class="section-label"><span class="num">§03</span><span>Variante B — Modell-Chip schrumpft auf sein Zeichen</span></div>
+    <p class="section-desc">
+      Der Composer bleibt einzeilig; unter der Schwelle zeigt der Modell-Chip nur noch seinen
+      farbigen Punkt und den Pfeil, der Name wandert in den Tooltip.
+      Das gewinnt rund <strong>120 px</strong> — aber bei 300 px sind das trotzdem nur zehn Zeichen pro Zeile,
+      und der Preis ist hoch: nach der Kosten-Stufen-Arbeit soll man <strong>sehen</strong>, welches Modell antwortet.
+    </p>
+    <div class="stage">
+      <div class="col">
+        <div class="state-label">Variante B · <span class="w">300 px</span></div>
+        <div class="pane w300">
+          <div class="pane-header">
+            <span class="pane-title">Attention Is All You Need</span>
+            <span class="hl-btn"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 11-6 6v3h9l3-3"/><path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"/></svg></span>
+          </div>
+          <div class="msgs">
+            <div class="b-user">Was ist Multi-Head Attention?</div>
+            <div class="b-ai">Mehrere Attention-Köpfe lesen dieselbe Sequenz parallel …</div>
+          </div>
+          <div class="composer-area">
+            <div class="floaters anchored">
+              <span class="float-mid"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></span>
+              <span class="float-right">
+                <span class="step"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m18 15-6-6-6 6"/></svg></span>
+                <span class="count"><b>3</b>/3</span>
+                <span class="step"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></span>
+              </span>
+            </div>
+            <div class="box">
+              <span class="icon-btn"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/><path d="M12 5v14"/></svg></span>
+              <div class="text">gemeint Sie auf 1. Wenn das Richtige Wort Katze ich und das<span class="caret"></span></div>
+              <span class="model-chip icon-only" title="Gemini Flash Lite"><span class="dot"></span><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></span>
+              <span class="send"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg></span>
+            </div>
+          </div>
+        </div>
+        <p class="note">≈ 10 Zeichen pro Zeile. Besser als vier, aber noch keine lesbare Zeile — und der Modell-Name ist weg.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════ §04 VARIANTE C ═══════════════ -->
+  <div class="section">
+    <div class="section-label"><span class="num">§04</span><span>Variante C — alle Regler ins Plus-Menü</span></div>
+    <p class="section-desc">
+      Radikal einzeilig: unter der Schwelle wandern Mikro <em>und</em> Modell-Wahl in das
+      <code>+</code>-Menü, die Zeile besteht nur noch aus <code>+</code>, Text und Senden.
+      Maximale Breite in einer Zeile — aber zwei Klicks für einen Modellwechsel und keine
+      Sichtbarkeit des aktiven Modells mehr.
+    </p>
+    <div class="stage">
+      <div class="col">
+        <div class="state-label">Variante C · <span class="w">300 px</span></div>
+        <div class="pane w300">
+          <div class="pane-header">
+            <span class="pane-title">Attention Is All You Need</span>
+            <span class="hl-btn"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 11-6 6v3h9l3-3"/><path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"/></svg></span>
+          </div>
+          <div class="msgs">
+            <div class="b-user">Was ist Multi-Head Attention?</div>
+            <div class="b-ai">Mehrere Attention-Köpfe lesen dieselbe Sequenz parallel …</div>
+          </div>
+          <div class="composer-area">
+            <div class="box">
+              <span class="icon-btn"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/><path d="M12 5v14"/></svg></span>
+              <div class="text">gemeint Sie auf 1. Wenn das Richtige Wort Katze ich und das Modell<span class="caret"></span></div>
+              <span class="send"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg></span>
+            </div>
+          </div>
+        </div>
+        <p class="note">≈ 22 Zeichen pro Zeile in einer Zeile — dafür ist das aktive Modell unsichtbar.</p>
+      </div>
+
+      <div class="col">
+        <div class="state-label">Variante C · geöffnetes <span class="w">+</span>-Menü</div>
+        <div class="pane w300">
+          <div class="pane-header">
+            <span class="pane-title">Attention Is All You Need</span>
+            <span class="hl-btn"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 11-6 6v3h9l3-3"/><path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"/></svg></span>
+          </div>
+          <div class="msgs">
+            <div class="b-ai">Mehrere Attention-Köpfe lesen dieselbe Sequenz parallel …</div>
+          </div>
+          <div class="composer-area">
+            <div class="fold-menu">
+              <div class="item"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v5h6"/></svg>Datei hochladen</div>
+              <div class="item"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>Paper suchen</div>
+              <div class="item"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19v3"/><rect x="9" y="2" width="6" height="13" rx="3"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg>Diktieren</div>
+              <div class="item"><span class="dot" style="width:8px;height:8px;border-radius:999px;background:var(--brand-blue)"></span>Modell<span class="tail">Gemini Flash Lite</span></div>
+            </div>
+            <div class="box">
+              <span class="icon-btn" style="background:var(--blue-50);color:var(--blue-700)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/><path d="M12 5v14"/></svg></span>
+              <div class="text ph">Frag irgendetwas</div>
+              <span class="send" style="background:var(--gray-200);color:var(--gray-400)"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg></span>
+            </div>
+          </div>
+        </div>
+        <p class="note">Der Modell-Name steht nur noch im Menü, als Wert einer Zeile.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════ §05 OVERLAP-FIX ═══════════════ -->
+  <div class="section">
+    <div class="section-label"><span class="num">§05</span><span>Der Überlappungs-Fix — gilt für jede Variante</span></div>
+    <p class="section-desc">
+      Unabhängig von der gewählten Variante: Stepper und Chevron dürfen keinen festen Abstand
+      vom Spaltenboden haben. Sie gehören <strong>an die Oberkante des Composers</strong> —
+      also in den Composer-Container mit <code>absolute bottom-full</code> statt
+      <code>bottom-32</code> auf der Spalte. Dann steigen sie mit, wenn das Feld wächst,
+      und bleiben unten, wenn es einzeilig ist.
+    </p>
+    <div class="stage">
+      <div class="col">
+        <div class="state-label"><span class="w">bottom-32</span> · fester Abstand</div>
+        <div class="pane w300">
+          <div class="msgs" style="padding-top:20px">
+            <div class="b-ai">Kurzer Text, das Feld ist einzeilig.</div>
+          </div>
+          <div class="composer-area">
+            <div class="floaters fixed-offset">
+              <span class="float-mid"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></span>
+              <span class="float-right">
+                <span class="step"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m18 15-6-6-6 6"/></svg></span>
+                <span class="count"><b>3</b>/3</span>
+                <span class="step"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></span>
+              </span>
+            </div>
+            <div class="box stacked">
+              <div class="text ph">Frag irgendetwas</div>
+              <div class="ctrl-row">
+                <span class="icon-btn"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/><path d="M12 5v14"/></svg></span>
+                <span class="model-chip"><span class="dot"></span>Gemini Flash Lite<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></span>
+                <span class="spacer"></span>
+                <span class="send" style="background:var(--gray-200);color:var(--gray-400)"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg></span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="note">Bei kurzem Feld schweben sie zu hoch, bei langem Feld liegen sie darauf.</p>
+      </div>
+
+      <div class="col">
+        <div class="state-label"><span class="w">bottom-full</span> · am Composer verankert</div>
+        <div class="pane w300">
+          <div class="msgs" style="padding-top:20px">
+            <div class="b-ai">Kurzer Text, das Feld ist einzeilig.</div>
+          </div>
+          <div class="composer-area">
+            <div class="floaters anchored">
+              <span class="float-mid"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></span>
+              <span class="float-right">
+                <span class="step"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m18 15-6-6-6 6"/></svg></span>
+                <span class="count"><b>3</b>/3</span>
+                <span class="step"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></span>
+              </span>
+            </div>
+            <div class="box stacked">
+              <div class="text ph">Frag irgendetwas</div>
+              <div class="ctrl-row">
+                <span class="icon-btn"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/><path d="M12 5v14"/></svg></span>
+                <span class="model-chip"><span class="dot"></span>Gemini Flash Lite<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></span>
+                <span class="spacer"></span>
+                <span class="send" style="background:var(--gray-200);color:var(--gray-400)"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg></span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="note">Immer 8 px über der Oberkante — bei jeder Feldhöhe, in jeder Variante.</p>
+      </div>
+    </div>
+
+    <div class="verdict">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+      <p>
+        <strong>Empfehlung: Variante A + der Fix aus §05.</strong>
+        A ist die einzige Variante, die die Zeile wirklich lesbar macht (34 statt 4 Zeichen),
+        und die einzige, die dabei den Modell-Namen behält — was nach der Kosten-Stufen-Arbeit
+        wichtig bleibt. B und C sparen Platz, indem sie Information wegnehmen.
+        Der §05-Fix ist unabhängig davon nötig: der feste <code>bottom-32</code>-Abstand ist
+        auch bei einem breiten Fenster falsch, sobald man eine lange Frage tippt.
+      </p>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  const themes = document.getElementById('themes');
+  themes.addEventListener('click', (e) => {
+    const btn = e.target.closest('button');
+    if (!btn) return;
+    const t = btn.dataset.theme;
+    if (t) document.documentElement.setAttribute('data-theme', t);
+    else document.documentElement.removeAttribute('data-theme');
+    [...themes.querySelectorAll('button')].forEach((b) => b.setAttribute('aria-pressed', String(b === btn)));
+  });
+  // #theme=matrix opens straight in a theme
+  const hash = new URLSearchParams(location.hash.slice(1)).get('theme');
+  if (hash) {
+    const btn = themes.querySelector(`button[data-theme="${hash}"]`);
+    if (btn) btn.click();
+  }
+</script>
+</body>
+</html>

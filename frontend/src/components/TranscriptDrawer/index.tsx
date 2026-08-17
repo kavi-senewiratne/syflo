@@ -13,28 +13,17 @@ import { FileText, X } from 'lucide-react';
 import { useStrings } from '../../strings';
 import type { Video } from '../../types';
 import { formatDuration } from '../VideoBanner';
+import { parseTranscriptBlocks } from '../../markdown/transcriptBlocks';
 
 interface Props {
   video: Video;
   onClose: () => void;
 }
 
-// "[01:30] Text…"-Blöcke in { time, text } zerlegen; Text ohne führende
-// Marke (sollte nicht vorkommen) wird ohne Zeit gerendert.
-function parseBlocks(transcript: string): { time: string | null; text: string }[] {
-  return transcript
-    .split(/\n\n+/)
-    .map((block) => {
-      const m = block.match(/^\[(\d+:\d{2}(?::\d{2})?)\]\s*([\s\S]*)$/);
-      return m ? { time: m[1], text: m[2] } : { time: null, text: block };
-    })
-    .filter((b) => b.text.trim().length > 0);
-}
-
 export function TranscriptDrawer({ video, onClose }: Props) {
   // UI-Texte in der App language — re-rendert beim Sprachwechsel mit.
   const S = useStrings().transcriptDrawer;
-  const blocks = useMemo(() => parseBlocks(video.transcript ?? ''), [video.transcript]);
+  const blocks = useMemo(() => parseTranscriptBlocks(video.transcript ?? ''), [video.transcript]);
   const duration = formatDuration(video.duration_seconds);
 
   useEffect(() => {

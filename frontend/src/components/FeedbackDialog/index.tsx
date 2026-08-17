@@ -35,6 +35,9 @@ export function FeedbackDialog({ open, onClose, initialText = '' }: Props) {
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // GitHub-issues fallback shown next to the error (hybrid feedback,
+  // 2026-08-08): a failed send must never be a dead end.
+  const [issuesUrl, setIssuesUrl] = useState<string | null>(null);
 
   // App.tsx keeps ONE dialog instance mounted and just flips `open` — so
   // useState(initialText) alone only ever seeds the very first mount.
@@ -49,6 +52,7 @@ export function FeedbackDialog({ open, onClose, initialText = '' }: Props) {
     setSending(false);
     setSent(false);
     setError(null);
+    setIssuesUrl(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, initialText]);
 
@@ -62,13 +66,14 @@ export function FeedbackDialog({ open, onClose, initialText = '' }: Props) {
       setSent(true);
     } catch {
       setError(S.error);
+      api.getFeedbackIssuesUrl().then(setIssuesUrl);
     } finally {
       setSending(false);
     }
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+    <div data-overlay className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
           <h3 className="text-base font-semibold text-gray-900">{S.title}</h3>
@@ -120,7 +125,21 @@ export function FeedbackDialog({ open, onClose, initialText = '' }: Props) {
                 />
               </div>
 
-              {error && <p className="text-xs text-red-600">{error}</p>}
+              {error && (
+                <p className="text-xs text-red-600">
+                  {error}{' '}
+                  {issuesUrl && (
+                    <a
+                      href={issuesUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="font-medium text-blue-600 underline underline-offset-2 hover:text-blue-700"
+                    >
+                      {S.errorIssueLink}
+                    </a>
+                  )}
+                </p>
+              )}
             </div>
 
             <div className="flex justify-end gap-2 px-5 pb-5">

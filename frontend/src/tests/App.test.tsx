@@ -23,6 +23,9 @@ vi.mock('../pdf/pdfDocument', () => ({
   loadPdfDocument: vi.fn().mockResolvedValue({
     numPages: 2,
     renderPage: (...args: unknown[]) => renderPage(...args),
+    // Page size in PDF points — the view needs it to place citation
+    // underlines (design/mockup-paper-reference-links.html).
+    getPageSize: async () => ({ width: 612, height: 792 }),
   }),
 }));
 
@@ -64,7 +67,11 @@ vi.mock('../api', () => ({
     getTreePaper: vi.fn(),
     uploadPaper: vi.fn(),
     createChat: vi.fn(),
-    deleteChat: vi.fn(),
+    deleteChat: vi.fn().mockResolvedValue(undefined),
+    listTranscriptHighlights: vi.fn().mockResolvedValue([]),
+    createTranscriptHighlight: vi.fn(),
+    updateTranscriptHighlight: vi.fn(),
+    deleteTranscriptHighlight: vi.fn(),
     renameChat: vi.fn(),
     sendMessageStream: vi.fn(),
     regenerateMessage: vi.fn(),
@@ -307,7 +314,7 @@ describe('App — verlassene leere Chats aufräumen (Nutzerkorrektur 2026-07-22)
     await waitFor(() => expect(screen.getByText('Lease review')).toBeInTheDocument());
 
     // Neuen Chat anlegen, nichts senden, zurück zum bestehenden Chat.
-    fireEvent.click(screen.getByTitle('New Chat'));
+    fireEvent.click(screen.getByLabelText('New Chat'));
     await waitFor(() => expect(api.getChat).toHaveBeenCalledWith('c2'));
     fireEvent.click(screen.getByText('Lease review'));
 
@@ -365,7 +372,8 @@ const boundVideo: Video = {
 
 const sentUser: Message = {
   id: 'u1', chat_id: 'c1', role: 'user',
-  content: 'Structure the information in this video.', created_at: '2026-07-23T00:00:00Z',
+  content: 'Break the whole video down into its sections — each with a heading, its key point, and the details. Leave nothing out.',
+  created_at: '2026-07-23T00:00:00Z',
 };
 const sentAssistant: Message = {
   id: 'a1', chat_id: 'c1', role: 'assistant',
@@ -397,7 +405,7 @@ describe('App — YouTube transcript import (ADR-0005)', () => {
     });
   });
 
-  it('importiert das Video, sendet den Auto-Prompt in der App language (Default Englisch) und zeigt das Banner', async () => {
+  it('importiert das Video, sendet den Auto-Prompt in der App language (Default Englisch) und zeigt den Player', async () => {
     await openRootChat();
     await importVideoViaPlusMenu();
 
@@ -409,10 +417,14 @@ describe('App — YouTube transcript import (ADR-0005)', () => {
     await waitFor(() => expect(api.sendMessageStream).toHaveBeenCalled());
     expect(vi.mocked(api.sendMessageStream).mock.calls[0][0]).toBe('c1');
     expect(vi.mocked(api.sendMessageStream).mock.calls[0][1]).toBe(
-      'Structure the information in this video.',
+      'Break the whole video down into its sections — each with a heading, its key point, and the details. Leave nothing out.',
     );
-    // Quellen-Banner erscheint über dem Verlauf.
-    await waitFor(() => expect(screen.getByTestId('video-banner')).toBeInTheDocument());
+    // Das Video steht eingebettet in der Mittelspalte — seit 2026-08-15 tritt
+    // der Player an die Stelle des schlanken Quellen-Banners
+    // (design/mockup-youtube-embed-layout.html, Variante C).
+    await waitFor(() => expect(screen.getByTestId('video-pane')).toBeInTheDocument());
+    expect(screen.getByTestId('video-player-frame')).toBeInTheDocument();
+    expect(screen.queryByTestId('video-banner')).not.toBeInTheDocument();
     // Modal ist zu.
     expect(screen.queryByTestId('youtube-search-modal')).not.toBeInTheDocument();
   });
@@ -426,7 +438,7 @@ describe('App — YouTube transcript import (ADR-0005)', () => {
 
     await waitFor(() => expect(api.sendMessageStream).toHaveBeenCalled());
     expect(vi.mocked(api.sendMessageStream).mock.calls[0][1]).toBe(
-      'Strukturiere die Informationen aus diesem Video.',
+      'Gliedere das ganze Video in seine Abschnitte — je Abschnitt eine Überschrift, die Kernaussage und die Details. Nichts weglassen.',
     );
   });
 
@@ -918,5 +930,84 @@ describe('App — header title follows the auto-generated title (live incident 2
     await waitFor(() =>
       expect(within(screen.getByTestId('chat-header-shell')).getByText('US Professoren für Weltmodelle')).toBeInTheDocument(),
     );
+  });
+});
+
+// ─── Deleting a branch while the mind map is open ───────────────────────────
+//
+// User report 2026-08-08: deleting a branch threw the user out of the mind map
+// back to the empty start screen. The view must stay put and the selection
+// must move to the parent node so the deletion is visible as a node vanishing.
+
+describe('App — delete a branch from the mind map view', () => {
+  const branch: Chat = {
+    id: 'c2',
+    title: 'Rent clause',
+    parent_id: 'c1',
+    parent_word: 'rent',
+    created_at: '2026-07-11T00:02:00Z',
+    children: [],
+  };
+  const rootWithBranch: Chat = { ...rootChat, children: [branch] };
+
+  beforeEach(() => {
+    vi.mocked(api.getTree).mockResolvedValue([rootWithBranch]);
+    vi.mocked(api.getChat).mockImplementation(async (id: string) =>
+      id === 'c2'
+        ? { ...branch, messages: [], children: [] }
+        : { ...rootWithBranch, messages: [], children: [branch] },
+    );
+    vi.mocked(api.deleteChat).mockResolvedValue(undefined as never);
+  });
+
+  // Both the sidebar and the mind map render a chat's title, so every query
+  // for a row is scoped to the sidebar.
+  const sidebar = () => within(document.querySelector('.syflo-sidebar') as HTMLElement);
+
+  /** Open the branch chat, then switch the main column to the mind map. */
+  async function openBranchInMindMap() {
+    render(<App />);
+    await waitFor(() => expect(sidebar().getByText('Lease review')).toBeInTheDocument());
+    fireEvent.click(sidebar().getByText('Lease review'));
+    await waitFor(() => expect(sidebar().getByText('Rent clause')).toBeInTheDocument());
+    fireEvent.click(sidebar().getByText('Rent clause'));
+    await waitFor(() => expect(api.getChat).toHaveBeenCalledWith('c2'));
+    fireEvent.click(screen.getByLabelText('Switch to Mind Map'));
+    await waitFor(() => expect(screen.getByTestId('mindmap-pane-resizer')).toBeInTheDocument());
+  }
+
+  /** Right-click a sidebar row and confirm the delete modal. */
+  async function deleteViaContextMenu(title: string) {
+    fireEvent.contextMenu(sidebar().getByText(title));
+    fireEvent.click(await screen.findByText('Delete'));
+    fireEvent.click(await screen.findByTestId('confirm-delete-chat'));
+  }
+
+  it('stays in the mind map and selects the parent node', async () => {
+    await openBranchInMindMap();
+
+    // The tree the post-delete refresh returns no longer has the branch.
+    vi.mocked(api.getTree).mockResolvedValue([{ ...rootChat, children: [] }]);
+    await deleteViaContextMenu('Rent clause');
+
+    await waitFor(() => expect(api.deleteChat).toHaveBeenCalledWith('c2'));
+    // Selection moved up to the parent…
+    await waitFor(() => expect(api.getChat).toHaveBeenLastCalledWith('c1'));
+    // …and the mind map is still the view the user is looking at.
+    expect(screen.getByTestId('mindmap-pane-resizer')).toBeInTheDocument();
+    // The deleted node is gone from the map/sidebar.
+    await waitFor(() => expect(sidebar().queryByText('Rent clause')).not.toBeInTheDocument());
+  });
+
+  it('falls back to chat view when the whole tree is deleted', async () => {
+    await openBranchInMindMap();
+
+    vi.mocked(api.getTree).mockResolvedValue([]);
+    // Deleting the root takes its branches with it — nothing left to show.
+    fireEvent.click(sidebar().getByText('All chats'));
+    await deleteViaContextMenu('Lease review');
+
+    await waitFor(() => expect(api.deleteChat).toHaveBeenCalledWith('c1'));
+    await waitFor(() => expect(screen.queryByTestId('mindmap-pane-resizer')).not.toBeInTheDocument());
   });
 });

@@ -84,6 +84,7 @@ vi.mock('../api', () => ({
     renameChat: vi.fn(),
     sendMessageStream: vi.fn(),
     regenerateMessage: vi.fn(),
+    continueMessage: vi.fn(),
     explainWord: vi.fn(),
     listHighlights: vi.fn().mockResolvedValue([]),
     listMessageHighlights: vi.fn().mockResolvedValue([]),
@@ -188,6 +189,83 @@ describe('App — failReason from the SSE error picks the honest card', () => {
       ),
     );
     expect(screen.getByTestId('retry-button')).toBeEnabled();
+  });
+});
+
+// ─── Overloaded provider · the waiting is shown, not hidden ────────────────
+// design/mockup-truncated-answer.html §03: the backend retries a 503 in place;
+// the app must pin the announcement onto the streaming answer, or the user
+// stares at silent thinking dots for up to 14 seconds.
+
+describe('App — overloaded provider announces the retry', () => {
+  it('shows the overload row while the backend waits, and drops it when text arrives', async () => {
+    const startedUser: Message = {
+      id: 'u1', chat_id: 'c1', role: 'user', content: 'Frage', created_at: '2026-08-16T00:00:01Z',
+    };
+    let deliver: (() => void) | undefined;
+    vi.mocked(api.sendMessageStream).mockImplementation(
+      (_chatId, _content, onDelta, _atts, _onTool, opts) =>
+        new Promise((resolve) => {
+          opts?.onStarted?.(startedUser);
+          opts?.onOverloaded?.({ retryInSeconds: 4, attempt: 1, maxAttempts: 3, provider: 'gemini' });
+          deliver = () => { onDelta('Endlich die Antwort.'); resolve(undefined as never); };
+        }),
+    );
+
+    await openRootChat();
+    await typeAndSend('Frage');
+
+    await waitFor(() => expect(screen.getByTestId('overloaded-note')).toBeInTheDocument());
+    expect(screen.getByTestId('overloaded-note')).toHaveTextContent(/1 of 3/);
+
+    deliver!();
+    await waitFor(() => expect(screen.queryByTestId('overloaded-note')).not.toBeInTheDocument());
+  });
+});
+
+// ─── Truncated answer · continue writing in place ──────────────────────────
+// design/mockup-truncated-answer.html §01: the card grows the answer instead
+// of replacing it, so the chapters already parsed survive.
+
+describe('App — continuing an answer the provider cut short', () => {
+  const cutDetail: ChatDetail = {
+    ...rootChat,
+    children: [],
+    messages: [
+      { id: 'u1', chat_id: 'c1', role: 'user', content: 'Gliedere das Video', created_at: '2026-08-16T00:00:01Z' },
+      {
+        id: 'a1', chat_id: 'c1', role: 'assistant',
+        content: '## Teil eins [0:03 - 5:12]\n\nDie Gewichte entsprechen dem',
+        created_at: '2026-08-16T00:00:02Z',
+        truncated: 1,
+      },
+    ],
+  };
+
+  it('streams the continuation into the SAME bubble and drops the card', async () => {
+    vi.mocked(api.getChat).mockResolvedValue(cutDetail);
+    vi.mocked(api.continueMessage).mockImplementation((_chatId, _messageId, onDelta) => {
+      onDelta(' Binärcode.');
+      return Promise.resolve({
+        userMessage: cutDetail.messages[0],
+        assistantMessage: {
+          ...cutDetail.messages[1],
+          content: '## Teil eins [0:03 - 5:12]\n\nDie Gewichte entsprechen dem Binärcode.',
+          truncated: 0,
+        },
+      });
+    });
+
+    await openRootChat();
+
+    fireEvent.click(await screen.findByTestId('continue-button'));
+
+    await waitFor(() => expect(api.continueMessage).toHaveBeenCalledWith(
+      'c1', 'a1', expect.any(Function), expect.anything(),
+    ));
+    // One answer bubble, now finished — no second bubble starting mid-sentence.
+    await waitFor(() => expect(screen.queryByTestId('truncated-note')).not.toBeInTheDocument());
+    expect(screen.getByText(/Die Gewichte entsprechen dem Binärcode\./)).toBeInTheDocument();
   });
 });
 

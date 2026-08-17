@@ -108,6 +108,32 @@ describe('HighlightsDrawer', () => {
     expect(screen.getByText('CB-MCTS')).toBeInTheDocument();
   });
 
+  it('blasst nicht gewählte Chips ab, solange gefiltert wird (2026-08-02)', async () => {
+    // Gleicher Stil wie die Leiste über der MindMap
+    // (design/mockup-mindmap-lens-final.html §04): aktiver Chip mit
+    // Akzentrahmen, nicht gewählte verblassen — aber NUR wenn gefiltert wird.
+    const user = userEvent.setup();
+    renderDrawer();
+    await screen.findByText('CB-MCTS');
+
+    const important = screen.getByRole('button', { name: /Important/ });
+    const disagree = screen.getByRole('button', { name: /Disagree/ });
+    // "All" aktiv: kein Chip ist ausgegraut.
+    expect(important.className).not.toMatch(/opacity-40/);
+    expect(disagree.className).not.toMatch(/opacity-40/);
+
+    await user.click(disagree);
+    expect(disagree.className).toMatch(/border-blue-600/);
+    expect(important.className).toMatch(/opacity-40/);
+  });
+
+  it('hebt die Karte hervor, auf die ein MindMap-Klick gesprungen ist', async () => {
+    renderDrawer({ focusHighlightId: 'mh-1' });
+    await screen.findByText('annealed');
+    const card = screen.getByText('annealed').closest('button')!;
+    expect(card.className).toMatch(/border-blue-600/);
+  });
+
   it('springt beim Klick auf eine Karte (onJump mit dem Item)', async () => {
     const user = userEvent.setup();
     const onJump = vi.fn();

@@ -21,6 +21,16 @@ const SUMMARY_WORD_TARGET = 120;
 const MAX_PARENT_CHARS = 8000;
 const PARENT_VERBATIM_TAIL = 10;
 
+// Budget for the origin excerpt — the paragraph the selection was taken
+// from, repeated next to the selection at the very end of the prompt.
+const ORIGIN_MAX_CHARS = 1500;
+
+// How much of the selection is used to locate it. A long selection can
+// straddle markdown the renderer hid; a distinctive prefix still pins down
+// the right paragraph.
+const ORIGIN_PROBE_CHARS = 60;
+const ORIGIN_MIN_PROBE_CHARS = 8;
+
 // Last message of a chat — basis of the staleness check.
 function lastMessageId(db, chatId) {
   const row = db
@@ -150,6 +160,56 @@ function parseSummaryResponse(raw) {
   return { summary: raw, display: null };
 }
 
+// Tolerant form for locating a selection inside a stored message: collapse
+// whitespace and drop the markdown emphasis characters. A passage selected
+// in a rendered chat bubble never carries them, the stored markdown does.
+function normalizeForMatch(text) {
+  return (text || '').replace(/[*_`~]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+/**
+ * The paragraph of the parent conversation the selection was taken from.
+ *
+ * Nearness beats volume (bug 2026-08-09): the parent transcript sits in the
+ * system block, far above — behind up to ~58k characters of source text. A
+ * weak model (Flash Lite) then reads the selected sentence as a free-floating
+ * quote: "imaginär" in a passage about word embeddings became a term of
+ * language philosophy although the parent chat had just explained imaginary
+ * NUMBERS two messages earlier. Returning the origin separately lets the
+ * caller repeat it directly next to the selection, at the end of the prompt.
+ *
+ * Returns null when the selection cannot be located (PDF branches, selections
+ * spanning several messages, edited parents) — the block is then simply
+ * omitted rather than guessed at.
+ */
+function findSelectionOrigin(messages, selection) {
+  const needle = normalizeForMatch(selection);
+  if (needle.length < ORIGIN_MIN_PROBE_CHARS) return null;
+  const probes = [...new Set([needle, needle.slice(0, ORIGIN_PROBE_CHARS)])]
+    .filter((p) => p.length >= ORIGIN_MIN_PROBE_CHARS);
+
+  for (const probe of probes) {
+    // Newest first: a term the user selects is usually from the last answer.
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const excerpt = paragraphAround(messages[i].content, probe);
+      if (excerpt) return { role: messages[i].role, excerpt };
+    }
+  }
+  return null;
+}
+
+// The matching paragraph plus its predecessor — the preceding paragraph is
+// what the terms inside the selection usually refer back to. Paragraphs
+// instead of a character window: no index arithmetic between the raw and the
+// normalized text, and the unit matches how the answer is written.
+function paragraphAround(content, probe) {
+  const paragraphs = (content || '').split(/\n{2,}/);
+  const hit = paragraphs.findIndex((p) => normalizeForMatch(p).includes(probe));
+  if (hit === -1) return null;
+  const excerpt = paragraphs.slice(Math.max(0, hit - 1), hit + 1).join('\n\n').trim();
+  return excerpt.length > ORIGIN_MAX_CHARS ? excerpt.slice(-ORIGIN_MAX_CHARS) : excerpt;
+}
+
 /**
  * Ancestor path of a chat: [root, …, direct parent chat].
  * Empty for root chats.
@@ -209,7 +269,12 @@ async function buildAncestorContext(db, chatId, opts = {}) {
       `[Most recent messages, verbatim]\n${tail}`;
   }
 
-  const result = { chain, summaries, parentTranscript, parent };
+  // The paragraph the selection came from — from the FULL parent messages,
+  // not from the possibly summarized transcript above: the origin must
+  // survive even when the parent chat outgrew MAX_PARENT_CHARS.
+  const origin = findSelectionOrigin(parentMessages, chat.parent_word);
+
+  const result = { chain, summaries, parentTranscript, parent, origin };
   return { ...result, text: renderAncestorText(result) };
 }
 
@@ -225,7 +290,16 @@ function renderAncestorText({ chain, summaries, parentTranscript }) {
     );
   }
   if (parentTranscript) {
-    parts.push(`The parent conversation, verbatim:\n${parentTranscript}`);
+    // The "not your own earlier answers" clause is load-bearing (bug
+    // 2026-08-08): without it the model reads the last inherited assistant
+    // turn as its own and answers "I didn't understand this" with an apology
+    // plus a repeat of THAT answer — the parent's whole-paper explanation —
+    // instead of explaining the passage the branch was opened from.
+    parts.push(
+      'The conversation this branch grew out of, verbatim — background from a ' +
+      'DIFFERENT chat, not your own earlier answers in this one:\n' +
+      parentTranscript
+    );
   }
   return parts.join('\n\n');
 }
@@ -340,6 +414,7 @@ module.exports = {
   ensureChatSummary,
   parseSummaryResponse,
   buildAncestorContext,
+  findSelectionOrigin,
   renderAncestorText,
   applyContextBudget,
   warmUpAncestorSummaries,

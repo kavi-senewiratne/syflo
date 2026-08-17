@@ -23,11 +23,12 @@
  */
 
 import { useEffect, useMemo, useState } from 'react';
-import { FileText, Highlighter, MessageSquare, X } from 'lucide-react';
+import { FileText, Highlighter, MessageSquare, TvMinimalPlay, X } from 'lucide-react';
 import { useTreeHighlights } from '../../hooks/useTreeHighlights';
 import { useLabels } from '../../hooks/useLabels';
 import { useStrings } from '../../strings';
 import { MathText, hasMath } from '../MathText';
+import { formatDuration } from '../VideoBanner';
 import { HIGHLIGHT_COLORS } from '../../types';
 import type { HighlightColor, TreeHighlight } from '../../types';
 
@@ -65,6 +66,10 @@ interface Props {
   // wenn der Chat allein die volle Breite hat (Nutzerentscheidung
   // 2026-07-22) — Highlights und Chat bleiben gleichzeitig sichtbar.
   variant?: 'overlay' | 'panel';
+  // Highlight to lift into view — set when a mind-map node click jumped to
+  // its source (2026-08-02). The matching card gets the accent border and
+  // scrolls itself into the list.
+  focusHighlightId?: string | null;
 }
 
 // Locale folgt der App language ('de-DE' bei Deutsch, sonst 'en-US').
@@ -74,7 +79,9 @@ function formatDay(iso: string, locale: string): string {
   return d.toLocaleDateString(locale, { month: 'short', day: 'numeric' });
 }
 
-export function HighlightsDrawer({ chatId, onClose, onJump, onItemContextMenu, variant = 'overlay' }: Props) {
+export function HighlightsDrawer({
+  chatId, onClose, onJump, onItemContextMenu, variant = 'overlay', focusHighlightId = null,
+}: Props) {
   // UI-Texte in der App language — re-rendert beim Sprachwechsel mit.
   const S = useStrings().highlightsDrawer;
   const { items, loading } = useTreeHighlights(chatId);
@@ -114,6 +121,7 @@ export function HighlightsDrawer({ chatId, onClose, onJump, onItemContextMenu, v
   return (
     <div
       data-testid="highlights-drawer"
+      data-focus-region="highlights"
       className={
         variant === 'panel'
           ? 'flex h-full w-full flex-col overflow-hidden bg-white border-l border-gray-200'
@@ -129,6 +137,7 @@ export function HighlightsDrawer({ chatId, onClose, onJump, onItemContextMenu, v
           <button
             type="button"
             aria-label={S.close}
+            data-focus-item="drawer-close"
             onClick={onClose}
             className="flex h-7 w-7 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700"
           >
@@ -138,12 +147,15 @@ export function HighlightsDrawer({ chatId, onClose, onJump, onItemContextMenu, v
         <div className="flex flex-wrap gap-1.5">
           <button
             type="button"
+            // The filter chips are a row of controls like any other
+            // (user request 2026-08-12).
+            data-focus-item="drawer-filter-all"
             aria-pressed={selected.size === 0}
             onClick={() => setSelected(new Set())}
-            className={`rounded-full border px-2.5 py-0.5 text-[11.5px] font-medium transition-colors ${
+            className={`rounded-full border px-2.5 py-0.5 text-[11.5px] transition-all ${
               selected.size === 0
-                ? 'border-blue-100 bg-blue-50 text-blue-700'
-                : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
+                ? 'border-blue-600 font-bold text-blue-700'
+                : 'border-gray-200 bg-white font-medium text-gray-700 hover:bg-gray-50'
             }`}
           >
             {S.all} <span className={selected.size === 0 ? 'text-blue-400' : 'text-gray-400'}>{items.length}</span>
@@ -154,15 +166,22 @@ export function HighlightsDrawer({ chatId, onClose, onJump, onItemContextMenu, v
               <button
                 key={color}
                 type="button"
+                data-focus-item={`drawer-filter-${color}`}
                 aria-pressed={active}
                 onClick={() => toggleColor(color)}
-                className={`flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11.5px] font-medium transition-colors ${
+                // Same chip style as the bar above the mind map
+                // (design/mockup-mindmap-lens-final.html §04): the active one
+                // wears the accent border, the others fade — but only while a
+                // filter is on, otherwise a full bar of greyed-out chips reads
+                // as "everything is off".
+                className={`flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11.5px] transition-all ${
                   active
-                    ? 'border-blue-100 bg-blue-50 text-blue-700'
-                    : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
-                }`}
+                    ? 'border-blue-600 font-bold text-blue-700'
+                    : 'border-gray-200 bg-white font-medium text-gray-700 hover:bg-gray-50'
+                }${selected.size > 0 && !active ? ' opacity-40' : ''}`}
               >
-                <span className={`h-2 w-2 rounded-full ${DOT_BG[color]}`} />
+                {/* Square dot, matching the node's colour bar (2026-08-02). */}
+                <span className={`h-2 w-2 rounded-[3px] ${DOT_BG[color]}`} />
                 {labels[color]} <span className={active ? 'text-blue-400' : 'text-gray-400'}>{counts[color]}</span>
               </button>
             );
@@ -190,18 +209,45 @@ export function HighlightsDrawer({ chatId, onClose, onJump, onItemContextMenu, v
               <button
                 key={item.id}
                 type="button"
+                data-focus-item={item.id}
+                ref={(el) => {
+                  // Jumped-to card: pull it into view once it is mounted.
+                  if (el && item.id === focusHighlightId) {
+                    el.scrollIntoView({ block: 'nearest' });
+                  }
+                }}
                 onClick={() => onJump(item)}
                 onContextMenu={(e) => {
                   e.preventDefault();
                   onItemContextMenu(item, e.clientX, e.clientY);
                 }}
-                className={`relative mb-2 w-full rounded-lg border border-gray-100 bg-white py-2.5 pl-4 pr-3 text-left transition-all hover:-translate-y-px hover:border-gray-200 hover:shadow-sm before:absolute before:bottom-2.5 before:left-1.5 before:top-2.5 before:w-[3px] before:rounded-sm before:opacity-55 before:content-[''] ${BAR_BG[item.color]}`}
+                className={`relative mb-2 w-full rounded-lg border bg-white py-2.5 pl-4 pr-3 text-left transition-all hover:-translate-y-px hover:shadow-sm before:absolute before:bottom-2.5 before:left-1.5 before:top-2.5 before:w-[3px] before:rounded-sm before:opacity-55 before:content-[''] ${
+                  item.id === focusHighlightId
+                    ? 'border-blue-600 shadow-sm'
+                    : 'border-gray-100 hover:border-gray-200'
+                } ${BAR_BG[item.color]}`}
               >
                 <span className="line-clamp-2 block text-xs leading-normal text-gray-700"><MathText text={item.text} /></span>
                 <span className="mt-1.5 flex min-w-0 items-center gap-1.5 text-[10.5px] font-medium text-gray-400">
-                  {item.kind === 'pdf' ? <FileText size={10} className="shrink-0" /> : <MessageSquare size={10} className="shrink-0" />}
+                  {/* One icon per source: page, video, chat. The video marks
+                      joined the drawer on 2026-08-16 and name their MOMENT —
+                      that is what identifies a spot in a transcript, the way
+                      a page number identifies one in a PDF. */}
+                  {item.kind === 'pdf' ? (
+                    <FileText size={10} className="shrink-0" />
+                  ) : item.kind === 'transcript' || item.kind === 'chapter' ? (
+                    <TvMinimalPlay size={10} className="shrink-0" />
+                  ) : (
+                    <MessageSquare size={10} className="shrink-0" />
+                  )}
                   {item.kind === 'pdf' ? (
                     <span className="truncate">{S.pdfSource(item.pageNumber)}</span>
+                  ) : item.kind === 'transcript' || item.kind === 'chapter' ? (
+                    <span className="truncate">
+                      {item.kind === 'chapter'
+                        ? S.chapterSource(formatDuration(item.startSeconds) ?? '')
+                        : S.transcriptSource(formatDuration(item.startSeconds) ?? '')}
+                    </span>
                   ) : (
                     <span className={`min-w-0 ${hasMath(item.chatTitle) ? 'syflo-math-fade' : 'truncate'}`}>
                       <MathText text={S.chatSource(item.chatTitle)} />

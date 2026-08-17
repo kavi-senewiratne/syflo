@@ -15,6 +15,12 @@
  * Build wechselt oder ein pdf.js-Update neue APIs ohne Polyfill voraussetzt.
  */
 
+/// <reference types="node" />
+// This one test runs in Node, not in a browser: it resolves the pdf.js
+// worker from disk. tsconfig.app.json deliberately keeps Node's globals out
+// of the app code (types: ["vite/client"]), so the types are pulled in here
+// only, for this file.
+
 import { describe, it, expect, beforeAll } from 'vitest';
 import { pathToFileURL } from 'node:url';
 import path from 'node:path';

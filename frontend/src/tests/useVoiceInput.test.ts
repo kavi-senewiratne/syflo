@@ -13,15 +13,18 @@
  */
 
 import { renderHook, act } from '@testing-library/react';
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
 import { useVoiceInput } from '../hooks/useVoiceInput';
+import type { PcmRecording } from '../audio/recorder';
 
+// start/stop carry their real signatures: vitest 4's bare vi.fn() widens to
+// Mock<Procedure | Constructable>, which no longer satisfies PcmRecorder.
 let fakeRecorder: {
   started: boolean;
   samples: Float32Array;
   sampleRate: number;
-  start: ReturnType<typeof vi.fn>;
-  stop: ReturnType<typeof vi.fn>;
+  start: Mock<() => Promise<void>>;
+  stop: Mock<() => Promise<PcmRecording>>;
 };
 let getUserMedia: ReturnType<typeof vi.fn>;
 let fetchMock: ReturnType<typeof vi.fn>;
@@ -31,8 +34,8 @@ function makeFakeRecorder() {
     started: false,
     samples: new Float32Array([0.1, 0.2, 0.3]),
     sampleRate: 16000,
-    start: vi.fn(async () => { fakeRecorder.started = true; }),
-    stop: vi.fn(async () => ({
+    start: vi.fn<() => Promise<void>>(async () => { fakeRecorder.started = true; }),
+    stop: vi.fn<() => Promise<PcmRecording>>(async () => ({
       samples: fakeRecorder.samples,
       sampleRate: fakeRecorder.sampleRate,
     })),
@@ -66,7 +69,14 @@ afterEach(() => {
 const flush = () => new Promise(resolve => setTimeout(resolve, 0));
 
 function pressSpace(repeat = false) {
-  document.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space', bubbles: true, repeat }));
+  const event = new KeyboardEvent('keydown', {
+    code: 'Space',
+    bubbles: true,
+    cancelable: true,
+    repeat,
+  });
+  document.dispatchEvent(event);
+  return event;
 }
 
 function releaseSpace() {
@@ -124,6 +134,40 @@ describe('useVoiceInput – spacebar shortcut', () => {
 
     expect(result.current.isListening).toBe(false);
     expect(getUserMedia).not.toHaveBeenCalled();
+  });
+
+  // Held spacebar used to page-scroll the PDF to its end: only the FIRST
+  // keydown was preventDefault()ed, every auto-repeat fell through to the
+  // browser's native "Space = page down".
+  it('suppresses the native page scroll on every auto-repeat while held', async () => {
+    const onTranscript = vi.fn();
+    renderHook(() => useVoiceInput({ onTranscript, recorderFactory }));
+
+    let first: KeyboardEvent | undefined;
+    act(() => { first = pressSpace(); });
+    await act(async () => { await flush(); });
+    expect(first!.defaultPrevented).toBe(true);
+
+    for (let i = 0; i < 3; i++) {
+      let repeated: KeyboardEvent | undefined;
+      act(() => { repeated = pressSpace(true); });
+      expect(repeated!.defaultPrevented).toBe(true);
+    }
+  });
+
+  it('leaves the native page scroll alone when a textarea is focused', async () => {
+    const onTranscript = vi.fn();
+    renderHook(() => useVoiceInput({ onTranscript, recorderFactory }));
+
+    const textarea = document.createElement('textarea');
+    document.body.appendChild(textarea);
+    textarea.focus();
+
+    let event: KeyboardEvent | undefined;
+    act(() => { event = pressSpace(); });
+    expect(event!.defaultPrevented).toBe(false);
+
+    document.body.removeChild(textarea);
   });
 
   it('does not start when enabled is false', async () => {

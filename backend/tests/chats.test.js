@@ -79,6 +79,70 @@ describe('PATCH /api/chats/:id', () => {
     expect(res.status).toBe(200);
     expect(res.body.title).toBe('New Title');
   });
+
+  it('returns 400 when neither title nor pinned is sent', async () => {
+    const chat = await request(app).post('/api/chats').send({ title: 'Untouched' });
+    const res = await request(app).patch(`/api/chats/${chat.body.id}`).send({});
+    expect(res.status).toBe(400);
+  });
+});
+
+// Pinning (design/mockup-pinned-chats.html, variant A): a root chat leaves
+// the date sections and moves into one section of its own at the top.
+describe('PATCH /api/chats/:id — pinning', () => {
+  it('pins a root chat by stamping pinned_at', async () => {
+    const chat = await request(app).post('/api/chats').send({ title: 'Attention is all you need' });
+    expect(chat.body.pinned_at).toBeNull();
+
+    const res = await request(app).patch(`/api/chats/${chat.body.id}`).send({ pinned: true });
+
+    expect(res.status).toBe(200);
+    expect(res.body.pinned_at).toEqual(expect.any(String));
+    expect(Number.isNaN(Date.parse(res.body.pinned_at))).toBe(false);
+  });
+
+  it('unpins by clearing pinned_at', async () => {
+    const chat = await request(app).post('/api/chats').send({ title: 'Batch normalisation' });
+    await request(app).patch(`/api/chats/${chat.body.id}`).send({ pinned: true });
+
+    const res = await request(app).patch(`/api/chats/${chat.body.id}`).send({ pinned: false });
+
+    expect(res.status).toBe(200);
+    expect(res.body.pinned_at).toBeNull();
+  });
+
+  it('keeps the title when only the pin changes', async () => {
+    const chat = await request(app).post('/api/chats').send({ title: 'Keep me' });
+    const res = await request(app).patch(`/api/chats/${chat.body.id}`).send({ pinned: true });
+    expect(res.body.title).toBe('Keep me');
+  });
+
+  it('rejects pinning a branch — only root chats have a section to sit in', async () => {
+    const parent = await request(app).post('/api/chats').send({ title: 'Parent' });
+    const branch = await request(app).post('/api/chats').send({
+      title: 'Branch', parent_id: parent.body.id, parent_word: 'softmax',
+    });
+
+    const res = await request(app).patch(`/api/chats/${branch.body.id}`).send({ pinned: true });
+
+    expect(res.status).toBe(400);
+    const after = await request(app).get(`/api/chats/${branch.body.id}`);
+    expect(after.body.pinned_at).toBeNull();
+  });
+
+  it('returns 404 for an unknown chat', async () => {
+    const res = await request(app).patch('/api/chats/nonexistent').send({ pinned: true });
+    expect(res.status).toBe(404);
+  });
+
+  it('exposes pinned_at on the tree the sidebar reads', async () => {
+    const chat = await request(app).post('/api/chats').send({ title: 'Pinned tree' });
+    await request(app).patch(`/api/chats/${chat.body.id}`).send({ pinned: true });
+
+    const tree = await request(app).get('/api/chats/tree');
+
+    expect(tree.body.find(c => c.id === chat.body.id).pinned_at).toEqual(expect.any(String));
+  });
 });
 
 describe('DELETE /api/chats/:id', () => {

@@ -17,10 +17,12 @@ const fs = require('fs');
 const multer = require('multer');
 const { getLLMClient, getLLMClientFor, getSetting, noThinkExtras, extendOllamaKeepAlive } = require('../llm');
 const { getModelInfo, getRegistry } = require('../registry');
-const { streamWithTools, ALL_TOOLS } = require('../tools');
+const { streamWithTools, ALL_TOOLS, isTruncatedFinish } = require('../tools');
+const { joinContinuation } = require('../continuation');
 const {
   MAX_PASSAGE_CHARS, capTitleWords, sanitizeTitle,
-  branchTitleInstruction, chatTitleInstruction,
+  branchTitleInstruction, chatTitleInstruction, parseBranchTitleReply,
+  outcomeInstruction, parseOutcomeReply,
 } = require('../title');
 const { getTreePaperContext } = require('../pdf-text');
 const { getTreeVideoContext, transcriptTruncationNote } = require('../youtube');
@@ -31,7 +33,10 @@ const {
   RETRIEVE_K,
 } = require('../retrieval');
 const { buildPerfRecord, formatPerfLine, appendPerfJsonl, isPerfJsonlEnabled } = require('../perf-log');
-const { isRateLimit, isDailyQuota, isTooLarge, isModelUnavailable, isBillingRequired, msUntilUtcMidnight } = require('../quota');
+const {
+  isRateLimit, isDailyQuota, isTooLarge, isModelUnavailable, isBillingRequired,
+  isOverloaded, msUntilUtcMidnight, callCloudLadder,
+} = require('../quota');
 const {
   buildAncestorContext,
   renderAncestorText,
@@ -42,11 +47,29 @@ const {
 
 const MAX_TEXT_FILE_BYTES = 64 * 1024;
 
+// Time budget for the side call after an answer (branch title + the mindmap's
+// outcome line). It runs while the client still holds the SSE connection open
+// for the done event, so the whole ladder gets one short budget and each single
+// call a shorter one — a hanging candidate must not delay the answer's close.
+const SIDE_CALL_BUDGET_MS = 12000;
+const SIDE_CALL_MS = 6000;
+
+// How often a 503 ("the model is experiencing high demand") is retried before
+// the answer fails, and how long we wait in between. Growing pauses, because
+// overload is a queue: hammering the same second makes it worse. Three tries
+// with 2+4+8 s cost at most 14 s of waiting — long enough to ride out the
+// spike measured on 2026-08-16, short enough that a real outage still fails
+// while the user is still watching.
+const OVERLOAD_BACKOFF_SECONDS = [2, 4, 8];
+
 module.exports = (db, UPLOADS_DIR, options = {}) => {
   // Injectable for tests: (pdfPath) => Promise<string>.
   const extractPdfTextFn = options.extractPdfTextFn;
   // Injectable for tests: (texts) => Promise<number[][]> (retrieval.js).
   const embedTextsFn = options.embedTextsFn;
+  // Injectable for tests: the growing pauses between overload retries. Real
+  // seconds would make the 503 suite wait 14 s for what it asserts in code.
+  const overloadBackoffSeconds = options.overloadBackoffSeconds || OVERLOAD_BACKOFF_SECONDS;
   const router = express.Router({ mergeParams: true });
 
   // Place attachments in the chat-specific directory so cleanup can happen
@@ -139,7 +162,13 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
     // (~40 ms/token), but the perceived wait there is dominated by prefill,
     // not decode. If long local answers ever hurt again, reintroduce the
     // rule for provider === 'ollama' only — never globally.
-    let systemBase = 'You are a friendly and helpful assistant. Formatting rules: (1) Use proper Markdown for headings — always include a SPACE between the hash characters and the heading text: `# Heading`, `## Subheading`, `### Sub-subheading`. Never write `#Heading` without a space — it will not render as a heading. (2) Do NOT use emojis. Keep prose plain so it reads cleanly. (3) When explaining concepts, always use analogies and real-world comparisons to make things easy to understand. (4) When the user attaches images, examine them carefully and describe what you see when relevant. (5) When the user asks about current or real-time information (news, weather, prices, recent events) or explicitly asks you to search the web, ALWAYS call the web_search tool first and base your answer on its results — never invent real-time information from memory, and never claim the tool is unavailable without having called it. (6) ALWAYS reply in the language of the user\'s most recent message — German message, German reply; English message, English reply. If a message mixes languages, reply in its dominant language. (7) Write EVERY mathematical expression that has an exponent, subscript, fraction, or math symbol as LaTeX inside inline math delimiters $…$ — e.g. $10^{50}$, $w_t$, $\\frac{a}{b}$, $27 \\times 27$. NEVER write a bare caret (^) or underscore (_) for math in plain text (write $10^{50}$, not 10^50), because a bare caret renders as a literal character instead of a superscript. Plain whole numbers without such notation may stay as normal text.';
+    // No analogy rule either (removed 2026-08-12, user decision): the old
+    // "always use analogies and real-world comparisons" made every answer
+    // detour through a metaphor — a question about one term came back as a
+    // mixing-desk story before it said anything about the term. Whether a
+    // comparison helps is the answer's business, not a standing order; users
+    // who want one ask for it, or put it in their custom instructions.
+    let systemBase = 'You are a friendly and helpful assistant. Formatting rules: (1) Use proper Markdown for headings — always include a SPACE between the hash characters and the heading text: `# Heading`, `## Subheading`, `### Sub-subheading`. Never write `#Heading` without a space — it will not render as a heading. (2) Do NOT use emojis. Keep prose plain so it reads cleanly. (3) When the user attaches images, examine them carefully and describe what you see when relevant. (4) When the user asks about current or real-time information (news, weather, prices, recent events) or explicitly asks you to search the web, ALWAYS call the web_search tool first and base your answer on its results — never invent real-time information from memory, and never claim the tool is unavailable without having called it. (5) ALWAYS reply in the language of the user\'s most recent message — German message, German reply; English message, English reply. If a message mixes languages, reply in its dominant language. (6) Write EVERY mathematical expression that has an exponent, subscript, fraction, or math symbol as LaTeX inside inline math delimiters $…$ — e.g. $10^{50}$, $w_t$, $\\frac{a}{b}$, $27 \\times 27$. NEVER write a bare caret (^) or underscore (_) for math in plain text (write $10^{50}$, not 10^50), because a bare caret renders as a literal character instead of a superscript. Plain whole numbers without such notation may stay as normal text.';
 
     // Custom instructions (CONTEXT.md): user free text from the settings —
     // directly after the base rules and BEFORE paper/ancestor context, so
@@ -147,7 +176,10 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
     // needed because small local models otherwise resolve rule conflicts
     // unpredictably.
     const customInstructions = getSetting(db, 'custom_instructions');
-    if (getSetting(db, 'custom_instructions_enabled') === 'true' && customInstructions.trim()) {
+    const customInstructionsActive = Boolean(
+      getSetting(db, 'custom_instructions_enabled') === 'true' && customInstructions.trim()
+    );
+    if (customInstructionsActive) {
       systemBase +=
         '\n\nThe user has set the following custom instructions. Follow them; they take precedence over the style rules above.\n' +
         '--- CUSTOM INSTRUCTIONS START ---\n' +
@@ -171,6 +203,8 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
     // parent_word chain. Summary errors degrade silently to the context
     // without the affected summary; the lazy path here is the safety net
     // behind the warm-up at branch creation.
+    // Filled for branch chats: the selection block that closes the prompt.
+    let branchFocus = null;
     let ancestor = null;
     if (chat.parent_id) {
       try {
@@ -278,6 +312,19 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
       // Video overview rule (user decision 2026-07-23): structuring
       // means organizing, NOT shortening — without the explicit rule the
       // model falls back to its default behavior of "summarizing".
+      //
+      // Spelled out as an output SHAPE on 2026-08-15. The one-line version
+      // ("do NOT summarize and do not drop content") was a prohibition, and a
+      // prohibition leaves the model without a picture of what to produce
+      // instead. The numbered form below states the target; every clause
+      // answers a specific way the old rule was worked around — dropping the
+      // last third once the context thinned out, merging two topics into one
+      // section, abstracting a concrete number into "several", or ending on
+      // "and so on" while looking complete.
+      //
+      // The time range is not decoration: markdown/timeLinks.ts turns every
+      // [m:ss] into a link that opens YouTube at that second, so a missing
+      // mark costs a section its jump target.
       const note = transcriptTruncationNote(
         fitted.paperText, videoContext.text, videoContext.durationSeconds
       );
@@ -286,9 +333,24 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
         `"${videoContext.title}"${videoContext.channel ? ` by ${videoContext.channel}` : ''}. ` +
         'Its full transcript (with [minute:second] marks) is included below. Base every answer ' +
         'about the video on this transcript; if something is not covered by it, say so instead ' +
-        'of guessing. When the user asks you to structure the video, reorganize ALL substantive ' +
-        'content into sections with key points and minute marks — do NOT summarize and do not ' +
-        'drop content.\n' +
+        'of guessing.\n' +
+        'When the user asks you to structure the video, work through the transcript from ' +
+        'beginning to end and divide it into the sections the video itself has. For EACH ' +
+        'section, output in this order:\n' +
+        '1. a "##" heading naming that section\'s topic, followed by its time range as ' +
+        '[m:ss - m:ss] (use [h:mm:ss] past an hour)\n' +
+        '2. one bold sentence stating the section\'s key point\n' +
+        '3. a bullet list carrying the substance — every claim, number, name, example, ' +
+        'definition and step the speaker gives, in the speaker\'s own terms. Start EVERY ' +
+        'bullet with its own point in bold — the term, the claim or the step it is about — ' +
+        'then a colon and the detail, so the list can be skimmed by its bold openings alone\n' +
+        'Keep the video\'s order. Never merge two topics into one section, never write ' +
+        '"and so on", never skip a passage for being minor, and never replace a concrete ' +
+        'figure or name with a general phrase. This is a RE-ORGANIZATION of the transcript, ' +
+        'not a summary: it must be far longer than a summary and must let someone who has not ' +
+        'watched the video follow every argument. If the material is too long to finish in one ' +
+        'answer, stop at a section boundary and say which minute you reached — never silently ' +
+        'shorten.\n' +
         '--- VIDEO TRANSCRIPT START ---\n' +
         fitted.paperText +
         (note || '') +
@@ -314,9 +376,57 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
           `blackboard/calligraphic letters may be lost (e.g. "Rm" may actually be the math ` +
           `symbol R^m). Infer the intended notation from the surrounding text.`
         : `The user is exploring the term "${chat.parent_word}" from a previous conversation.`;
+      // Bug 2026-08-08: "Ich habe dies nicht verstanden." in a fresh branch
+      // made the model explain the whole source instead of the selection.
+      // The selection used to be one clause in the MIDDLE of the system
+      // prompt — between the source text and the inherited parent transcript,
+      // the weakest position there is. It now lives in its own message right
+      // before the question (pushed at the end of this function), so it is
+      // the last thing the model reads, and it spells out what a vague
+      // reference points at. Weak fallback models (Flash Lite on an exhausted
+      // quota) need that rule the most — exactly when the user notices.
+      // The shared prefix (base rules + source) stays byte-identical and the
+      // block is built here, so warm-up and real call agree: KV cache intact.
+      // "everything above" used to include the custom instructions (fix
+      // 2026-08-09): in a branch this block is the last thing the model
+      // reads, so a blanket "only background" told it to drop the user's
+      // settings instructions along with the source. The instructions are
+      // explicitly exempted since.
+      //
+      // Second overcorrection of the same block (fix 2026-08-09): demoting
+      // the inherited conversation to "background" and forbidding it outright
+      // conflated WHAT to explain (the selection) with WHERE its words get
+      // their meaning (the parent chat). Flash Lite took the prohibition
+      // literally: a selection saying word embeddings need no "imaginary"
+      // part was answered as language philosophy, although the parent chat —
+      // present in the prompt, 5.7k characters of it — had just explained
+      // imaginary NUMBERS two messages earlier. Subject and source of meaning
+      // are separated now; the 2026-08-08 protection survives as the closing
+      // sentence, which keeps the passage the subject.
+      //
+      // The origin block is the other half: nearness beats volume. The parent
+      // transcript sits in the system message behind up to ~58k characters of
+      // source text, so the paragraph the selection came from is repeated
+      // HERE, right next to it. It costs at most ORIGIN_MAX_CHARS and sits
+      // behind the history, so the shared prefix stays byte-identical.
+      const originBlock = ancestor.origin
+        ? `\n\nThe passage was selected from this part of the parent conversation ` +
+          `(the ${ancestor.origin.role} message it appeared in) — this is what its ` +
+          `terms refer to:\n"""\n${ancestor.origin.excerpt}\n"""\n\n`
+        : ' ';
+      branchFocus =
+        `THE USER'S CURRENT FOCUS — this branch of the tree was opened from a selection. ` +
+        `The user's custom instructions above still apply in full. ${branchIntro}${originBlock}` +
+        `When the user refers to "this", "that", "it" or "here", or says they did not ` +
+        `understand something without naming it, they mean THE SELECTED PASSAGE. Explain ` +
+        `that passage, and read its words in the sense the earlier conversation above gave ` +
+        `them — that conversation is what decides which meaning a term carries here when it ` +
+        `has both an everyday and a technical one. Keep the passage itself as the subject: ` +
+        `widen to the source as a whole, or to the earlier conversation as a topic of its ` +
+        `own, only when the user explicitly asks.`;
       contextMessages.push({
         role: 'system',
-        content: `${systemBase} ${branchIntro} Context:\n\n${ancestorText}`,
+        content: `${systemBase} Context:\n\n${ancestorText}`,
       });
     } else {
       contextMessages.push({ role: 'system', content: systemBase });
@@ -337,6 +447,33 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
     included
       .filter((m) => !(m.role === 'assistant' && isRetryableMarker(m.content)))
       .forEach(m => contextMessages.push({ role: m.role, content: m.content }));
+
+    // Instruction sandwich (2026-08-09): the custom instructions are repeated
+    // as their own message behind the history. Reported symptom: in deep trees
+    // the answers stopped following the settings instructions. The block sat
+    // at the very FRONT of the system prompt, and by then the prompt had grown
+    // to ~20k tokens (perf log, gemini-flash-lite) — source, ancestor context
+    // and the branch's own history all between the rule and the question.
+    // Same reasoning, same position as the branch focus below (bug 2026-08-08):
+    // what must be obeyed belongs next to the question, not at the top.
+    // The front copy stays where it is, so the shared prefix — and with it
+    // Ollama's KV cache and the warm-up contract — is byte-identical.
+    if (customInstructionsActive) {
+      contextMessages.push({
+        role: 'system',
+        content:
+          "REMINDER — the user's custom instructions from Settings, repeated here because " +
+          'they govern the answer you are about to write. They outrank the style rules and ' +
+          'anything the conversation above did differently.\n' +
+          '--- CUSTOM INSTRUCTIONS START ---\n' +
+          customInstructions +
+          '\n--- CUSTOM INSTRUCTIONS END ---',
+      });
+    }
+
+    // The selection closes the prompt — after the branch's own history, so
+    // it stays the last instruction no matter how long the conversation gets.
+    if (branchFocus) contextMessages.push({ role: 'system', content: branchFocus });
 
     // retrieval ≠ null means: the POST handler fetches the matching chunks
     // per question and appends them AFTER the history — the prefix up to
@@ -658,6 +795,11 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
     // Content from JSON or multipart
     const content = req.body.content || req.body.text || '';
     const aliases = req.body.aliases ? JSON.parse(req.body.aliases) : [];
+    // Anchor of an "Ask in chat" quote: the highlight the quoted passage was
+    // taken from, so the rendered quote can jump back to it. Optional — a
+    // question without a quote, and a PDF quote saved without a color, send
+    // nothing here.
+    const quoteHighlightId = req.body.quoteHighlightId || null;
     if (!content && (!req.files || req.files.length === 0)) {
       return res.status(400).json({ error: 'content or files required' });
     }
@@ -673,8 +815,8 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
     const userMsgId = crypto.randomUUID();
     const enqueuedAt = monotonicNow(chatId);
     db.prepare(
-      'INSERT INTO messages (id, chat_id, role, content, created_at, pending) VALUES (?, ?, ?, ?, ?, 1)'
-    ).run(userMsgId, chatId, 'user', content, enqueuedAt);
+      'INSERT INTO messages (id, chat_id, role, content, created_at, pending, quote_highlight_id) VALUES (?, ?, ?, ?, ?, 1, ?)'
+    ).run(userMsgId, chatId, 'user', content, enqueuedAt, quoteHighlightId);
     const files = req.files || [];
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
@@ -729,6 +871,52 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
   // A trailing '*Failed*' marker is removed; a bare user question without
   // an answer (legacy of the formerly silent errors) also counts.
   // 409 if the last message is a real answer.
+  // Continue writing a cut-off answer (design/mockup-truncated-answer.html
+  // §01). Not a regenerate: regenerate REPLACES an answer, this one grows it.
+  // The text that arrived is real work the user already paid tokens for, and
+  // for a Video overview it is also the chapters already parsed — throwing it
+  // away to start over is the one thing the card must not do.
+  router.post('/continue', (req, res) => {
+    const chatId = req.params.chatId;
+    const chat = db.prepare('SELECT * FROM chats WHERE id = ?').get(chatId);
+    if (!chat) return res.status(404).json({ error: 'Chat not found' });
+
+    const target = db.prepare(
+      'SELECT * FROM messages WHERE id = ? AND chat_id = ?'
+    ).get(req.body?.messageId, chatId);
+    // Only a genuinely truncated answer can be continued: without the flag
+    // the model would append a second ending to a finished text.
+    if (!target || target.role !== 'assistant' || !target.truncated) {
+      return res.status(409).json({ error: 'nothing to continue' });
+    }
+    const question = db.prepare(
+      "SELECT * FROM messages WHERE chat_id = ? AND role = 'user' AND created_at < ? " +
+      'ORDER BY created_at DESC, id DESC LIMIT 1'
+    ).get(chatId, target.created_at);
+    if (!question) return res.status(409).json({ error: 'nothing to continue' });
+
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders?.();
+
+    return enqueueMessageJob({
+      req, res,
+      content: question.content,
+      aliases: [],
+      files: [],
+      think: String(req.body?.think) === 'true',
+      forceProvider: null,
+      continueOf: {
+        assistantMsgId: target.id,
+        assistantCreatedAt: target.created_at,
+        existingContent: target.content,
+        userMsgId: question.id,
+        userCreatedAt: question.created_at,
+      },
+    });
+  });
+
   router.post('/regenerate', (req, res) => {
     const chatId = req.params.chatId;
     const chat = db.prepare('SELECT * FROM chats WHERE id = ?').get(chatId);
@@ -836,7 +1024,12 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
     let userMsgId;
     let now;
     let attachments = [];
-    if (job.regenerate) {
+    if (job.continueOf) {
+      // A continuation has no new question — it re-uses the one the cut-off
+      // answer belongs to, and nothing about that row changes.
+      userMsgId = job.continueOf.userMsgId;
+      now = job.continueOf.userCreatedAt;
+    } else if (job.regenerate) {
       userMsgId = job.regenerate.userMsgId;
       now = job.regenerate.createdAt;
       attachments = job.regenerate.attachments;
@@ -862,9 +1055,16 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
       id: a.id, alias: a.alias, filename: a.filename, mimetype: a.mimetype, size: a.size,
       url: `/uploads/${chatId}/${a.id}-${a.filename.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 80)}`,
     }));
+    // Read the anchor back from the row instead of from the job: this event
+    // REPLACES the frontend's optimistic question, so anything missing here
+    // silently disappears from the open chat until the next reload — which is
+    // exactly how the quote lost its jump on the first try (2026-08-08).
+    // Regenerate takes the same path and keeps the original question's anchor.
+    const anchorRow = db.prepare('SELECT quote_highlight_id FROM messages WHERE id = ?').get(userMsgId);
     const userMessage = {
       id: userMsgId, chat_id: chatId, role: 'user', content, created_at: now,
       attachments: userAttachments,
+      quote_highlight_id: anchorRow?.quote_highlight_id ?? null,
     };
 
     // started event: the job is up. The UI uses it to replace its
@@ -898,7 +1098,9 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
     const buildContextFor = async (budgetFor) => {
       currentBudgetChars = contextBudget(db, budgetFor).maxSystemContextChars;
       const built = await buildSystemAndHistory(chat, {
-        dropLastMessage: !job.regenerate?.historyUntil,
+        // A continuation needs the FULL history including the cut-off answer:
+        // that text is what the model has to pick up mid-sentence.
+        dropLastMessage: job.continueOf ? false : !job.regenerate?.historyUntil,
         historyUntil: job.regenerate?.historyUntil ?? null,
         budgetFor,
       });
@@ -914,10 +1116,18 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
       excerptChars = 0;
       if (retrieval && content) {
         try {
+          // In a branch the question alone is a bad query (bug 2026-08-08):
+          // "Ich habe dies nicht verstanden." has no content word, so it
+          // matches nothing and the passage the branch was opened from never
+          // reaches the excerpts. The selection carries the topic — prepend
+          // it so a vague follow-up still retrieves around its own passage.
+          const retrievalQuery = chat.parent_word
+            ? `${String(chat.parent_word).slice(0, MAX_PASSAGE_CHARS)}\n${content}`
+            : content;
           const hits = await retrieveChunks(db, {
             sourceType: retrieval.sourceType,
             sourceId: retrieval.sourceId,
-            query: content,
+            query: retrievalQuery,
             k: RETRIEVE_K,
             ...(embedTextsFn ? { embedFn: embedTextsFn } : {}),
           });
@@ -933,13 +1143,44 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
       }
 
       // Current user message: multimodal with images (see annex note above).
-      if (imageContents.length > 0) {
+      // In a branch the selection is prefixed to the question (bug
+      // 2026-08-08). A system message saying "vague references mean the
+      // selection" was NOT enough — measured against the running app with
+      // gemini-flash-lite on a 67k-char prompt, the model still explained the
+      // whole paper; prefixed to the user turn it explained the passage. It
+      // is the same repair the user made by hand ("also ich meine, was ich
+      // markiert habe"). Prompt scaffolding only: the stored message, and
+      // therefore the tree and the UI, keep the raw question.
+      const askedText = chat.parent_word
+        ? `[Selected passage from the source, the subject of this branch: ` +
+          `"${String(chat.parent_word).trim().slice(0, MAX_PASSAGE_CHARS)}"]\n\n${content}`
+        : content;
+      if (job.continueOf) {
+        // Continue writing (mockup-truncated-answer §01). Deliberately a USER
+        // turn and the LAST message: the same lesson as the branch selection
+        // (2026-08-08) — an instruction the model must obey belongs next to
+        // where it answers, not in a system block above 20k tokens of source.
+        // It describes the SHAPE of the continuation ("your next characters
+        // are appended directly"), because a bare "continue" reliably
+        // produces a polite restart of the whole answer.
         contextMessages.push({
           role: 'user',
-          content: [{ type: 'text', text: content }, ...imageContents],
+          content:
+            'Your previous answer was cut off mid-sentence. Continue it — but START by ' +
+            'repeating its LAST FEW WORDS verbatim (if it broke off inside a word, start ' +
+            'with that whole word), then carry straight on. Those repeated words are the ' +
+            'seam: they are removed automatically when your text is joined to the old one, ' +
+            'and without them the two halves collide. Beyond that repetition, repeat ' +
+            'nothing: no restart, no summary of what came before, no introduction. Keep the ' +
+            'same format and language, and carry on to the end.',
+        });
+      } else if (imageContents.length > 0) {
+        contextMessages.push({
+          role: 'user',
+          content: [{ type: 'text', text: askedText }, ...imageContents],
         });
       } else {
-        contextMessages.push({ role: 'user', content });
+        contextMessages.push({ role: 'user', content: askedText });
       }
       if (textAnnex) {
         contextMessages.push({
@@ -1088,6 +1329,11 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
       });
 
       let streamedAnything = false;
+      let lastFinishReason = null;
+      // Overload retries (mockup-truncated-answer §03): own budget, separate
+      // from the 429 attempts above — a saturated provider says nothing about
+      // this request's token cost, so one cause must not eat the other's tries.
+      let overloadAttempt = 0;
 
       // Tool-use loop: the LLM may call web_search on its own. On a tool
       // call we stream special SSE events to the frontend so it can show
@@ -1112,6 +1358,12 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
           res.write(`data: ${JSON.stringify({ reasoning: delta })}\n\n`);
         },
         onPerf: (perf) => {
+          // The provider's own verdict on how this answer ended. 'stop' and
+          // 'tool_calls' are clean; anything else (length, content_filter,
+          // Gemini's MAX_TOKENS/RECITATION, or a missing finish chunk) means
+          // the text stopped mid-thought — the only witness there is, since
+          // a cut-off answer reads like a finished one.
+          lastFinishReason = perf.finishReason ?? null;
           // One [perf] line per answer: the basis for every latency diagnosis
           // (prefill vs. decode). Enriched with mode, cache state and
           // source size — the three main drivers of wait time. Pure metrics,
@@ -1183,6 +1435,36 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
               err.failReason = 'local_unreachable';
             }
             throw err;
+          }
+          // Provider overloaded (503 UNAVAILABLE, "high demand"): the same
+          // request succeeds seconds later — measured 2026-08-16, five 503s
+          // and one clean answer for one prompt inside four minutes. So it is
+          // retried IN PLACE: no cooldown (overload is weather, not an
+          // exhausted budget) and no ladder move (the model itself is fine).
+          // The wait is announced over SSE like the 429 countdown — the user
+          // learns the provider is busy instead of watching nothing happen.
+          if (isOverloaded(err)) {
+            if (overloadAttempt >= overloadBackoffSeconds.length) {
+              err.failReason = 'overloaded';
+              err.failProvider = provider;
+              err.failModel = model;
+              throw err;
+            }
+            const wait = overloadBackoffSeconds[overloadAttempt];
+            overloadAttempt += 1;
+            sseWrite(res, {
+              overloaded: {
+                retryInSeconds: wait,
+                attempt: overloadAttempt,
+                maxAttempts: overloadBackoffSeconds.length,
+                provider,
+                model,
+              },
+            });
+            await sleep(wait * 1000);
+            if (upstreamAbort.signal.aborted) throw err;
+            attempt = 0; // an overload round never spends the 429 budget
+            continue;
           }
           if (!isRateLimit(err) && !tooLarge && !unavailable) throw err;
           if (unavailable) {
@@ -1276,13 +1558,37 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
       const aborted = upstreamAbort.signal.aborted;
       const assistantContent = aborted ? '*Interrupted*' : fullContent;
 
-      const assistantMsgId = crypto.randomUUID();
-      // Anchored regenerate: the replacement takes the old marker's slot so
-      // the answer sits directly under its question.
-      const assistantNow = job.regenerate?.anchorCreatedAt ?? monotonicNow(chatId);
-      db.prepare(
-        'INSERT INTO messages (id, chat_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)'
-      ).run(assistantMsgId, req.params.chatId, 'assistant', assistantContent, assistantNow);
+      // Cut short by the provider? Only for answers that actually carry text:
+      // an aborted one is already the *Interrupted* marker, and marking that
+      // truncated would offer to continue a text nobody kept.
+      const truncated = !aborted && isTruncatedFinish(lastFinishReason) && Boolean(assistantContent);
+      let assistantMsgId;
+      let assistantNow;
+      let storedContent;
+      if (job.continueOf) {
+        // ONE message, not two (mockup-truncated-answer §01): the chapter
+        // list parses a single overview, and a second bubble starting
+        // mid-sentence would read as a new answer. A stopped continuation
+        // keeps the text as it was — the same rule as the stop button, which
+        // discards what it did not finish.
+        assistantMsgId = job.continueOf.assistantMsgId;
+        assistantNow = job.continueOf.assistantCreatedAt;
+        storedContent = aborted
+          ? job.continueOf.existingContent
+          : joinContinuation(job.continueOf.existingContent, assistantContent);
+        db.prepare('UPDATE messages SET content = ?, truncated = ? WHERE id = ?')
+          .run(storedContent, aborted ? 1 : truncated ? 1 : 0, assistantMsgId);
+      } else {
+        assistantMsgId = crypto.randomUUID();
+        // Anchored regenerate: the replacement takes the old marker's slot so
+        // the answer sits directly under its question.
+        assistantNow = job.regenerate?.anchorCreatedAt ?? monotonicNow(chatId);
+        storedContent = assistantContent;
+        db.prepare(
+          'INSERT INTO messages (id, chat_id, role, content, created_at, truncated) VALUES (?, ?, ?, ?, ?, ?)'
+        ).run(assistantMsgId, req.params.chatId, 'assistant', assistantContent, assistantNow, truncated ? 1 : 0);
+      }
+      if (truncated) sseWrite(res, { truncated: true, messageId: assistantMsgId });
 
       // Title generation as before — skip after an abort (the client is
       // gone, and another LLM call would just be wait time for the next
@@ -1295,7 +1601,42 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
       // slice 03, videos ADR-0005) — the root keeps this name instead of
       // letting title generation overwrite it.
       const hasSourceName = Boolean(chat.paper_id || chat.video_id);
-      if (!aborted && !hasSourceName && (chat.title === 'New Chat' || msgCount.count <= 2)) {
+      // A TOPIC BRANCH (`/branch <topic>`, design/mockup-branch-command.html)
+      // is a branch without a parent_word: the user typed its subject, and
+      // routes/chats.js/passage-title already titled it from exactly that.
+      // That title is settled at birth — rewriting it from the first answer
+      // would throw away the words the user chose.
+      const isTopicBranch = Boolean(chat.parent_id) && !chat.parent_word;
+      const needsTitle = !hasSourceName && !isTopicBranch
+        && (chat.title === 'New Chat' || msgCount.count <= 2);
+
+      // Fallback: first few words of the passage (branches) or of the
+      // user's message, in case the LLM call fails.
+      const branchQuote = chat.parent_word
+        ? String(chat.parent_word).trim().slice(0, MAX_PASSAGE_CHARS)
+        : null;
+
+      // The mindmap's outcome line is NOT a one-shot. It used to be written
+      // only inside the title gate above — so a branch whose title call timed
+      // out, hit a quota, or came back without the OUTCOME line kept its
+      // "Ergebnis folgt …" placeholder forever, because that gate never opens
+      // a second time (found 2026-08-03: 22 of 60 branches). Now every further
+      // answer in a branch without an outcome tries again, with a lean
+      // outcome-only call that leaves the settled title alone.
+      // Deliberately not capped by an attempt counter: each retry asks about a
+      // conversation that has grown since the last one, so a branch where the
+      // model still finds nothing to state is a branch that genuinely has not
+      // concluded anything yet. The cost is one short call per answer, and it
+      // stops for good the moment a line is stored.
+      // What the outcome line is ABOUT: the passage a branch was cut from —
+      // or, for a topic branch, the topic itself, which lives in the title.
+      // Live report 2026-08-08: every /branch node stayed on "Ergebnis folgt …"
+      // because this gate asked for a parent_word no topic branch has.
+      const outcomeSubject = branchQuote
+        || (isTopicBranch ? String(chat.title || '').trim() : null);
+      const needsOutcome = Boolean(outcomeSubject) && !String(chat.outcome || '').trim();
+
+      if (!aborted && (needsTitle || needsOutcome)) {
         // Caps, prompts and sanitizing live in ../title.js — the
         // passage-title endpoint (routes/chats.js) reuses exactly the same
         // rules, so a branch titled up front and one titled after the first
@@ -1304,19 +1645,24 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
         // from, not after the first question (user decision 2026-07-26): in
         // the sidebar tree "Kannst du mir alle" says nothing, a summary of
         // the marked text does.
-        const branchQuote = chat.parent_word
-          ? String(chat.parent_word).trim().slice(0, MAX_PASSAGE_CHARS)
-          : null;
-
-        // Fallback: first few words of the passage (branches) or of the
-        // user's message, in case the LLM call fails.
         let newTitle = capTitleWords((branchQuote || content || 'Chat').trim());
 
         try {
           const { client: titleClient, model: titleModel, provider: titleProvider } = getLLMClient(db);
-          const titleInstruction = branchQuote
-            ? branchTitleInstruction(branchQuote)
-            : chatTitleInstruction();
+          // withOutcome: this call runs AFTER the answer, so it can also
+          // report what the conversation established — the mindmap node's
+          // second line (chats.outcome, decision 2026-08-02). One call for
+          // both; the pre-branch lookup in routes/chats.js keeps asking for
+          // title + quote only, because there is no answer yet.
+          // The answer travels INSIDE the instruction: on cloud providers the
+          // call is that one message, so "what the conversation above
+          // established" had nothing to look at (see ../title.js).
+          // Title already settled: ask for the missing outcome alone.
+          const titleInstruction = !needsTitle
+            ? outcomeInstruction(outcomeSubject, fullContent)
+            : branchQuote
+              ? branchTitleInstruction(branchQuote, { withOutcome: true, answer: fullContent })
+              : chatTitleInstruction();
           // Ollama has exactly ONE KV cache slot (vision models force
           // parallel:1). A standalone title prompt would evict the
           // expensive paper prefix — the next question then pays the full
@@ -1330,40 +1676,103 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
           // the question would pull the summary toward the question again.
           const titleMessages = titleProvider === 'ollama'
             ? [...contextMessages, { role: 'assistant', content: fullContent }, titleInstruction]
-            : branchQuote
+            : outcomeSubject
               ? [titleInstruction]
               : [titleInstruction, { role: 'user', content: content || 'New chat' }];
-          let titleCompletion;
-          try {
-            titleCompletion = await titleClient.chat.completions.create({
-              model: titleModel,
-              // For a 4-word title no thinking model may brood for minutes.
-              ...noThinkExtras(titleProvider),
+          let raw = '';
+          if (titleProvider === 'ollama') {
+            // Local path stays a single call on the configured model: there is
+            // no ladder to walk (one KV slot, no quotas) and a second model
+            // would evict the paper prefix.
+            let titleCompletion;
+            try {
+              titleCompletion = await titleClient.chat.completions.create({
+                model: titleModel,
+                // For a 4-word title no thinking model may brood for minutes.
+                ...noThinkExtras(titleProvider),
+                messages: titleMessages,
+                tools: ALL_TOOLS,
+              });
+            } catch (err) {
+              if (!/does not support tools/i.test(err?.message || '')) throw err;
+              titleCompletion = await titleClient.chat.completions.create({
+                model: titleModel,
+                ...noThinkExtras(titleProvider),
+                messages: titleMessages,
+              });
+            }
+            raw = titleCompletion.choices[0]?.message?.content || '';
+          } else {
+            // Cloud: the SAME failover ladder as the answer, the passage title
+            // and explain (../quota.js). Without it an exhausted quota left the
+            // mindmap node saying "Ergebnis folgt …" forever, even with a
+            // second keyed provider sitting right there (user report
+            // 2026-08-06) — and the next answer only retried on the very model
+            // that had just hit the wall.
+            const ladder = await callCloudLadder(db, {
+              activeProvider: titleProvider,
               messages: titleMessages,
-              ...(titleProvider === 'ollama' ? { tools: ALL_TOOLS } : {}),
+              budgetMs: SIDE_CALL_BUDGET_MS,
+              callMs: SIDE_CALL_MS,
+              isCoolingDown: isQuotaCoolingDown,
+              markCooldown: markQuotaCooldown,
+              label: needsTitle ? 'branch title' : 'outcome line',
             });
-          } catch (err) {
-            if (!/does not support tools/i.test(err?.message || '')) throw err;
-            titleCompletion = await titleClient.chat.completions.create({
-              model: titleModel,
-              ...noThinkExtras(titleProvider),
-              messages: titleMessages,
-            });
+            raw = ladder?.raw || '';
           }
-          const raw = titleCompletion.choices[0]?.message?.content || '';
-          if (raw.trim()) newTitle = raw.trim();
+          if (raw.trim()) {
+            if (!needsTitle) {
+              // Catch-up call: one line, and nothing else may be touched.
+              const outcome = parseOutcomeReply(raw);
+              if (outcome) {
+                db.prepare('UPDATE chats SET outcome = ? WHERE id = ?')
+                  .run(outcome, req.params.chatId);
+              }
+            } else if (branchQuote) {
+              // The branch instruction asks for TITLE/QUOTE lines, so the
+              // reply must go through the same parser as the passage-title
+              // endpoint. Taking it verbatim was how a JSON reply ended up as
+              // the tree node `{ "title": "θ₂ Update` (user report
+              // 2026-08-02) — the two paths must never disagree.
+              const parsed = parseBranchTitleReply(raw, {
+                maxQuoteChars: MAX_PASSAGE_CHARS,
+                passage: branchQuote,
+              });
+              if (parsed.title) newTitle = parsed.title;
+              // The outcome line of the mindmap node. Stored separately from
+              // the title so the node can show both without the two saying
+              // the same thing (decision 2026-08-02).
+              if (parsed.outcome) {
+                db.prepare('UPDATE chats SET outcome = ? WHERE id = ?')
+                  .run(parsed.outcome, req.params.chatId);
+              }
+              // Second chance for the restored formula: when the pre-branch
+              // lookup came back empty (quota, timeout, Ollama), the header
+              // still shows the flattened text — this fills it in.
+              if (parsed.quote && !chat.parent_word_display) {
+                db.prepare('UPDATE chats SET parent_word_display = ? WHERE id = ?')
+                  .run(parsed.quote, req.params.chatId);
+              }
+            } else {
+              newTitle = raw.trim();
+            }
+          }
         } catch (_) { /* the fallback is good enough */ }
 
         // Strip wrapping quotes/backticks and trailing punctuation, drop line
         // breaks, enforce both caps, defuse a half-delimiter (../title.js).
-        newTitle = sanitizeTitle(newTitle);
-
-        db.prepare('UPDATE chats SET title = ? WHERE id = ?').run(newTitle, req.params.chatId);
+        // Only when the title was actually asked for — a pure outcome catch-up
+        // must never rename a branch the user has been reading for days.
+        if (needsTitle) {
+          newTitle = sanitizeTitle(newTitle);
+          db.prepare('UPDATE chats SET title = ? WHERE id = ?').run(newTitle, req.params.chatId);
+        }
       }
 
       const assistantMessage = {
-        id: assistantMsgId, chat_id: req.params.chatId, role: 'assistant', content: assistantContent, created_at: assistantNow,
+        id: assistantMsgId, chat_id: req.params.chatId, role: 'assistant', content: storedContent, created_at: assistantNow,
         attachments: [],
+        ...(truncated ? { truncated: 1 } : null),
       };
 
       res.write(`data: ${JSON.stringify({ done: true, userMessage, assistantMessage })}\n\n`);

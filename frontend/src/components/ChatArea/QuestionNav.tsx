@@ -65,11 +65,18 @@ export function QuestionNavButton({ questions, activeIndex, onJump }: ButtonProp
 
   return (
     <div ref={rootRef} className="relative">
+      {/* Kurzinfo NACH UNTEN: der Knopf sitzt in der obersten Leiste, nach oben
+          wurde die Sprechblase am Rand abgeschnitten (Nutzerbericht
+          2026-08-11). Und nur in der Symbol-Stufe — sonst stünde derselbe Text
+          schon im Knopf. Kein aria-label: der sichtbare Text IST der Name. */}
       <button
         type="button"
+        data-focus-item="chat-questions"
         data-testid="question-nav-button"
         aria-expanded={open}
-        title={S.buttonTitle}
+        data-tip={S.buttonTitle}
+        data-tip-narrow-only=""
+        data-tip-below=""
         onClick={() => setOpen((o) => !o)}
         className={`flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-[12.5px] font-medium transition-colors ${
           open
@@ -153,8 +160,11 @@ export function QuestionStepper({ activeIndex, total, onJumpTo }: StepperProps) 
     >
       <button
         type="button"
+        // The stepper is a row of two controls in the chat region: ← → walk
+        // them, Enter presses (user request 2026-08-12).
+        data-focus-item="question-prev"
         data-testid="question-stepper-prev"
-        title={S.previous}
+        aria-label={S.previous}
         disabled={atFirst}
         onClick={() => onJumpTo(activeIndex - 1)}
         className="flex h-7 w-7 items-center justify-center rounded-full text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 disabled:pointer-events-none disabled:text-gray-300"
@@ -166,8 +176,9 @@ export function QuestionStepper({ activeIndex, total, onJumpTo }: StepperProps) 
       </span>
       <button
         type="button"
+        data-focus-item="question-next"
         data-testid="question-stepper-next"
-        title={S.next}
+        aria-label={S.next}
         disabled={atLast}
         onClick={() => onJumpTo(activeIndex + 1)}
         className="flex h-7 w-7 items-center justify-center rounded-full text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 disabled:pointer-events-none disabled:text-gray-300"

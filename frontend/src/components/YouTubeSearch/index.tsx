@@ -106,6 +106,7 @@ export function YouTubeSearchModal({ onClose, onImport }: Props) {
       aria-modal="true"
       aria-labelledby="youtube-search-title"
       data-testid="youtube-search-modal"
+      data-overlay
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4"
       onClick={onClose}
     >

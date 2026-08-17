@@ -201,6 +201,7 @@ export function ModelPicker({ activeProvider, activeModel, groups, ollamaReachab
           via openSignal (quota cards' "Modell wechseln"), anchored to the
           composer (audit-2 fix: the click used to do visibly nothing). */}
       <button
+        data-focus-item="composer-model"
         ref={pillRef}
         type="button"
         onClick={() => setOpen(o => !o)}

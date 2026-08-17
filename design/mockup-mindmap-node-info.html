@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Syflo · Kante sagt dasselbe wie der Knoten — vier Auswege</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=DM+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'DM Sans', -apple-system, sans-serif;
+    background: #101623; color: #C7D2E4;
+    padding: 48px 32px 110px; -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; }
+
+  .page-head h1 {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 25px; font-weight: 700; color: #F2F6FC; letter-spacing: -0.01em;
+  }
+  .page-head p { margin-top: 10px; font-size: 14px; color: #8DA0BF; max-width: 80ch; line-height: 1.6; }
+  .page-head .idea {
+    margin-top: 16px; font-size: 13px; color: #B8C6DC;
+    border-left: 3px solid #3B82F6; padding: 10px 16px;
+    background: rgba(59,130,246,0.08); border-radius: 0 8px 8px 0;
+    max-width: 84ch; line-height: 1.6;
+  }
+  .page-head .idea code, .fact code, .verdict code {
+    font-family: 'IBM Plex Mono', monospace; font-size: 11.5px;
+    color: #93B4F5; background: rgba(59,130,246,0.10); padding: 1px 5px; border-radius: 4px;
+  }
+
+  .section-head { margin: 54px 0 18px; }
+  .section-head h2 {
+    font-family: 'Space Grotesk', sans-serif; font-size: 15px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.12em; color: #F2F6FC;
+  }
+  .section-head p { margin-top: 9px; font-size: 13.5px; color: #8DA0BF; max-width: 84ch; line-height: 1.6; }
+
+  .row { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 14px; align-items: start; }
+  .col {
+    background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07);
+    border-radius: 14px; padding: 15px; display: flex; flex-direction: column; gap: 11px; min-width: 0;
+  }
+  .col.pick { border-color: #3B82F6; background: rgba(59,130,246,0.07); }
+  .col.bad { border-color: rgba(236,72,153,0.35); }
+  .col h3 {
+    font-size: 11.5px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase;
+    color: #F2F6FC; display: flex; align-items: center; gap: 7px; flex-wrap: wrap;
+  }
+  .col h3 .tag {
+    font-size: 9px; font-weight: 700; letter-spacing: 0.08em; padding: 2px 7px;
+    border-radius: 99px; background: #3B82F6; color: #fff;
+  }
+  .col h3 .tag.now { background: rgba(236,72,153,0.18); color: #F9A8D4; }
+  .col h3 .tag.be { background: rgba(148,163,184,0.18); color: #CBD5E1; }
+  .verdict { font-size: 12px; line-height: 1.55; color: #B8C6DC; }
+  .verdict b { color: #F2F6FC; }
+  .cost {
+    margin-top: auto; font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase;
+    font-weight: 700; color: #6F86A8;
+  }
+  .cost .s { color: #6EE7B7; } .cost .m { color: #93B4F5; } .cost .l { color: #FCD34D; }
+
+  /* ---------- Bühne: Kantenstück + Knoten ---------- */
+  .stage {
+    background: #F9FAFB; background-image: radial-gradient(#E2E8F0 1px, transparent 1px);
+    background-size: 18px 18px; border-radius: 10px; padding: 14px 12px 16px;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    --hl-pink-deep: #DB2777;
+  }
+  .edgebit { position: relative; height: 34px; margin-bottom: 2px; }
+  .edgebit::after {
+    content: ''; position: absolute; left: 8px; right: 8px; bottom: 3px;
+    border-top: 2px solid #B6C2D4;
+  }
+  .edgelab {
+    position: absolute; left: 50%; transform: translateX(-50%); top: 0;
+    background: #fff; border: 1px solid #E5E7EB; border-radius: 4px;
+    padding: 2px 6px; font-size: 9.5px; color: #374151; white-space: nowrap;
+    max-width: 100%; overflow: hidden; text-overflow: ellipsis;
+  }
+  .edgelab.ghost { opacity: 0.4; border-style: dashed; }
+  .edgelab.dupe { border-color: #DB2777; color: #9D174D; background: #FDF2F8; }
+  .edgenote {
+    position: absolute; left: 50%; transform: translateX(-50%); top: 2px;
+    font-size: 9px; color: #9CA3AF; font-style: italic; white-space: nowrap;
+  }
+
+  .node {
+    background: #fff; color: #111827; border: 1.5px solid #E5E7EB;
+    border-left: 5px solid var(--hl-pink-deep); border-radius: 12px;
+    padding: 9px 11px; box-shadow: 4px 4px 0 #E2E8F0;
+  }
+  .node .over {
+    font-size: 8.5px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase;
+    color: #9CA3AF; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .node .title { font-size: 12.5px; font-weight: 600; line-height: 1.35; }
+  .node .title.dupe { color: #9D174D; }
+  .node .gist { font-size: 11.5px; font-weight: 600; line-height: 1.4; color: #111827; }
+  .node .waiting { font-size: 11.5px; line-height: 1.4; color: #9CA3AF; font-style: italic; }
+  .node .foot {
+    margin-top: 7px; display: flex; align-items: center; gap: 5px;
+    font-size: 10px; color: #6B7280;
+  }
+  .node .foot svg { width: 11px; height: 11px; }
+
+  /* ---------- Fußnoten ---------- */
+  .facts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 20px; }
+  .fact {
+    background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07);
+    border-radius: 12px; padding: 13px 15px;
+  }
+  .fact h4 {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
+    color: #6F86A8; margin-bottom: 6px;
+  }
+  .fact p { font-size: 12.5px; line-height: 1.55; color: #B8C6DC; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<div class="page-head">
+  <h1>Die Kante sagt dasselbe wie der Knoten — vier Auswege</h1>
+  <p>Du hast recht: Bei einem Zweig aus dem PDF steht an der Kante die markierte Passage,
+     und der Titel im Knoten ist eine 2–4-Wort-Zusammenfassung <em>derselben</em> Passage.
+     Zwei Beschriftungen, eine Information.</p>
+  <div class="idea">
+    <strong>Warum das so ist:</strong> <code>branchTitleInstruction</code> in
+    <code>backend/title.js</code> sagt dem Modell wörtlich: „2 bis 4 Wörter, die die Passage
+    zusammenfassen — ist die Passage schon ein kurzer Begriff, nimm den Begriff selbst."
+    Der Titel <em>kann</em> also gar nichts Neues sagen. Die Frage ist nur, wer die zweite
+    Zeile bekommt.
+  </div>
+</div>
+
+<div class="section-head">
+  <h2>Vier Möglichkeiten</h2>
+  <p>Jede zeigt dieselbe Situation: Kantenstück oben, Knoten darunter. Markiert wurde die
+     Passage „we scale the dot products by 1/√d_k".</p>
+</div>
+
+<div class="row">
+
+  <!-- V0 heute -->
+  <div class="col bad">
+    <h3>0 · Heute <span class="tag now">Doppelung</span></h3>
+    <div class="stage">
+      <div class="edgebit"><span class="edgelab dupe">we scale the dot products by 1/√d_k</span></div>
+      <div class="node">
+        <div class="title dupe">Scaled dot-product</div>
+        <div class="foot">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          <span>6</span>
+        </div>
+      </div>
+    </div>
+    <div class="verdict">
+      Zwei Zeilen, ein Inhalt. Der Knoten kostet Platz, ohne etwas hinzuzufügen —
+      <b>genau dein Einwand.</b>
+    </div>
+  </div>
+
+  <!-- V1 Kante stumm -->
+  <div class="col">
+    <h3>1 · Kante nur beim Hover</h3>
+    <div class="stage">
+      <div class="edgebit"><span class="edgenote">Label erscheint beim Zeigen</span></div>
+      <div class="node">
+        <div class="title">Scaled dot-product</div>
+        <div class="foot">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          <span>6</span>
+        </div>
+      </div>
+    </div>
+    <div class="verdict">
+      Die Doppelung verschwindet, die Karte wird deutlich ruhiger — bei zwölf Zweigen fallen
+      zwölf Textschilder weg. <b>Aber:</b> Mehr Information gibt der Knoten immer noch nicht,
+      und der genaue Wortlaut ist erst nach einer Geste sichtbar.
+    </div>
+    <div class="cost">Aufwand <span class="s">klein</span> · nur Frontend</div>
+  </div>
+
+  <!-- V2 Rollentausch, ohne Titel (Entscheidung 2026-08-02) -->
+  <div class="col pick">
+    <h3>2 · Kante = Herkunft, Knoten = Ergebnis <span class="tag">Entschieden</span></h3>
+    <div class="stage">
+      <div class="edgebit"><span class="edgelab">we scale the dot products by 1/√d_k</span></div>
+      <div class="node">
+        <div class="gist">Hält die Varianz bei 1 — Softmax bleibt aus dem flachen Bereich.</div>
+        <div class="foot">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          <span>6</span>
+        </div>
+      </div>
+    </div>
+    <div class="verdict">
+      Jede Beschriftung bekommt eine eigene Rolle: Die <b>Kante sagt, woher</b> der Zweig
+      kommt, der <b>Knoten sagt, was dabei herauskam</b>. Der Titel entfällt auf der Karte
+      ganz — er sagte ohnehin nur, was schon an der Kante steht.
+    </div>
+    <div class="cost">Aufwand <span class="m">mittel</span> · Gist in den Baum-Endpoint</div>
+  </div>
+
+  <!-- V3 Titel neu denken -->
+  <div class="col">
+    <h3>3 · Titel aus Frage + Antwort <span class="tag be">Backend</span></h3>
+    <div class="stage">
+      <div class="edgebit"><span class="edgelab">we scale the dot products by 1/√d_k</span></div>
+      <div class="node">
+        <div class="title">Warum 1/√d_k skaliert wird</div>
+        <div class="foot">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          <span>6</span>
+        </div>
+      </div>
+    </div>
+    <div class="verdict">
+      Der Titel wird nach der ersten Antwort neu gebildet — nicht aus der Passage, sondern
+      aus dem, worüber tatsächlich geredet wurde. Eine Zeile, trotzdem neue Information.
+      <b>Aber:</b> Ein Modellaufruf entscheidet, wie gut das wird, und der Titel wandert
+      hinterher noch einmal.
+    </div>
+    <div class="cost">Aufwand <span class="m">mittel</span> · Prompt in <code>title.js</code></div>
+  </div>
+
+</div>
+
+<div class="section-head">
+  <h2>Kein Titel im Knoten — die drei Fälle, die trotzdem einen brauchen</h2>
+  <p>Der Titel verschwindet von der Karte, nicht aus der App: In der Seitenleiste, im
+     Branch-Header und im Tab bleibt er, wie er ist. Auf der Karte tritt er nur noch dort
+     auf, wo es sonst nichts zu zeigen gäbe.</p>
+</div>
+
+<div class="row">
+  <div class="col">
+    <h3>Frisch verzweigt <span class="tag be">Fallback</span></h3>
+    <div class="stage">
+      <div class="edgebit"><span class="edgelab">we scale the dot products by 1/√d_k</span></div>
+      <div class="node">
+        <div class="title">Scaled dot-product</div>
+      </div>
+    </div>
+    <div class="verdict">
+      Kein Gespräch, keine Erkenntnis. Statt einer leeren Karte springt der Titel ein —
+      und wird ersetzt, sobald die erste Antwort steht.
+    </div>
+  </div>
+
+  <div class="col">
+    <h3>Antwort läuft</h3>
+    <div class="stage">
+      <div class="edgebit"><span class="edgelab">we scale the dot products by 1/√d_k</span></div>
+      <div class="node">
+        <div class="waiting">Antwort wird geschrieben …</div>
+      </div>
+    </div>
+    <div class="verdict">
+      Zwischenzustand in derselben Höhe wie danach — der Knoten wächst nicht plötzlich,
+      die Karte bleibt ruhig.
+    </div>
+  </div>
+
+  <div class="col pick">
+    <h3>Fertig <span class="tag">Normalfall</span></h3>
+    <div class="stage">
+      <div class="edgebit"><span class="edgelab">we scale the dot products by 1/√d_k</span></div>
+      <div class="node">
+        <div class="gist">Hält die Varianz bei 1 — Softmax bleibt aus dem flachen Bereich.</div>
+        <div class="foot">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          <span>6</span>
+        </div>
+      </div>
+    </div>
+    <div class="verdict">
+      Eine Zeile, die nirgendwo sonst auf der Karte steht. Die Herkunft liest man an der
+      Kante darüber.
+    </div>
+  </div>
+
+  <div class="col">
+    <h3>Wurzelknoten <span class="tag be">Ausnahme</span></h3>
+    <div class="stage">
+      <div class="edgebit"><span class="edgenote">keine Kante darüber</span></div>
+      <div class="node" style="border-left:1.5px solid #2563EB; background:#2563EB; color:#fff; box-shadow:6px 6px 0 #E2E8F0;">
+        <div class="over" style="color:rgba(255,255,255,0.8)">Main topic</div>
+        <div class="title" style="color:#fff; font-size:14px">Attention Is All You Need</div>
+        <div class="foot" style="color:rgba(255,255,255,0.85)">12 highlights · 5 branches</div>
+      </div>
+    </div>
+    <div class="verdict">
+      Die Wurzel hat keine Kante und keine Markierung — hier <b>bleibt der Titel</b> die
+      Hauptzeile, er nennt schließlich das Paper.
+    </div>
+  </div>
+</div>
+
+<div class="facts">
+  <div class="fact">
+    <h4>Woher die Erkenntnis-Zeile kommt — geprüft 2026-08-02</h4>
+    <p><code>chats.summary_display.gist</code> ist genau „ein Satz mit der Kernaussage",
+       existiert aber nur für Chats, die schon <em>Vorfahre</em> eines Zweigs sind:
+       <code>warmUpAncestorSummaries</code> wärmt beim Verzweigen die Eltern, nie den Chat
+       selbst. <b>Blattknoten haben also keinen Gist</b> — und das sind die meisten.</p>
+  </div>
+  <div class="fact">
+    <h4>Wo der Titel bleibt</h4>
+    <p>Seitenleiste, Branch-Header, Fenstertitel und Suche — überall dort ist er die
+       Kennung des Chats. Nur die Karte verzichtet auf ihn, weil dort die Kante schon
+       dasselbe sagt.</p>
+  </div>
+  <div class="fact">
+    <h4>Deshalb: Titel-Aufruf umwidmen</h4>
+    <p>Nach der ersten Antwort läuft bereits ein Modellaufruf für den Titel
+       (<code>routes/messages.js</code>). Ändert man dort nur den Prompt — „nenne in 4–8
+       Wörtern, was die Antwort ergab" statt „fasse die Passage zusammen" —, trägt der
+       Knoten neue Information, <b>ohne einen einzigen zusätzlichen Aufruf</b>. Der echte
+       Gist kann später dazukommen.</p>
+  </div>
+</div>
+
+</div>
+</body>
+</html>

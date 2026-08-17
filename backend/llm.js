@@ -54,6 +54,70 @@ function getAllSettings(db) {
 }
 
 /**
+ * Only ONE system message survives the trip to a provider — everything else
+ * becomes a labelled user turn (bug found live 2026-08-10).
+ *
+ * Gemini's OpenAI-compatibility layer maps `role: 'system'` onto Gemini's
+ * single `systemInstruction` field. With several system messages in the array
+ * the LAST one WINS and every earlier one is silently discarded — measured
+ * against gemini-flash-lite-latest:
+ *
+ *   [systemA, question]            → knows A          (prompt_tokens 32)
+ *   [systemA, question, systemB]   → knows only B     (prompt_tokens 32)
+ *
+ * No error, no warning, identical token count. Syflo puts the paper full text
+ * and the inherited branch context in the FIRST system message, and since the
+ * branch focus (2026-08-08) and the instruction sandwich (2026-08-09) it
+ * appends further system messages behind the history. On Gemini those
+ * trailing blocks therefore deleted the source and the whole ancestor context:
+ * a 71,881-character prompt arrived as 885 tokens and the model answered "I
+ * have no access to the PDF" — exactly the user's report.
+ *
+ * The trailing blocks must keep their position (that is the whole point of
+ * both fixes: what must be obeyed belongs next to the question), so they are
+ * not merged into the front. They become user turns with a short prefix that
+ * keeps them readable as instructions rather than as something the user said.
+ * The first system message stays untouched, so Ollama's shared KV prefix is
+ * unaffected.
+ */
+const LATE_INSTRUCTION_PREFIX =
+  '[System instruction — treat this with the same authority as the system prompt]\n';
+
+function normalizeSystemMessages(messages) {
+  if (!Array.isArray(messages)) return messages;
+  let systemSeen = false;
+  return messages.map((m) => {
+    if (!m || m.role !== 'system') return m;
+    if (!systemSeen) {
+      systemSeen = true;
+      return m;
+    }
+    // Only plain text blocks are ever pushed as late system messages; anything
+    // else (multimodal arrays) is left alone rather than mangled.
+    if (typeof m.content !== 'string') return { ...m, role: 'user' };
+    return { ...m, role: 'user', content: LATE_INSTRUCTION_PREFIX + m.content };
+  });
+}
+
+/**
+ * Wraps a client so EVERY chat completion goes through
+ * normalizeSystemMessages. Done here rather than at the call sites because
+ * there are many (chat answers, /btw, /explain, titles, outcome lines, the
+ * cloud ladder) and forgetting one reintroduces a silent, invisible bug.
+ */
+function withMessageNormalization(client) {
+  const create = client.chat.completions.create.bind(client.chat.completions);
+  client.chat.completions.create = (body, opts) =>
+    create(
+      body && Array.isArray(body.messages)
+        ? { ...body, messages: normalizeSystemMessages(body.messages) }
+        : body,
+      opts
+    );
+  return client;
+}
+
+/**
  * Returns `{ client, model }` based on current settings. Throws if the
  * configured provider isn't usable (e.g. OpenAI selected but no API key).
  */
@@ -70,10 +134,10 @@ function getLLMClient(db) {
 function getLLMClientFor(db, provider) {
   if (provider === 'ollama') {
     return {
-      client: new OpenAI({
+      client: withMessageNormalization(new OpenAI({
         baseURL: 'http://localhost:11434/v1',
         apiKey: 'ollama',
-      }),
+      })),
       model: getSetting(db, 'ollama_model'),
       provider: 'ollama',
     };
@@ -109,7 +173,7 @@ function getLLMClientFor(db, provider) {
   const opts = { apiKey, maxRetries: 0 };
   if (p.baseURL) opts.baseURL = p.baseURL;
   return {
-    client: new OpenAI(opts),
+    client: withMessageNormalization(new OpenAI(opts)),
     model: getSetting(db, `${provider}_model`),
     provider,
   };
@@ -172,4 +236,4 @@ async function extendOllamaKeepAlive(model) {
   } catch { /* Ollama unreachable — the TTL simply stays at the default */ }
 }
 
-module.exports = { getLLMClient, getLLMClientFor, getSetting, setSetting, getAllSettings, testOpenAIKey, testProviderKey, noThinkExtras, extendOllamaKeepAlive, DEFAULTS, CLOUD_PROVIDERS };
+module.exports = { getLLMClient, getLLMClientFor, normalizeSystemMessages, withMessageNormalization, getSetting, setSetting, getAllSettings, testOpenAIKey, testProviderKey, noThinkExtras, extendOllamaKeepAlive, DEFAULTS, CLOUD_PROVIDERS };

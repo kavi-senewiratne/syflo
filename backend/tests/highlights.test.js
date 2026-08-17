@@ -217,16 +217,39 @@ describe('DELETE /api/highlights/:hid', () => {
 });
 
 describe('GET /api/highlight-labels', () => {
-  it('returns the 5 default labels on a fresh DB', async () => {
+  // The default NAME of a color is UI copy in the App language (strings.ts),
+  // so a fresh DB knows no name at all — only the user's own renames live
+  // here (change 2026-08-06).
+  it('reports every color as un-renamed on a fresh DB', async () => {
     const res = await request(app).get('/api/highlight-labels');
     expect(res.status).toBe(200);
     expect(res.body).toEqual({
-      yellow: 'Important',
-      green: 'Agree',
-      blue: 'Reference',
-      pink: 'Question',
-      orange: 'Disagree',
+      yellow: null,
+      green: null,
+      blue: null,
+      pink: null,
+      orange: null,
     });
+  });
+
+  // Existing installs carry the seeded English rows. Reopening the DB (what a
+  // backend restart does) must clear exactly those, so those colors pick up
+  // the new localized categories — and must keep a name the user typed.
+  it('drops the old seeded English defaults on reopen but keeps real renames', () => {
+    const now = new Date().toISOString();
+    const insert = db.prepare(
+      'INSERT OR REPLACE INTO highlight_labels (color, label, updated_at) VALUES (?, ?, ?)',
+    );
+    insert.run('yellow', 'Important', now);
+    insert.run('blue', 'Reference', now);
+    insert.run('green', 'My own name', now);
+    db.close();
+
+    db = createDb(TEST_DB_PATH);
+    app = createApp(db);
+
+    const rows = db.prepare('SELECT color, label FROM highlight_labels ORDER BY color').all();
+    expect(rows).toEqual([{ color: 'green', label: 'My own name' }]);
   });
 });
 
@@ -238,15 +261,19 @@ describe('PUT /api/highlight-labels/:color', () => {
 
     const get = await request(app).get('/api/highlight-labels');
     expect(get.body.blue).toBe('Cite later');
-    // Other labels untouched
-    expect(get.body.yellow).toBe('Important');
+    // Other colors keep following the App language.
+    expect(get.body.yellow).toBeNull();
   });
 
-  it('resets to default when label is empty', async () => {
+  it('drops the override when the label is empty', async () => {
     await request(app).put('/api/highlight-labels/blue').send({ label: 'Custom' });
-    await request(app).put('/api/highlight-labels/blue').send({ label: '   ' });
+    const reset = await request(app).put('/api/highlight-labels/blue').send({ label: '   ' });
+    expect(reset.body).toEqual({ color: 'blue', label: null });
     const get = await request(app).get('/api/highlight-labels');
-    expect(get.body.blue).toBe('Reference');
+    expect(get.body.blue).toBeNull();
+    expect(
+      db.prepare('SELECT COUNT(*) AS n FROM highlight_labels WHERE color = ?').get('blue').n,
+    ).toBe(0);
   });
 
   it('truncates labels longer than 24 chars', async () => {

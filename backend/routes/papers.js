@@ -18,6 +18,14 @@ const defaultOpenAlex = require('../openalex');
 const defaultArxiv = require('../arxiv');
 const defaultSemanticScholar = require('../semantic-scholar');
 const { prepareSourceInBackground } = require('../retrieval');
+const {
+  prepareReferences,
+  loadReferences,
+  resolveReference,
+  ensureFulltext,
+  ensureCitationGeometry,
+} = require('../references');
+const { searchWeb: defaultWebSearch } = require('../web-search');
 
 // ─── URL import helpers (1:1 from Syflo routes/papers.js) ───────────────────
 
@@ -177,8 +185,19 @@ module.exports = (db, uploadsDir, options = {}) => {
   const extractPdfTextFn = options.extractPdfTextFn || require('../pdf-text').extractPdfText;
   const embedTextsFn = options.embedTextsFn;
 
+  // Reference-link pass (design/mockup-paper-reference-links.html), injectable
+  // for tests just like the search backends above.
+  const referenceDeps = {
+    extractFn: options.extractCitationsFn,
+    resolveWorkFn: options.resolveWorkFn,
+    fetchReferencesFn: options.fetchReferencesFn,
+  };
+
   // Right after the import: extract + cache the text and chunk/embed long
   // papers in the background — the first question waits for none of this.
+  // The reference pass rides along: reading the PDF's citation links and
+  // resolving the bibliography takes seconds, and nothing about showing the
+  // paper depends on it.
   function preparePaperInBackground(row) {
     prepareSourceInBackground(db, {
       sourceType: 'paper',
@@ -191,6 +210,11 @@ module.exports = (db, uploadsDir, options = {}) => {
         }
         return text;
       },
+    });
+    setImmediate(() => {
+      prepareReferences(db, row, referenceDeps).catch((err) => {
+        console.warn(`[references] pass failed for paper ${row.id}: ${err.message}`);
+      });
     });
   }
 
@@ -505,6 +529,72 @@ module.exports = (db, uploadsDir, options = {}) => {
     if (!root.paper_id) return res.json({ paper: null });
     const row = getPaper.get(root.paper_id);
     return res.json({ paper: row ? formatPaper(row) : null });
+  });
+
+  // GET /api/papers/:id/citations — the reference links of this paper: the
+  // bibliography plus one click rect per citation mark. Registered before
+  // GET /:id so the :id route doesn't eat the path.
+  //
+  // `status` tells the view what to do: 'pending' → ask again shortly,
+  // 'ready' → paint the underlines, 'none' → this PDF has no citation links
+  // (a Word export or a scan) and never will.
+  router.get('/:id/citations', (req, res) => {
+    const loaded = loadReferences(db, req.params.id);
+    if (!loaded) return res.status(404).json({ error: 'Paper not found' });
+    // A paper imported before the underline was hung off the text baseline
+    // (2026-08-10) has rects but no baselines. Re-measuring them is local work
+    // on a PDF we already have, so it happens here instead of asking the reader
+    // to import the paper again — and the answer says 'pending' meanwhile, so
+    // the view's own polling picks the fresh geometry up without a reload.
+    if (ensureCitationGeometry(db, req.params.id, loaded, referenceDeps)) {
+      return res.json({ ...loaded, status: 'pending' });
+    }
+    return res.json(loaded);
+  });
+
+  // POST /api/papers/:id/references/:refId/resolve — look ONE reference up on
+  // demand, when the reader opens its card.
+  //
+  // Doing this for the whole bibliography at import time cost 40–93 requests
+  // per paper and had OpenAlex rate-limit the machine for minutes (measured
+  // 2026-08-09). A reader opens a handful of cards, so the search happens
+  // here — once per reference, cached in the row afterwards.
+  router.post('/:id/references/:refId/resolve', async (req, res, next) => {
+    try {
+      const reference = await resolveReference(db, req.params.refId, {
+        lookupByTitleFn: options.lookupByTitleFn,
+        searchArxivFn: options.searchArxivFn,
+        // Second source for the fold's facts — citation count and venue
+        // (2026-08-12). Injectable like every other backend here.
+        factsOpenalexByTitleFn: options.factsOpenalexByTitleFn,
+        factsLookupByIdFn: options.factsLookupByIdFn,
+        factsLookupByTitleFn: options.factsLookupByTitleFn,
+      });
+      if (!reference) return res.status(404).json({ error: 'Reference not found' });
+      return res.json({ reference });
+    } catch (err) {
+      return next(err);
+    }
+  });
+
+  // POST /api/papers/:id/references/:refId/fulltext — the silent web search
+  // (design/mockup-citation-card-standard.html § 04).
+  //
+  // Two thirds of a paper's references carry no PDF link (96 of 149, measured
+  // 2026-08-10) and used to end in "No downloadable PDF available". This asks
+  // the local SearXNG for the full text and, if it finds one it is sure of,
+  // hands back a reference that opens like any other — no hit list, no choice
+  // to make. One request per reference, ever: hit and miss are both cached.
+  router.post('/:id/references/:refId/fulltext', async (req, res, next) => {
+    try {
+      const reference = await ensureFulltext(db, req.params.refId, {
+        webSearchFn: options.webSearchFn || defaultWebSearch,
+      });
+      if (!reference) return res.status(404).json({ error: 'Reference not found' });
+      return res.json({ reference });
+    } catch (err) {
+      return next(err);
+    }
   });
 
   // GET /api/papers/:id — paper metadata.

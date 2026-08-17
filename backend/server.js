@@ -50,6 +50,9 @@ function createApp(db, options = {}) {
     markQuotaCooldown: messagesRouter.markQuotaCooldown,
   }));
   app.use('/api/chats/:chatId/messages', messagesRouter);
+  // Sidebar categories — user-made containers for root chats, one nesting
+  // level deep (design/mockup-sidebar-categories-v2.html).
+  app.use('/api/categories', require('./routes/categories')(db));
   // Quota-cooldown snapshot for the model-picker badges (mockup-quota-states
   // §06). The map lives in the messages router — the only place quotas are
   // learned — so this is just a read-through.
@@ -62,6 +65,14 @@ function createApp(db, options = {}) {
   // It also shares the chat's quota memory (2026-07-28): a definition that
   // hits a limit fails over along the same candidate ladder, and known
   // walls are skipped by both routes.
+  // /btw shares the chat's context builder for the same reason explain does —
+  // an aside that cannot see the conversation cannot answer "what does this
+  // mean?". The traffic is one-way: the conversation never sees the aside.
+  app.use('/api/btw', require('./routes/btw')(db, {
+    buildSystemAndHistory: messagesRouter.buildSystemAndHistory,
+    isQuotaCoolingDown: messagesRouter.isQuotaCoolingDown,
+    markQuotaCooldown: messagesRouter.markQuotaCooldown,
+  }));
   app.use('/api/explain', require('./routes/explain')(db, {
     buildSystemAndHistory: messagesRouter.buildSystemAndHistory,
     isQuotaCoolingDown: messagesRouter.isQuotaCoolingDown,
@@ -77,6 +88,9 @@ function createApp(db, options = {}) {
   // Chat text highlights: /api/chats/:id/message-highlights and
   // /api/message-highlights/:id share one router → mounted on /api.
   app.use('/api', require('./routes/message-highlights')(db));
+  // Colored marks in a video transcript — the third highlight anchor
+  // (design/mockup-transcript-selection.html, 2026-08-16).
+  app.use('/api', require('./routes/transcript-highlights')(db));
   // Tree-wide highlight overview for the highlights drawer:
   // /api/chats/:id/tree-highlights → mounted on /api.
   app.use('/api', require('./routes/tree-highlights')(db));
@@ -90,8 +104,9 @@ function createApp(db, options = {}) {
   app.use('/api/search', require('./routes/search')());
   // options.system: { totalmem, platform } — injectable for tests.
   app.use('/api/usage', require('./routes/usage')(db));
-  // options.feedback: { sendFn } — injectable for tests (real default posts to Web3Forms).
-  app.use('/api/feedback', require('./routes/feedback')(db, options.feedback));
+  // Hands the frontend the Web3Forms access key + diagnostics — the actual
+  // POST to Web3Forms happens client-side (their free plan blocks server calls).
+  app.use('/api/feedback', require('./routes/feedback')(db));
 
   // Packaged desktop app (Electron): serve the built frontend same-origin
   // so the relative /api calls work without a proxy.

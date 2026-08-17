@@ -12,7 +12,7 @@
  * - When a node is being renamed, its title is replaced by an inline input
  */
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, createContext, useContext } from 'react';
 import { ChevronRight, ChevronDown, Clock, FileText, TvMinimalPlay } from 'lucide-react';
 import { useStrings } from '../../strings';
 import { MathText, hasMath, plainMathText } from '../MathText';
@@ -26,6 +26,12 @@ interface Props {
   onContextMenu: (id: string, x: number, y: number) => void;
   onRenameSubmit: (id: string, title: string) => void;
   onRenameCancel: () => void;
+  // Row that owns the open context menu. Its pill is HELD while the menu is
+  // up: the menu's invisible backdrop takes the pointer off the row, so the
+  // hover state ends the instant the menu appears and "Rename / Delete" no
+  // longer says which chat it means (user report 2026-08-09,
+  // design/mockup-context-menu-target.html, variant A).
+  contextMenuId?: string | null;
   // Chats, in denen gerade eine Antwort im Hintergrund generiert wird —
   // ihre Zeilen zeigen die kleinen animierten Punkte.
   streamingChatIds?: Set<string>;
@@ -37,7 +43,18 @@ interface Props {
   // hinführen, werden eingefärbt (design/mockup-tree-path-highlight.html,
   // Variante B).
   activePathIds?: Set<string>;
+  // Collapse state lifted out of the rows, so the keyboard can collapse a node
+  // with ← before the key overflows into the next region (ADR-0011). Left out,
+  // each row keeps its own state and behaves exactly as it did before.
+  collapse?: CollapseControl;
 }
+
+export interface CollapseControl {
+  collapsedIds: Set<string>;
+  onToggle: (chatId: string, expanded: boolean) => void;
+}
+
+const CollapseContext = createContext<CollapseControl | null>(null);
 
 // Connector-line thickness that is always a whole number of device pixels.
 // A plain 1px line at a fractional zoom factor (Cmd +/- makes
@@ -89,7 +106,7 @@ export function QueuedClock() {
       className="shrink-0 text-gray-400"
       role="status"
       aria-label={S.queuedInQueue}
-      title={S.queuedInQueue}
+      data-tip={S.queuedInQueue}
       data-testid="sidebar-queued-clock"
     >
       <Clock size={12} />
@@ -97,7 +114,7 @@ export function QueuedClock() {
   );
 }
 
-function TreeNode({ chat, activeChatId, renamingId, onSelect, onContextMenu, onRenameSubmit, onRenameCancel, streamingChatIds, queuedChatIds, activePathIds }: {
+function TreeNode({ chat, activeChatId, renamingId, onSelect, onContextMenu, onRenameSubmit, onRenameCancel, contextMenuId, streamingChatIds, queuedChatIds, activePathIds }: {
   chat: Chat;
   activeChatId: string | null;
   renamingId: string | null;
@@ -105,15 +122,21 @@ function TreeNode({ chat, activeChatId, renamingId, onSelect, onContextMenu, onR
   onContextMenu: (id: string, x: number, y: number) => void;
   onRenameSubmit: (id: string, title: string) => void;
   onRenameCancel: () => void;
+  contextMenuId?: string | null;
   streamingChatIds?: Set<string>;
   queuedChatIds?: Set<string>;
   activePathIds?: Set<string>;
 }) {
-  const [expanded, setExpanded] = useState(true);
+  const collapse = useContext(CollapseContext);
+  const [localExpanded, setLocalExpanded] = useState(true);
+  const expanded = collapse ? !collapse.collapsedIds.has(chat.id) : localExpanded;
+  const setExpanded = (next: boolean) =>
+    collapse ? collapse.onToggle(chat.id, next) : setLocalExpanded(next);
   const hairline = useHairline();
   const hasChildren = chat.children && chat.children.length > 0;
   const isActive = chat.id === activeChatId;
   const isRenaming = chat.id === renamingId;
+  const isMenuTarget = chat.id === contextMenuId;
 
   // At most one child can sit on the path to the active chat — index of that
   // child, or -1. The colored run below only reaches down to that child's
@@ -132,10 +155,24 @@ function TreeNode({ chat, activeChatId, renamingId, onSelect, onContextMenu, onR
           line simply ends at the pill instead (user report 2026-08-01) —
           rows without a background still show the full elbow as before. */}
       <div
+        // One keyboard item per chat row (ADR-0011). The ring is painted by
+        // useKeyboardNavigation; the blue pill below still means "open chat".
+        data-focus-item={chat.id}
+        // The row the app already marks with the blue pill — the first Escape
+        // starts the ring here, so it agrees with what the user sees
+        // (user report 2026-08-11).
+        data-focus-active={isActive ? 'true' : undefined}
+        // Tells the keyboard whether ← still has a node to collapse here,
+        // before the key overflows into the region to the left.
+        data-focus-expanded={hasChildren ? String(expanded) : undefined}
         className={`relative z-[1] flex items-center gap-2 px-2.5 py-1.5 mb-0.5 rounded-md cursor-pointer transition-colors text-sm ${
           isActive
-            ? 'bg-blue-50 text-blue-700'
-            : 'text-gray-700 hover:bg-gray-100 hover:text-gray-900'
+            // The active row deepens one step instead of turning gray, so it
+            // still reads as "the open chat" while its menu is up.
+            ? isMenuTarget ? 'bg-blue-100 text-blue-700' : 'bg-blue-50 text-blue-700'
+            : isMenuTarget
+              ? 'bg-gray-100 text-gray-900'
+              : 'text-gray-700 hover:bg-gray-100 hover:text-gray-900'
         }`}
         onClick={() => !isRenaming && onSelect(chat.id)}
         onContextMenu={e => {
@@ -271,6 +308,7 @@ function TreeNode({ chat, activeChatId, renamingId, onSelect, onContextMenu, onR
                   onContextMenu={onContextMenu}
                   onRenameSubmit={onRenameSubmit}
                   onRenameCancel={onRenameCancel}
+                  contextMenuId={contextMenuId}
                   streamingChatIds={streamingChatIds}
                   queuedChatIds={queuedChatIds}
                   activePathIds={activePathIds}
@@ -286,10 +324,13 @@ function TreeNode({ chat, activeChatId, renamingId, onSelect, onContextMenu, onR
 
 // Inline editor used both in ChatTree and the flat root list. Lives here because
 // both lists mount it the same way; extracting it would just add an import.
-export function RenameInput({ initial, onSubmit, onCancel }: {
+export function RenameInput({ initial, onSubmit, onCancel, placeholder }: {
   initial: string;
   onSubmit: (title: string) => void;
   onCancel: () => void;
+  // Naming something that has no name yet (a fresh category) starts empty —
+  // the placeholder is then the only thing saying what the field wants.
+  placeholder?: string;
 }) {
   const [value, setValue] = useState(initial);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -309,6 +350,7 @@ export function RenameInput({ initial, onSubmit, onCancel }: {
     <input
       ref={inputRef}
       value={value}
+      placeholder={placeholder}
       onChange={e => setValue(e.target.value)}
       onClick={e => e.stopPropagation()}
       onKeyDown={e => {
@@ -321,8 +363,9 @@ export function RenameInput({ initial, onSubmit, onCancel }: {
   );
 }
 
-export function ChatTree({ chats, activeChatId, renamingId, onSelect, onContextMenu, onRenameSubmit, onRenameCancel, streamingChatIds, queuedChatIds, activePathIds }: Props) {
+export function ChatTree({ chats, activeChatId, renamingId, onSelect, onContextMenu, onRenameSubmit, onRenameCancel, contextMenuId, streamingChatIds, queuedChatIds, activePathIds, collapse }: Props) {
   return (
+    <CollapseContext.Provider value={collapse ?? null}>
     <div>
       {chats.map(chat => (
         <TreeNode
@@ -334,11 +377,13 @@ export function ChatTree({ chats, activeChatId, renamingId, onSelect, onContextM
           onContextMenu={onContextMenu}
           onRenameSubmit={onRenameSubmit}
           onRenameCancel={onRenameCancel}
+          contextMenuId={contextMenuId}
           streamingChatIds={streamingChatIds}
           queuedChatIds={queuedChatIds}
           activePathIds={activePathIds}
         />
       ))}
     </div>
+    </CollapseContext.Provider>
   );
 }

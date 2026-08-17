@@ -77,7 +77,7 @@ export function ModelTierList({ provider, models, value, onChange, keySet, model
         {tier === 'free' ? <Check size={10} className="shrink-0" /> : <CreditCard size={10} className="shrink-0" />}
         {tier === 'free' ? S.tierFree : S.tierPaid}
         {tier === 'free' && (
-          <span data-testid="tier-info" title={S.tierTooltip} aria-label={S.tierTooltip} className="text-gray-400 cursor-help">
+          <span data-testid="tier-info" data-tip={S.tierTooltip} aria-label={S.tierTooltip} className="text-gray-400 cursor-help">
             <Info size={10} />
           </span>
         )}

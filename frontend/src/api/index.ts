@@ -10,7 +10,7 @@
  * chunk so the UI can update in real time — exactly like ChatGPT's typing effect.
  */
 
-import type { Chat, ChatAncestor, ChatDetail, CreateHighlightPayload, CreateMessageHighlightPayload, FailoverInfo, FailReason, FeedbackKind, Highlight, HighlightColor, HighlightLabels, LocalAttachment, Message, MessageHighlight, OllamaModelInfo, Paper, PaperSearchResponse, QuotaReason, Registry, Settings, SettingsUpdate, ToolEvent, TreeHighlight, UsageSummary, Video, VideoSearchResult, WarmupResult } from '../types';
+import type { BranchOrigin, Category, Chat, ChatAncestor, ChatDetail, CreateHighlightPayload, CreateMessageHighlightPayload, FailoverInfo, FailReason, FeedbackKind, Highlight, HighlightColor, HighlightLabelOverrides, LocalAttachment, Message, MessageHighlight, OllamaModelInfo, Paper, PaperCitations, PaperReference, PaperSearchResponse, QuotaReason, Registry, Settings, SettingsUpdate, ToolEvent, TranscriptHighlight, TreeHighlight, UsageSummary, Video, VideoSearchResult, WarmupResult } from '../types';
 import { FAIL_REASONS } from '../types';
 import { getAppLanguage } from '../appLanguage';
 
@@ -91,6 +91,9 @@ interface StreamCallbacks {
   // Cloud provider 429 (ADR-0008): the backend waits out Retry-After and
   // visibly retries — the UI shows the countdown.
   onRateLimit?: (info: { retryInSeconds: number; attempt: number; scope?: 'requests' | 'tokens'; model?: string }) => void;
+  // The provider's servers are saturated (503) and the backend is retrying
+  // the SAME model — the UI shows who is busy and which attempt runs.
+  onOverloaded?: (info: { retryInSeconds: number; attempt: number; maxAttempts: number; provider?: string }) => void;
   // The active model hit a limit and another provider with a stored key
   // steps in for this answer — the UI shows a quiet note explaining who
   // the answer comes from.
@@ -147,6 +150,9 @@ async function readMessageStream(
 
       // Cloud provider rate limit — visible auto-retry (ADR-0008).
       if (data.rateLimit && cb.onRateLimit) cb.onRateLimit(data.rateLimit);
+
+      // The provider is overloaded — visible retry on the same model.
+      if (data.overloaded && cb.onOverloaded) cb.onOverloaded(data.overloaded);
 
       // Another provider steps in for this answer (limit on the active one).
       if (data.failover && cb.onFailover) cb.onFailover(data.failover as FailoverInfo);
@@ -222,11 +228,21 @@ export const api = {
   // text-layer lines around a PDF selection (only for PDF-selection branches):
   // PDF extraction flattens math notation, so the branch prompt needs the
   // surroundings to make the selected term interpretable.
-  async createChat(title: string, parent_id?: string, parent_word?: string, parent_context?: string): Promise<Chat> {
+  async createChat(
+    title: string, parent_id?: string, parent_word?: string, parent_context?: string,
+    parent_word_display?: string,
+    // branch_origin marks the two commands that branch WITHOUT a passage
+    // (mockup-branch-trace.html): the server then remembers where in the
+    // parent transcript the fork happened, and the parent draws a line there.
+    // Selection branches leave it unset — their coloured passage is the trace.
+    branch_origin?: BranchOrigin,
+  ): Promise<Chat> {
     const res = await fetch(`${BASE}/chats`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title, parent_id, parent_word, parent_context }),
+      body: JSON.stringify({
+        title, parent_id, parent_word, parent_context, parent_word_display, branch_origin,
+      }),
     });
     if (!res.ok) throw new Error('Failed to create chat');
     return res.json();
@@ -238,16 +254,87 @@ export const api = {
   // LaTeX (user requirement 2026-08-02). Returns null whenever the title
   // isn't available (no key, Ollama, quota, network) — the caller then falls
   // back to the passage itself.
-  async passageTitle(passage: string, signal?: AbortSignal): Promise<string | null> {
+  async passageTitle(
+    passage: string, signal?: AbortSignal,
+  ): Promise<{ title: string | null; quote: string | null }> {
+    const empty = { title: null, quote: null };
     const res = await fetch(`${BASE}/chats/passage-title`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ passage }),
       signal,
     });
-    if (!res.ok) return null;
+    if (!res.ok) return empty;
     const data = await res.json();
-    return typeof data.title === 'string' && data.title.trim() ? data.title : null;
+    const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v : null);
+    return { title: str(data.title), quote: str(data.quote) };
+  },
+
+  // /btw — die Nebenfrage (design/mockup-btw-composer-fold.html). Streamt wie
+  // eine Antwort, persistiert aber nichts: das Ergebnis lebt nur im Speicher
+  // des Browsers. `model` ist NUR gesetzt, wenn nicht das Modell des Chats
+  // geantwortet hat — genau dann zeigt das Panel seine eine graue Zeile.
+  async askAside(
+    chatId: string,
+    question: string,
+    onDelta: (delta: string) => void,
+    signal?: AbortSignal,
+  ): Promise<{ answer: string; model: { was: string; answered: string; fromProvider?: string; toProvider?: string } | null }> {
+    const res = await fetch(`${BASE}/btw`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chatId, question }),
+      signal,
+    });
+    if (!res.ok) throw new Error('Side question failed');
+
+    const reader = res.body!.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let answer = '';
+    let model: { was: string; answered: string; fromProvider?: string; toProvider?: string } | null = null;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const data = JSON.parse(line.slice(6));
+        if (data.error) throw new Error(data.error);
+        if (data.delta) {
+          answer += data.delta;
+          onDelta(data.delta);
+        }
+        if (data.done && typeof data.switchedFrom === 'string') {
+          model = {
+            was: data.switchedFrom,
+            answered: data.model,
+            fromProvider: data.switchedFromProvider,
+            toProvider: data.provider,
+          };
+        }
+      }
+    }
+    return { answer, model };
+  },
+
+  // Macht eine Nebenfrage dauerhaft (mockup-btw-composer-fold.html §03).
+  // MIT question: "Im Chat behalten" — Frage und Antwort landen als zwei
+  // gewöhnliche Nachrichten am Ende des Threads. OHNE question: der frisch
+  // erzeugte Zweig bekommt nur die Antwort, denn die Frage steht dort schon
+  // als Zitat in der Kopfzeile.
+  async keepAside(chatId: string, answer: string, question?: string): Promise<Message[]> {
+    const res = await fetch(`${BASE}/btw/keep`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chatId, answer, question }),
+    });
+    if (!res.ok) throw new Error('Could not keep the side question');
+    const data = await res.json();
+    return data.messages as Message[];
   },
 
   // Sends a user message (mit optionalen Datei-Anhängen) und streamt die AI-Antwort.
@@ -268,7 +355,10 @@ export const api = {
     // Thinking-Panel über der Antwort. signal: bricht den Stream ab
     // (Stop-Button). onQueued/onStarted: Warteschlangen-Status des Backends
     // (FIFO — Ollama hat einen Slot).
-    opts?: { think?: boolean; onThinking?: () => void; onReasoning?: (delta: string) => void; onQueued?: (ahead: number, info?: { model?: string; current?: { chatId: string; question: string } }) => void; onStarted?: (userMessage: Message) => void; onRateLimit?: (info: { retryInSeconds: number; attempt: number }) => void; onFailover?: (info: FailoverInfo) => void; signal?: AbortSignal },
+    // quoteHighlightId: Anker eines "Ask in chat"-Zitats — die persistierte
+    // Nachricht merkt sich damit, aus welchem Highlight das Zitat stammt, und
+    // bleibt in der Bubble anklickbar (mockup-quote-jump-to-source.html).
+    opts?: { think?: boolean; quoteHighlightId?: string | null; onThinking?: () => void; onReasoning?: (delta: string) => void; onQueued?: (ahead: number, info?: { model?: string; current?: { chatId: string; question: string } }) => void; onStarted?: (userMessage: Message) => void; onRateLimit?: (info: { retryInSeconds: number; attempt: number }) => void; onOverloaded?: (info: { retryInSeconds: number; attempt: number; maxAttempts: number; provider?: string }) => void; onFailover?: (info: FailoverInfo) => void; signal?: AbortSignal },
   ): Promise<{ userMessage: Message; assistantMessage: Message }> {
     let res: Response;
     if (attachments.length > 0) {
@@ -276,6 +366,7 @@ export const api = {
       fd.append('content', content);
       fd.append('aliases', JSON.stringify(attachments.map(a => a.alias)));
       if (opts?.think !== undefined) fd.append('think', String(opts.think));
+      if (opts?.quoteHighlightId) fd.append('quoteHighlightId', opts.quoteHighlightId);
       attachments.forEach(a => fd.append('files', a.file, a.file.name));
       res = await fetch(`${BASE}/chats/${chatId}/messages`, {
         method: 'POST',
@@ -286,7 +377,7 @@ export const api = {
       res = await fetch(`${BASE}/chats/${chatId}/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content, think: opts?.think }),
+        body: JSON.stringify({ content, think: opts?.think, quoteHighlightId: opts?.quoteHighlightId ?? null }),
         signal: opts?.signal,
       });
     }
@@ -302,6 +393,7 @@ export const api = {
       onQueued: opts?.onQueued,
       onStarted: opts?.onStarted,
       onRateLimit: opts?.onRateLimit,
+      onOverloaded: opts?.onOverloaded,
       onFailover: opts?.onFailover,
     });
   },
@@ -320,7 +412,7 @@ export const api = {
     onToolEvent?: (evt: ToolEvent) => void,
     // provider: 'ollama' = Notfall-Fallback — DIESE eine Antwort läuft übers
     // lokale Modell, die Einstellungen bleiben unberührt (ADR-0008).
-    opts?: { think?: boolean; provider?: 'ollama'; onThinking?: () => void; onReasoning?: (delta: string) => void; onQueued?: (ahead: number, info?: { model?: string; current?: { chatId: string; question: string } }) => void; onStarted?: (userMessage: Message) => void; onRateLimit?: (info: { retryInSeconds: number; attempt: number }) => void; onFailover?: (info: FailoverInfo) => void; signal?: AbortSignal },
+    opts?: { think?: boolean; provider?: 'ollama'; onThinking?: () => void; onReasoning?: (delta: string) => void; onQueued?: (ahead: number, info?: { model?: string; current?: { chatId: string; question: string } }) => void; onStarted?: (userMessage: Message) => void; onRateLimit?: (info: { retryInSeconds: number; attempt: number }) => void; onOverloaded?: (info: { retryInSeconds: number; attempt: number; maxAttempts: number; provider?: string }) => void; onFailover?: (info: FailoverInfo) => void; signal?: AbortSignal },
   ): Promise<{ userMessage: Message; assistantMessage: Message }> {
     const res = await fetch(`${BASE}/chats/${chatId}/messages/regenerate`, {
       method: 'POST',
@@ -344,6 +436,37 @@ export const api = {
       onQueued: opts?.onQueued,
       onStarted: opts?.onStarted,
       onRateLimit: opts?.onRateLimit,
+      onOverloaded: opts?.onOverloaded,
+      onFailover: opts?.onFailover,
+    });
+  },
+
+  // Continue an answer the provider cut short (mockup-truncated-answer §01).
+  // Unlike regenerate, the text stays and the continuation GROWS the same
+  // message — the deltas arriving here are appended, not a fresh answer.
+  async continueMessage(
+    chatId: string,
+    messageId: string,
+    onDelta: (delta: string) => void,
+    opts?: { think?: boolean; onThinking?: () => void; onReasoning?: (delta: string) => void; onQueued?: (ahead: number, info?: { model?: string; current?: { chatId: string; question: string } }) => void; onRateLimit?: (info: { retryInSeconds: number; attempt: number }) => void; onOverloaded?: (info: { retryInSeconds: number; attempt: number; maxAttempts: number; provider?: string }) => void; onFailover?: (info: FailoverInfo) => void; signal?: AbortSignal },
+  ): Promise<{ userMessage: Message; assistantMessage: Message }> {
+    const res = await fetch(`${BASE}/chats/${chatId}/messages/continue`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messageId, think: opts?.think }),
+      signal: opts?.signal,
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error || 'Failed to continue message');
+    }
+    return readMessageStream(res, {
+      onDelta,
+      onThinking: opts?.onThinking,
+      onReasoning: opts?.onReasoning,
+      onQueued: opts?.onQueued,
+      onRateLimit: opts?.onRateLimit,
+      onOverloaded: opts?.onOverloaded,
       onFailover: opts?.onFailover,
     });
   },
@@ -381,6 +504,53 @@ export const api = {
     if (!res.ok) throw new Error('Failed to fetch tree paper');
     const body = await res.json();
     return body.paper ?? null;
+  },
+
+  // Reference links: die Bibliografie eines Papers plus je ein Klick-Rechteck
+  // pro Zitatmarke. Läuft im Hintergrund nach dem Import — bei `pending`
+  // fragt die Ansicht kurz darauf erneut, bei `none` nie wieder.
+  async getPaperCitations(paperId: string): Promise<PaperCitations> {
+    const res = await fetch(`${BASE}/papers/${paperId}/citations`);
+    if (!res.ok) throw new Error('Failed to fetch citations');
+    const body = await res.json();
+    return {
+      status: body.status,
+      references: body.references ?? [],
+      // Das Backend liefert `page`; im Frontend heißt es überall pageNumber
+      // (wie bei Highlight).
+      citations: (body.citations ?? []).map((c: { referenceId: string | null; anchor: string; page: number; rect: [number, number, number, number]; baseline?: number | null }) => ({
+        referenceId: c.referenceId,
+        anchor: c.anchor,
+        pageNumber: c.page,
+        rect: c.rect,
+        baseline: c.baseline ?? null,
+      })),
+    };
+  },
+
+  // Eine einzelne Referenz nachschlagen — genau dann, wenn der Leser ihre
+  // Karte öffnet. Beim Import für die ganze Bibliografie zu suchen kostete
+  // 40–93 Anfragen pro Paper und brachte OpenAlex dazu, uns minutenlang zu
+  // drosseln (gemessen 2026-08-09).
+  async resolveReference(paperId: string, referenceId: string): Promise<PaperReference | null> {
+    const res = await fetch(`${BASE}/papers/${paperId}/references/${referenceId}/resolve`, {
+      method: 'POST',
+    });
+    if (!res.ok) return null;
+    const body = await res.json();
+    return body.reference ?? null;
+  },
+
+  // Ask the web for a full text this paper never linked — the silent search
+  // (design/mockup-citation-card-standard.html § 04). Answers with the same
+  // reference shape, `pdfUrl` filled in when something trustworthy was found.
+  async ensureFulltext(paperId: string, referenceId: string): Promise<PaperReference | null> {
+    const res = await fetch(`${BASE}/papers/${paperId}/references/${referenceId}/fulltext`, {
+      method: 'POST',
+    });
+    if (!res.ok) return null;
+    const body = await res.json();
+    return body.reference ?? null;
   },
 
   // Paper-Suche (Slice 07): OpenAlex + arXiv gemergt, SS-Fallback im Backend.
@@ -502,6 +672,59 @@ export const api = {
 
   // ─── Chat-Text-Highlights (message-anchored, offsets statt Rects) ─────────
 
+  // ── Transcript marks (mockup-transcript-selection.html) ────────────────
+  // Anchored to the VIDEO, not to a chat: the transcript belongs to the tree's
+  // source, so every branch of the tree sees the same marks.
+  async listTranscriptHighlights(videoId: string): Promise<TranscriptHighlight[]> {
+    const res = await fetch(`${BASE}/videos/${videoId}/transcript-highlights`);
+    if (!res.ok) throw new Error('Failed to fetch transcript highlights');
+    return res.json();
+  },
+
+  async createTranscriptHighlight(
+    videoId: string,
+    payload: {
+      color: HighlightColor;
+      text: string;
+      startOffset: number;
+      endOffset: number;
+      startSeconds: number | null;
+      // Which text the offsets point into — the raw transcript or the Video
+      // overview the chapter list is rendered from.
+      source?: 'transcript' | 'chapter';
+      childChatId?: string;
+    },
+  ): Promise<TranscriptHighlight> {
+    const res = await fetch(`${BASE}/videos/${videoId}/transcript-highlights`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error || 'Failed to create transcript highlight');
+    }
+    return res.json();
+  },
+
+  async updateTranscriptHighlight(
+    id: string,
+    patch: { color?: HighlightColor; childChatId?: string | null },
+  ): Promise<TranscriptHighlight> {
+    const res = await fetch(`${BASE}/transcript-highlights/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    });
+    if (!res.ok) throw new Error('Failed to update transcript highlight');
+    return res.json();
+  },
+
+  async deleteTranscriptHighlight(id: string): Promise<void> {
+    const res = await fetch(`${BASE}/transcript-highlights/${id}`, { method: 'DELETE' });
+    if (!res.ok && res.status !== 204) throw new Error('Failed to delete transcript highlight');
+  },
+
   async listMessageHighlights(chatId: string): Promise<MessageHighlight[]> {
     const res = await fetch(`${BASE}/chats/${chatId}/message-highlights`);
     if (!res.ok) throw new Error('Failed to fetch message highlights');
@@ -556,15 +779,18 @@ export const api = {
 
   // Global per-color labels. Shared across all trees; renaming a color
   // propagates immediately to every open popup via useLabels.
-  async getHighlightLabels(): Promise<HighlightLabels> {
+  // Returns only the user's own names; a color that was never renamed comes
+  // back as null and gets its name from strings.ts (App language).
+  async getHighlightLabels(): Promise<HighlightLabelOverrides> {
     const res = await fetch(`${BASE}/highlight-labels`);
     if (!res.ok) throw new Error('Failed to fetch labels');
     return res.json();
   },
 
-  // Pass an empty/whitespace label to reset that color to its default. Names
-  // longer than 24 chars are truncated server-side.
-  async setHighlightLabel(color: HighlightColor, label: string): Promise<{ color: HighlightColor; label: string }> {
+  // Pass an empty/whitespace label to drop the override, so the color falls
+  // back to its language default (the response then carries label: null).
+  // Names longer than 24 chars are truncated server-side.
+  async setHighlightLabel(color: HighlightColor, label: string): Promise<{ color: HighlightColor; label: string | null }> {
     const res = await fetch(`${BASE}/highlight-labels/${color}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -616,6 +842,80 @@ export const api = {
       body: JSON.stringify({ title }),
     });
     if (!res.ok) throw new Error('Failed to rename chat');
+    return res.json();
+  },
+
+  // Pins or unpins a root chat. The backend stamps pinned_at itself — the
+  // sidebar's Pinned section orders itself most-recently-pinned first
+  // (design/mockup-pinned-chats.html, variant A).
+  async setChatPinned(id: string, pinned: boolean): Promise<Chat> {
+    const res = await fetch(`${BASE}/chats/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pinned }),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error || `Failed to pin chat (HTTP ${res.status})`);
+    }
+    return res.json();
+  },
+
+  // ---- Sidebar categories -------------------------------------------------
+  // User-made containers for root chats, one nesting level deep
+  // (design/mockup-sidebar-categories-v2.html). A subcategory is a category
+  // with a parent_id, so it renames, collapses and deletes with the same calls.
+
+  async getCategories(): Promise<Category[]> {
+    const res = await fetch(`${BASE}/categories`);
+    if (!res.ok) throw new Error('Failed to load categories');
+    return res.json();
+  },
+
+  async createCategory(name: string, parentId: string | null = null): Promise<Category> {
+    const res = await fetch(`${BASE}/categories`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, parent_id: parentId }),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error || `Failed to create category (HTTP ${res.status})`);
+    }
+    return res.json();
+  },
+
+  async updateCategory(id: string, patch: { name?: string; collapsed?: boolean }): Promise<Category> {
+    const res = await fetch(`${BASE}/categories/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error || `Failed to update category (HTTP ${res.status})`);
+    }
+    return res.json();
+  },
+
+  // Deletes the container, never its contents: the chats fall back into their
+  // date sections, and subcategories go with their parent.
+  async deleteCategory(id: string): Promise<void> {
+    const res = await fetch(`${BASE}/categories/${id}`, { method: 'DELETE' });
+    if (!res.ok) throw new Error('Failed to delete category');
+  },
+
+  // Files a root chat into a category, or out of one with null.
+  async setChatCategory(id: string, categoryId: string | null): Promise<Chat> {
+    const res = await fetch(`${BASE}/chats/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ category_id: categoryId }),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error || `Failed to file chat (HTTP ${res.status})`);
+    }
     return res.json();
   },
 
@@ -697,15 +997,47 @@ export const api = {
     return res.json();
   },
 
-  // Sidebar button + /feedback composer command (ADR-0010): goes to a
-  // private inbox, never an automatic public GitHub issue. email is the
-  // optional reply-to the user may enter.
+  // Sidebar button + /feedback composer command (ADR-0010, corrected
+  // 2026-08-06): Web3Forms' free plan rejects server-to-server submissions,
+  // so the POST goes straight from the browser to Web3Forms — the backend
+  // only hands over its (non-secret) client-safe access key + diagnostics
+  // (version/OS/provider). email is the optional reply-to the user may enter.
+  // Never an automatic public GitHub issue.
+  // Degradation target for the feedback dialog (hybrid feedback, 2026-08-08):
+  // when Web3Forms fails, the UI offers the issue tracker instead. The
+  // constant fallback keeps the link alive even with the backend unreachable.
+  async getFeedbackIssuesUrl(): Promise<string> {
+    const FALLBACK = 'https://github.com/kavi-senewiratne/syflo/issues';
+    try {
+      const res = await fetch(`${BASE}/feedback/config`);
+      if (!res.ok) return FALLBACK;
+      const config = await res.json();
+      return config.issuesUrl || FALLBACK;
+    } catch {
+      return FALLBACK;
+    }
+  },
+
   async sendFeedback(kind: FeedbackKind, text: string, email?: string): Promise<void> {
-    const res = await fetch(`${BASE}/feedback`, {
+    const configRes = await fetch(`${BASE}/feedback/config`);
+    if (!configRes.ok) throw new Error('Failed to send feedback');
+    const config = await configRes.json();
+    if (!config.accessKey) throw new Error('Failed to send feedback');
+
+    const message = `${text}\n\n---\nversion: ${config.version}\nplatform: ${config.platform}\nprovider: ${config.provider}`;
+    const res = await fetch('https://api.web3forms.com/submit', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ kind, text, email }),
+      body: JSON.stringify({
+        access_key: config.accessKey,
+        subject: `[${kind}] Syflo feedback`,
+        from_name: 'Syflo Feedback',
+        replyto: email || undefined,
+        message,
+      }),
     });
     if (!res.ok) throw new Error('Failed to send feedback');
+    const body = await res.json().catch(() => ({ success: false }));
+    if (!body.success) throw new Error('Failed to send feedback');
   },
 };

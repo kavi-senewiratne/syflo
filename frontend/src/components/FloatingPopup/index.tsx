@@ -49,6 +49,12 @@ interface Props {
   // set when the popup came from a selection (PDF or chat text); it renders
   // as the primary footer button and demotes "Open as new chat" to secondary.
   onAskInChat?: (word: string, context: string) => void;
+  // The parent is currently creating the branch. Branching blocks on the
+  // passage-title lookup (chat/passageTitle.ts), which measured 0.5 s on
+  // Gemini Flash and is capped at TITLE_WAIT_MS = 2500 — long enough that a
+  // dead button reads as a lost click (user report 2026-08-08). Both footer
+  // actions lock so the same selection can't be spent twice.
+  creating?: boolean;
 }
 
 // Tailwind doesn't pick up dynamic class names, so we keep an explicit map.
@@ -71,6 +77,7 @@ export function FloatingPopup({
   onPickColor,
   activeColor = 'yellow',
   onAskInChat,
+  creating = false,
 }: Props) {
   // UI-Texte in der App language — re-rendert beim Sprachwechsel mit.
   const S = useStrings().floatingPopup;
@@ -229,6 +236,10 @@ export function FloatingPopup({
   return (
     <div
       ref={cardRef}
+      // A menu, and it says so: that is all the keyboard needs to walk its
+      // colour swatches and actions (ADR-0011). Every menu in the app joins in
+      // through this one attribute — none of them needs its own wiring.
+      role="menu"
       style={{ left: pos.x, top: pos.y, width: 340, maxHeight: 'calc(100vh - 16px)' }}
       className="fixed z-50 flex flex-col bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden"
     >
@@ -242,17 +253,20 @@ export function FloatingPopup({
         className="shrink-0 flex items-start justify-between gap-3 px-5 pt-4 pb-3 border-b border-gray-100 cursor-move select-none touch-none"
       >
         <div className="min-w-0 flex-1">
+          {/* The heading is the label alone. It used to carry a "· 9 words"
+              count as well — a number nobody acts on, next to the passage it
+              counts (user decision 2026-08-12). `wordCount` still decides
+              whether the heading is a collapsible phrase; it is no longer
+              shown. */}
           <p className="text-[10px] font-medium uppercase tracking-wider text-gray-400 mb-0.5">
             {S.definition}
-            {isPhrase && (
-              <span className="ml-1 normal-case text-gray-300">{S.wordCount(wordCount)}</span>
-            )}
           </p>
           {isPhrase ? (
             <button
               type="button"
               onClick={() => setExpanded((v) => !v)}
-              title={expanded ? S.collapse : plainMathText(popup.word)}
+              data-tip={expanded ? S.collapse : plainMathText(popup.word)}
+              aria-label={expanded ? S.collapse : plainMathText(popup.word)}
               aria-expanded={expanded}
               className={`font-semibold text-sm text-gray-900 text-left w-full hover:text-blue-600 transition-colors ${
                 collapsed ? (hasMath(popup.word) ? 'syflo-math-fade' : 'truncate') : 'break-words'
@@ -268,7 +282,7 @@ export function FloatingPopup({
           <button
             onClick={handleCopy}
             aria-label={copied ? S.copiedAria : S.copyText}
-            title={copied ? S.copiedTitle : S.copyText}
+            data-tip={copied ? S.copiedTitle : S.copyText}
             className="p-1 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
           >
             {copied ? <Check size={15} className="text-green-600" /> : <Copy size={15} />}
@@ -317,7 +331,7 @@ export function FloatingPopup({
                 type="button"
                 onClick={() => setEditingLabels(true)}
                 aria-label={S.renameLabels}
-                title={S.renameLabels}
+                data-tip={S.renameLabels}
                 className="p-1 rounded-md text-gray-400 hover:text-blue-600 hover:bg-gray-100 transition-colors"
               >
                 <Pencil size={13} />
@@ -350,7 +364,7 @@ export function FloatingPopup({
                     onClick={() => setLabelDraft({ ...labelDraft, [color]: '' })}
                     disabled={labelDraft[color] === ''}
                     aria-label={S.resetToDefault}
-                    title={S.resetToDefault}
+                    data-tip={S.resetToDefault}
                     className="p-1 rounded-md text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
                   >
                     <RotateCcw size={12} />
@@ -368,9 +382,10 @@ export function FloatingPopup({
                     key={color}
                     type="button"
                     onClick={() => onPickColor?.(color)}
+                    data-testid={`popup-color-${color}`}
                     className="flex flex-col items-center gap-1 px-1 py-1 rounded-md hover:bg-gray-50 transition-colors flex-1 min-w-0"
                     aria-label={S.highlightAs(labels[color])}
-                    title={labels[color]}
+                    data-tip={labels[color]}
                   >
                     <span
                       className={`w-6 h-6 rounded-full flex items-center justify-center transition-transform ${SWATCH_BG[color]} ${
@@ -412,7 +427,8 @@ export function FloatingPopup({
             {onAskInChat && (
               <button
                 onClick={() => onAskInChat(popup.word, popup.context)}
-                className="flex items-center justify-center gap-2 w-full px-3 py-2 rounded-lg text-sm font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 transition-colors"
+                disabled={creating}
+                className="flex items-center justify-center gap-2 w-full px-3 py-2 rounded-lg text-sm font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 transition-colors disabled:opacity-50 disabled:hover:bg-blue-50 disabled:cursor-default"
                 data-testid="popup-ask-in-chat"
               >
                 <MessageSquare size={14} />
@@ -424,10 +440,19 @@ export function FloatingPopup({
               // Bewusst identisch zum "Ask in chat"-Button (Nutzer-Entscheidung
               // 2026-07-20): gleiche Fläche, gleiche Farbe, gleiche Theme-Outline —
               // die Reihenfolge allein kommuniziert die Priorität.
-              className="flex items-center justify-center gap-2 w-full px-3 py-2 rounded-lg text-sm font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 transition-colors"
+              // Während der Erstellung bleibt die Fläche unverändert, nur Icon
+              // und Beschriftung wechseln — der Knopf springt nicht.
+              disabled={creating}
+              aria-busy={creating || undefined}
+              className="flex items-center justify-center gap-2 w-full px-3 py-2 rounded-lg text-sm font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 transition-colors disabled:hover:bg-blue-50 disabled:cursor-default"
+              data-testid="popup-open-child-chat"
             >
-              <GitBranch size={14} />
-              {S.openAsNewChat}
+              {creating ? (
+                <Loader2 size={14} className="animate-spin" />
+              ) : (
+                <GitBranch size={14} />
+              )}
+              {creating ? S.creatingChat : S.openAsNewChat}
             </button>
           </>
         )}

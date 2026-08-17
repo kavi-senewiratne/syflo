@@ -117,27 +117,57 @@ describe('api.createChat', () => {
 // ─── sendFeedback ───────────────────────────────────────────────────────────
 
 describe('api.sendFeedback', () => {
-  it('posts kind and text to /api/feedback', async () => {
-    vi.mocked(fetch).mockReturnValue(mockJsonResponse({ ok: true }));
+  // Web3Forms' free plan rejects server-to-server submissions — the POST
+  // must come from the browser itself (ADR-0010, corrected 2026-08-06).
+  // The backend only hands over the (non-secret) access key + diagnostics.
+  const config = { accessKey: 'test-key', version: '1.0.0', platform: 'darwin', provider: 'gemini' };
+
+  function submittedBody() {
+    return JSON.parse(vi.mocked(fetch).mock.calls[1][1]?.body as string);
+  }
+
+  it('fetches the Web3Forms config from the backend, then posts directly to Web3Forms', async () => {
+    vi.mocked(fetch)
+      .mockReturnValueOnce(mockJsonResponse(config))
+      .mockReturnValueOnce(mockJsonResponse({ success: true }));
+
     await api.sendFeedback('bug', 'The highlight picker closes too fast.');
-    expect(fetch).toHaveBeenCalledWith('/api/feedback', expect.objectContaining({
+
+    expect(fetch).toHaveBeenNthCalledWith(1, '/api/feedback/config');
+    expect(fetch).toHaveBeenNthCalledWith(2, 'https://api.web3forms.com/submit', expect.objectContaining({
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ kind: 'bug', text: 'The highlight picker closes too fast.', email: undefined }),
     }));
+    const body = submittedBody();
+    expect(body.access_key).toBe('test-key');
+    expect(body.subject).toBe('[bug] Syflo feedback');
+    expect(body.message).toContain('The highlight picker closes too fast.');
+    expect(body.message).toContain('version: 1.0.0');
+    expect(body.replyto).toBeUndefined();
   });
 
-  it('includes the optional email when given', async () => {
-    vi.mocked(fetch).mockReturnValue(mockJsonResponse({ ok: true }));
+  it('includes the optional email as replyto', async () => {
+    vi.mocked(fetch)
+      .mockReturnValueOnce(mockJsonResponse(config))
+      .mockReturnValueOnce(mockJsonResponse({ success: true }));
+
     await api.sendFeedback('idea', 'Dark mode for the mind map', 'me@example.com');
-    expect(fetch).toHaveBeenCalledWith('/api/feedback', expect.objectContaining({
-      body: JSON.stringify({ kind: 'idea', text: 'Dark mode for the mind map', email: 'me@example.com' }),
-    }));
+
+    expect(submittedBody().replyto).toBe('me@example.com');
   });
 
-  it('throws when the response is not ok', async () => {
-    vi.mocked(fetch).mockReturnValue(mockJsonResponse({ error: 'nope' }, 502));
+  it('throws when Web3Forms rejects the submission', async () => {
+    vi.mocked(fetch)
+      .mockReturnValueOnce(mockJsonResponse(config))
+      .mockReturnValueOnce(mockJsonResponse({ success: false, message: 'blocked' }));
+
     await expect(api.sendFeedback('question', 'How does retrieval mode work?')).rejects.toThrow('Failed to send feedback');
+  });
+
+  it('throws when no access key is configured', async () => {
+    vi.mocked(fetch).mockReturnValueOnce(mockJsonResponse({ ...config, accessKey: null }));
+
+    await expect(api.sendFeedback('bug', 'x')).rejects.toThrow('Failed to send feedback');
   });
 });
 
@@ -178,7 +208,7 @@ describe('api.sendMessageStream', () => {
 
     expect(fetch).toHaveBeenCalledWith('/api/chats/chat99/messages', expect.objectContaining({
       method: 'POST',
-      body: JSON.stringify({ content: 'Test message' }),
+      body: JSON.stringify({ content: 'Test message', quoteHighlightId: null }),
     }));
   });
 
@@ -206,7 +236,7 @@ describe('api.sendMessageStream', () => {
     });
 
     expect(fetch).toHaveBeenCalledWith('/api/chats/c1/messages', expect.objectContaining({
-      body: JSON.stringify({ content: 'Hard question', think: true }),
+      body: JSON.stringify({ content: 'Hard question', think: true, quoteHighlightId: null }),
     }));
     expect(onThinking).toHaveBeenCalledTimes(1);
   });
@@ -432,5 +462,40 @@ describe('api.getTreeVideo', () => {
   it('returns null when the tree has no video', async () => {
     vi.mocked(fetch).mockReturnValue(mockJsonResponse({ video: null }));
     expect(await api.getTreeVideo('c1')).toBeNull();
+  });
+});
+
+// ─── /btw side question (design/mockup-btw-composer-fold.html) ──────────────
+
+describe('api.askAside', () => {
+  it('streams the answer and reports which model answered', async () => {
+    const deltas: string[] = [];
+    global.fetch = vi.fn(() =>
+      mockSSEResponse([
+        { delta: 'A logit ' },
+        { delta: 'is a raw score.' },
+        { done: true, provider: 'groq', model: 'llama-3.3-70b', switchedFrom: 'gemini-2.5-flash', switchedFromProvider: 'gemini' },
+      ]),
+    ) as unknown as typeof fetch;
+
+    const result = await api.askAside('c1', 'what does logit mean again?', (d) => deltas.push(d));
+
+    expect(deltas.join('')).toBe('A logit is a raw score.');
+    expect(result.answer).toBe('A logit is a raw score.');
+    // Beide Seiten des Wechsels — die Notiz im Panel wählt danach zwischen
+    // "Modell → Modell" und "Anbieter → Anbieter", genau wie im Chat.
+    expect(result.model).toEqual({
+      was: 'gemini-2.5-flash', answered: 'llama-3.3-70b',
+      fromProvider: 'gemini', toProvider: 'groq',
+    });
+  });
+
+  it('leaves model unset when the chat’s own model answered', async () => {
+    global.fetch = vi.fn(() =>
+      mockSSEResponse([{ delta: 'ok' }, { done: true, provider: 'ollama', model: 'qwen3.5:9b' }]),
+    ) as unknown as typeof fetch;
+
+    const result = await api.askAside('c1', 'q', () => {});
+    expect(result.model).toBeNull();
   });
 });

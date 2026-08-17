@@ -1,9 +1,13 @@
 /**
  * tests/feedback.test.js
  *
- * Route tests for POST /api/feedback (ADR-0010): a thin proxy to Web3Forms,
- * same pattern as routes/search.js for SearXNG. The actual send is injected
- * via options.sendFn — no real network in tests.
+ * Route test for GET /api/feedback/config (ADR-0010, corrected 2026-08-06):
+ * Web3Forms' free plan rejects server-to-server submissions ("Use our API
+ * in client side or contact support ... Pro plan is required") — the actual
+ * POST to Web3Forms must happen from the browser, not proxied through our
+ * backend. This route only hands the frontend the (non-secret, client-safe)
+ * access key plus server-side diagnostics; api.sendFeedback posts directly
+ * to Web3Forms from there.
  */
 const express = require('express');
 const request = require('supertest');
@@ -16,19 +20,17 @@ const feedbackRouter = require('../routes/feedback');
 const TEST_DB_PATH = path.join(__dirname, 'feedback-test.db');
 
 let db;
-let mockSendFn;
 
 function makeApp() {
   const app = express();
   app.use(express.json());
-  app.use('/api/feedback', feedbackRouter(db, { sendFn: mockSendFn }));
+  app.use('/api/feedback', feedbackRouter(db));
   return app;
 }
 
 beforeEach(() => {
   if (fs.existsSync(TEST_DB_PATH)) fs.unlinkSync(TEST_DB_PATH);
   db = createDb(TEST_DB_PATH);
-  mockSendFn = jest.fn().mockResolvedValue(undefined);
 });
 
 afterEach(() => {
@@ -36,34 +38,40 @@ afterEach(() => {
   if (fs.existsSync(TEST_DB_PATH)) fs.unlinkSync(TEST_DB_PATH);
 });
 
-describe('POST /api/feedback', () => {
-  it('sends the kind, text and diagnostic metadata, and confirms success', async () => {
+describe('GET /api/feedback/config', () => {
+  it('returns the access key plus diagnostic metadata', async () => {
     setSetting(db, 'llm_provider', 'gemini');
+    process.env.WEB3FORMS_ACCESS_KEY = 'test-access-key';
     const app = makeApp();
 
-    const res = await request(app)
-      .post('/api/feedback')
-      .send({ kind: 'bug', text: 'The highlight picker closes too fast.' });
+    const res = await request(app).get('/api/feedback/config');
 
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ ok: true });
-    expect(mockSendFn).toHaveBeenCalledTimes(1);
-    const payload = mockSendFn.mock.calls[0][0];
-    expect(payload.kind).toBe('bug');
-    expect(payload.text).toBe('The highlight picker closes too fast.');
-    expect(payload.provider).toBe('gemini');
-    expect(typeof payload.version).toBe('string');
-    expect(typeof payload.platform).toBe('string');
+    expect(res.body.accessKey).toBe('test-access-key');
+    expect(res.body.provider).toBe('gemini');
+    expect(typeof res.body.version).toBe('string');
+    expect(typeof res.body.platform).toBe('string');
+    delete process.env.WEB3FORMS_ACCESS_KEY;
   });
 
-  it('rejects a body missing kind or text without calling sendFn', async () => {
+  it('falls back to the shipped default key when no env override is set', async () => {
+    // Hybrid feedback (2026-08-08): npm installs have no .env, so a
+    // client-safe default key ships in code — feedback works out of the box.
+    delete process.env.WEB3FORMS_ACCESS_KEY;
     const app = makeApp();
 
-    const missingText = await request(app).post('/api/feedback').send({ kind: 'idea' });
-    const missingKind = await request(app).post('/api/feedback').send({ text: 'no kind here' });
+    const res = await request(app).get('/api/feedback/config');
 
-    expect(missingText.status).toBe(400);
-    expect(missingKind.status).toBe(400);
-    expect(mockSendFn).not.toHaveBeenCalled();
+    expect(res.status).toBe(200);
+    expect(typeof res.body.accessKey).toBe('string');
+    expect(res.body.accessKey.length).toBeGreaterThan(0);
+  });
+
+  it('always hands out the GitHub issues URL as the degradation target', async () => {
+    const app = makeApp();
+
+    const res = await request(app).get('/api/feedback/config');
+
+    expect(res.body.issuesUrl).toBe('https://github.com/kavi-senewiratne/syflo/issues');
   });
 });

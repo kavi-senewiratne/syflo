@@ -1,63 +1,42 @@
 /**
  * routes/feedback.js
  *
- * In-app Feedback (sidebar button + /feedback composer command). Thin proxy
- * to Web3Forms, same shape as routes/search.js for SearXNG — ADR-0010:
- * private inbox, never an automatic public GitHub issue. Diagnostic metadata
- * (version/OS/provider) is attached server-side so the client never has to
- * supply it.
+ * In-app Feedback (sidebar button + /feedback composer command). ADR-0010,
+ * corrected 2026-08-06: Web3Forms' free plan rejects server-to-server
+ * submissions ("Use our API in client side ... Pro plan is required") — a
+ * Node backend calling their API directly gets a 403. The actual POST to
+ * Web3Forms therefore happens from the BROWSER (frontend/src/api/index.ts),
+ * using the client-safe access key. This route's only job is handing that
+ * key (not a secret — Web3Forms' own docs say it's safe in client code, we
+ * just keep it in an env var for easy rotation) plus server-side diagnostics
+ * (version/OS/provider) to the frontend before it posts.
  */
 const os = require('os');
 const express = require('express');
 const { getSetting } = require('../llm');
 const { version } = require('../package.json');
 
-const KINDS = new Set(['bug', 'idea', 'question']);
-const WEB3FORMS_URL = 'https://api.web3forms.com/submit';
+// Shipped default (hybrid feedback, 2026-08-08): Web3Forms access keys are
+// client-safe by design — they can do nothing except deliver a form message
+// to the maintainer's inbox. Baked in so feedback works out of the box for
+// npm installs; the env var stays as override for forks and key rotation.
+const DEFAULT_ACCESS_KEY = '5e2c7c2b-93f7-42c0-ad54-c4fdb08b6bf4';
+// Degradation target when sending fails (key rotated, quota exhausted,
+// offline): the frontend offers this link instead of a dead end.
+const ISSUES_URL = 'https://github.com/kavi-senewiratne/syflo/issues';
 
-async function defaultSendFn(payload) {
-  const r = await fetch(WEB3FORMS_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      access_key: process.env.WEB3FORMS_ACCESS_KEY,
-      subject: `[${payload.kind}] Syflo feedback`,
-      from_name: 'Syflo Feedback',
-      replyto: payload.email || undefined,
-      message: `${payload.text}\n\n---\nversion: ${payload.version}\nplatform: ${payload.platform}\nprovider: ${payload.provider}`,
-    }),
-  });
-  if (!r.ok) {
-    throw new Error(`Web3Forms responded with HTTP ${r.status}`);
-  }
-}
-
-module.exports = (db, options = {}) => {
+module.exports = (db) => {
   const router = express.Router();
-  const sendFn = options.sendFn || defaultSendFn;
 
-  // POST /api/feedback  body: { kind: 'bug'|'idea'|'question', text: string, email?: string }
-  router.post('/', async (req, res) => {
-    const kind = req.body?.kind;
-    const text = (req.body?.text || '').trim();
-    if (!KINDS.has(kind) || !text) {
-      return res.status(400).json({ error: `Body must include "text" and a "kind" of ${[...KINDS].join('/')}` });
-    }
-    const email = req.body?.email || undefined;
-
-    try {
-      await sendFn({
-        kind,
-        text,
-        email,
-        version,
-        platform: os.platform(),
-        provider: getSetting(db, 'llm_provider'),
-      });
-      res.json({ ok: true });
-    } catch (err) {
-      res.status(502).json({ error: err.message || 'Failed to send feedback' });
-    }
+  // GET /api/feedback/config
+  router.get('/config', (req, res) => {
+    res.json({
+      accessKey: process.env.WEB3FORMS_ACCESS_KEY || DEFAULT_ACCESS_KEY,
+      issuesUrl: ISSUES_URL,
+      version,
+      platform: os.platform(),
+      provider: getSetting(db, 'llm_provider'),
+    });
   });
 
   return router;

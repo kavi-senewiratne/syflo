@@ -29,10 +29,14 @@ const express = require('express');
 const { getLLMClient, getLLMClientFor, getSetting, noThinkExtras } = require('../llm');
 const { getRegistry, getModelInfo } = require('../registry');
 const { ALL_TOOLS } = require('../tools');
-const {
-  isRateLimit, isDailyQuota, isModelUnavailable, msUntilUtcMidnight,
-  cloudCandidates: buildCloudCandidates,
-} = require('../quota');
+const { callCloudLadder, isRateLimit, isModelUnavailable } = require('../quota');
+
+// Zeitbudget des Popups: eine Definition, die länger braucht, als der Nutzer
+// hinschaut, ist keine mehr. Die ganze Leiter bekommt ein Budget, jeder
+// einzelne Aufruf ein kürzeres — vorher lief hier gar kein Timeout, ein
+// hängender Anbieter blockierte das Popup unbegrenzt.
+const EXPLAIN_BUDGET_MS = 20000;
+const EXPLAIN_CALL_MS = 10000;
 
 module.exports = (db, { buildSystemAndHistory, isQuotaCoolingDown, markQuotaCooldown } = {}) => {
   // router is created inside the factory so each call gets a fresh instance.
@@ -58,10 +62,6 @@ module.exports = (db, { buildSystemAndHistory, isQuotaCoolingDown, markQuotaCool
     'Do not include example sentences. Do not use any markdown formatting: no asterisks, ' +
     'no bold, no italics, no headings, no bullet lists, no quotation marks around the word ' +
     'itself. Return plain text only.';
-
-  // The failover ladder lives in ../quota.js — shared with the passage-title
-  // endpoint so definitions and titles walk the same providers.
-  const cloudCandidates = (activeProvider) => buildCloudCandidates(db, activeProvider);
 
   // POST /api/explain
   // Accepts a word, optional surrounding context, an optional target language
@@ -153,40 +153,39 @@ module.exports = (db, { buildSystemAndHistory, isQuotaCoolingDown, markQuotaCool
       }
     }
 
-    // ── Cloud path: candidate ladder with shared cooldown memory.
+    // ── Cloud path: the SHARED candidate ladder (../quota.js), the same one
+    // the answer, the passage title and the outcome line walk. It used to be a
+    // private loop here that only survived 429s and retired models: every
+    // other 400 ended the definition on the spot. That is how a model which
+    // rejects the no-thinking flag ("400 `reasoning_effort` is not supported
+    // with this model") put its raw error into the popup instead of a
+    // definition (user report 2026-08-06) — the ladder retries such a model
+    // once WITHOUT the flag and otherwise moves on to the next candidate.
     try {
-      const cooling = isQuotaCoolingDown || (() => false);
-      const all = cloudCandidates(activeProvider);
-      // Proactive skip of known-exhausted models — unless everything is
-      // cooling down (then try anyway; maybe the quota reset early).
-      let candidates = all.filter((c) => !cooling(c.provider, c.model));
-      if (candidates.length === 0) candidates = all;
-
+      // The popup shows whatever comes back. A CONFIGURATION error is worth
+      // more than a summary — "Incorrect API key" tells the user what to fix —
+      // while an exhausted ladder is better summarized than named model by
+      // model, which is why only the non-quota case is carried out.
       let lastErr = null;
-      for (const cand of candidates) {
-        const { client } = getLLMClientFor(db, cand.provider);
-        try {
-          const content = await askStandalone(client, cand.model, cand.provider);
-          return res.json({ explanation: content });
-        } catch (err) {
-          const unavailable = isModelUnavailable(err);
-          if (!isRateLimit(err) && !unavailable) throw err;
-          // Same cooldown classification as the chat, into the SAME memory.
-          if (markQuotaCooldown) {
-            if (unavailable) markQuotaCooldown(cand.provider, cand.model, 24 * 60 * 60 * 1000, 'retired');
-            else if (isDailyQuota(err)) markQuotaCooldown(cand.provider, cand.model, msUntilUtcMidnight(), 'daily');
-            else markQuotaCooldown(cand.provider, cand.model, 90_000, 'minute');
-          }
-          lastErr = err;
-        }
-      }
+      const result = await callCloudLadder(db, {
+        activeProvider,
+        messages: standaloneMessages,
+        budgetMs: EXPLAIN_BUDGET_MS,
+        callMs: EXPLAIN_CALL_MS,
+        isCoolingDown: isQuotaCoolingDown,
+        markCooldown: markQuotaCooldown,
+        label: 'explain',
+        // Quota-Fehler NICHT übernehmen: dafür gibt es die Zusammenfassung
+        // unten, die auch den Ausweg über das lokale Modell nennt.
+        onError: (err) => { if (!isRateLimit(err) && !isModelUnavailable(err)) lastErr = err; },
+      });
+      if (result) return res.json({ explanation: result.raw });
 
-      // Every candidate was rate-limited or retired.
-      const err = new Error(
-        'Every configured cloud model is rate-limited right now — try again in a moment or switch to the local model.'
+      // Nothing delivered: every candidate was rate-limited, retired, gated,
+      // out of time — or the key is simply wrong.
+      throw lastErr ?? new Error(
+        'No configured cloud model could answer right now — try again in a moment or switch to the local model.'
       );
-      err.cause = lastErr;
-      throw err;
     } catch (err) {
       res.status(500).json({ error: err.message });
     }

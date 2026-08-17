@@ -1,24 +1,61 @@
 <svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
-  <!-- Syflo App-Icon, Professional (Dock/Desktop, 1024er-Canvas mit
-       Transparenz-Rand). Flat-Material aus v5: ruhiges Blau, kein Rand,
-       weiche Schattenkante. Proportionen aus der 96px-Kachel.
-       Design source: design/mockup-logo-icons.html (Professional).
-       Regenerieren: 1024er-PNG via headless Chromium → electron/assets/icon-professional.png -->
+  <!-- Syflo App-Icon, Basic (Dock/Schreibtisch, 1024er-Canvas mit
+       Transparenzrand). Sticker-Material aus Runde 7 + Knoten-Anschluss M1
+       aus Runde 8 (Nutzerwahl 2026-08-12/13).
+       Design source: design/mockup-logo-icons-basic-round8.html
+
+       Maßstab: die 96er Kachel des Mockups × 8.333 → 800er Kachel.
+         Radius 24 → 200 · Kontur 3 → 25 · Offset-Schatten 6 → 50
+         Marke: 48er Box in der 96er Kachel (Hälfte) → 400er Box, zentriert
+         auf der Kachelmitte (492 / 472).
+       Die Kontur ist Schiefergrau, nicht Navy: Basic hat nirgends eine
+       Tintenkontur. Der Offset-Schatten ist Basics eigene Schatten-Tinte
+       #E2E8F0 — dieselbe, die Knöpfe, Blasen und Karten in der App tragen.
+
+       Regenerieren: 1024er-PNG via headless Chromium (omitBackground)
+       → electron/assets/icon-professional.png -->
+
+  <!-- harter Offset-Schatten, 50px nach rechts unten -->
+  <rect x="142" y="122" width="800" height="800" rx="200" fill="#E2E8F0"/>
+
   <defs>
-    <filter id="pro-shadow" x="-20%" y="-20%" width="140%" height="140%">
-      <feGaussianBlur stdDeviation="30"/>
-    </filter>
+    <linearGradient id="pro-tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#5B9BFF"/>
+      <stop offset="52%" stop-color="#2563EB"/>
+      <stop offset="100%" stop-color="#1D4ED8"/>
+    </linearGradient>
+    <!-- Innenkante der Kachel: außen 92…892 minus die 25er Kontur -->
+    <clipPath id="pro-inner">
+      <rect x="117" y="97" width="750" height="750" rx="175"/>
+    </clipPath>
   </defs>
-  <!-- weicher Flat-Schatten -->
-  <rect x="92" y="110" width="800" height="800" rx="200" fill="rgba(37,99,235,0.35)" filter="url(#pro-shadow)"/>
-  <!-- Kachel -->
-  <rect x="92" y="72" width="800" height="800" rx="200" fill="#2563EB"/>
-  <!-- Marke: 466px zentriert auf (492, 472) -->
-  <g transform="translate(259, 239) scale(9.71)">
-    <path d="M8 24 H 22 C 28 24, 29 15, 36 13" stroke="#FFFFFF" stroke-width="4.5" stroke-linecap="round" fill="none"/>
-    <path d="M22 24 C 28 24, 29 33, 36 35" stroke="#FFFFFF" stroke-width="4.5" stroke-linecap="round" fill="none"/>
-    <circle cx="7" cy="24" r="4" fill="#FFFFFF"/>
-    <circle cx="38" cy="12.5" r="5.5" fill="#34D399"/>
-    <circle cx="38" cy="35.5" r="5.5" fill="#FFFFFF"/>
+
+  <!-- Kachel: Fläche 92…892 / 72…872, die 25er Kontur liegt innen auf der Kante -->
+  <rect x="104.5" y="84.5" width="775" height="775" rx="187.5"
+        fill="url(#pro-tile)" stroke="#CBD5E1" stroke-width="25"/>
+
+  <!-- Lichtkante: das SVG-Gegenstück zu `inset 0 3px 0 rgba(255,255,255,.32)`.
+       Sie muss AUF der Innenkante sitzen und deren Rundung mitnehmen — als
+       frei schwebender Balken mit eigenen runden Enden liest sie sich als
+       weißer Strich quer durchs Icon (Nutzer-Screenshot 2026-08-13). Darum
+       ein randloses Rechteck ab der Innenkante, am Kachelinneren beschnitten:
+       an den Ecken läuft es mit dem Radius aus, genau wie im CSS. -->
+  <g clip-path="url(#pro-inner)">
+    <rect x="117" y="97" width="750" height="25" fill="#FFFFFF" opacity="0.32"/>
+  </g>
+
+  <!-- Marke: Sidebar-Zeichen, Anschluss M1.
+       Größe aus den anderen Dock-Icons gemessen (2026-08-13, gleiche Methode
+       für alle fünf PNGs): die Tinte der Marke füllt bei Ink Blue 53.9 % und
+       bei Matrix 54.1 % der Kachelbreite — beide tragen dieselbe Zweig-Marke.
+       Mushroom liegt bei 63 %, Hyrule bei 68 %. Simply Blue lag mit 37 % weit
+       darunter und wirkte verloren in der Kachel (Nutzer-Report).
+       Faktor 53.9/37.1 = 1.45 → Maßstab 8.3333 × 1.45 ≈ 12.1, Markenbox
+       48 × 12.1 = 580.8, zentriert auf der Kachelmitte (492 / 472). -->
+  <g transform="translate(201.6, 181.6) scale(12.1)">
+    <path d="M8 24 H 22 C 28 24, 29 15, 38 12.5" stroke="#FFFFFF" stroke-width="6" stroke-linecap="round" fill="none"/>
+    <path d="M22 24 C 28 24, 29 33, 38 35.5" stroke="#FFFFFF" stroke-width="6" stroke-linecap="round" fill="none"/>
+    <circle cx="38" cy="12.5" r="5" fill="#FFFFFF"/>
+    <circle cx="38" cy="35.5" r="5" fill="#FFFFFF"/>
   </g>
 </svg>

@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Syflo · Markierungsart in der MindMap — Bauvorlage</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=DM+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'DM Sans', -apple-system, sans-serif;
+    background: #101623; color: #C7D2E4;
+    padding: 48px 32px 110px; -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; }
+
+  .page-head h1 {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 25px; font-weight: 700; color: #F2F6FC; letter-spacing: -0.01em;
+  }
+  .page-head p { margin-top: 10px; font-size: 14px; color: #8DA0BF; max-width: 78ch; line-height: 1.6; }
+  .page-head .idea {
+    margin-top: 16px; font-size: 13px; color: #B8C6DC;
+    border-left: 3px solid #3B82F6; padding: 10px 16px;
+    background: rgba(59,130,246,0.08); border-radius: 0 8px 8px 0;
+    max-width: 82ch; line-height: 1.6;
+  }
+
+  .section-head { margin: 58px 0 18px; }
+  .section-head h2 {
+    font-family: 'Space Grotesk', sans-serif; font-size: 15px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.12em; color: #F2F6FC;
+    display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+  }
+  .section-head h2 .num { color: #3B82F6; }
+  .section-head h2 .tag {
+    font-family: 'DM Sans', sans-serif; font-size: 9px; font-weight: 700;
+    letter-spacing: 0.1em; padding: 3px 8px; border-radius: 99px;
+    background: #3B82F6; color: #fff;
+  }
+  .section-head h2 .tag.new { background: rgba(52,211,153,0.16); color: #6EE7B7; }
+  .section-head p { margin-top: 9px; font-size: 13.5px; color: #8DA0BF; max-width: 84ch; line-height: 1.6; }
+
+  .panel { border-radius: 16px; overflow: hidden; border: 1px solid rgba(255,255,255,0.07); }
+  .caption {
+    font-size: 11.5px; color: #7C8FAC; margin-top: 8px; line-height: 1.5;
+  }
+
+  /* ============================================================
+     Professional-Theme-Bühne
+     ============================================================ */
+  .app {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    --canvas: #F9FAFB; --dots: #E2E8F0; --surface: #FFFFFF;
+    --line: #E5E7EB; --line-soft: #F1F5F9; --text: #111827; --muted: #6B7280;
+    --accent: #2563EB; --accent-soft: #EFF6FF; --edge: #B6C2D4; --ink: #E2E8F0;
+    --hl-yellow: #FEF08A; --hl-yellow-deep: #CA8A04;
+    --hl-green:  #BBF7D0; --hl-green-deep:  #16A34A;
+    --hl-blue:   #BFDBFE; --hl-blue-deep:   #2563EB;
+    --hl-pink:   #FBCFE8; --hl-pink-deep:   #DB2777;
+    --hl-orange: #FED7AA; --hl-orange-deep: #EA580C;
+  }
+
+  /* ---------- Chips (der Stil, den du magst) ---------- */
+  .chipbar {
+    display: flex; align-items: center; gap: 7px; flex-wrap: wrap;
+    padding: 9px 12px; background: var(--surface); color: var(--text);
+    border-bottom: 1.5px solid var(--line);
+  }
+  .chip {
+    display: inline-flex; align-items: center; gap: 5px; white-space: nowrap;
+    font-size: 11px; font-weight: 500; color: var(--text);
+    border: 1px solid var(--line); border-radius: 99px; padding: 3.5px 9px;
+    background: var(--surface); cursor: pointer;
+  }
+  .chip .dot { width: 8px; height: 8px; border-radius: 3px; flex: none; }
+  .chip .n { color: var(--muted); font-weight: 500; }
+  .chip.on { border-color: var(--accent); color: var(--accent); font-weight: 700; }
+  .chip.on .n { color: var(--accent); opacity: 0.65; }
+  .chip.off { opacity: 0.42; }
+  .chipbar .spacer { flex: 1; }
+  .chipbar .hint { font-size: 10.5px; color: var(--muted); white-space: nowrap; }
+
+  /* ---------- Karte ---------- */
+  .canvas {
+    position: relative; width: 100%; height: 300px;
+    background-color: var(--canvas);
+    background-image: radial-gradient(var(--dots) 1px, transparent 1px);
+    background-size: 22px 22px;
+  }
+  .edges { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .edges path { fill: none; stroke: var(--edge); stroke-width: 2; }
+
+  .node {
+    position: absolute; width: 186px; padding: 9px 11px; border-radius: 12px;
+    background: var(--surface); color: var(--text);
+    border: 1.5px solid var(--line); border-left-width: 5px;
+    box-shadow: 4px 4px 0 var(--ink);
+  }
+  .node .title { font-size: 12.5px; font-weight: 600; line-height: 1.35; }
+  .node .foot {
+    margin-top: 7px; display: flex; align-items: center; gap: 5px;
+    font-size: 10px; color: var(--muted);
+  }
+  .node .foot svg { width: 11px; height: 11px; }
+  .node.dimmed { opacity: 0.3; box-shadow: none; }
+  .node.root {
+    width: 200px; padding: 13px 15px; border-left-width: 1.5px;
+    background: var(--accent); color: #fff; border-color: var(--accent);
+    box-shadow: 6px 6px 0 var(--ink);
+  }
+  .node.root .badge {
+    display: flex; align-items: center; gap: 5px; margin-bottom: 4px;
+    font-size: 9px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
+    opacity: 0.8;
+  }
+  .node.root .badge svg { width: 11px; height: 11px; }
+  .node.root .title { font-size: 15px; font-weight: 700; }
+  .node.root .sub { margin-top: 4px; font-size: 10px; opacity: 0.85; }
+  .node.active { outline: 2px dashed var(--accent); outline-offset: 3px; }
+  .p-pink   { border-left-color: var(--hl-pink-deep); }
+  .p-yellow { border-left-color: var(--hl-yellow-deep); }
+  .p-blue   { border-left-color: var(--hl-blue-deep); }
+  .p-orange { border-left-color: var(--hl-orange-deep); }
+
+  /* ---------- Knoteninhalt-Vergleich ---------- */
+  .two { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 16px; }
+  .col {
+    background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07);
+    border-radius: 14px; padding: 16px; display: flex; flex-direction: column; gap: 12px; min-width: 0;
+  }
+  .col.pick { border-color: #3B82F6; background: rgba(59,130,246,0.07); }
+  .col h3 {
+    font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+    color: #F2F6FC; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  }
+  .col h3 .tag {
+    font-size: 9px; font-weight: 700; letter-spacing: 0.08em; padding: 2px 7px;
+    border-radius: 99px; background: #3B82F6; color: #fff;
+  }
+  .col h3 .tag.later { background: rgba(148,163,184,0.18); color: #CBD5E1; }
+  .col .verdict { font-size: 12.5px; line-height: 1.55; color: #B8C6DC; }
+  .col .verdict b { color: #F2F6FC; }
+  .stage {
+    background: var(--canvas, #F9FAFB);
+    background-image: radial-gradient(#E2E8F0 1px, transparent 1px);
+    background-size: 20px 20px; border-radius: 10px; padding: 18px 10px;
+    display: flex; justify-content: center;
+  }
+  .stage .node { position: static; width: 200px; }
+  .takeaway {
+    margin-top: 7px; font-size: 11px; line-height: 1.45; color: #374151;
+    border-left: 2px solid #34D399; padding-left: 8px;
+  }
+
+  /* ---------- App-Rahmen für den Sprung ---------- */
+  .frame {
+    display: grid; grid-template-columns: 150px 1fr 300px; height: 460px;
+    background: var(--surface); border-radius: 0;
+  }
+  .side { background: var(--surface); border-right: 1px solid var(--line); padding: 14px 10px; }
+  .side h5 {
+    font-size: 9px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase;
+    color: var(--muted); margin-bottom: 10px;
+  }
+  .side .row {
+    display: flex; align-items: center; gap: 7px; padding: 5px 7px; border-radius: 7px;
+    font-size: 11px; color: #374151; white-space: nowrap; overflow: hidden;
+  }
+  .side .row .b { width: 7px; height: 7px; border-radius: 99px; background: #9CA3AF; flex: none; }
+  .side .row.sel { background: var(--accent-soft); color: #1D4ED8; font-weight: 600; }
+  .side .row.ind { padding-left: 18px; }
+
+  /* Mitte: PDF */
+  .pdf { background: #F1F5F9; padding: 14px; overflow: hidden; position: relative; }
+  .page {
+    background: #fff; border: 1px solid var(--line); border-radius: 4px;
+    padding: 16px 18px; height: 100%; box-shadow: 0 1px 3px rgba(15,23,42,0.06);
+  }
+  .page h6 { font-size: 11px; font-weight: 700; color: #111827; margin-bottom: 8px; }
+  .ln { height: 6px; background: #E9EDF3; border-radius: 3px; margin-bottom: 7px; }
+  .ln.s { width: 72%; } .ln.m { width: 88%; } .ln.xs { width: 46%; }
+  .marked {
+    background: var(--hl-pink); border-radius: 3px; height: 13px; margin-bottom: 7px;
+    width: 84%; position: relative;
+    box-shadow: 0 0 0 3px rgba(219,39,119,0.30);
+  }
+  .marked.second { width: 52%; }
+
+  /* Rechts: Karte oben, Drawer unten */
+  .rightcol { display: grid; grid-template-rows: 176px 1fr; border-left: 1px solid var(--line); }
+  .minimap {
+    position: relative; background: var(--canvas);
+    background-image: radial-gradient(var(--dots) 1px, transparent 1px);
+    background-size: 18px 18px; border-bottom: 1px solid var(--line); overflow: hidden;
+  }
+  .mn {
+    position: absolute; width: 104px; padding: 5px 7px; border-radius: 7px;
+    background: #fff; border: 1.2px solid var(--line); border-left-width: 4px;
+    box-shadow: 3px 3px 0 #E8EDF3;
+    font-size: 9px; font-weight: 600; line-height: 1.3; color: #111827;
+  }
+  .mn.root { width: 92px; background: var(--accent); color: #fff; border-color: var(--accent); border-left-width: 1.2px; }
+  .mn.active { outline: 2px dashed var(--accent); outline-offset: 2px; }
+
+  .drawer { position: relative; background: #fff; overflow: hidden; display: flex; flex-direction: column; }
+  .drawer .dhead { padding: 11px 12px 9px; border-bottom: 1px solid var(--line-soft); }
+  .drawer .dhead .t {
+    display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: #111827;
+    margin-bottom: 9px;
+  }
+  .drawer .dhead .t svg { width: 13px; height: 13px; color: #9CA3AF; }
+  .drawer .dchips { display: flex; flex-wrap: wrap; gap: 5px; }
+  .drawer .list { padding: 10px; overflow: hidden; }
+  .glabel {
+    display: flex; align-items: center; gap: 6px; margin: 0 0 7px 2px;
+    font-size: 9.5px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; color: #6B7280;
+  }
+  .glabel .d { width: 7px; height: 7px; border-radius: 99px; }
+  .card {
+    position: relative; border: 1px solid var(--line-soft); border-radius: 9px;
+    background: #fff; padding: 8px 10px 8px 14px; margin-bottom: 8px;
+  }
+  .card::before {
+    content: ''; position: absolute; left: 6px; top: 9px; bottom: 9px; width: 3px;
+    border-radius: 2px; background: var(--hl-pink-deep); opacity: 0.55;
+  }
+  .card.yellow::before { background: var(--hl-yellow-deep); }
+  .card .q { font-size: 10.5px; line-height: 1.45; color: #374151; }
+  .card .meta {
+    margin-top: 5px; display: flex; align-items: center; gap: 5px;
+    font-size: 9.5px; font-weight: 500; color: #9CA3AF;
+  }
+  .card .meta svg { width: 9px; height: 9px; }
+  .card.hit {
+    border-color: var(--accent); box-shadow: 0 0 0 3px rgba(37,99,235,0.14);
+  }
+
+  /* Sprung-Marker */
+  .marker {
+    position: absolute; z-index: 5; width: 20px; height: 20px; border-radius: 99px;
+    background: #2563EB; color: #fff; font-size: 11px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 2px 6px rgba(15,23,42,0.3);
+  }
+  .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 14px; }
+  .step {
+    background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07);
+    border-radius: 12px; padding: 12px 14px; display: flex; gap: 10px; align-items: flex-start;
+  }
+  .step .num {
+    width: 20px; height: 20px; border-radius: 99px; background: #3B82F6; color: #fff;
+    font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex: none;
+  }
+  .step p { font-size: 12.5px; line-height: 1.55; color: #B8C6DC; }
+  .step p b { color: #F2F6FC; }
+
+  /* ---------- Fußnoten ---------- */
+  .facts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 18px; }
+  .fact {
+    background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07);
+    border-radius: 12px; padding: 13px 15px;
+  }
+  .fact h4 {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
+    color: #6F86A8; margin-bottom: 6px;
+  }
+  .fact p { font-size: 12.5px; line-height: 1.55; color: #B8C6DC; }
+  .fact code {
+    font-family: 'IBM Plex Mono', monospace; font-size: 11.5px;
+    color: #93B4F5; background: rgba(59,130,246,0.10); padding: 1px 5px; border-radius: 4px;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<div class="page-head">
+  <h1>Markierungsart in der MindMap — Bauvorlage</h1>
+  <p>Deine Entscheidungen eingearbeitet: kein „Colour by"-Schalter mehr, nur die Chips.
+     Dazu der Knoteninhalt, der Sprung zur Quelle beim Klick und die Chips im
+     Highlights-Drawer im selben Stil.</p>
+  <div class="idea">
+    <strong>Eine Filterreihe, überall gleich.</strong> Dieselbe Chip-Zeile steht über der
+    Karte und im Highlights-Drawer — gleiche Form, gleiche Farbpunkte, gleiche Zahlen.
+    Wer den Drawer bedienen kann, kann die Karte bedienen.
+  </div>
+</div>
+
+<!-- ============================================================
+     §01 — DIE LEISTE OHNE SCHALTER
+     ============================================================ -->
+<div class="section-head">
+  <h2><span class="num">01</span> Die Leiste über der Karte <span class="tag">ohne Schalter</span></h2>
+  <p>„Source section" und „Status" sind raus. Übrig bleibt die Chip-Reihe: <strong>All</strong>
+     plus eine Taste je Markierungsart, jede mit Farbpunkt und Anzahl. Mehrfachauswahl —
+     „Question + Disagree" heißt „alles, was ich noch klären muss".</p>
+</div>
+
+<div class="panel">
+  <div class="app">
+    <div class="chipbar">
+      <span class="chip on">All <span class="n">12</span></span>
+      <span class="chip"><span class="dot" style="background:var(--hl-pink-deep)"></span> Question <span class="n">4</span></span>
+      <span class="chip"><span class="dot" style="background:var(--hl-yellow-deep)"></span> Important <span class="n">5</span></span>
+      <span class="chip"><span class="dot" style="background:var(--hl-blue-deep)"></span> Reference <span class="n">2</span></span>
+      <span class="chip"><span class="dot" style="background:var(--hl-orange-deep)"></span> Disagree <span class="n">1</span></span>
+      <span class="chip"><span class="dot" style="background:var(--hl-green-deep)"></span> Agree <span class="n">0</span></span>
+    </div>
+    <div class="canvas" style="height:96px; display:flex; align-items:center; justify-content:center; color:var(--muted); font-size:12px;">
+      Zustand A — „All" aktiv: kein Chip ist ausgegraut, die Karte zeigt alles.
+    </div>
+  </div>
+</div>
+<div class="caption">Zustand A: Solange „All" leuchtet, sind die Farbtasten normal — nichts wirkt ausgeschaltet.</div>
+
+<div class="panel" style="margin-top:18px">
+  <div class="app">
+    <div class="chipbar">
+      <span class="chip">All <span class="n">12</span></span>
+      <span class="chip on"><span class="dot" style="background:var(--hl-pink-deep)"></span> Question <span class="n">4</span></span>
+      <span class="chip off"><span class="dot" style="background:var(--hl-yellow-deep)"></span> Important <span class="n">5</span></span>
+      <span class="chip off"><span class="dot" style="background:var(--hl-blue-deep)"></span> Reference <span class="n">2</span></span>
+      <span class="chip on"><span class="dot" style="background:var(--hl-orange-deep)"></span> Disagree <span class="n">1</span></span>
+      <span class="chip off"><span class="dot" style="background:var(--hl-green-deep)"></span> Agree <span class="n">0</span></span>
+      <span class="spacer"></span>
+      <span class="hint">5 / 12 nodes shown</span>
+    </div>
+    <div class="canvas">
+      <svg class="edges" viewBox="0 0 1040 300" preserveAspectRatio="none">
+        <path d="M226 150 C 280 150, 292 62, 340 56" style="stroke:var(--hl-pink-deep)"/>
+        <path d="M226 150 C 280 150, 292 152, 340 152" style="opacity:0.25"/>
+        <path d="M226 150 C 280 150, 292 244, 340 248" style="opacity:0.25"/>
+        <path d="M526 56 L 660 56" style="stroke:var(--hl-pink-deep)"/>
+        <path d="M526 152 C 590 152, 610 190, 660 196" style="stroke:var(--hl-orange-deep)"/>
+      </svg>
+      <div class="node root" style="left:26px; top:112px;">
+        <div class="badge">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+          <span>Main topic</span>
+        </div>
+        <div class="title">Attention Is All You Need</div>
+        <div class="sub">Question, Disagree</div>
+      </div>
+      <div class="node p-pink" style="left:340px; top:26px;">
+        <div class="title">Why divide by √d_k?</div>
+        <div class="foot">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          <span>6</span>
+        </div>
+      </div>
+      <div class="node p-yellow dimmed" style="left:340px; top:126px;">
+        <div class="title">Multi-head attention — 8 heads</div>
+      </div>
+      <div class="node p-blue dimmed" style="left:340px; top:222px;">
+        <div class="title">Layer normalization (Ba et al.)</div>
+      </div>
+      <div class="node p-pink" style="left:660px; top:26px;">
+        <div class="title">Softmax saturation for large d_k</div>
+        <div class="foot">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          <span>3</span>
+        </div>
+      </div>
+      <div class="node p-orange" style="left:660px; top:170px;">
+        <div class="title">Are all 8 heads really needed?</div>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="caption">Zustand B: Sobald gewählt wird, verblasst der Rest — Chips <em>und</em> Knoten. Die Kanten zu ausgeblendeten Zweigen werden blass, damit der Baum zusammenhängend bleibt.</div>
+
+<!-- ============================================================
+     §02 — KNOTENINHALT
+     ============================================================ -->
+<div class="section-head">
+  <h2><span class="num">02</span> Was in jedem Knoten steht</h2>
+  <p>Für diesen Schritt: <strong>Farbstreifen + Titel + Anzahl der Nachrichten</strong>. Das
+     Verzweigungswort steht schon an der Kante, die Originalfrage steckt im Titel — beides
+     erscheint nur beim Zeigen mit der Maus. Die Erkenntnis-Zeile gehört zum Status-Baustein
+     und käme später dazu.</p>
+</div>
+
+<div class="two">
+  <div class="col pick app">
+    <h3>Jetzt bauen <span class="tag">Entscheidung</span></h3>
+    <div class="stage">
+      <div class="node p-pink">
+        <div class="title">Why divide by √d_k?</div>
+        <div class="foot">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          <span>6</span>
+        </div>
+      </div>
+    </div>
+    <div class="verdict">
+      <b>Drei Elemente.</b> Der 5-px-Streifen links trägt die Markierungsart (Farbe statt
+      Wort — kostet keine Höhe), darunter der Titel, unten die Zahl der Nachrichten.
+      Beim Hover kommen Zitat und Verzweigungswort dazu, wie heute schon.
+    </div>
+  </div>
+
+  <div class="col app">
+    <h3>Später, mit dem Status-Baustein <span class="tag later">optional</span></h3>
+    <div class="stage">
+      <div class="node p-pink">
+        <div class="title">Why divide by √d_k?</div>
+        <div class="takeaway">Keeps dot-product variance at 1, so softmax stays out of its flat region.</div>
+        <div class="foot">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          <span>6</span>
+        </div>
+      </div>
+    </div>
+    <div class="verdict">
+      Dieselbe Karte plus eine Zeile <b>was herauskam</b>. Sie kostet ~34 px Höhe pro Knoten —
+      deshalb erst dann, wenn du auch den Status willst. Sag Bescheid, wenn sie gleich mit rein soll.
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================
+     §03 — KLICK SPRINGT ZUR QUELLE
+     ============================================================ -->
+<div class="section-head">
+  <h2><span class="num">03</span> Klick auf einen Knoten springt zur Quelle <span class="tag new">neu</span></h2>
+  <p>Heute wechselt ein Klick nur den Chat. Neu: Er springt zusätzlich an die Stelle, aus der
+     der Zweig entstanden ist — im PDF wird die Markierung angescrollt und blinkt kurz, und
+     im Highlights-Drawer wird ihre Karte hervorgehoben. Ohne PDF gilt dasselbe für die
+     Stelle im Elternchat.</p>
+</div>
+
+<div class="panel">
+  <div class="app">
+    <div class="frame">
+      <!-- links -->
+      <div class="side">
+        <h5>Chats</h5>
+        <div class="row"><span class="b" style="background:linear-gradient(135deg,#3B82F6,#34D399)"></span> Attention Is All…</div>
+        <div class="row ind sel"><span class="b" style="background:#DB2777"></span> Why divide by √d_k?</div>
+        <div class="row ind"><span class="b" style="background:#CA8A04"></span> Multi-head atten…</div>
+        <div class="row ind"><span class="b" style="background:#2563EB"></span> Layer normaliza…</div>
+      </div>
+
+      <!-- Mitte: PDF -->
+      <div class="pdf">
+        <div class="page">
+          <h6>3.2.1 Scaled Dot-Product Attention</h6>
+          <div class="ln m"></div>
+          <div class="ln"></div>
+          <div class="ln s"></div>
+          <div class="marked"></div>
+          <div class="marked second"></div>
+          <div class="ln m"></div>
+          <div class="ln"></div>
+          <div class="ln xs"></div>
+          <div class="ln m"></div>
+          <div class="ln s"></div>
+        </div>
+        <div class="marker" style="left: 22px; top: 122px;">2</div>
+      </div>
+
+      <!-- rechts: Karte + Drawer -->
+      <div class="rightcol">
+        <div class="minimap">
+          <div class="mn root" style="left:12px; top:64px;">Attention Is All You Need</div>
+          <div class="mn active" style="left:140px; top:22px; border-left-color:#DB2777;">Why divide by √d_k?</div>
+          <div class="mn" style="left:140px; top:78px; border-left-color:#CA8A04; opacity:0.85">Multi-head attention</div>
+          <div class="mn" style="left:140px; top:126px; border-left-color:#2563EB; opacity:0.85">Layer normalization</div>
+          <div class="marker" style="left: 226px; top: 16px;">1</div>
+        </div>
+        <div class="drawer">
+          <div class="dhead">
+            <div class="t">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m9 11-6 6v3h9l3-3"/><path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"/></svg>
+              Highlights
+            </div>
+            <div class="dchips">
+              <span class="chip on">All <span class="n">12</span></span>
+              <span class="chip"><span class="dot" style="background:var(--hl-pink-deep)"></span> Question <span class="n">4</span></span>
+              <span class="chip"><span class="dot" style="background:var(--hl-yellow-deep)"></span> Important <span class="n">5</span></span>
+            </div>
+          </div>
+          <div class="list">
+            <div class="glabel"><span class="d" style="background:var(--hl-pink-deep)"></span> Question · 4</div>
+            <div class="card hit">
+              <div class="q">„we scale the dot products by 1/√d_k"</div>
+              <div class="meta">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                PDF · p. 4
+                <span style="margin-left:auto">Jul 28</span>
+              </div>
+            </div>
+            <div class="card">
+              <div class="q">„pushing the softmax into regions with extremely small gradients"</div>
+              <div class="meta">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                PDF · p. 4
+                <span style="margin-left:auto">Jul 28</span>
+              </div>
+            </div>
+            <div class="glabel" style="margin-top:12px"><span class="d" style="background:var(--hl-yellow-deep)"></span> Important · 5</div>
+            <div class="card yellow">
+              <div class="q">„h = 8 parallel attention layers, or heads"</div>
+              <div class="meta">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                PDF · p. 5
+                <span style="margin-left:auto">Jul 28</span>
+              </div>
+            </div>
+          </div>
+          <div class="marker" style="left: 8px; top: 120px;">3</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="steps">
+  <div class="step">
+    <span class="num">1</span>
+    <p><b>Klick auf den Knoten.</b> Der Chat wird geöffnet und im Baum links markiert —
+       wie heute.</p>
+  </div>
+  <div class="step">
+    <span class="num">2</span>
+    <p><b>Das PDF springt.</b> Die Markierung, aus der der Zweig entstand, wird angescrollt
+       und blinkt kurz — genau wie beim Klick auf ein Zitat im Drawer.</p>
+  </div>
+  <div class="step">
+    <span class="num">3</span>
+    <p><b>Der Drawer zeigt dieselbe Stelle.</b> Ist er offen, wird die zugehörige Karte
+       hervorgehoben und ins Sichtfeld gescrollt.</p>
+  </div>
+</div>
+
+<div class="facts">
+  <div class="fact">
+    <h4>Die Mechanik existiert schon</h4>
+    <p>Genau das macht heute der Klick auf das „Branched from"-Zitat
+       (<code>handleBranchedFromClick</code>): PDF-Markierung über
+       <code>scrollToHighlight</code>, sonst die Stelle im Elternchat.</p>
+  </div>
+  <div class="fact">
+    <h4>Wenn es keine Markierung gibt</h4>
+    <p>Zweige aus „Open as new chat" ohne Farbe haben kein Ziel — dort bleibt es beim
+       heutigen Verhalten: nur Chat wechseln, kein Sprung, kein Blinken.</p>
+  </div>
+  <div class="fact">
+    <h4>Kein Layout-Wechsel</h4>
+    <p>Der Sprung verändert die Ansicht nicht: Karte bleibt Karte, der Drawer bleibt offen
+       oder zu. Nur gescrollt und geblinkt wird.</p>
+  </div>
+</div>
+
+<!-- ============================================================
+     §04 — DRAWER-CHIPS
+     ============================================================ -->
+<div class="section-head">
+  <h2><span class="num">04</span> Dieselben Chips im Highlights-Drawer</h2>
+  <p>Heute sind die Tasten im Drawer im aktiven Zustand blau gefüllt und im inaktiven weiß —
+     man sieht nicht sofort, was gerade wirkt. Neu: derselbe Stil wie über der Karte,
+     inklusive der Regel „solange <em>All</em> leuchtet, verblasst nichts".</p>
+</div>
+
+<div class="two">
+  <div class="col app">
+    <h3>Heute</h3>
+    <div class="stage" style="padding:16px 12px; justify-content:flex-start;">
+      <div style="display:flex; flex-wrap:wrap; gap:6px;">
+        <span style="border:1px solid #DBEAFE;background:#EFF6FF;color:#1D4ED8;border-radius:99px;padding:2px 10px;font-size:11.5px;font-weight:500">All <span style="color:#93C5FD">12</span></span>
+        <span style="display:inline-flex;align-items:center;gap:6px;border:1px solid #E5E7EB;background:#fff;color:#374151;border-radius:99px;padding:2px 10px;font-size:11.5px;font-weight:500"><span style="width:8px;height:8px;border-radius:99px;background:#DB2777"></span> Question <span style="color:#9CA3AF">4</span></span>
+        <span style="display:inline-flex;align-items:center;gap:6px;border:1px solid #E5E7EB;background:#fff;color:#374151;border-radius:99px;padding:2px 10px;font-size:11.5px;font-weight:500"><span style="width:8px;height:8px;border-radius:99px;background:#CA8A04"></span> Important <span style="color:#9CA3AF">5</span></span>
+        <span style="display:inline-flex;align-items:center;gap:6px;border:1px solid #E5E7EB;background:#fff;color:#374151;border-radius:99px;padding:2px 10px;font-size:11.5px;font-weight:500"><span style="width:8px;height:8px;border-radius:99px;background:#2563EB"></span> Reference <span style="color:#9CA3AF">2</span></span>
+      </div>
+    </div>
+    <div class="verdict">
+      Runde Farbpunkte, gefüllte Aktivfläche. Funktioniert, aber unterscheidet sich von
+      der Karte — zwei Sprachen für dieselbe Sache.
+    </div>
+  </div>
+
+  <div class="col pick app">
+    <h3>Neu <span class="tag">wie über der Karte</span></h3>
+    <div class="stage" style="padding:16px 12px; justify-content:flex-start;">
+      <div style="display:flex; flex-wrap:wrap; gap:6px;">
+        <span class="chip">All <span class="n">12</span></span>
+        <span class="chip on"><span class="dot" style="background:var(--hl-pink-deep)"></span> Question <span class="n">4</span></span>
+        <span class="chip off"><span class="dot" style="background:var(--hl-yellow-deep)"></span> Important <span class="n">5</span></span>
+        <span class="chip off"><span class="dot" style="background:var(--hl-blue-deep)"></span> Reference <span class="n">2</span></span>
+      </div>
+    </div>
+    <div class="verdict">
+      Eckiger Farbpunkt (3 px Radius) wie der Streifen am Knoten, aktiver Chip mit
+      Akzentrahmen statt Füllung, nicht gewählte verblassen. <b>Gleiche Sprache in Karte
+      und Drawer.</b>
+    </div>
+  </div>
+</div>
+
+<div class="facts">
+  <div class="fact">
+    <h4>Was sich im Code ändert</h4>
+    <p>Nur die Klassen der Chip-Buttons in <code>HighlightsDrawer/index.tsx</code> —
+       Logik, Mehrfachauswahl und „All" bleiben, wie sie sind.</p>
+  </div>
+  <div class="fact">
+    <h4>Theme-fest</h4>
+    <p>Rahmen und Text des aktiven Chips laufen über <code>blue-*</code> (der Akzent jedes
+       Themes), nur der Farbpunkt bleibt die feste Markierungsfarbe.</p>
+  </div>
+  <div class="fact">
+    <h4>Danach</h4>
+    <p>Wenn du bestätigst, baue ich in dieser Reihenfolge: Farbe am Knoten → Chip-Leiste
+       über der Karte → Sprung zur Quelle → Drawer-Chips angleichen.</p>
+  </div>
+</div>
+
+</div>
+</body>
+</html>

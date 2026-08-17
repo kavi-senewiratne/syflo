@@ -1,0 +1,1065 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<title>Syflo · Sidebar-Logo Simply Blue — Material vom Dock-Icon übernehmen</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Baloo+2:wght@500;600&family=Karla:wght@400;600&family=Marcellus&family=DM+Sans:wght@400;600;700&family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&family=Share+Tech+Mono&family=Press+Start+2P&display=swap" rel="stylesheet">
+<style>
+  /* ============================================================
+     Quellen, aus denen dieses Mockup 1:1 zitiert:
+       · frontend/src/components/Logo.tsx        — alle fünf Sidebar-Logos
+       · mockup-logo-icons-basic-round8.html:115 — die Simply-Blue-Sticker-Kachel
+       · mockup-logo-icons-round6.html           — die Kacheln der anderen vier
+       · frontend/node_modules/tailwindcss/theme.css — der echte v4-Akzent
+
+     Kein Wert unten ist geschätzt. Wo eine Marke eine feste Farbe trägt, ist
+     das Absicht: Logo.tsx:12 nennt sie "the fixed brand constants of each
+     theme's logo — intentionally hardcoded, not the semantic UI tokens".
+     ============================================================ */
+  :root {
+    --v4-blue-200: #BEDBFF; --v4-blue-500: #2B7FFF; --v4-blue-600: #155DFC; --v4-blue-700: #1447E6;
+    --v3-blue-600: #2563EB; --v3-blue-700: #1D4ED8;
+    --gray-50: #F9FAFB; --gray-100: #F3F4F6; --gray-200: #E5E7EB; --gray-300: #D1D5DC;
+    --gray-400: #99A1AF; --gray-500: #6A7282; --gray-600: #4A5565; --gray-700: #364153;
+    --gray-800: #1E2939; --gray-900: #101828;
+    --brand: var(--v4-blue-600);
+    --surface: #FFFFFF; --bg-app: var(--gray-50);
+    --text-strong: var(--gray-900); --text-default: var(--gray-700); --text-muted: var(--gray-500);
+    --border: var(--gray-200);
+    --shadow: 0 1px 3px rgba(0,0,0,0.07), 0 1px 2px rgba(0,0,0,0.05);
+    --shadow-ink: #E2E8F0;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Inter', -apple-system, sans-serif; background: var(--bg-app);
+    color: var(--text-default); -webkit-font-smoothing: antialiased;
+    min-height: 100vh; padding: 44px 32px 140px;
+  }
+  .wrap { max-width: 1340px; margin: 0 auto; }
+
+  .intro { margin-bottom: 34px; }
+  .intro h1 { font-size: 25px; font-weight: 700; color: var(--text-strong); letter-spacing: -0.015em; margin-bottom: 9px; }
+  .intro p { font-size: 14px; color: var(--text-muted); line-height: 1.68; max-width: 940px; }
+  .intro p + p { margin-top: 10px; }
+  .intro strong { color: var(--text-default); font-weight: 600; }
+  code {
+    background: var(--gray-100); border-radius: 4px; padding: 1px 5px;
+    font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--gray-700);
+  }
+
+  .measured {
+    margin-top: 20px; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; padding: 15px 19px 17px; box-shadow: var(--shadow); max-width: 940px;
+  }
+  .measured h2 {
+    font-size: 11px; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase;
+    color: var(--gray-400); margin-bottom: 11px;
+  }
+  .measured ul { list-style: none; display: flex; flex-direction: column; gap: 9px; }
+  .measured li { font-size: 13px; line-height: 1.58; color: var(--text-muted); display: flex; gap: 9px; }
+  .measured li > svg { color: var(--brand); flex: none; margin-top: 3px; }
+  .measured li strong { color: var(--text-default); font-weight: 600; }
+
+  .toc { display: flex; flex-wrap: wrap; gap: 7px; margin: 26px 0 46px; }
+  .toc a {
+    font-size: 11.5px; font-weight: 500; text-decoration: none; height: 28px;
+    display: inline-flex; align-items: center; gap: 6px; padding: 0 11px; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--surface); color: var(--text-muted);
+  }
+  .toc a:hover { background: var(--gray-100); color: var(--text-default); }
+  .toc a b { color: var(--brand); font-weight: 700; }
+
+  .section { margin-bottom: 62px; scroll-margin-top: 20px; }
+  .section-label {
+    font-size: 12px; font-weight: 600; color: var(--text-muted);
+    letter-spacing: 0.06em; text-transform: uppercase;
+    display: flex; align-items: baseline; gap: 8px; margin-bottom: 7px; flex-wrap: wrap;
+  }
+  .section-label .num { color: var(--brand); font-weight: 700; }
+  .section-desc { font-size: 13px; color: var(--text-muted); line-height: 1.65; margin-bottom: 18px; max-width: 940px; }
+  .section-desc strong { color: var(--text-default); font-weight: 600; }
+  .src {
+    display: inline-flex; align-items: center; gap: 5px; font-size: 10.5px; font-weight: 500;
+    color: var(--gray-400); font-family: ui-monospace, Menlo, monospace;
+  }
+
+  .stage {
+    background: var(--gray-200); border-radius: 14px; padding: 30px 24px;
+    display: flex; justify-content: center; gap: 24px; align-items: flex-start; flex-wrap: wrap;
+  }
+  .col { display: flex; flex-direction: column; align-items: center; }
+  .state-label {
+    text-align: center; font-size: 10.5px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.06em; color: var(--gray-600); margin-bottom: 11px; line-height: 1.5;
+  }
+  .state-label .v { color: var(--v4-blue-700); }
+  .state-label .now { color: var(--gray-500); }
+  .state-label .ref { color: var(--gray-500); font-weight: 500; text-transform: none; letter-spacing: 0; }
+  .state-note {
+    font-size: 11px; color: var(--gray-600); line-height: 1.55; margin-top: 10px;
+    text-align: center; max-width: 232px;
+  }
+  .state-note b { color: var(--gray-800); font-weight: 600; }
+  .state-note.wide { max-width: 290px; }
+
+  /* ── Der Sidebar-Kopf, in dem jedes Logo wirklich sitzt ──
+     Maße aus Sidebar/index.tsx:324 — w-64 = 256 px, weiße Fläche,
+     border-r gray-200. Der Kopf sitzt oben und ist die einzige Stelle,
+     an der das Logo im Produkt erscheint (plus der Empty-State, scale 1.6). */
+  .sbhead {
+    width: 232px; flex: none; background: var(--surface);
+    border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow);
+    padding: 13px 14px 12px; display: flex; flex-direction: column; gap: 11px; overflow: hidden;
+  }
+  .sbhead.wide { width: 262px; }
+  .logo { display: inline-flex; align-items: center; gap: 9px; line-height: 1; }
+  .sbrows { display: flex; flex-direction: column; gap: 2px; margin-top: 2px; }
+  .sbrow {
+    font-size: 11px; color: var(--gray-600); padding: 4px 7px; border-radius: 6px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .sbrow.on { background: #EFF6FF; color: var(--v4-blue-700); font-weight: 600; }
+  .sbcaps {
+    font-size: 9px; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase;
+    color: var(--gray-400); padding-left: 7px;
+  }
+
+  /* ── Kachel-Materialien ──────────────────────────────────
+     Basis: 18×18, Radius 5 — exakt Logo.tsx:74-82. Jede Variante
+     ändert NUR das Material, nie die Geometrie. */
+  .tile {
+    width: 18px; height: 18px; border-radius: 5px; flex: none;
+    display: inline-grid; place-items: center;
+  }
+  /* heute: flach, v3-Blau, keine Kante, kein Schatten */
+  .tile.flat   { background: #2563EB; }
+  /* das Dock-Icon 1:1 verkleinert (round8:115) — Kontur 3/48 → 1.1 px */
+  .tile.dock {
+    background: linear-gradient(180deg, #5B9BFF 0%, #2563EB 52%, #1D4ED8 100%);
+    border: 1.1px solid #CBD5E1;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.32);
+  }
+  /* Dock-Material ohne Kontur */
+  .tile.grad {
+    background: linear-gradient(180deg, #5B9BFF 0%, #2563EB 52%, #1D4ED8 100%);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.36);
+  }
+  /* Dock-Material + der Cartoon-Offset-Schatten des Themes */
+  .tile.sticker {
+    background: linear-gradient(180deg, #5B9BFF 0%, #2563EB 52%, #1D4ED8 100%);
+    border: 1.1px solid #CBD5E1;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.32), 2px 2px 0 var(--shadow-ink);
+  }
+  /* wie .dock, aber der Verlauf auf die echten v4-Töne umgerechnet */
+  .tile.dock-v4 {
+    background: linear-gradient(180deg, #4E93FF 0%, #155DFC 52%, #1447E6 100%);
+    border: 1.1px solid #CBD5E1;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.32);
+  }
+  .tile.flat-v4 { background: var(--v4-blue-600); }
+
+  /* Wortmarke — Logo.tsx:112-121: System-Sans, 600, 15 px, -0.01em, gray-900 */
+  .word {
+    font-family: -apple-system, BlinkMacSystemFont, 'Inter', system-ui, sans-serif;
+    font-weight: 600; font-size: 15px; letter-spacing: -0.01em; color: #111827;
+  }
+  .word .flo { color: var(--word-accent, inherit); }
+  .word.bold { font-weight: 700; font-size: 15.5px; letter-spacing: -0.015em; }
+
+  /* ── Dock-Kachel zum Familien-Vergleich (96 px wie in Runde 8) ── */
+  .dock96 {
+    width: 76px; height: 76px; border-radius: 17px; flex: none;
+    display: inline-grid; place-items: center;
+    background: linear-gradient(180deg, #5B9BFF 0%, #2563EB 52%, #1D4ED8 100%);
+    border: 3px solid #CBD5E1;
+    box-shadow: inset 0 3px 0 rgba(255,255,255,0.32), 6px 6px 0 var(--shadow-ink);
+  }
+  .dock96.v4 { background: linear-gradient(180deg, #4E93FF 0%, #155DFC 52%, #1447E6 100%); }
+  .family {
+    display: flex; align-items: center; gap: 16px; background: var(--surface);
+    border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;
+    box-shadow: var(--shadow);
+  }
+  .family .vs { font-size: 10px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--gray-400); }
+
+  /* ── Lupe: die echte 18-px-Kachel per zoom aufgeblasen, nicht neu gezeichnet.
+     Der weiße Grund ist derselbe wie im Sidebar-Kopf, damit Kontur und
+     Versatzschatten gegen die Fläche gelesen werden, gegen die sie im
+     Produkt auch stehen. */
+  .mag {
+    zoom: 4; background: var(--surface); border-radius: 3px;
+    padding: 4px; display: inline-grid; place-items: center; line-height: 0;
+  }
+  /* Fünf Lupen plus Bildtext passen nur in eine Reihe, wenn die Texte
+     schmaler stehen als sonst — bei 232 px brach die fünfte Spalte um. */
+  .magrow { flex-wrap: nowrap; overflow-x: auto; }
+  .magrow .col { flex: none; }
+  .magrow .state-note { max-width: 196px; }
+
+  /* ── Größenreihe ── */
+  .sizes { display: flex; align-items: flex-end; gap: 18px; }
+  .sizes .sz { display: flex; flex-direction: column; align-items: center; gap: 7px; }
+  .sizes .lbl { font-size: 9px; font-family: ui-monospace, Menlo, monospace; color: var(--gray-500); }
+
+  .impl {
+    margin-top: 18px; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; padding: 15px 19px 16px; max-width: 940px;
+  }
+  .impl h3 {
+    font-size: 11px; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase;
+    color: var(--gray-400); margin-bottom: 10px;
+  }
+  .impl p { font-size: 12.5px; line-height: 1.65; color: var(--text-muted); }
+  .impl p + p { margin-top: 8px; }
+  .impl p strong { color: var(--text-default); font-weight: 600; }
+  .impl .vn { color: var(--v4-blue-700); font-weight: 700; }
+
+  .outro {
+    margin-top: 70px; padding-top: 26px; border-top: 1px solid var(--border);
+    font-size: 12.5px; color: var(--text-muted); line-height: 1.7; max-width: 940px;
+  }
+  .outro strong { color: var(--text-default); font-weight: 600; }
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+  <symbol id="i-info" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>
+  </symbol>
+  <symbol id="i-ruler" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M21.3 15.3a2.4 2.4 0 0 1 0 3.4l-2.6 2.6a2.4 2.4 0 0 1-3.4 0L2.7 8.7a2.41 2.41 0 0 1 0-3.4l2.6-2.6a2.41 2.41 0 0 1 3.4 0Z"/><path d="m14.5 12.5 2-2"/><path d="m11.5 9.5 2-2"/><path d="m8.5 6.5 2-2"/><path d="m17.5 15.5 2-2"/>
+  </symbol>
+  <symbol id="i-drop" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 22a7 7 0 0 0 7-7c0-2-1-3.9-3-5.5s-3.5-4-4-6.5c-.5 2.5-2 4.9-4 6.5C6 11.1 5 13 5 15a7 7 0 0 0 7 7z"/>
+  </symbol>
+  <!-- M1 — der am 13.08.2026 gewählte Knoten-Anschluss (Logo.tsx:96-101).
+       Weiß, weil er auf der Kachel sitzt. -->
+  <symbol id="m1" viewBox="0 0 48 48" fill="none">
+    <path d="M8 24 H 22 C 28 24, 29 15, 38 12.5" stroke="#FFFFFF" stroke-width="6" stroke-linecap="round"/>
+    <path d="M22 24 C 28 24, 29 33, 38 35.5" stroke="#FFFFFF" stroke-width="6" stroke-linecap="round"/>
+    <circle cx="38" cy="12.5" r="5" fill="#FFFFFF"/><circle cx="38" cy="35.5" r="5" fill="#FFFFFF"/>
+  </symbol>
+  <!-- M1 ohne Kachel: die Marke trägt die Farbe selbst -->
+  <symbol id="m1-solid" viewBox="0 0 48 48" fill="none">
+    <path d="M8 24 H 22 C 28 24, 29 15, 38 12.5" stroke="currentColor" stroke-width="6" stroke-linecap="round"/>
+    <path d="M22 24 C 28 24, 29 33, 38 35.5" stroke="currentColor" stroke-width="6" stroke-linecap="round"/>
+    <circle cx="38" cy="12.5" r="5" fill="currentColor"/><circle cx="38" cy="35.5" r="5" fill="currentColor"/>
+  </symbol>
+</defs></svg>
+
+<div class="wrap">
+
+  <div class="intro">
+    <h1>Sidebar-Logo Simply Blue — soll es das Material des Dock-Icons tragen?</h1>
+    <p>
+      In Runde 7 wurde entschieden, dass das <strong>Dock-Icon dem Sidebar-Logo folgt</strong>: es
+      übernahm die Knoten-Marke und ließ den grünen Knoten und den Startpunkt weg
+      (<code>mockup-logo-icons-basic-round8.html</code>). Diese Frage geht in die
+      <strong>andere Richtung</strong> — das Sidebar-Logo trägt heute eine flache Fläche, während
+      das Dock-Icon eine Sticker-Kachel mit Verlauf, Lichtkante, Kontur und hartem Versatzschatten
+      ist. Gleiche Form, verschiedenes Material.
+    </p>
+    <p>
+      §01 stellt zuerst alle fünf Sidebar-Logos nebeneinander, damit sichtbar wird, wo Simply Blue
+      im Vergleich steht. Danach sind Kachel (§02) und Wortmarke (§03) getrennt wählbar, §04
+      kombiniert sie im echten Sidebar-Kopf und stellt jedem Kandidaten sein Dock-Icon daneben.
+      Varianten sind neutral A/B/C/D — nichts ist vorausgewählt.
+    </p>
+
+    <div class="measured">
+      <h2>Gemessen am 14.08.2026</h2>
+      <ul>
+        <li>
+          <svg width="14" height="14"><use href="#i-ruler"/></svg>
+          <span><strong>Simply Blue ist das einzige Theme mit einer Kachel im Sidebar-Logo.</strong>
+          Ink Blue, Mushroom Kingdom, Hyrule und Matrix zeigen alle die blanke Marke ohne Fläche
+          darunter (<code>Logo.tsx:124–224</code>).</span>
+        </li>
+        <li>
+          <svg width="14" height="14"><use href="#i-ruler"/></svg>
+          <span><strong>Simply Blue ist auch das einzige mit einfarbiger Wortmarke.</strong>
+          Ink Blue und Mushroom Kingdom setzen „Sy<em>flo</em>" zweifarbig, Hyrule sperrt Versalien
+          auf 0,18 em, Matrix schreibt SYFLO mit Phosphor-Schatten.</span>
+        </li>
+        <li>
+          <svg width="14" height="14"><use href="#i-drop"/></svg>
+          <span>Das Dock-Icon ist <code>linear-gradient(180deg, #5B9BFF 0%, #2563EB 52%, #1D4ED8
+          100%)</code> mit <strong>3 px Kontur #CBD5E1</strong>, <code>inset 0 3px 0 rgba(255,255,255,0.32)</code>
+          und <code>6px 6px 0 #E2E8F0</code>. Das Sidebar-Logo ist <strong>flaches
+          #2563EB</strong>, ohne alles davon (<code>Logo.tsx:80</code>).</span>
+        </li>
+        <li>
+          <svg width="14" height="14"><use href="#i-ruler"/></svg>
+          <span>Beim Verkleinern von 48 auf 18 px wird die 3-px-Kontur zu
+          <strong>1,1 px</strong> und die 3-px-Lichtkante zu <strong>1,1 px</strong>. Der Verlauf
+          läuft dann über <strong>18 px statt 96</strong> — deshalb zeigt §05 die Reihe 18/20/24 px,
+          bevor etwas entschieden wird.</span>
+        </li>
+        <li>
+          <svg width="14" height="14"><use href="#i-info"/></svg>
+          <span>Der Verlauf trägt in seiner Mitte <code>#2563EB</code> — den <strong>Tailwind-v3</strong>-Wert.
+          Die App rendert ihre Flächen auf <code>#155DFC</code> (Tailwind v4, siehe
+          <code>mockup-simply-blue-parity.html</code> §01). Jede Spalte hier ist daher zusätzlich in
+          §05 mit dem umgerechneten v4-Verlauf zu sehen — <strong>die Farbfrage steht vor der
+          Material-Frage</strong>.</span>
+        </li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="toc">
+    <a href="#s01"><b>§01</b> Alle fünf im Vergleich</a>
+    <a href="#s02"><b>§02</b> Die Kachel</a>
+    <a href="#s03"><b>§03</b> Die Wortmarke</a>
+    <a href="#s04"><b>§04</b> Kandidaten im Sidebar-Kopf</a>
+    <a href="#s05"><b>§05</b> Größen und Farbfrage</a>
+    <a href="#s06"><b>§06</b> Was D noch fehlt</a>
+  </div>
+
+  <!-- ══════════════════════════════ §01 ══════════════════════════════ -->
+  <div class="section" id="s01">
+    <div class="section-label">
+      <span class="num">§01</span> Alle fünf Sidebar-Logos, wie sie heute aussehen
+      <span class="src">Logo.tsx:72–226 · 1:1 zitiert</span>
+    </div>
+    <p class="section-desc">
+      Keine Varianten, nur der Bestand. Jedes Logo ist hier <strong>Pixel für Pixel dasselbe SVG
+      wie im Code</strong> — gleiche Kurven, gleiche Farben, gleiche Schriftgrößen. Die vier
+      anderen Themes tragen ihr Material in der <em>Marke</em>: mehrfarbige Sticker-Knoten,
+      Pixel-Sprite, goldene Rauten, Glitch-Phosphor. Simply Blue trägt es in einer
+      <em>Kachel</em> — und die Kachel ist flach.
+    </p>
+
+    <div class="stage" style="gap:18px">
+      <div class="col">
+        <div class="state-label"><span class="now">Simply Blue</span><br>heute</div>
+        <div class="sbhead">
+          <span class="logo">
+            <span class="tile flat"><svg width="12" height="12"><use href="#m1"/></svg></span>
+            <span class="word">Syflo</span>
+          </span>
+          <div class="sbcaps">Zuletzt</div>
+          <div class="sbrows">
+            <div class="sbrow on">Attention Is All You…</div>
+            <div class="sbrow">Positionskodierung</div>
+          </div>
+        </div>
+        <div class="state-note">Flache Kachel #2563EB, weiße Marke, <b>einfarbige</b> Wortmarke in System-Sans.</div>
+      </div>
+
+      <div class="col">
+        <div class="state-label"><span class="ref">Ink Blue</span><br>Sticker-Tinte</div>
+        <div class="sbhead" style="background:#FFFFFF; border-color:#DDE7F3">
+          <span class="logo">
+            <svg width="20" height="20" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+              <circle cx="7" cy="24" r="5" fill="#3B82F6" stroke="#1C2B4A" stroke-width="3"/>
+              <path d="M11 24 H 22 C 28 24, 29 15, 36 13" stroke="#1C2B4A" stroke-width="4" stroke-linecap="round"/>
+              <path d="M22 24 C 28 24, 29 33, 36 35" stroke="#1C2B4A" stroke-width="4" stroke-linecap="round"/>
+              <circle cx="39" cy="12.5" r="5.5" fill="#34D399" stroke="#1C2B4A" stroke-width="3"/>
+              <circle cx="39" cy="35.5" r="5.5" fill="#3B82F6" stroke="#1C2B4A" stroke-width="3"/>
+            </svg>
+            <span style="font-family:'Space Grotesk','DM Sans',sans-serif; font-weight:700; font-size:17px; letter-spacing:-0.02em; color:#14263F">Sy<span style="color:#3B82F6">flo</span></span>
+          </span>
+          <div class="sbcaps" style="color:#8FA5C9">Zuletzt</div>
+          <div class="sbrows">
+            <div class="sbrow on" style="background:#E7EFF9; color:#1C2B4A">Attention Is All You…</div>
+            <div class="sbrow" style="color:#5C7194">Positionskodierung</div>
+          </div>
+        </div>
+        <div class="state-note">Keine Kachel. Das Material sitzt <b>in der Marke</b>: Navy-Kontur, grüner und blauer Knoten. Wortmarke zweifarbig.</div>
+      </div>
+
+      <div class="col">
+        <div class="state-label"><span class="ref">Mushroom Kingdom</span><br>Pixel-Sprite</div>
+        <div class="sbhead" style="background:#FFFDF4; border-color:#E4DECC">
+          <span class="logo">
+            <svg width="20" height="20" viewBox="0 0 64 64" aria-hidden="true">
+              <g shape-rendering="crispEdges">
+                <rect x="16" y="6" width="32" height="8" fill="#26264F"/>
+                <rect x="8" y="14" width="48" height="16" fill="#D8433B"/>
+                <rect x="24" y="14" width="16" height="12" fill="#FFF9EE"/>
+                <rect x="8" y="30" width="48" height="4" fill="#26264F"/>
+                <rect x="18" y="34" width="28" height="16" fill="#FCEBC7"/>
+                <rect x="16" y="50" width="32" height="4" fill="#26264F"/>
+              </g>
+            </svg>
+            <span style="font-family:'Press Start 2P',monospace; font-size:12px; line-height:1; color:#23234A">Sy<span style="color:#D8433B">flo</span></span>
+          </span>
+          <div class="sbcaps" style="color:#82829F; font-family:'Press Start 2P',monospace; font-size:7px; letter-spacing:0.06em">Zuletzt</div>
+          <div class="sbrows">
+            <div class="sbrow on" style="background:#FBE6DB; color:#BC332C; border:1px solid #26264F">Attention Is All…</div>
+            <div class="sbrow" style="color:#565678">Positionskodierung</div>
+          </div>
+        </div>
+        <div class="state-note">Auch keine Kachel — und das <b>einzige Theme, das die Marke tauscht</b> statt nur ihr Material.</div>
+      </div>
+
+      <div class="col">
+        <div class="state-label"><span class="ref">Hyrule</span><br>Gravur</div>
+        <div class="sbhead" style="background:#F8F5E8; border-color:#D9D3B9">
+          <span class="logo">
+            <svg width="23" height="16" viewBox="0 0 86 60" fill="none" aria-hidden="true">
+              <path d="M6 30 H 34 C 44 30, 46 16, 58 13" stroke="#2AA198" stroke-width="5" stroke-linecap="round"/>
+              <path d="M34 30 C 44 30, 46 44, 58 47" stroke="#2AA198" stroke-width="5" stroke-linecap="round"/>
+              <rect x="58" y="4" width="15" height="15" transform="rotate(45 65.5 11.5)" fill="#B8963A"/>
+              <rect x="58" y="38" width="15" height="15" transform="rotate(45 65.5 45.5)" fill="#B8963A"/>
+            </svg>
+            <span style="font-family:'Marcellus',serif; font-size:15px; letter-spacing:0.18em; text-transform:uppercase; color:#33372A">Syflo</span>
+          </span>
+          <div class="sbcaps" style="color:#8E9078; letter-spacing:0.22em">Zuletzt</div>
+          <div class="sbrows">
+            <div class="sbrow on" style="background:#DEEDE8; color:#218880; box-shadow:inset 3px 0 0 #B8963A">Attention Is All You…</div>
+            <div class="sbrow" style="color:#5F624E">Positionskodierung</div>
+          </div>
+        </div>
+        <div class="state-note">Marke ohne Kachel, <b>Knoten als goldene Rauten</b>, gesperrte Versalien-Wortmarke.</div>
+      </div>
+
+      <div class="col">
+        <div class="state-label"><span class="ref">Matrix</span><br>Phosphor-Glitch</div>
+        <div class="sbhead" style="background:#060C07; border-color:#12301A">
+          <span class="logo">
+            <svg width="20" height="20" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+              <defs>
+                <g id="mxm">
+                  <path d="M8 24 H 22 C 28 24, 29 15, 36 13" stroke-width="4.5" stroke-linecap="round" fill="none"/>
+                  <path d="M22 24 C 28 24, 29 33, 36 35" stroke-width="4.5" stroke-linecap="round" fill="none"/>
+                  <circle cx="7" cy="24" r="3.6"/><circle cx="39" cy="12.5" r="5.5"/><circle cx="39" cy="35.5" r="5.5"/>
+                </g>
+                <clipPath id="mxt"><rect x="-6" y="-4" width="60" height="23"/></clipPath>
+                <clipPath id="mxb"><rect x="-6" y="19" width="60" height="7.5"/></clipPath>
+                <clipPath id="mxo"><rect x="-6" y="26.5" width="60" height="26"/></clipPath>
+              </defs>
+              <use href="#mxm" stroke="#0F7A3C" fill="#0F7A3C" transform="translate(-2.6,0)" opacity="0.75"/>
+              <use href="#mxm" stroke="#8CF5B0" fill="#8CF5B0" transform="translate(2.6,0.6)" opacity="0.35"/>
+              <g style="filter:drop-shadow(0 0 4px rgba(43,231,107,0.5))">
+                <use href="#mxm" stroke="#2BE76B" fill="#2BE76B" clip-path="url(#mxt)"/>
+                <use href="#mxm" stroke="#2BE76B" fill="#2BE76B" clip-path="url(#mxb)" transform="translate(4.2,0)"/>
+                <use href="#mxm" stroke="#2BE76B" fill="#2BE76B" clip-path="url(#mxo)" transform="translate(-1.4,0)"/>
+              </g>
+            </svg>
+            <span style="font-family:'Share Tech Mono','IBM Plex Mono',monospace; font-size:13px; letter-spacing:0.1em; text-transform:uppercase; color:#2BE76B; text-shadow:0 0 8px rgba(43,231,107,0.35)">SYFLO</span>
+          </span>
+          <div class="sbcaps" style="color:#4C7E58; font-family:'Share Tech Mono',monospace">Zuletzt</div>
+          <div class="sbrows">
+            <div class="sbrow on" style="background:#07290F; color:#2BE76B">Attention Is All You…</div>
+            <div class="sbrow" style="color:#7BC188">Positionskodierung</div>
+          </div>
+        </div>
+        <div class="state-note">Drei versetzte Bänder, zwei Echos, Glow. <b>Roh, absichtlich</b> — Nutzerwahl 2026-07-24.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════ §02 ══════════════════════════════ -->
+  <div class="section" id="s02">
+    <div class="section-label">
+      <span class="num">§02</span> Die Kachel: welches Material?
+      <span class="src">round8:115 · Logo.tsx:74–82</span>
+    </div>
+    <p class="section-desc">
+      Vier Wege. A–C übernehmen das Dock-Material in abnehmender Vollständigkeit, D verlässt die
+      Kachel ganz und zieht Simply Blue zu den anderen vier Themes hinüber. Die Geometrie ist in
+      allen vier gleich: <strong>18 × 18 px, Radius 5, Marke M1 auf 12 px</strong> — nur das
+      Material wechselt. Grauer Hintergrund, damit die Kontur und der Versatzschatten überhaupt
+      sichtbar sind; auf Weiß verschwinden beide fast.
+    </p>
+
+    <div class="stage">
+      <div class="col">
+        <div class="state-label"><span class="now">Heute</span><br>flach, kein Rand</div>
+        <div class="sbhead">
+          <span class="logo">
+            <span class="tile flat"><svg width="12" height="12"><use href="#m1"/></svg></span>
+            <span class="word">Syflo</span>
+          </span>
+        </div>
+        <div class="state-note">Ein Wert, eine Fläche. <b>Kein Bezug</b> zum Dock-Icon außer der Marke.</div>
+      </div>
+
+      <div class="col">
+        <div class="state-label"><span class="v">A</span> · Dock 1:1<br>Verlauf + Kante + Kontur</div>
+        <div class="sbhead">
+          <span class="logo">
+            <span class="tile dock"><svg width="12" height="12"><use href="#m1"/></svg></span>
+            <span class="word">Syflo</span>
+          </span>
+        </div>
+        <div class="state-note">Alles vom Dock, nur verkleinert. <b>Risiko:</b> die 1,1-px-Kontur nimmt der 18-px-Kachel Innenfläche — die Marke wird optisch kleiner.</div>
+      </div>
+
+      <div class="col">
+        <div class="state-label"><span class="v">B</span> · Verlauf + Lichtkante<br>ohne Kontur</div>
+        <div class="sbhead">
+          <span class="logo">
+            <span class="tile grad"><svg width="12" height="12"><use href="#m1"/></svg></span>
+            <span class="word">Syflo</span>
+          </span>
+        </div>
+        <div class="state-note">Der Verlauf trägt die Verwandtschaft, die Kontur fällt weg. <b>Volle Innenfläche</b> für die Marke.</div>
+      </div>
+
+      <div class="col">
+        <div class="state-label"><span class="v">C</span> · Sticker<br>Dock + Versatzschatten</div>
+        <div class="sbhead">
+          <span class="logo">
+            <span class="tile sticker"><svg width="12" height="12"><use href="#m1"/></svg></span>
+            <span class="word">Syflo</span>
+          </span>
+        </div>
+        <div class="state-note">2-px-Versatzschatten in <code>#E2E8F0</code> — dieselbe Schattensprache, die im Theme schon Knöpfe und Blasen tragen.</div>
+      </div>
+
+      <div class="col">
+        <div class="state-label"><span class="v">D</span> · keine Kachel<br>blanke Marke</div>
+        <div class="sbhead">
+          <span class="logo">
+            <span style="color:#2563EB; display:inline-flex"><svg width="20" height="20"><use href="#m1-solid"/></svg></span>
+            <span class="word">Syflo</span>
+          </span>
+        </div>
+        <div class="state-note">Zieht Simply Blue zu den <b>anderen vier</b>: Marke ohne Fläche, 20 px statt 18. Dafür gibt es dann keine Brücke zum Dock-Icon mehr.</div>
+      </div>
+    </div>
+
+    <p class="section-desc" style="margin-top:26px">
+      <strong>Dieselben fünf Kacheln, vierfach vergrößert.</strong> Nicht neu gezeichnet, sondern
+      per <code>zoom: 4</code> aufgeblasen — jedes Pixel ist das, was der Browser bei 18 px wirklich
+      malt, inklusive der 1,1-px-Kontur und der weichen Kanten. Die Reihe ist zum
+      <em>Beurteilen</em> da; entscheiden lässt sich nur über die Reihe darüber, weil das Logo im
+      Produkt nie so groß erscheint.
+    </p>
+
+    <div class="stage magrow" style="gap:20px; padding:38px 20px">
+      <div class="col">
+        <div class="state-label"><span class="now">Heute</span></div>
+        <div class="mag"><span class="tile flat"><svg width="12" height="12"><use href="#m1"/></svg></span></div>
+        <div class="state-note">Gleichmäßige Fläche, harte Kante zum Weiß.</div>
+      </div>
+      <div class="col">
+        <div class="state-label"><span class="v">A</span></div>
+        <div class="mag"><span class="tile dock"><svg width="12" height="12"><use href="#m1"/></svg></span></div>
+        <div class="state-note">Kontur und Lichtkante teilen sich <b>dieselbe eine Pixelreihe</b> — die helle Kante liegt innen auf dem grauen Rand.</div>
+      </div>
+      <div class="col">
+        <div class="state-label"><span class="v">B</span></div>
+        <div class="mag"><span class="tile grad"><svg width="12" height="12"><use href="#m1"/></svg></span></div>
+        <div class="state-note">Ohne Kontur läuft die Lichtkante bis an den Rand. Verlauf oben hell, unten dunkel.</div>
+      </div>
+      <div class="col">
+        <div class="state-label"><span class="v">C</span></div>
+        <div class="mag"><span class="tile sticker"><svg width="12" height="12"><use href="#m1"/></svg></span></div>
+        <div class="state-note">Der Versatzschatten schiebt die Kachel <b>2 px nach oben links</b> aus ihrem Platz.</div>
+      </div>
+      <div class="col">
+        <div class="state-label"><span class="v">D</span></div>
+        <div class="mag"><span style="color:#2563EB; display:inline-flex"><svg width="20" height="20"><use href="#m1-solid"/></svg></span></div>
+        <div class="state-note">Ohne Fläche wird der Ast selbst zur Marke — <b>6 von 48 Einheiten</b> Strichstärke.</div>
+      </div>
+    </div>
+
+    <div class="impl">
+      <h3>Was jede Variante technisch bedeutet</h3>
+      <p>
+        <span class="vn">A</span>–<span class="vn">C</span> — nur das <code>style</code>-Objekt in
+        <code>Logo.tsx:74–82</code>: <code>background</code> wird ein <code>linear-gradient</code>,
+        dazu <code>border</code> und <code>boxShadow</code>. Die Marke, ihre Kurven und die
+        Wortmarke bleiben unberührt. <strong>Kein neues Asset</strong>, kein Favicon-Rebuild.
+      </p>
+      <p>
+        <span class="vn">D</span> — die <code>&lt;span&gt;</code>-Kachel entfällt, das SVG wächst
+        von 12 auf 20 px und bekommt <code>stroke="#2563EB"</code> statt Weiß. Damit ist Simply Blue
+        strukturell wie die anderen vier gebaut. <strong>Aber:</strong> das Dock-Icon behält seine
+        Kachel — Sidebar und Dock hätten dann bewusst verschiedene Auftritte, so wie es bei den
+        anderen vier Themes schon heute ist.
+      </p>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════ §03 ══════════════════════════════ -->
+  <div class="section" id="s03">
+    <div class="section-label">
+      <span class="num">§03</span> Die Wortmarke
+      <span class="src">Logo.tsx:112–121</span>
+    </div>
+    <p class="section-desc">
+      Unabhängig von §02 wählbar. Simply Blue schreibt „Syflo" heute einfarbig in
+      <code>gray-900</code> — als einziges der fünf Themes. Ink Blue und Mushroom Kingdom setzen die
+      zweite Silbe in den Akzent, Hyrule und Matrix arbeiten über Schrift und Sperrung. Die Kachel
+      ist in allen drei Spalten die heutige flache, damit nur die Schrift verglichen wird.
+    </p>
+
+    <div class="stage">
+      <div class="col">
+        <div class="state-label"><span class="now">Heute</span><br>einfarbig, 600, 15 px</div>
+        <div class="sbhead">
+          <span class="logo">
+            <span class="tile flat"><svg width="12" height="12"><use href="#m1"/></svg></span>
+            <span class="word">Syflo</span>
+          </span>
+        </div>
+        <div class="state-note">Ruhig und unauffällig — liest als <b>Fließtext-Überschrift</b>, nicht als Marke.</div>
+      </div>
+
+      <div class="col">
+        <div class="state-label"><span class="v">A</span> · zweifarbig<br>„flo" im Akzent</div>
+        <div class="sbhead">
+          <span class="logo">
+            <span class="tile flat"><svg width="12" height="12"><use href="#m1"/></svg></span>
+            <span class="word" style="--word-accent:#2563EB">Sy<span class="flo">flo</span></span>
+          </span>
+        </div>
+        <div class="state-note">Dieselbe Teilung wie Ink Blue und Mushroom Kingdom. <b>Bindet die Wortmarke an den Akzent</b>, ohne die Schrift zu wechseln.</div>
+      </div>
+
+      <div class="col">
+        <div class="state-label"><span class="v">B</span> · schwerer<br>700, 15,5 px</div>
+        <div class="sbhead">
+          <span class="logo">
+            <span class="tile flat"><svg width="12" height="12"><use href="#m1"/></svg></span>
+            <span class="word bold">Syflo</span>
+          </span>
+        </div>
+        <div class="state-note">Präsenz über Gewicht statt Farbe. Bleibt <b>vollständig neutral</b> und funktioniert auch, wenn der Akzentton noch offen ist.</div>
+      </div>
+
+      <div class="col">
+        <div class="state-label"><span class="v">C</span> · zweifarbig + schwerer</div>
+        <div class="sbhead">
+          <span class="logo">
+            <span class="tile flat"><svg width="12" height="12"><use href="#m1"/></svg></span>
+            <span class="word bold" style="--word-accent:#2563EB">Sy<span class="flo">flo</span></span>
+          </span>
+        </div>
+        <div class="state-note">Beides zusammen. Am nächsten an Ink Blues Auftritt, der mit <b>700 bei 17 px</b> das kräftigste der fünf ist.</div>
+      </div>
+
+      <div class="col">
+        <div class="state-label"><span class="ref">Referenz · Ink Blue</span><br>Logo.tsx:135</div>
+        <div class="sbhead" style="border-color:#DDE7F3">
+          <span class="logo">
+            <svg width="20" height="20" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+              <circle cx="7" cy="24" r="5" fill="#3B82F6" stroke="#1C2B4A" stroke-width="3"/>
+              <path d="M11 24 H 22 C 28 24, 29 15, 36 13" stroke="#1C2B4A" stroke-width="4" stroke-linecap="round"/>
+              <path d="M22 24 C 28 24, 29 33, 36 35" stroke="#1C2B4A" stroke-width="4" stroke-linecap="round"/>
+              <circle cx="39" cy="12.5" r="5.5" fill="#34D399" stroke="#1C2B4A" stroke-width="3"/>
+              <circle cx="39" cy="35.5" r="5.5" fill="#3B82F6" stroke="#1C2B4A" stroke-width="3"/>
+            </svg>
+            <span style="font-family:'Space Grotesk','DM Sans',sans-serif; font-weight:700; font-size:17px; letter-spacing:-0.02em; color:#14263F">Sy<span style="color:#3B82F6">flo</span></span>
+          </span>
+        </div>
+        <div class="state-note">Space Grotesk, 700, 17 px, −0,02 em. Der Maßstab, an dem die drei links gemessen sind.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════ §04 ══════════════════════════════ -->
+  <div class="section" id="s04">
+    <div class="section-label">
+      <span class="num">§04</span> Kandidaten im Sidebar-Kopf, mit ihrem Dock-Icon daneben
+    </div>
+    <p class="section-desc">
+      Drei Kombinationen, jede neben der 76-px-Dock-Kachel. Die Frage in dieser Reihe ist nicht
+      „gefällt es", sondern <strong>lesen die beiden als eine Familie</strong> — im Dock sieht man
+      das Icon, in der App das Logo, nie beide gleichzeitig. Die Verwandtschaft muss also aus dem
+      Gedächtnis funktionieren.
+    </p>
+
+    <div class="stage" style="flex-direction:column; align-items:center; gap:20px">
+      <div class="col">
+        <div class="state-label"><span class="now">Heute</span> · flache Kachel + einfarbige Wortmarke</div>
+        <div class="family">
+          <span class="dock96"><svg width="46" height="46"><use href="#m1"/></svg></span>
+          <span class="vs">Dock</span>
+          <span class="sbhead wide" style="box-shadow:none">
+            <span class="logo">
+              <span class="tile flat"><svg width="12" height="12"><use href="#m1"/></svg></span>
+              <span class="word">Syflo</span>
+            </span>
+            <div class="sbcaps">Zuletzt</div>
+            <div class="sbrows"><div class="sbrow on">Attention Is All You…</div><div class="sbrow">Positionskodierung</div></div>
+          </span>
+          <span class="vs">Sidebar</span>
+        </div>
+        <div class="state-note wide">Gemeinsam ist nur die Marke. Kachel-Material und Wortmarke <b>verbinden nichts</b>.</div>
+      </div>
+
+      <div class="col">
+        <div class="state-label"><span class="v">Kandidat 1</span> · §02/B + §03/A — Verlauf ohne Kontur, „flo" im Akzent</div>
+        <div class="family">
+          <span class="dock96"><svg width="46" height="46"><use href="#m1"/></svg></span>
+          <span class="vs">Dock</span>
+          <span class="sbhead wide" style="box-shadow:none">
+            <span class="logo">
+              <span class="tile grad"><svg width="12" height="12"><use href="#m1"/></svg></span>
+              <span class="word" style="--word-accent:#2563EB">Sy<span class="flo">flo</span></span>
+            </span>
+            <div class="sbcaps">Zuletzt</div>
+            <div class="sbrows"><div class="sbrow on">Attention Is All You…</div><div class="sbrow">Positionskodierung</div></div>
+          </span>
+          <span class="vs">Sidebar</span>
+        </div>
+        <div class="state-note wide">Der Verlauf verbindet, die Kontur bleibt dem Dock. <b>Zwei Zeilen CSS.</b></div>
+      </div>
+
+      <div class="col">
+        <div class="state-label"><span class="v">Kandidat 2</span> · §02/C + §03/C — Sticker mit Schatten, zweifarbig und schwerer</div>
+        <div class="family">
+          <span class="dock96"><svg width="46" height="46"><use href="#m1"/></svg></span>
+          <span class="vs">Dock</span>
+          <span class="sbhead wide" style="box-shadow:none">
+            <span class="logo">
+              <span class="tile sticker"><svg width="12" height="12"><use href="#m1"/></svg></span>
+              <span class="word bold" style="--word-accent:#2563EB">Sy<span class="flo">flo</span></span>
+            </span>
+            <div class="sbcaps">Zuletzt</div>
+            <div class="sbrows"><div class="sbrow on">Attention Is All You…</div><div class="sbrow">Positionskodierung</div></div>
+          </span>
+          <span class="vs">Sidebar</span>
+        </div>
+        <div class="state-note wide">Vollständigste Übernahme: Verlauf, Kontur und Versatzschatten. <b>Braucht 2 px Luft</b> rechts und unten im Kopf.</div>
+      </div>
+
+      <div class="col">
+        <div class="state-label"><span class="v">Kandidat 3</span> · §02/D + §03/B — blanke Marke, schwerer Schriftzug</div>
+        <div class="family">
+          <span class="dock96"><svg width="46" height="46"><use href="#m1"/></svg></span>
+          <span class="vs">Dock</span>
+          <span class="sbhead wide" style="box-shadow:none">
+            <span class="logo">
+              <span style="color:#2563EB; display:inline-flex"><svg width="20" height="20"><use href="#m1-solid"/></svg></span>
+              <span class="word bold">Syflo</span>
+            </span>
+            <div class="sbcaps">Zuletzt</div>
+            <div class="sbrows"><div class="sbrow on">Attention Is All You…</div><div class="sbrow">Positionskodierung</div></div>
+          </span>
+          <span class="vs">Sidebar</span>
+        </div>
+        <div class="state-note wide">Sidebar und Dock <b>bewusst getrennt</b> — genau das Muster der anderen vier Themes. Die Marke selbst hält die Verwandtschaft.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════ §05 ══════════════════════════════ -->
+  <div class="section" id="s05">
+    <div class="section-label">
+      <span class="num">§05</span> Größenreihe und die offene Farbfrage
+      <span class="src">Logo.tsx:236 · scale 1.6 im Empty-State</span>
+    </div>
+    <p class="section-desc">
+      Das Logo erscheint an zwei Stellen: im Sidebar-Kopf bei <strong>18 px</strong> und im
+      Empty-State bei <strong>scale 1.6</strong>, also effektiv 28,8 px. Die obere Reihe zeigt jede
+      Kachel-Variante über beide Größen plus 24 px als Zwischenschritt — ein Verlauf, der bei 29 px
+      trägt, kann bei 18 px als schmutziges Blau lesen.
+    </p>
+
+    <div class="stage">
+      <div class="col">
+        <div class="state-label"><span class="now">Heute</span> · flach</div>
+        <div class="sizes">
+          <div class="sz"><span class="tile flat" style="width:18px;height:18px;border-radius:5px"><svg width="12" height="12"><use href="#m1"/></svg></span><span class="lbl">18</span></div>
+          <div class="sz"><span class="tile flat" style="width:24px;height:24px;border-radius:6.5px"><svg width="16" height="16"><use href="#m1"/></svg></span><span class="lbl">24</span></div>
+          <div class="sz"><span class="tile flat" style="width:29px;height:29px;border-radius:8px"><svg width="19" height="19"><use href="#m1"/></svg></span><span class="lbl">29</span></div>
+        </div>
+        <div class="state-note">Skaliert perfekt — <b>eine Fläche hat keine Details</b>, die verloren gehen können.</div>
+      </div>
+
+      <div class="col">
+        <div class="state-label"><span class="v">A</span> · Dock 1:1</div>
+        <div class="sizes">
+          <div class="sz"><span class="tile dock" style="width:18px;height:18px;border-radius:5px"><svg width="12" height="12"><use href="#m1"/></svg></span><span class="lbl">18</span></div>
+          <div class="sz"><span class="tile dock" style="width:24px;height:24px;border-radius:6.5px;border-width:1.5px"><svg width="16" height="16"><use href="#m1"/></svg></span><span class="lbl">24</span></div>
+          <div class="sz"><span class="tile dock" style="width:29px;height:29px;border-radius:8px;border-width:1.8px;box-shadow:inset 0 1.8px 0 rgba(255,255,255,0.32)"><svg width="19" height="19"><use href="#m1"/></svg></span><span class="lbl">29</span></div>
+        </div>
+        <div class="state-note">Die Kontur braucht <b>pro Größe einen eigenen Wert</b> (1,1 / 1,5 / 1,8 px), sonst wirkt sie bei 29 px zu dünn.</div>
+      </div>
+
+      <div class="col">
+        <div class="state-label"><span class="v">B</span> · ohne Kontur</div>
+        <div class="sizes">
+          <div class="sz"><span class="tile grad" style="width:18px;height:18px;border-radius:5px"><svg width="12" height="12"><use href="#m1"/></svg></span><span class="lbl">18</span></div>
+          <div class="sz"><span class="tile grad" style="width:24px;height:24px;border-radius:6.5px"><svg width="16" height="16"><use href="#m1"/></svg></span><span class="lbl">24</span></div>
+          <div class="sz"><span class="tile grad" style="width:29px;height:29px;border-radius:8px;box-shadow:inset 0 1.8px 0 rgba(255,255,255,0.36)"><svg width="19" height="19"><use href="#m1"/></svg></span><span class="lbl">29</span></div>
+        </div>
+        <div class="state-note">Nur die Lichtkante wächst mit. <b>Ein Wert weniger</b> zu pflegen als in A.</div>
+      </div>
+
+      <div class="col">
+        <div class="state-label"><span class="v">D</span> · blanke Marke</div>
+        <div class="sizes">
+          <div class="sz"><span style="color:#2563EB;display:inline-flex"><svg width="20" height="20"><use href="#m1-solid"/></svg></span><span class="lbl">20</span></div>
+          <div class="sz"><span style="color:#2563EB;display:inline-flex"><svg width="26" height="26"><use href="#m1-solid"/></svg></span><span class="lbl">26</span></div>
+          <div class="sz"><span style="color:#2563EB;display:inline-flex"><svg width="32" height="32"><use href="#m1-solid"/></svg></span><span class="lbl">32</span></div>
+        </div>
+        <div class="state-note">Ohne Kachel darf die Marke <b>größer werden</b> — sie braucht dieselbe optische Masse wie vorher die Fläche.</div>
+      </div>
+    </div>
+
+    <p class="section-desc" style="margin-top:26px">
+      <strong>Und die Farbfrage:</strong> der Verlauf oben trägt in der Mitte <code>#2563EB</code>,
+      den Tailwind-v3-Wert. Die App rendert ihre Flächen auf <code>#155DFC</code> (v4). Solange das
+      offen ist, entscheidet §01 des Paritäts-Mockups mit, wie diese Kachel aussieht. Beide Rechnungen
+      stehen hier nebeneinander — links der beschlossene v3-Verlauf, rechts derselbe Aufbau auf den
+      echten v4-Tönen (<code>#4E93FF → #155DFC → #1447E6</code>, gleiche Helligkeitsschritte).
+    </p>
+
+    <div class="stage">
+      <div class="col">
+        <div class="state-label"><span class="ref">v3-Verlauf</span><br>wie in Runde 7 beschlossen</div>
+        <div class="family">
+          <span class="dock96"><svg width="46" height="46"><use href="#m1"/></svg></span>
+          <span class="sbhead" style="box-shadow:none; width:196px">
+            <span class="logo">
+              <span class="tile dock"><svg width="12" height="12"><use href="#m1"/></svg></span>
+              <span class="word" style="--word-accent:#2563EB">Sy<span class="flo">flo</span></span>
+            </span>
+            <div class="sbrows"><div class="sbrow on">Attention Is All You…</div></div>
+          </span>
+        </div>
+        <div class="state-note wide">Die aktive Zeile daneben ist <b>echtes v4-Blau</b> — hier sieht man den Bruch aus §01 des Paritäts-Mockups im Kleinen.</div>
+      </div>
+
+      <div class="col">
+        <div class="state-label"><span class="ref">v4-Verlauf</span><br>auf den echten App-Tönen</div>
+        <div class="family">
+          <span class="dock96 v4"><svg width="46" height="46"><use href="#m1"/></svg></span>
+          <span class="sbhead" style="box-shadow:none; width:196px">
+            <span class="logo">
+              <span class="tile dock-v4"><svg width="12" height="12"><use href="#m1"/></svg></span>
+              <span class="word" style="--word-accent:var(--v4-blue-600)">Sy<span class="flo">flo</span></span>
+            </span>
+            <div class="sbrows"><div class="sbrow on">Attention Is All You…</div></div>
+          </span>
+        </div>
+        <div class="state-note wide">Kachel, Wortmarke und aktive Zeile ziehen <b>an einem Ton</b>. Kostet: die Dock-PNGs müssen neu aus dem Mockup gecaptured werden.</div>
+      </div>
+    </div>
+
+    <div class="impl">
+      <h3>Was bei einem Farbwechsel am Icon anfällt</h3>
+      <p>
+        Die Dock-PNGs sind <strong>Mockup-Captures, keine gerenderten SVGs</strong>
+        (Nutzerentscheid 2026-07-24: „jeder Pixel wie im Mockup"). Ein Farbwechsel heißt deshalb:
+        Kachel im Mockup umfärben, die 96-px-Kachel per <code>zoom: 8.3333</code> auf 1024 px
+        klonen, mit <code>omitBackground</code> als Element-Screenshot aufnehmen, daraus
+        <code>icon.icns</code> über <code>sips</code> und <code>iconutil</code> bauen — und die
+        beiden Favicon-SVGs von Hand nachziehen. <strong>Nicht</strong> die 48er-Favicons
+        hochskalieren: dabei verdoppelt sich die Randbreite und der macOS-Transparenzrand fehlt.
+      </p>
+      <p>
+        Das Sidebar-Logo selbst kostet in jedem Fall nur die drei CSS-Eigenschaften in
+        <code>Logo.tsx:74–82</code>. <strong>Die Reihenfolge ist also: Farbe entscheiden, dann
+        Material, dann einmal capturen</strong> — sonst läuft der Capture-Weg zweimal.
+      </p>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════ §06 ══════════════════════════════ -->
+  <div class="section" id="s06">
+    <div class="section-label">
+      <span class="num">§06</span> Was der blanken Marke aus §02/D noch fehlt
+      <span class="kind inner"><svg width="11" height="11"><use href="#i-drop"/></svg>gemessen, nicht geschätzt</span>
+    </div>
+    <p class="section-desc">
+      §02/D ist gewählt — die Kachel fällt weg. Der Eindruck „da fehlt noch was" hat
+      <strong>drei messbare Ursachen</strong>, nicht eine. Alle drei sind unten einzeln
+      abgestellt, damit sichtbar wird, welche davon der Grund war.
+    </p>
+
+    <div class="measured" style="margin:0 0 22px">
+      <h2>Tinten-Deckung der fünf Sidebar-Marken · gemessen 14.08.2026</h2>
+      <p style="font-size:12.5px; line-height:1.6; color:var(--text-muted); margin-bottom:11px">
+        Methode wie bei den Icon-Runden vorgeschrieben: jede Marke auf ein 240er-Canvas gerendert,
+        dann die nicht transparenten Pixel gezählt — <strong>nicht geschätzt</strong>.
+      </p>
+      <ul>
+        <li><svg width="14" height="14"><use href="#i-ruler"/></svg>
+          <span><strong>Heute, Marke auf der Kachel: 94,0 %.</strong> Die Kachel <em>ist</em> die
+          Tinte — sie füllt das Quadrat fast vollständig.</span></li>
+        <li><svg width="14" height="14"><use href="#i-ruler"/></svg>
+          <span>Mushroom Kingdom <strong>44,2 %</strong> · Ink Blue <strong>25,6 %</strong> ·
+          Hyrule <strong>12,1 %</strong> (dessen Marke ist breit statt quadratisch, 86 × 60 —
+          die Zahl liegt deshalb tiefer, als das Auge sie liest).</span></li>
+        <li><svg width="14" height="14"><use href="#i-drop"/></svg>
+          <span><strong>§02/D liegt bei 18,3 %</strong> — ein Fünftel der heutigen 94 %. Das ist
+          Ursache 1: <strong>die optische Masse fehlt</strong>, nicht das Motiv.</span></li>
+        <li><svg width="14" height="14"><use href="#i-drop"/></svg>
+          <span>Ursache 2: <strong>kein Startknoten.</strong> Ink Blue (<code>circle cx=7 r=5</code>)
+          und Matrix (<code>r=3.6</code>) verankern den Ast beide mit einem Ursprungspunkt. In D
+          endet der Ast in einer runden Kappe bei <code>x=8</code> und liest sich
+          <strong>abgeschnitten</strong> — auf der Kachel fiel das nicht auf, weil die Fläche ihn
+          begrenzte.</span></li>
+        <li><svg width="14" height="14"><use href="#i-drop"/></svg>
+          <span>Ursache 3: <strong>einfarbig.</strong> Alle vier anderen Marken sind mindestens
+          zweifarbig — Ink Blue Navy/Blau/Grün, Hyrule Teal/Gold, Mushroom Navy/Rot/Creme, Matrix
+          drei Grünstufen. D ist der einzige einfarbige Auftritt.</span></li>
+      </ul>
+    </div>
+
+    <div class="stage">
+      <div class="col">
+        <div class="state-label"><span class="now">D wie im Mockup</span><br>20 px, 18,3 % Tinte</div>
+        <div class="sbhead">
+          <span class="logo">
+            <span style="color:#2563EB; display:inline-flex"><svg width="20" height="20"><use href="#m1-solid"/></svg></span>
+            <span class="word">Syflo</span>
+          </span>
+          <div class="sbcaps">Zuletzt</div>
+          <div class="sbrows"><div class="sbrow on">Attention Is All You…</div><div class="sbrow">Positionskodierung</div></div>
+        </div>
+        <div class="state-note">Der Ast beginnt <b>im Nichts</b>. Neben der 15-px-Wortmarke wirkt die Marke dünn.</div>
+      </div>
+
+      <div class="col">
+        <div class="state-label"><span class="v">D1</span> · nur Startknoten<br>Ursache 2 behoben</div>
+        <div class="sbhead">
+          <span class="logo">
+            <span style="color:#2563EB; display:inline-flex">
+              <svg width="20" height="20" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+                <circle cx="7" cy="24" r="5" fill="currentColor"/>
+                <path d="M11 24 H 22 C 28 24, 29 15, 38 12.5" stroke="currentColor" stroke-width="6" stroke-linecap="round"/>
+                <path d="M22 24 C 28 24, 29 33, 38 35.5" stroke="currentColor" stroke-width="6" stroke-linecap="round"/>
+                <circle cx="38" cy="12.5" r="5" fill="currentColor"/><circle cx="38" cy="35.5" r="5" fill="currentColor"/>
+              </svg>
+            </span>
+            <span class="word">Syflo</span>
+          </span>
+          <div class="sbcaps">Zuletzt</div>
+          <div class="sbrows"><div class="sbrow on">Attention Is All You…</div><div class="sbrow">Positionskodierung</div></div>
+        </div>
+        <div class="state-note">Ein Kreis bei <code>x=7</code>, der Ast startet bei <code>x=11</code>. Die Gabel hat jetzt <b>einen Ursprung</b> — drei Knoten, wie bei Ink Blue.</div>
+      </div>
+
+      <div class="col">
+        <div class="state-label"><span class="v">D2</span> · zweifarbig<br>Ursache 3 behoben</div>
+        <div class="sbhead">
+          <span class="logo">
+            <span style="display:inline-flex">
+              <svg width="20" height="20" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+                <circle cx="7" cy="24" r="5" fill="#93C5FD"/>
+                <path d="M11 24 H 22 C 28 24, 29 15, 38 12.5" stroke="#1D4ED8" stroke-width="6" stroke-linecap="round"/>
+                <path d="M22 24 C 28 24, 29 33, 38 35.5" stroke="#1D4ED8" stroke-width="6" stroke-linecap="round"/>
+                <circle cx="38" cy="12.5" r="5" fill="#2563EB"/><circle cx="38" cy="35.5" r="5" fill="#2563EB"/>
+              </svg>
+            </span>
+            <span class="word">Syflo</span>
+          </span>
+          <div class="sbcaps">Zuletzt</div>
+          <div class="sbrows"><div class="sbrow on">Attention Is All You…</div><div class="sbrow">Positionskodierung</div></div>
+        </div>
+        <div class="state-note">Drei Stufen einer Farbe statt einer zweiten Farbe: Ast <code>blue-700</code>, Knoten <code>blue-600</code>, Ursprung <code>blue-300</code>. <b>Simply Blue hat keine Zweitfarbe</b> — deshalb die Leiter.</div>
+      </div>
+
+      <div class="col">
+        <div class="state-label"><span class="v">D3</span> · größer und dicker<br>Ursache 1 behoben</div>
+        <div class="sbhead">
+          <span class="logo">
+            <span style="color:#2563EB; display:inline-flex">
+              <svg width="26" height="26" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+                <circle cx="7" cy="24" r="5.5" fill="currentColor"/>
+                <path d="M11 24 H 22 C 28 24, 29 15, 38 12.5" stroke="currentColor" stroke-width="7" stroke-linecap="round"/>
+                <path d="M22 24 C 28 24, 29 33, 38 35.5" stroke="currentColor" stroke-width="7" stroke-linecap="round"/>
+                <circle cx="38" cy="12.5" r="5.5" fill="currentColor"/><circle cx="38" cy="35.5" r="5.5" fill="currentColor"/>
+              </svg>
+            </span>
+            <span class="word">Syflo</span>
+          </span>
+          <div class="sbcaps">Zuletzt</div>
+          <div class="sbrows"><div class="sbrow on">Attention Is All You…</div><div class="sbrow">Positionskodierung</div></div>
+        </div>
+        <div class="state-note">26 statt 20 px, Strich 7 statt 6, Knoten r 5,5. Holt die Masse zurück, die die Kachel <b>vorher als Fläche</b> geliefert hat.</div>
+      </div>
+
+      <div class="col">
+        <div class="state-label"><span class="v">D4</span> · alle drei zusammen</div>
+        <div class="sbhead">
+          <span class="logo">
+            <span style="display:inline-flex">
+              <svg width="25" height="25" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+                <circle cx="7" cy="24" r="5.5" fill="#93C5FD"/>
+                <path d="M11 24 H 22 C 28 24, 29 15, 38 12.5" stroke="#1D4ED8" stroke-width="7" stroke-linecap="round"/>
+                <path d="M22 24 C 28 24, 29 33, 38 35.5" stroke="#1D4ED8" stroke-width="7" stroke-linecap="round"/>
+                <circle cx="38" cy="12.5" r="5.5" fill="#2563EB"/><circle cx="38" cy="35.5" r="5.5" fill="#2563EB"/>
+              </svg>
+            </span>
+            <span class="word bold">Sy<span class="flo" style="--word-accent:#2563EB">flo</span></span>
+          </span>
+          <div class="sbcaps">Zuletzt</div>
+          <div class="sbrows"><div class="sbrow on">Attention Is All You…</div><div class="sbrow">Positionskodierung</div></div>
+        </div>
+        <div class="state-note">Startknoten, Farbleiter, 25 px — plus die Wortmarke aus §03/C. <b>Am nächsten an Ink Blues Auftritt</b>, der als kräftigster der fünf gilt.</div>
+      </div>
+    </div>
+
+    <p class="section-desc" style="margin-top:26px">
+      <strong>Dieselben fünf, vierfach vergrößert.</strong> Hier ist zu sehen, ob der Startknoten
+      als eigener Punkt liest oder mit dem Ast verschmilzt, und ob die Farbleiter in D2 bei 20 px
+      noch drei Stufen zeigt oder zu einem Ton verschmiert.
+    </p>
+
+    <div class="stage magrow" style="gap:20px; padding:38px 20px">
+      <div class="col">
+        <div class="state-label"><span class="now">D</span></div>
+        <div class="mag"><span style="color:#2563EB; display:inline-flex"><svg width="20" height="20"><use href="#m1-solid"/></svg></span></div>
+        <div class="state-note">Der Ast endet links in einer <b>freien Kappe</b>.</div>
+      </div>
+      <div class="col">
+        <div class="state-label"><span class="v">D1</span></div>
+        <div class="mag"><span style="color:#2563EB; display:inline-flex"><svg width="20" height="20" viewBox="0 0 48 48" fill="none"><circle cx="7" cy="24" r="5" fill="currentColor"/><path d="M11 24 H 22 C 28 24, 29 15, 38 12.5" stroke="currentColor" stroke-width="6" stroke-linecap="round"/><path d="M22 24 C 28 24, 29 33, 38 35.5" stroke="currentColor" stroke-width="6" stroke-linecap="round"/><circle cx="38" cy="12.5" r="5" fill="currentColor"/><circle cx="38" cy="35.5" r="5" fill="currentColor"/></svg></span></div>
+        <div class="state-note">Ursprung r 5 gegen Strich 6 — der Punkt trägt nur <b>1 Einheit</b> auf und verschmilzt fast.</div>
+      </div>
+      <div class="col">
+        <div class="state-label"><span class="v">D2</span></div>
+        <div class="mag"><span style="display:inline-flex"><svg width="20" height="20" viewBox="0 0 48 48" fill="none"><circle cx="7" cy="24" r="5" fill="#93C5FD"/><path d="M11 24 H 22 C 28 24, 29 15, 38 12.5" stroke="#1D4ED8" stroke-width="6" stroke-linecap="round"/><path d="M22 24 C 28 24, 29 33, 38 35.5" stroke="#1D4ED8" stroke-width="6" stroke-linecap="round"/><circle cx="38" cy="12.5" r="5" fill="#2563EB"/><circle cx="38" cy="35.5" r="5" fill="#2563EB"/></svg></span></div>
+        <div class="state-note">Der helle Ursprung trennt sich <b>über Helligkeit</b>, nicht über Größe.</div>
+      </div>
+      <div class="col">
+        <div class="state-label"><span class="v">D3</span></div>
+        <div class="mag"><span style="color:#2563EB; display:inline-flex"><svg width="26" height="26" viewBox="0 0 48 48" fill="none"><circle cx="7" cy="24" r="5.5" fill="currentColor"/><path d="M11 24 H 22 C 28 24, 29 15, 38 12.5" stroke="currentColor" stroke-width="7" stroke-linecap="round"/><path d="M22 24 C 28 24, 29 33, 38 35.5" stroke="currentColor" stroke-width="7" stroke-linecap="round"/><circle cx="38" cy="12.5" r="5.5" fill="currentColor"/><circle cx="38" cy="35.5" r="5.5" fill="currentColor"/></svg></span></div>
+        <div class="state-note">Bei Strich 7 rücken die beiden Äste <b>enger zusammen</b> — die Lücke zwischen ihnen wird knapp.</div>
+      </div>
+      <div class="col">
+        <div class="state-label"><span class="v">D4</span></div>
+        <div class="mag"><span style="display:inline-flex"><svg width="25" height="25" viewBox="0 0 48 48" fill="none"><circle cx="7" cy="24" r="5.5" fill="#93C5FD"/><path d="M11 24 H 22 C 28 24, 29 15, 38 12.5" stroke="#1D4ED8" stroke-width="7" stroke-linecap="round"/><path d="M22 24 C 28 24, 29 33, 38 35.5" stroke="#1D4ED8" stroke-width="7" stroke-linecap="round"/><circle cx="38" cy="12.5" r="5.5" fill="#2563EB"/><circle cx="38" cy="35.5" r="5.5" fill="#2563EB"/></svg></span></div>
+        <div class="state-note">Alles zusammen. Prüfen: wird die <b>Farbleiter bei 7er-Strich</b> zu unruhig?</div>
+      </div>
+    </div>
+
+    <div class="impl">
+      <h3>Wichtig für die Wahl</h3>
+      <p>
+        <strong>D wirkt auf das Dock-Icon zurück.</strong> Runde 7 hat das Icon eigens auf die
+        Sidebar-Marke abgestimmt — es zeigt genau M1 ohne Startknoten und ohne grünen Knoten. Nimmt
+        das Sidebar-Logo jetzt einen Startknoten (D1/D2/D4) oder eine Farbleiter (D2/D4) dazu,
+        <strong>weichen Icon und Logo wieder auseinander</strong> — genau die Abweichung, die Runde
+        7 beseitigt hat. Zwei Wege: das Icon nachziehen (erneuter Capture-Lauf, siehe §05) oder die
+        Abweichung annehmen, weil das Icon ohnehin auf einer Kachel sitzt und dort die Fläche den
+        Ursprung ersetzt.
+      </p>
+      <p>
+        <strong>D3 ist der einzige Weg ohne diese Folge:</strong> mehr Masse durch Größe und
+        Strichstärke ändert das Motiv nicht, nur seinen Maßstab. Das Icon bleibt gültig, wie es ist.
+      </p>
+    </div>
+  </div>
+
+  <div class="outro">
+    <strong>Was hier bewusst nicht zur Wahl steht:</strong> die Knoten-Marke selbst. Die Grundregel
+    aus den sechs Icon-Runden gilt weiter — <em>die Marke bleibt in jedem Theme, nur das Material
+    wechselt</em>. M1 (Ast endet auf der Knotenmitte, Radius 5) ist am 13.08.2026 entschieden und
+    wird hier in jeder Variante unverändert verwendet.
+    <br><br>
+    <strong>Nebenbefund für die anderen Themes:</strong> die Kerbe, die M1 in Simply Blue behoben
+    hat — der Ast trifft die Kugel seitlich statt mittig — steckt laut
+    <code>project_syflo_app_icons</code> noch in <strong>Ink Blue, Matrix und Hyrule</strong>.
+    Ebenso zeigt <code>favicon-hyrule.svg</code> im Browser-Tab noch Kreise, während Hyrules
+    Sidebar-Logo und Dock-Icon goldene Rauten tragen. Beides ist seit Juli offen.
+  </div>
+
+</div>
+</body>
+</html>

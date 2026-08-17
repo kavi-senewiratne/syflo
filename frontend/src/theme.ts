@@ -25,17 +25,23 @@ export interface ThemeInfo {
   // Three representative colors shown as swatch dots in the picker:
   // [app background, accent, neutral/text]
   swatches: [string, string, string];
-  // Im Theme-Picker ausgeblendet, aber voll funktionsfähig (Nutzerwunsch
-  // 2026-07-23: "Basic" verstecken, nicht entfernen — vielleicht später
-  // wieder anbieten). Ein gespeichertes hidden-Theme bleibt gültig.
+  // Hides an entry from the picker without removing it from THEMES (a stored
+  // hidden theme stays valid). The default theme was hidden on 2026-07-23 and
+  // offered again on 2026-08-12 — nothing uses the flag right now, but it
+  // stays as the supported way to retire a theme.
   hidden?: boolean;
 }
 
 export const THEMES: ThemeInfo[] = [
-  { id: 'professional', label: 'Basic', swatches: ['#FFFFFF', '#2563EB', '#6B7280'], hidden: true },
+  // Label-Historie: "Professional" → "Basic" (2026-07-20) → "Simply Blue"
+  // (2026-08-13). Die ID bleibt für immer `professional` — sie steht in den
+  // localStorage-Prefs der Nutzer und in den Dateinamen der Icons.
+  { id: 'professional', label: 'Simply Blue', swatches: ['#FFFFFF', '#2563EB', '#6B7280'] },
   { id: 'mushroom-kingdom', label: 'Mushroom Kingdom', swatches: ['#6FA3F8', '#D8433B', '#EFB43A'] },
   { id: 'hyrule', label: 'Hyrule', swatches: ['#EFEBDA', '#2AA198', '#B8963A'] },
-  { id: 'ink-blue', label: 'Ink Blue', swatches: ['#F3F8FD', '#3B82F6', '#5C7194'] },
+  // Aus dem Picker genommen (Nutzerwunsch 2026-08-13). Wie bei "Basic" damals:
+  // versteckt, nicht entfernt — wer ink-blue gespeichert hat, behält es.
+  { id: 'ink-blue', label: 'Ink Blue', swatches: ['#F3F8FD', '#3B82F6', '#5C7194'], hidden: true },
   { id: 'matrix', label: 'Matrix', swatches: ['#030503', '#2BE76B', '#12805B'] },
 ];
 

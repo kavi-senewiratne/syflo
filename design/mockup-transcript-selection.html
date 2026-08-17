@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Syflo · Selecting in the transcript</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --brand-blue: #2563EB;
+    --bg-app: #F8FAFC;
+    --surface: #FFFFFF;
+    --text-strong: #0F172A;
+    --text-default: #334155;
+    --text-muted: #64748B;
+    --border: #E2E8F0;
+    --blue-50: #EFF6FF; --blue-100: #DBEAFE; --blue-600: #2563EB; --blue-700: #1D4ED8;
+    --gray-50: #F9FAFB; --gray-100: #F3F4F6; --gray-200: #E5E7EB; --gray-300: #D1D5DB;
+    --gray-400: #9CA3AF; --gray-500: #6B7280; --gray-900: #111827;
+    --amber-50: #FFFBEB; --amber-200: #FDE68A; --amber-700: #B45309;
+    --hl-yellow: #FEF08A; --hl-green: #BBF7D0; --hl-blue: #BFDBFE; --hl-pink: #FBCFE8; --hl-orange: #FED7AA;
+    --shadow: 0 1px 3px rgba(15,23,42,0.06), 0 1px 2px rgba(15,23,42,0.04);
+    --shadow-lg: 0 10px 30px rgba(15,23,42,0.10), 0 4px 10px rgba(15,23,42,0.05);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Inter', -apple-system, sans-serif; background: var(--bg-app);
+    color: var(--text-default); -webkit-font-smoothing: antialiased;
+    min-height: 100vh; padding: 48px 32px 96px;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; }
+  .intro { margin-bottom: 40px; }
+  .intro h1 { font-size: 24px; font-weight: 700; color: var(--text-strong); letter-spacing: -0.015em; margin-bottom: 8px; }
+  .intro p { font-size: 14px; color: var(--text-muted); line-height: 1.6; max-width: 860px; }
+  code { font-family: 'JetBrains Mono', monospace; font-size: 11.5px; background: var(--gray-100); border-radius: 4px; padding: 1px 5px; }
+
+  .section { margin-bottom: 56px; }
+  .section-label {
+    font-size: 12px; font-weight: 600; color: var(--text-muted);
+    letter-spacing: 0.06em; text-transform: uppercase;
+    display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px;
+  }
+  .section-label .num { color: var(--brand-blue); font-weight: 700; }
+  .tag { font-size: 9.5px; font-weight: 700; letter-spacing: 0.05em; border-radius: 4px; padding: 2px 6px; text-transform: uppercase; }
+  .tag.new { background: var(--blue-50); color: var(--blue-700); border: 1px solid var(--blue-100); }
+  .tag.keep { background: var(--gray-100); color: var(--gray-500); }
+  .section-desc { font-size: 13px; color: var(--text-muted); line-height: 1.55; margin-bottom: 18px; max-width: 860px; }
+  .section-desc strong { color: var(--text-default); }
+
+  .stage { background: #E2E8F0; border-radius: 14px; padding: 36px 24px; display: flex; justify-content: center; gap: 26px; align-items: flex-start; flex-wrap: wrap; }
+  .state-label { text-align: center; font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); margin-bottom: 10px; }
+  .col { display: flex; flex-direction: column; }
+  svg { flex: none; }
+
+  /* ── Video pane ── */
+  .video-pane { width: 316px; background: var(--gray-50); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); overflow: hidden; }
+  .video-head { display: flex; gap: 9px; align-items: flex-start; padding: 11px 12px; background: var(--surface); border-bottom: 1px solid var(--border); }
+  .video-head .icon { width: 26px; height: 26px; border-radius: 7px; background: var(--blue-50); color: var(--blue-700); display: flex; align-items: center; justify-content: center; }
+  .video-head .t { font-size: 11.5px; font-weight: 600; color: var(--text-strong); line-height: 1.35; }
+  .video-head .s { font-size: 10px; color: var(--gray-400); margin-top: 2px; }
+  .video-thumb { margin: 12px 12px 10px; height: 84px; border-radius: 8px; background: linear-gradient(135deg,#1E293B,#334155); display: flex; align-items: center; justify-content: center; color: rgba(255,255,255,0.55); position: relative; }
+  .video-thumb .stamp { position: absolute; right: 8px; bottom: 7px; font-family: 'JetBrains Mono', monospace; font-size: 9.5px; color: rgba(255,255,255,0.85); background: rgba(15,23,42,0.6); border-radius: 4px; padding: 1px 5px; }
+  .video-tabs { display: flex; gap: 4px; justify-content: center; margin-bottom: 10px; }
+  .video-tab { display: inline-flex; align-items: center; gap: 5px; font-size: 10.5px; font-weight: 500; color: var(--gray-500); padding: 4px 9px; border-radius: 7px; }
+  .video-tab.on { background: var(--surface); color: var(--text-strong); font-weight: 600; box-shadow: var(--shadow); }
+  .video-list { padding: 0 12px 14px; display: flex; flex-direction: column; gap: 5px; }
+
+  /* Transcript blocks */
+  .tblock { display: flex; gap: 9px; align-items: flex-start; padding: 7px 9px; border-radius: 9px; }
+  .tblock.on { background: var(--surface); box-shadow: var(--shadow); outline: 1px solid var(--blue-600); }
+  .tblock .chip { font-family: 'JetBrains Mono', monospace; font-size: 9.5px; font-weight: 500; padding: 1px 5px; border-radius: 5px; background: var(--blue-50); color: var(--blue-700); }
+  .tblock .chip.btn { border: 1px solid var(--blue-100); cursor: pointer; }
+  .tblock .txt { font-size: 11px; line-height: 1.55; color: var(--gray-900); }
+  .sel { background: var(--hl-blue); border-radius: 2px; }
+  .hl-yellow { background: var(--hl-yellow); border-radius: 2px; }
+  .cursor-note { display: inline-flex; align-items: center; gap: 4px; font-size: 9.5px; color: var(--gray-400); margin-top: 6px; }
+
+  /* Mode toggle (variant B) */
+  .mode-row { display: flex; gap: 4px; justify-content: center; margin: -4px 0 8px; }
+  .mode { display: inline-flex; align-items: center; gap: 5px; font-size: 10px; font-weight: 500; color: var(--gray-500); padding: 3px 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); }
+  .mode.on { background: var(--blue-50); color: var(--blue-700); border-color: var(--blue-100); font-weight: 600; }
+
+  /* Selection popup — same one the chat and the PDF already open */
+  .popup { width: 290px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow-lg); overflow: hidden; }
+  .popup .head { padding: 11px 13px 9px; border-bottom: 1px solid var(--border); }
+  .popup .word { font-size: 12.5px; font-weight: 600; color: var(--text-strong); line-height: 1.4; }
+  .popup .body { padding: 10px 13px; font-size: 11.5px; line-height: 1.6; color: var(--text-default); }
+  .popup .colors { display: flex; gap: 6px; padding: 9px 13px; border-top: 1px solid var(--border); }
+  .swatch { width: 17px; height: 17px; border-radius: 999px; border: 1px solid rgba(15,23,42,0.08); }
+  .popup .actions { display: flex; flex-direction: column; gap: 6px; padding: 4px 13px 12px; }
+  .act { display: flex; align-items: center; gap: 7px; font-size: 11.5px; font-weight: 500; color: var(--text-default); padding: 6px 8px; border-radius: 7px; border: 1px solid var(--border); background: var(--surface); }
+  .act.primary { border-color: var(--blue-100); background: var(--blue-50); color: var(--blue-700); font-weight: 600; }
+  .act svg { color: currentColor; }
+
+  /* Chat pane */
+  .chat-pane { width: 330px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); overflow: hidden; }
+  .chat-msgs { padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+  .quote-chip { border-left: 3px solid var(--hl-yellow); background: var(--gray-50); border-radius: 0 7px 7px 0; padding: 7px 9px; font-size: 10.5px; line-height: 1.5; color: var(--gray-500); }
+  .quote-chip .src { display: flex; align-items: center; gap: 5px; font-size: 9.5px; color: var(--gray-400); margin-top: 5px; }
+  .bubble-user { align-self: flex-end; background: var(--brand-blue); color: white; font-size: 11.5px; line-height: 1.5; padding: 7px 10px; border-radius: 12px 12px 4px 12px; max-width: 88%; }
+  .bubble-ai { align-self: flex-start; color: var(--text-default); font-size: 11.5px; line-height: 1.6; max-width: 94%; }
+
+  .annot { width: 316px; margin-top: 12px; font-size: 11px; line-height: 1.55; color: var(--text-muted); }
+  .annot strong { color: var(--text-default); }
+  .annot.wide { width: 330px; }
+  .flow-note { font-size: 12px; color: var(--text-muted); line-height: 1.6; max-width: 860px; margin-top: 14px; }
+  .flow-note strong { color: var(--text-default); }
+  .trade { display: flex; gap: 6px; margin-top: 7px; font-size: 10.5px; line-height: 1.5; }
+  .trade .k { font-weight: 700; color: var(--text-default); min-width: 44px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="intro">
+    <h1>Selecting in the transcript</h1>
+    <p>
+      The transcript is the video's real source text — the counterpart of the PDF page — and it is the
+      only surface in Syflo where a passage cannot yet be selected, highlighted, quoted, or branched
+      from. Decided with the user 2026-08-16: <strong>the transcript only</strong> (the chapters are the
+      model's own writing, not the source), <strong>no time picking while selecting</strong>, and
+      <strong>the way back leads to both</strong> — the passage in the list and the second in the video.
+      Everything after the selection is what the chat and the PDF already do: the same popup, the same
+      five highlight colors, the same “Ask in chat”, the same branch (<code>handleChatSelection</code>,
+      App.tsx). Section 01 is the only real question, and it has three answers.
+    </p>
+  </div>
+
+  <!-- ═══════════════ 01 ═══════════════ -->
+  <div class="section">
+    <div class="section-label"><span class="num">01</span> Selecting and jumping on the same rows <span class="tag new">variant A built</span></div>
+    <p class="section-desc">
+      A transcript row is a <code>&lt;button&gt;</code> today: clicking it seeks the player. Dragging a
+      selection across a button fights that click — the same collision the PDF reference links hit in
+      August (“anchors destroy drag selection”), where the fix was a <code>role="button"</code> element
+      instead of a real one. So the row has to give up something. Three ways to decide what.
+    </p>
+    <div class="stage">
+
+      <!-- Variant A -->
+      <div class="col">
+        <div class="state-label">Variant A · drag wins, click still seeks</div>
+        <div class="video-pane">
+          <div class="video-head">
+            <div class="icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="2" y="4" width="20" height="16" rx="3"/><path d="m10 9 5 3-5 3z"/></svg></div>
+            <div><div class="t">Mechanistic Interpretability explained</div><div class="s">Lex Clips · 22:47</div></div>
+          </div>
+          <div class="video-thumb"><svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg><span class="stamp">7:32</span></div>
+          <div class="video-tabs">
+            <span class="video-tab"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>Kapitel</span>
+            <span class="video-tab on"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>Transcript</span>
+          </div>
+          <div class="video-list">
+            <div class="tblock"><span class="chip">07:00</span><span class="txt">The weights are like the compiled binary of a program, and the activations are the memory at runtime.</span></div>
+            <div class="tblock on"><span class="chip">07:30</span><span class="txt">A feature is <span class="sel">the smallest unit we can still understand — a direction in activation space</span> that stands for something.</span></div>
+            <div class="tblock"><span class="chip">08:00</span><span class="txt">Superposition means one neuron carries several meanings at once.</span></div>
+          </div>
+        </div>
+        <div class="annot">
+          The row keeps both gestures: a <em>drag</em> selects, a <em>plain click</em> (no text selected) seeks.
+          Nothing new to learn and nothing to switch.
+          <div class="trade"><span class="k">Cost</span><span>The row stops being a real button — it becomes a
+          <code>role="button"</code> div, and a click that ends a selection must not seek. That distinction
+          is a real source of “why did the video jump?” moments.</span></div>
+        </div>
+      </div>
+
+      <!-- Variant B -->
+      <div class="col">
+        <div class="state-label">Variant B · a mode switch</div>
+        <div class="video-pane">
+          <div class="video-head">
+            <div class="icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="2" y="4" width="20" height="16" rx="3"/><path d="m10 9 5 3-5 3z"/></svg></div>
+            <div><div class="t">Mechanistic Interpretability explained</div><div class="s">Lex Clips · 22:47</div></div>
+          </div>
+          <div class="video-thumb"><svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg><span class="stamp">7:32</span></div>
+          <div class="video-tabs">
+            <span class="video-tab"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>Kapitel</span>
+            <span class="video-tab on"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>Transcript</span>
+          </div>
+          <div class="mode-row">
+            <span class="mode"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m10 9 5 3-5 3z"/><circle cx="12" cy="12" r="9"/></svg>Springen</span>
+            <span class="mode on"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>Markieren</span>
+          </div>
+          <div class="video-list">
+            <div class="tblock"><span class="chip">07:00</span><span class="txt">The weights are like the compiled binary of a program, and the activations are the memory at runtime.</span></div>
+            <div class="tblock on"><span class="chip">07:30</span><span class="txt">A feature is <span class="sel">the smallest unit we can still understand — a direction in activation space</span> that stands for something.</span></div>
+            <div class="tblock"><span class="chip">08:00</span><span class="txt">Superposition means one neuron carries several meanings at once.</span></div>
+          </div>
+        </div>
+        <div class="annot">
+          Two explicit modes, no ambiguity: in <em>Markieren</em> the rows are plain text, in
+          <em>Springen</em> they are buttons. The cursor even says which is which.
+          <div class="trade"><span class="k">Cost</span><span>A mode is a thing to remember and to switch back
+          from — and Syflo has deliberately avoided modes before (keyboard navigation, 2026-08-10: “no mode,
+          focus guidance instead”).</span></div>
+        </div>
+      </div>
+
+      <!-- Variant C -->
+      <div class="col">
+        <div class="state-label">Variant C · the time chip is the button</div>
+        <div class="video-pane">
+          <div class="video-head">
+            <div class="icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="2" y="4" width="20" height="16" rx="3"/><path d="m10 9 5 3-5 3z"/></svg></div>
+            <div><div class="t">Mechanistic Interpretability explained</div><div class="s">Lex Clips · 22:47</div></div>
+          </div>
+          <div class="video-thumb"><svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg><span class="stamp">7:32</span></div>
+          <div class="video-tabs">
+            <span class="video-tab"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>Kapitel</span>
+            <span class="video-tab on"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>Transcript</span>
+          </div>
+          <div class="video-list">
+            <div class="tblock"><span class="chip btn">07:00</span><span class="txt">The weights are like the compiled binary of a program, and the activations are the memory at runtime.</span></div>
+            <div class="tblock on"><span class="chip btn">07:30</span><span class="txt">A feature is <span class="sel">the smallest unit we can still understand — a direction in activation space</span> that stands for something.</span></div>
+            <div class="tblock"><span class="chip btn">08:00</span><span class="txt">Superposition means one neuron carries several meanings at once.</span></div>
+          </div>
+          <div style="padding: 0 12px 12px;"><span class="cursor-note"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 3l7 17 2-7 7-2z"/></svg>Text markieren · Zeitmarke klicken zum Springen</span></div>
+        </div>
+        <div class="annot">
+          One gesture per surface: the chip seeks, the text is text. Nothing can be misread as the other,
+          and the whole row is selectable including across several blocks.
+          <div class="trade"><span class="k">Cost</span><span>The jump target shrinks from a whole row to a
+          small chip, and the habit of clicking anywhere in the row has to be unlearned.</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════ 02 ═══════════════ -->
+  <div class="section">
+    <div class="section-label"><span class="num">02</span> After the selection — nothing new <span class="tag keep">existing</span></div>
+    <p class="section-desc">
+      The popup, the five colors, “Ask in chat” and the branch already exist for chat text and PDF text;
+      the transcript simply becomes a third caller of <code>handleChatSelection</code>. The only field
+      that needs a home is the ORIGIN: a transcript passage belongs to a video and to a second in it.
+      That is what makes the way back in §03 possible — and it is recorded automatically from the block
+      the selection starts in, without the reader picking anything.
+    </p>
+    <div class="stage">
+      <div class="col">
+        <div class="state-label">The known popup</div>
+        <div class="popup">
+          <div class="head">
+            <div class="word">the smallest unit we can still understand — a direction in activation space</div>
+          </div>
+          <div class="body">
+            Ein <b>Feature</b> ist die kleinste Einheit im Netz, die für sich genommen noch verständlich ist:
+            eine Richtung im Aktivierungsraum, die für ein bestimmtes Konzept steht.
+          </div>
+          <div class="colors">
+            <span class="swatch" style="background: var(--hl-yellow)"></span>
+            <span class="swatch" style="background: var(--hl-green)"></span>
+            <span class="swatch" style="background: var(--hl-blue)"></span>
+            <span class="swatch" style="background: var(--hl-pink)"></span>
+            <span class="swatch" style="background: var(--hl-orange)"></span>
+          </div>
+          <div class="actions">
+            <span class="act primary">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+              In neuem Chat fragen
+            </span>
+            <span class="act">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M9 12h6"/></svg>
+              Ask in chat
+            </span>
+          </div>
+        </div>
+        <div class="annot wide">
+          Identical to the chat and PDF popup — same explanation call, same colors, same two exits.
+        </div>
+      </div>
+
+      <div class="col">
+        <div class="state-label">The branch it opens</div>
+        <div class="chat-pane">
+          <div class="chat-msgs">
+            <div class="quote-chip">
+              „the smallest unit we can still understand — a direction in activation space"
+              <div class="src">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="2" y="4" width="20" height="16" rx="3"/><path d="m10 9 5 3-5 3z"/></svg>
+                Transcript · 7:30
+              </div>
+            </div>
+            <div class="bubble-user">Was heißt „Richtung im Aktivierungsraum" konkret?</div>
+            <div class="bubble-ai">
+              Eine Richtung ist ein Vektor: nicht ein einzelnes Neuron, sondern eine bestimmte Kombination …
+            </div>
+          </div>
+        </div>
+        <div class="annot wide">
+          The quote block carries its source line — <em>Transcript · 7:30</em> — the same shape a PDF quote
+          carries its page. That line is the click target of §03.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════ 03 ═══════════════ -->
+  <div class="section">
+    <div class="section-label"><span class="num">03</span> The way back leads to both <span class="tag new">new</span></div>
+    <p class="section-desc">
+      Clicking the quote (or the branch header) does what a PDF quote does — scroll to the passage and
+      flash it — and one thing more, because this source has a time axis: <strong>the player seeks to that
+      block's second</strong>. The reader lands on the sentence and can immediately hear it. Nothing was
+      asked of them while selecting; the second came from the block the passage started in.
+    </p>
+    <div class="stage">
+      <div class="col">
+        <div class="state-label">One click, two landings</div>
+        <div class="video-pane">
+          <div class="video-head">
+            <div class="icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="2" y="4" width="20" height="16" rx="3"/><path d="m10 9 5 3-5 3z"/></svg></div>
+            <div><div class="t">Mechanistic Interpretability explained</div><div class="s">Lex Clips · 22:47</div></div>
+          </div>
+          <div class="video-thumb"><svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg><span class="stamp">7:30</span></div>
+          <div class="video-tabs">
+            <span class="video-tab"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>Kapitel</span>
+            <span class="video-tab on"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>Transcript</span>
+          </div>
+          <div class="video-list">
+            <div class="tblock"><span class="chip">07:00</span><span class="txt">The weights are like the compiled binary of a program, and the activations are the memory at runtime.</span></div>
+            <div class="tblock on"><span class="chip">07:30</span><span class="txt">A feature is <span class="hl-yellow">the smallest unit we can still understand — a direction in activation space</span> that stands for something.</span></div>
+            <div class="tblock"><span class="chip">08:00</span><span class="txt">Superposition means one neuron carries several meanings at once.</span></div>
+          </div>
+        </div>
+        <div class="annot">
+          The highlight stays in the transcript in its color, like a PDF highlight stays on the page —
+          and it shows up in the highlights drawer with the rest of the tree.
+        </div>
+      </div>
+
+      <div class="col">
+        <div class="state-label">What is stored</div>
+        <div class="popup" style="width: 330px;">
+          <div class="head"><div class="word">message_highlights → transcript</div></div>
+          <div class="body" style="font-family: 'JetBrains Mono', monospace; font-size: 10.5px; line-height: 1.75;">
+            source: <b>transcript</b><br>
+            video_id: v1<br>
+            start_offset / end_offset<br>
+            <b>start_seconds: 450</b> &nbsp;← the block's mark<br>
+            color: yellow
+          </div>
+        </div>
+        <div class="annot wide">
+          <strong>One extra column, not a new system.</strong> The offsets already exist for chat
+          highlights; <code>start_seconds</code> is what turns “scroll to the text” into “and hear it”.
+          It is read from the block, never chosen — the user's decision 2026-08-16.
+        </div>
+      </div>
+    </div>
+    <p class="flow-note">
+      <strong>Variant A chosen and built 2026-08-16.</strong> The row is a <code>role="button"</code> div
+      with <code>select-text</code>; a click that ends a selection does not seek. Colored marks live in a
+      new <code>transcript_highlights</code> table (video + offsets into the raw transcript +
+      <code>start_seconds</code> of the block), painted as plain React spans rather than through the CSS
+      Custom Highlight API — a transcript block is unformatted text, so slicing it needs no DOM walking.
+      <br><br>
+      <strong>Chapters were added to the same gesture</strong> (user request, same day): their text can be
+      selected, quoted and branched from, while the time chip carries <code>select-none</code> so a drag
+      never drags “07:30” into a question.
+      <br><br>
+      <strong>Parity round, same day.</strong> Chapters became colorable too: the mark then anchors into the
+      OVERVIEW text (<code>parseChapters</code> now reports <code>titleOffset</code> /
+      <code>keyPointOffset</code>) and the row carries <code>source: 'chapter'</code> — one table, two
+      source texts. A mark that opened a branch is clickable and goes to that chat. The way back
+      (<code>showHighlight</code>) switches to the right view, seeks the player and lets the mark
+      <em>glow</em> — brightening upward with a halo, the same movement as the chat's range flash
+      (<code>syflo-mark-flash</code>, 2 × 0.45 s). And a jump no longer wakes a resting player: the IFrame
+      API starts playback from the <em>unstarted</em> state, so every seek on a non-playing player is
+      followed by an explicit <code>pauseVideo</code>.
+    </p>
+  </div>
+
+</div>
+</body>
+</html>

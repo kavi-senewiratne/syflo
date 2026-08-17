@@ -58,6 +58,12 @@ body {
   --syflo-hl-pink: #FBCFE8;
   --syflo-hl-orange: #FED7AA;
   --syflo-hl-ink: #0F172A;
+  /* Schriftfarbe im Flash-Höhepunkt. Standard = die Ruhe-Tinte, damit sich in
+     den hellen Themes NICHTS an der Schrift bewegt — dort trägt allein die
+     aufgehellte Fläche den Puls. Dunkle Themes übersteuern das: dort wird die
+     Fläche hell, und eine helle Schrift darauf verschwände (gemessen 14.08.2026
+     auf Matrix: Kontrast 1,97:1 → 1,08:1). */
+  --syflo-flash-ink: var(--syflo-hl-ink);
 }
 ::highlight(syflo-chat-hl-yellow) { background-color: var(--syflo-hl-yellow); color: var(--syflo-hl-ink); }
 ::highlight(syflo-chat-hl-green)  { background-color: var(--syflo-hl-green);  color: var(--syflo-hl-ink); }
@@ -106,6 +112,16 @@ body {
   text-transform: none;
 }
 
+/* Markdown-Trenner (`---` in einer Antwort). Tailwind Typography malt die
+   <hr> in der vollen Textfarbe des Themes: eine harte, randbreite Linie
+   mitten in der Antwort, die wie ein Fehler aussieht statt wie eine Zäsur
+   (Nutzer-Report 2026-08-06, gemessen 2026-08-08 — 1 px in exakt der
+   Prosa-Farbe, in allen fünf Themes). currentColor stark verdünnt: bleibt im
+   Ton des Themes, ohne feste Farbe und ohne die Aufmerksamkeit des Textes. */
+.prose hr {
+  border-color: color-mix(in srgb, currentColor 18%, transparent);
+}
+
 .prose .katex {
   font-size: 1.05em;
   display: inline-block;
@@ -117,11 +133,161 @@ body {
      min. Abstand Formel-Tinte ↔ Nachbarzeile 2 px. */
   padding: 0.3em 0;
 }
+/*
+ * Inline formulas hand the inline-block role to their inner .katex-html.
+ *
+ * Why: a highlight painted on the outer box inherited that box's height, and
+ * an inline-block's box is the formula's own ink plus the 0.3em buffer — never
+ * the height of the text line it sits in. Whatever the clip, the mark ended up
+ * a few px off (user reports 2026-08-09: first too tall, then too short, and
+ * the miss changes per theme because every theme has a different font).
+ * As a plain inline, `.katex` gets the line's OWN text box — exactly the box
+ * ::highlight() paints for the prose around it, in every theme and font size.
+ *
+ * The collision buffer survives untouched: `.katex-html` becomes the
+ * inline-block, so a tall formula still counts fully into the line height
+ * (measured 2026-08-09: paragraph heights identical before/after, 7 paragraphs
+ * with formulas). Display formulas keep the old shape — the `:not()` skips
+ * them, since their wrapper needs the block-level box for centering and
+ * horizontal scrolling.
+ */
+.prose :not(.katex-display) > .katex {
+  display: inline;
+  max-width: none;
+  padding: 0;
+  /* The 5% bump moves inward too: an inline box is sized from its OWN font, so
+     a larger font-size here shifted the mark 1 px below the prose band around
+     it (pixel-measured 2026-08-09). Inheriting the prose size makes the two
+     boxes identical; `.katex-html` still renders the formula at 1.05em. */
+  font-size: inherit;
+}
+.prose :not(.katex-display) > .katex > .katex-html {
+  display: inline-block;
+  max-width: 100%;
+  padding: 0.3em var(--syflo-math-italic-correction) 0.3em 0;
+  font-size: 1.05em;
+}
 .prose .katex-display {
   overflow-x: auto;
   overflow-y: hidden;
   padding: 0.25rem 0;
   margin: 0.5rem 0;
+}
+
+/*
+ * Zu breite Inline-Formel: eigene Zeile, eigener Scroll-Container
+ * (Nutzerentscheid 2026-08-13, design/mockup-simply-blue-fixes.html §03,
+ * Variante A). Das Attribut setzt markdown/wideMath.ts nach dem Messen.
+ *
+ * Ursache des Überlaufs: die Regel oben deckelt die `.katex-html` auf
+ * `max-width: 100%`, sagt aber nichts über `overflow`. Der Kasten hört an der
+ * Spaltengrenze auf, die Formel nicht — gemessen 13.08.2026 in der schmalen
+ * Elternspalte: Kasten 146 px, Tinte 239 px, also 93 px sichtbar außerhalb der
+ * Blase, und die 308 px schmale Spalte bekam 334 px Scrollbreite.
+ *
+ * `overflow-x` gehört auf die `.katex`-BOX, nicht auf die `.katex-html`: ein
+ * Inline-Block mit `overflow != visible` legt seine Grundlinie auf die untere
+ * Rand-Kante, und genau diese Grundlinie ist am 09.08.2026 mühsam auf die
+ * Prosa-Zeile eingemessen worden, damit Markierungen und ihr Unterstrich
+ * sitzen. Als Block auf eigener Zeile gibt es keine Nachbarschrift, an der
+ * etwas ausgerichtet sein müsste — die Messung von damals bleibt für alle
+ * Formeln unberührt, die weiterhin in die Zeile passen.
+ *
+ * Diese Regel MUSS nach `.prose :not(.katex-display) > .katex` stehen: beide
+ * haben Spezifität (0,3,0), die Reihenfolge entscheidet also, ob `display:
+ * block` gegen `display: inline` gewinnt. Nicht nach oben verschieben.
+ */
+.prose .katex[data-syflo-math-wide] {
+  display: block;
+  overflow-x: auto;
+  overflow-y: hidden;
+  max-width: 100%;
+  /* Gleiche Zäsur wie eine Display-Formel, damit eine umgeschaltete Formel
+     nicht wie ein Fremdkörper zwischen zwei Absätzen sitzt. */
+  padding: 0.25rem 0;
+  margin: 0.35rem 0;
+}
+.prose .katex[data-syflo-math-wide] > .katex-html {
+  /* Deckel weg: im Scroll-Container soll die GANZE Formel liegen, sonst
+     scrollt der Container über nichts. */
+  max-width: none;
+  /* Die Kursiv-Korrektur budgetiert den Überhang gegen das FOLGENDE Wort
+     (siehe unten). Auf eigener Zeile folgt keins — der Platz wäre nur ein
+     Stück leerer Scrollweg. */
+  padding-right: 0;
+}
+
+/*
+ * Inline-Code in einer schmalen Spalte (gemessen 13.08.2026, dieselbe Runde wie
+ * §03): `torch.no_grad()` ist 120 px breit und enthält kein Leerzeichen, an dem
+ * die Zeile brechen könnte — in der 128 px schmalen Elternspalten-Blase lief es
+ * über den weißen Rand hinaus und gab der Spalte 304 px Scrollbreite bei 232 px
+ * Sichtbreite.
+ *
+ * Anders als eine Formel DARF Code mitten im Wort brechen: es ist Text, keine
+ * gesetzte Notation, und ein umgebrochener Bezeichner bleibt lesbar. Deshalb
+ * hier `anywhere` statt der Block-Behandlung aus §03.
+ *
+ * Nur Inline-Code: Block-Code läuft über CodeBlock und hat seinen eigenen
+ * waagerechten Scroll-Container — dort wäre ein Umbruch mitten im Bezeichner
+ * falsch (Einrückung und Zeilennummern gehören zusammen).
+ */
+.prose :not(pre) > code {
+  overflow-wrap: anywhere;
+}
+
+/*
+ * Letztes Netz gegen Text über der Spaltengrenze: ein einzelnes Wort, das
+ * breiter ist als die Zeile, bricht statt hinauszuragen.
+ *
+ * Gemessen 13.08.2026 in der Elternspalte bei 232 px Sichtbreite: nach dem
+ * Formel- und Code-Fix blieben deutsche Komposita übrig — „Inhaltsstruktur"
+ * (128 px) in einer 99 px breiten Überschrift, „Varianzschätzung" in einem
+ * 75 px schmalen Listenpunkt der vierten Ebene. Die Spalte scrollte dadurch
+ * weiter waagerecht (304 px gegen 232 px sichtbar).
+ *
+ * `break-word` statt `anywhere`: es greift NUR, wenn das Wort sonst überläuft,
+ * und zählt für die Mindestbreite der Box nicht mit — normaler Text bricht
+ * weiter an Leerzeichen wie bisher. (Warum die Spalte überhaupt so schmal ist —
+ * doppelte Innenabstände und Listen-Einrückung — ist eine eigene Frage; hier
+ * geht es nur darum, dass nichts über den weißen Rand hinausläuft.)
+ */
+.prose.select-text {
+  overflow-wrap: break-word;
+}
+
+/*
+ * Italic correction after inline math (user report 2026-08-12: "$W x$ fällt"
+ * and "$i$ im" read as one word — the letter and the word behind it touch).
+ *
+ * Cause, measured in the running app: math letters follow the theme's UI font
+ * (see the `body .katex .mathnormal` rule below, user request 2026-07-28), and
+ * none of the five theme fonts ships a true italic — the browser SLANTS the
+ * upright glyph. A synthesised oblique pushes its ink past the right edge of
+ * its own box, and nothing budgets for that overhang. Against the space that
+ * follows (canvas metrics at 14px, per theme):
+ *   space    x      i      W      f
+ *   2.80  0.98   1.28   1.55   2.06   mushroom-kingdom (Baloo 2)
+ *   3.72  1.56   1.64   2.21   2.00   ink-blue (DM Sans)
+ *   3.32  1.37   0.95   2.09   2.55   hyrule (Karla)
+ *   3.79  0.46   0.51   0.94   1.03   professional (system)
+ *   8.40  0.94  -0.37   2.05   1.90   matrix (IBM Plex Mono)
+ * The overhang eats a third to nearly all of the gap — worst where the space
+ * is narrowest. LaTeX solves this with `\/`; KaTeX emits no correction on the
+ * last glyph, and it could not know a synthetic slant's metrics anyway.
+ *
+ * 0.1em restores roughly one space's worth of air in the tight themes without
+ * opening a visible gap before a comma or period, which is the other side this
+ * one value has to serve (there is no CSS selector for "a word follows").
+ * Both rules matter: the prose one is the chat transcript, the bare one is
+ * every MathText string (drawer cards, titles, the explain popup), which
+ * renders outside `.prose`.
+ */
+:root {
+  --syflo-math-italic-correction: 0.1em;
+}
+:not(.katex-display) > .katex > .katex-html {
+  padding-right: var(--syflo-math-italic-correction);
 }
 
 /*
@@ -141,7 +307,17 @@ body {
 .prose .katex[data-syflo-hl] {
   background-color: var(--syflo-hl-mark);
   color: var(--syflo-hl-ink);
-  border-radius: 2px;
+  /* No border-radius: ::highlight() paints the prose as plain rectangles, so
+     rounded formula corners cut four notches into an otherwise continuous
+     mark (user report 2026-08-09, pixel-measured: exactly one background
+     pixel missing at each of the four corners). */
+  /* Inline formulas need no clip — as plain inlines (rule above) they have no
+     padding left to bleed into, and their box IS the line's text box. The clip
+     is here for DISPLAY formulas, whose `.katex` keeps the inline-block shape
+     with the 0.3em buffer: painting that along made the mark 26 px tall next to
+     a 17 px prose mark (pixel-measured 2026-08-09). Same value as the pending
+     rule below — never diverge. */
+  background-clip: content-box;
 }
 .prose .katex[data-syflo-hl='yellow'] { --syflo-hl-mark: var(--syflo-hl-yellow); }
 .prose .katex[data-syflo-hl='green']  { --syflo-hl-mark: var(--syflo-hl-green); }
@@ -150,20 +326,26 @@ body {
 .prose .katex[data-syflo-hl='orange'] { --syflo-hl-mark: var(--syflo-hl-orange); }
 /* Linked to a branched chat — the element twin of ::highlight(…-linked).
    NOT text-decoration: Chromium paints no decoration across an atomic inline,
-   and .katex (like its inner .katex-html) is an inline-block — the line
-   simply vanished for the width of the formula (pixel-measured 2026-08-01).
-   A 1px background gradient spans the whole box instead. Its distance from
-   the box bottom up to the line's baseline is measured in JS and handed over
-   as --syflo-hl-underline-bottom (chat/highlightAnchors.ts); the 0.3em
-   fallback equals .prose .katex's padding-bottom, i.e. the content edge. */
+   and the formula body (.katex-html) is exactly that — the line simply
+   vanished for the width of the formula (pixel-measured 2026-08-01).
+   An absolutely positioned 1px bar takes its place. It has to be a pseudo
+   element rather than a background layer: since the formula box became the
+   line's text box, the underline sits BELOW that box (measured 2026-08-09:
+   offset -1px), and a background is clipped to the box while an absolute
+   child may overhang it. The distance from the box bottom down to the line
+   is measured in JS and handed over as --syflo-hl-underline-bottom
+   (chat/highlightAnchors.ts) — a negative value means "below the box". */
 .prose .katex[data-syflo-hl-linked] {
-  background-image: linear-gradient(
-    color-mix(in srgb, currentColor 55%, transparent),
-    color-mix(in srgb, currentColor 55%, transparent)
-  );
-  background-repeat: no-repeat;
-  background-size: 100% 1px;
-  background-position: 0 calc(100% - var(--syflo-hl-underline-bottom, 0.3em));
+  position: relative;
+}
+.prose .katex[data-syflo-hl-linked]::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: var(--syflo-hl-underline-bottom, -1px);
+  height: 1px;
+  background-color: color-mix(in srgb, currentColor 55%, transparent);
 }
 
 /*
@@ -172,8 +354,29 @@ body {
  * Klick ins Popup). Akzentfarbe des Themes, halbtransparent — sieht aus wie
  * die Browser-Selektion, folgt aber dem Theme.
  */
+:root {
+  --syflo-hl-pending: color-mix(in srgb, var(--color-blue-500, #3b82f6) 30%, transparent);
+}
 ::highlight(syflo-chat-hl-pending) {
-  background-color: color-mix(in srgb, var(--color-blue-500, #3b82f6) 30%, transparent);
+  background-color: var(--syflo-hl-pending);
+}
+/* Formeln in der Pending-Selektion (Nutzer-Report 2026-08-08): dieselbe
+   Element-Behandlung wie bei den gespeicherten Markierungen — eine
+   durchgehende Fläche über die ganze .katex-Box statt gestreifter
+   Inline-Boxen. Gleiche Variable wie die ::highlight-Regel darüber, damit
+   Box und Prosa exakt dieselbe Farbe zeigen; chat/highlightAnchors.ts räumt
+   dafür die native Selektion beiseite (sie kennt nur EINE Range und würde
+   sonst zusätzlich streifen). */
+.prose .katex[data-syflo-hl-pending] {
+  background-color: var(--syflo-hl-pending);
+  /* Kein border-radius — gleiche Begründung wie bei der gespeicherten
+     Markierung oben: die Prosa daneben ist rechteckig. */
+  /* content-box statt padding-box — dieselbe Begründung wie bei der
+     gespeicherten Markierung oben. Seit Inline-Formeln als reine Inlines
+     laufen (2026-08-09) haben sie gar kein Padding mehr, die Zeile wirkt hier
+     also nur noch für Display-Formeln; sie bleibt, damit beide Regeln
+     denselben Beschnitt haben. */
+  background-clip: content-box;
 }
 
 /*
@@ -204,40 +407,82 @@ body {
    flashen") — gleicher Takt wie der Bubble-Glow (2 × 0,75 s = FLASH_MS in
    ChatArea/index.tsx, beide zusammen ändern). */
 [data-flash-range='true'] {
-  animation: syflo-hl-range-flash 0.75s ease-in-out 2;
+  animation: syflo-hl-range-flash 0.45s ease-in-out 3;
 }
+/* Der Puls geht AUFWÄRTS, nicht abwärts (Nutzer-Report 2026-08-14: „es wird
+   dunkel und wieder normal und wird dunkel noch mal — es sollte aufglühen").
+   Gilt für alle fünf Themes.
+
+   Vorher zog die Spitze auf den GESÄTTIGTEN Markerton und drehte zusätzlich
+   die Schriftfarbe auf Schwarz bzw. Weiß. Gemessen an der relativen Leuchtdichte
+   war jede Spitze dunkler als der Ruhezustand:
+       gelb   0,852 → 0,636 (0,75×)     grün   0,816 → 0,411 (0,50×)
+       blau   0,689 → 0,235 (0,34×)     pink   0,710 → 0,248 (0,35×)
+       orange 0,726 → 0,325 (0,45×)
+   Zwei Pulse abwärts also — genau der beschriebene Eindruck.
+
+   Jetzt zwei Bewegungen, die beide nach oben zeigen:
+   1. Die Fläche hellt den RUHETON um 45 % Weiß auf (1,07× bis 1,19×
+      Leuchtdichte). Über das `--syflo-hl-*`-Token, nicht über einen festen
+      Wert — Matrix dimmt seine Marker zu Tints, und dort muss die Aufhellung
+      von diesem gedimmten Ton ausgehen, sonst blitzt es weiß auf Schwarz.
+   2. Der farbige Schein selbst — und der kommt seit 2026-08-16 NICHT mehr
+      aus dieser Regel, sondern aus derselben Halo-Gruppe wie im PDF
+      (flashGlow.ts). Vorher standen hier ein `text-shadow` pro Glyphe und
+      ein 3 px starker Unterstrich, weil `::highlight()` weder `box-shadow`
+      noch `outline` kennt. Auf der hellen Blase verschwand der Schein aber
+      unter der fast weiß aufgehellten Fläche, und was sich sichtbar bewegte,
+      war der harte Strich: „im Chat glüht einfach nur der Unterstrich auf"
+      (Nutzer-Report 2026-08-16). Statt das Pseudo-Element weiter
+      auszureizen, misst der Flash die Rechtecke des Ranges aus und legt den
+      Halo als Element darüber — ein Signal für Chat, PDF, Transcript und
+      Kapitel.
+
+   Die Schriftfarbe wird NICHT mehr angefasst: sie kommt aus der ruhenden
+   `::highlight(syflo-chat-hl-*)`-Regel und bleibt über den ganzen Puls
+   stehen. Das Umkippen auf Schwarz/Weiß war der zweite Grund, warum es
+   dunkel wirkte. */
 ::highlight(syflo-chat-hl-flash-yellow) {
-  background-color: color-mix(in srgb, #FACC15 calc(var(--syflo-flash-alpha) * 100%), transparent);
-  color: color-mix(in srgb, #0F172A calc(var(--syflo-flash-alpha) * 100%), currentColor);
+  background-color: color-mix(in srgb, color-mix(in srgb, #ffffff 55%, var(--syflo-hl-yellow)) calc(var(--syflo-flash-alpha) * 100%), transparent);
+  color: color-mix(in srgb, var(--syflo-flash-ink) calc(var(--syflo-flash-alpha) * 100%), var(--syflo-hl-ink));
 }
 ::highlight(syflo-chat-hl-flash-green) {
-  background-color: color-mix(in srgb, #22C55E calc(var(--syflo-flash-alpha) * 100%), transparent);
-  color: color-mix(in srgb, #ffffff calc(var(--syflo-flash-alpha) * 100%), currentColor);
+  background-color: color-mix(in srgb, color-mix(in srgb, #ffffff 55%, var(--syflo-hl-green)) calc(var(--syflo-flash-alpha) * 100%), transparent);
+  color: color-mix(in srgb, var(--syflo-flash-ink) calc(var(--syflo-flash-alpha) * 100%), var(--syflo-hl-ink));
 }
 ::highlight(syflo-chat-hl-flash-blue) {
-  background-color: color-mix(in srgb, #3B82F6 calc(var(--syflo-flash-alpha) * 100%), transparent);
-  color: color-mix(in srgb, #ffffff calc(var(--syflo-flash-alpha) * 100%), currentColor);
+  background-color: color-mix(in srgb, color-mix(in srgb, #ffffff 55%, var(--syflo-hl-blue)) calc(var(--syflo-flash-alpha) * 100%), transparent);
+  color: color-mix(in srgb, var(--syflo-flash-ink) calc(var(--syflo-flash-alpha) * 100%), var(--syflo-hl-ink));
 }
 ::highlight(syflo-chat-hl-flash-pink) {
-  background-color: color-mix(in srgb, #EC4899 calc(var(--syflo-flash-alpha) * 100%), transparent);
-  color: color-mix(in srgb, #ffffff calc(var(--syflo-flash-alpha) * 100%), currentColor);
+  background-color: color-mix(in srgb, color-mix(in srgb, #ffffff 55%, var(--syflo-hl-pink)) calc(var(--syflo-flash-alpha) * 100%), transparent);
+  color: color-mix(in srgb, var(--syflo-flash-ink) calc(var(--syflo-flash-alpha) * 100%), var(--syflo-hl-ink));
 }
 ::highlight(syflo-chat-hl-flash-orange) {
-  background-color: color-mix(in srgb, #F97316 calc(var(--syflo-flash-alpha) * 100%), transparent);
-  color: color-mix(in srgb, #ffffff calc(var(--syflo-flash-alpha) * 100%), currentColor);
+  background-color: color-mix(in srgb, color-mix(in srgb, #ffffff 55%, var(--syflo-hl-orange)) calc(var(--syflo-flash-alpha) * 100%), transparent);
+  color: color-mix(in srgb, var(--syflo-flash-ink) calc(var(--syflo-flash-alpha) * 100%), var(--syflo-hl-ink));
 }
 /* Element twin for formulas (same reason as data-syflo-hl above): a flashed
    formula pulses as one box. --syflo-flash-alpha inherits from the flashing
-   line, so both paths fade on the same clock. */
+   line, so both paths fade on the same clock.
+
+   Derselbe Richtungswechsel wie oben: aufgehellter Ruheton plus Schein im
+   gesättigten Markerton. Hier ist der Schein ein `box-shadow` statt eines
+   `text-shadow` — die Formel ist EIN Kasten, und der Schein soll um den
+   Kasten laufen, nicht um jede einzelne Glyphe. `box-shadow` verändert die
+   Kastenmaße nicht und rührt die 2026-08-09 eingemessene Grundlinie deshalb
+   nicht an. Die Schriftfarbe bleibt wieder unangetastet. */
 .prose .katex[data-syflo-hl-flash] {
-  background-color: color-mix(in srgb, var(--syflo-flash-tint) calc(var(--syflo-flash-alpha) * 100%), transparent);
-  color: color-mix(in srgb, var(--syflo-flash-ink) calc(var(--syflo-flash-alpha) * 100%), currentColor);
+  background-color: color-mix(in srgb, var(--syflo-flash-lift) calc(var(--syflo-flash-alpha) * 100%), transparent);
+  color: color-mix(in srgb, var(--syflo-flash-ink) calc(var(--syflo-flash-alpha) * 100%), var(--syflo-hl-ink));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--syflo-flash-glow) calc(var(--syflo-flash-alpha) * 50%), transparent),
+              0 0 12px 2px color-mix(in srgb, var(--syflo-flash-glow) calc(var(--syflo-flash-alpha) * 45%), transparent);
 }
-.prose .katex[data-syflo-hl-flash='yellow'] { --syflo-flash-tint: #FACC15; --syflo-flash-ink: #0F172A; }
-.prose .katex[data-syflo-hl-flash='green']  { --syflo-flash-tint: #22C55E; --syflo-flash-ink: #ffffff; }
-.prose .katex[data-syflo-hl-flash='blue']   { --syflo-flash-tint: #3B82F6; --syflo-flash-ink: #ffffff; }
-.prose .katex[data-syflo-hl-flash='pink']   { --syflo-flash-tint: #EC4899; --syflo-flash-ink: #ffffff; }
-.prose .katex[data-syflo-hl-flash='orange'] { --syflo-flash-tint: #F97316; --syflo-flash-ink: #ffffff; }
+.prose .katex[data-syflo-hl-flash='yellow'] { --syflo-flash-lift: color-mix(in srgb, #ffffff 55%, var(--syflo-hl-yellow)); --syflo-flash-glow: #FACC15; }
+.prose .katex[data-syflo-hl-flash='green']  { --syflo-flash-lift: color-mix(in srgb, #ffffff 55%, var(--syflo-hl-green));  --syflo-flash-glow: #22C55E; }
+.prose .katex[data-syflo-hl-flash='blue']   { --syflo-flash-lift: color-mix(in srgb, #ffffff 55%, var(--syflo-hl-blue));   --syflo-flash-glow: #3B82F6; }
+.prose .katex[data-syflo-hl-flash='pink']   { --syflo-flash-lift: color-mix(in srgb, #ffffff 55%, var(--syflo-hl-pink));   --syflo-flash-glow: #EC4899; }
+.prose .katex[data-syflo-hl-flash='orange'] { --syflo-flash-lift: color-mix(in srgb, #ffffff 55%, var(--syflo-hl-orange)); --syflo-flash-glow: #F97316; }
 
 /*
  * Flash nach einem Sprung aus dem Highlights-Drawer: pulsierender Glow in
@@ -250,12 +495,12 @@ body {
   0%, 100% { box-shadow: 0 0 0 0 transparent, 0 0 0 0 transparent; }
   50% {
     box-shadow:
-      0 0 0 1.5px color-mix(in srgb, var(--flash-color) 55%, transparent),
-      0 0 14px 3px color-mix(in srgb, var(--flash-color) 30%, transparent);
+      0 0 0 2px color-mix(in srgb, var(--flash-color) 65%, transparent),
+      0 0 18px 4px color-mix(in srgb, var(--flash-color) 40%, transparent);
   }
 }
 .syflo-hl-flash {
-  animation: syflo-hl-flash 0.75s ease-in-out 2;
+  animation: syflo-hl-flash 0.45s ease-in-out 3;
 }
 
 /*
@@ -271,14 +516,64 @@ body {
 }
 .syflo-hl-flash-group {
   opacity: 0;
-  animation: syflo-hl-flash-group 0.75s ease-in-out 2;
+  animation: syflo-hl-flash-group 0.45s ease-in-out 3;
   filter:
-    drop-shadow(0 0 1px var(--flash-color))
-    drop-shadow(0 0 8px color-mix(in srgb, var(--flash-color) 45%, transparent));
+    drop-shadow(0 0 2px var(--flash-color))
+    drop-shadow(0 0 12px color-mix(in srgb, var(--flash-color) 60%, transparent));
+  /* Multiply, und die Rechtecke sind WEISS (Nutzer-Report 2026-08-14: „Aufglühen
+     im PDF ist nicht heller").
+
+     Vorher trugen sie `color-mix(var(--flash-color) 16%, transparent)` — also
+     16 % eines SATTEN Tiefton-Farbtons als Film über der Markierung. Gemessen
+     verlor die Stelle dadurch Helligkeit: gelb 0,87× · grün 0,85× · blau 0,82×
+     · pink 0,80× · orange 0,85×. Zwei Pulse abwärts, genau wie vorher im Chat.
+
+     Ein HELLERER Film löst das nicht: die Ruhe-Pastelltöne liegen schon bei
+     Leuchtdichte 0,69–0,85, jede aufgelegte Schicht drückt sie weiter herunter
+     (durchgerechnet: selbst 62 % Weiß im Tiefton kommt nur auf 0,89×–0,95×),
+     und ein fast weißer Film würde zugleich die Glyphen ausbleichen — bei
+     Alpha 0,5 fiel deren Kontrast auf 3,9:1.
+
+     Deshalb macht diese Gruppe jetzt NUR noch den Schein: weiße Rechtecke sind
+     unter `multiply` neutral (Weiß × x = x), liefern dem `drop-shadow` aber die
+     gemeinsame Silhouette, um die der farbige Halo läuft. Die Aufhellung selbst
+     passiert eine Ebene tiefer, an der Markierung — siehe die Regel darunter.
+     Dort kostet sie die Glyphen nichts: Schwarz × Hell bleibt Schwarz.
+
+     Seit die Gruppe auch über CHAT-Text liegt (flashGlow.ts, 2026-08-16), sind
+     Füllung und Blend-Modus Variablen: Weiß × multiply ist nur auf hellem Grund
+     neutral. Im dunklen Matrix-Theme wäre es ein weißer Kasten über der Blase,
+     dort kippt beides auf das Gegenstück Schwarz × screen (Schwarz + x = x).
+     Das PDF-Blatt ist in JEDEM Theme weißes Papier — PdfView setzt die beiden
+     Werte deshalb fest, siehe dort. */
+  mix-blend-mode: var(--syflo-flash-blend, multiply);
 }
 .syflo-hl-flash-group > div {
-  background: color-mix(in srgb, var(--flash-color) 16%, transparent);
+  background: var(--syflo-flash-fill, #ffffff);
 }
+
+/* Die eigentliche Aufhellung: die Ruhe-Markierung selbst wird für die Dauer des
+   Pulses heller. Sie liegt in der Multiply-Gruppe (PdfView/index.tsx:895), und
+   `data-flash` steht dort schon auf jedem Rechteck der angesprungenen Stelle —
+   es braucht keine Änderung an der Komponente.
+
+   Aufgehellt wird um dieselben 45 % Weiß wie im Chat, damit ein Sprung ins PDF
+   und ein Sprung in einen Chat gleich stark glühen. Die fünf Pastelltöne stehen
+   hier als feste Werte und NICHT als `--syflo-hl-*`: die PDF-Markierungen sind
+   themenunabhängige Produktkonstanten (die Seite ist in jedem Theme weißes
+   Papier), während Matrix die Chat-Tokens zu dunklen Tints umbelegt. */
+@keyframes syflo-pdf-hl-lift {
+  0%, 100% { --syflo-flash-alpha: 0; }
+  50%      { --syflo-flash-alpha: 1; }
+}
+[data-flash='true'][data-color] {
+  animation: syflo-pdf-hl-lift 0.45s ease-in-out 3;
+}
+[data-flash='true'][data-color='yellow'] { background-color: color-mix(in srgb, #FFFFFF calc(var(--syflo-flash-alpha) * 55%), #FEF08A); }
+[data-flash='true'][data-color='green']  { background-color: color-mix(in srgb, #FFFFFF calc(var(--syflo-flash-alpha) * 55%), #BBF7D0); }
+[data-flash='true'][data-color='blue']   { background-color: color-mix(in srgb, #FFFFFF calc(var(--syflo-flash-alpha) * 55%), #BFDBFE); }
+[data-flash='true'][data-color='pink']   { background-color: color-mix(in srgb, #FFFFFF calc(var(--syflo-flash-alpha) * 55%), #FBCFE8); }
+[data-flash='true'][data-color='orange'] { background-color: color-mix(in srgb, #FFFFFF calc(var(--syflo-flash-alpha) * 55%), #FED7AA); }
 
 /*
  * ============================================================
@@ -290,10 +585,94 @@ body {
  *   white / gray scale  → surfaces + neutral text
  *   blue scale          → the accent (buttons, active states, links)
  *   red / green / amber → status colors (only re-tuned for dark Matrix)
- * "professional" is the default Tailwind palette → no block needed.
+ * "professional" (Simply Blue) used to keep the default Tailwind PALETTE
+ * untouched; since 2026-08-14 it pins its own accent — see the block below.
  * The five PDF highlight colors are fixed product constants — never themed.
  * ============================================================
  */
+
+/* ---------- Simply Blue · the accent, pinned to #2563EB
+   (design/mockup-simply-blue-parity.html §01, variant B, user choice
+   2026-08-14) ----------
+
+   Until now Simply Blue had no token block at all, so it inherited Tailwind
+   v4's blue scale. v4 moved its colors to OKLCH and made the mid blues more
+   chromatic: `--color-blue-600` resolves to oklch(54.6% 0.245 262.881) =
+   #155DFC, where v3 had #2563EB. Same lightness (54.6%) and almost the same
+   hue (262.9 vs 262.88), but chroma 0.245 instead of 0.215 — about 14% more
+   saturated, up to 17 of 255 steps per channel.
+
+   That split the product in two: every SURFACE (buttons, question bubble,
+   active row, focus ring) rendered #155DFC, while the brand marks — the logo
+   tile in Logo.tsx, both favicon SVGs, the picker swatch in theme.ts — and
+   the mind-map root sat on a hardcoded #2563EB. Both are visible at once:
+   the logo tile sits directly above the question bubble. The user picked the
+   calmer v3 tone, so the accent is stated here instead of inherited.
+
+   Only 300–800 are pinned. `blue-50`/`blue-100` are byte-identical between v3
+   and v4 and `blue-200` differs by a single step, so re-stating them would add
+   noise without changing a pixel. The gray scale is left alone entirely — v3
+   and v4 differ by at most 3 of 255 steps there, which is why the mismatch was
+   only ever visible on the accent. */
+:root[data-theme='professional'] {
+  --color-blue-300: #93c5fd;
+  --color-blue-400: #60a5fa;
+  --color-blue-500: #3b82f6;
+  --color-blue-600: #2563eb;
+  --color-blue-700: #1d4ed8;
+  --color-blue-800: #1e40af;
+}
+
+/* ---------- Basic · the two chat surfaces (design/mockup-basic-bubbles.html,
+   variant C, user choice 2026-08-12) ----------
+
+   Basic was the only theme that left the ANSWER without a surface: the four
+   themes below all colour both halves, so a Basic transcript read as one
+   undivided page of text. Variant C adopts their shape language — the speaker
+   is shown by which corner stays square: bottom-RIGHT on the question,
+   bottom-LEFT on the answer.
+
+   Everything is a standard token, so the block states Basic's own palette
+   rather than fixed colors: `blue-600`/`blue-200` for the question, the gray
+   scale for the answer. `!important` on the question's radius is needed for the
+   same reason the other themes need it — MessageBubble sets `borderRadius` as
+   an inline style, which only `!important` can outrank. */
+:root[data-theme='professional'] .bg-gray-100.select-text {
+  background-color: var(--color-blue-600);
+  color: var(--color-white);
+  border-radius: 16px 16px 4px 16px !important;
+  /* A blue-tinted ink instead of the generic gray: the calm gray shadow turned
+     muddy where it met the saturated bubble. */
+  box-shadow: 4px 4px 0 var(--color-blue-200);
+}
+/* .select-text = the transcript only — the same guard the other theme blocks
+   use, so `.prose` in the parent-context pane and the drawer stays untouched. */
+:root[data-theme='professional'] .prose.select-text {
+  background-color: var(--color-gray-100);
+  color: var(--color-gray-900);
+  border-radius: 16px 16px 16px 4px;
+  padding: 10px 14px;
+  box-shadow: 4px 4px 0 var(--syflo-shadow-ink);
+}
+/* Simply Blue · PDF page shadow (design/mockup-simply-blue-parity.html §02,
+   variant B, user choice 2026-08-14).
+
+   The hard offset shadow is a shared device across ALL themes — 4px for
+   elements, 6px for cards and pages (see the "Cartoon offset shadows" block
+   below). The four other themes each cash that in for the PDF page with a
+   6px-plus-ring rule; Simply Blue had none and fell through to the generic
+   4px `.shadow-md`, which made the page the one card in the product sitting
+   flatter than the chat bubble right next to it.
+
+   The ring is quiet gray, not an ink contour: Simply Blue carries no ink
+   contour anywhere (the same reason its app icon uses #CBD5E1 instead of the
+   navy the other sticker themes use — round 7, 2026-08-13). It is a SHADOW,
+   never a border: a border would shift the page box by 1px and pdf.js's text
+   layer, which is positioned against the canvas, would no longer line up. */
+:root[data-theme='professional'] .syflo-pdf-pane .shadow-md {
+  box-shadow: 0 0 0 1px var(--color-gray-300), 6px 6px 0 var(--syflo-shadow-ink);
+  border-radius: 6px;
+}
 
 /* ---------- Mushroom Kingdom · storybook overworld (mockup v4) ----------
    Airy sky gradient, cream card stock, deep navy outlines, sun-warmed red
@@ -311,8 +690,11 @@ body {
   --color-gray-800: #2f2f55;
   --color-gray-900: #23234a;
   --color-gray-950: #191938;
-  /* tree connector lines share the navy outline ink */
-  --color-slate-300: #26264f;
+  /* Tree connector lines. NOT the navy outline ink (#26264f): at hairline
+     width the full-strength ink reads as harsh black next to the cream
+     surfaces. Like Hyrule, the inactive lines sit on the theme's own
+     neutral ramp so only the active path (blue-400) draws the eye. */
+  --color-slate-300: #cfc7ac;
   --color-blue-50: #fbe6db;
   --color-blue-100: #f8d2c2;
   --color-blue-200: #f2a99a;
@@ -362,7 +744,16 @@ body {
 }
 /* design:mushroom.bubbles — user bubble in accent red, AI bubble on card stock
    (mockup --bubble-user-bg/--bubble-ai-bg; radius needs !important to beat the
-   component's inline 2rem) */
+   component's inline 2rem).
+
+   The AI half is keyed to `.prose.select-text`, NOT to `.prose` alone: the
+   markdown renderer is reused outside the transcript — the /btw fold-out uses
+   the same `prose prose-sm` for typography — and a bare `.prose` selector drew
+   a full speech bubble (border, padding, offset shadow) inside that panel, so
+   the answer sat in a bubble within a bubble and pushed the buttons past the
+   panel edge (user report 2026-08-11). `select-text` is what MessageBubble
+   adds and nothing else does: it marks the transcript, which is exactly what
+   the bubble skin is for. The same guard repeats in the other four themes. */
 :root[data-theme='mushroom-kingdom'] .bg-gray-100.select-text {
   background-color: #d8433b;
   color: #fff9ee;
@@ -370,7 +761,7 @@ body {
   border-radius: 12px 12px 4px 12px !important;
   box-shadow: inset 0 -3px 0 rgba(38, 38, 79, 0.18), 4px 4px 0 var(--syflo-shadow-ink);
 }
-:root[data-theme='mushroom-kingdom'] .prose {
+:root[data-theme='mushroom-kingdom'] .prose.select-text {
   background-color: #f4f1e2;
   border: 2px solid #26264f;
   border-radius: 12px 12px 12px 4px;
@@ -477,7 +868,8 @@ body {
   border-radius: 13px 13px 4px 13px !important;
   box-shadow: 4px 4px 0 var(--syflo-shadow-ink);
 }
-:root[data-theme='hyrule'] .prose {
+/* .select-text = the transcript only; see the mushroom-kingdom note above. */
+:root[data-theme='hyrule'] .prose.select-text {
   background-color: #efebd8;
   border: 1px solid color-mix(in srgb, #d9d3b9 80%, transparent);
   border-radius: 13px 13px 13px 4px;
@@ -531,8 +923,11 @@ body {
   --color-gray-800: #1f3049;
   --color-gray-900: #14263f;
   --color-gray-950: #0d1a2e;
-  /* tree connector lines are drawn with bg-slate-300 — ink navy like the mockup */
-  --color-slate-300: #1c2b4a;
+  /* Tree connector lines are drawn with bg-slate-300. The ink navy
+     (#1c2b4a) was too heavy for hairlines — inactive branches shouted as
+     loud as the active blue path. Now the light navy neutral, same
+     relation to the surface as Hyrule's line color. */
+  --color-slate-300: #becfe4;
   /* cartoon offset shadow ink (design/mockup-shadow-elements.html) */
   --syflo-shadow-ink: rgba(28, 43, 74, 0.9);
   --radius-sm: 8px;
@@ -582,7 +977,8 @@ body {
   border-radius: 14px 14px 4px 14px !important;
   box-shadow: 4px 4px 0 var(--syflo-shadow-ink);
 }
-:root[data-theme='ink-blue'] .prose {
+/* .select-text = the transcript only; see the mushroom-kingdom note above. */
+:root[data-theme='ink-blue'] .prose.select-text {
   background-color: #eef4fb;
   border: 1.5px solid #1c2b4a;
   border-radius: 14px 14px 14px 4px;
@@ -730,7 +1126,8 @@ body {
   border-radius: 3px 3px 2px 3px !important;
   box-shadow: 4px 4px 0 var(--syflo-shadow-ink);
 }
-:root[data-theme='matrix'] .prose {
+/* .select-text = the transcript only; see the mushroom-kingdom note above. */
+:root[data-theme='matrix'] .prose.select-text {
   background-color: #08130a;
   border-left: 2px solid color-mix(in srgb, #2be76b 30%, transparent);
   border-radius: 3px;
@@ -782,6 +1179,19 @@ body {
   --syflo-hl-pink: rgba(236, 72, 153, 0.28);
   --syflo-hl-orange: rgba(249, 115, 22, 0.28);
   --syflo-hl-ink: var(--color-gray-950);
+  /* Im Flash-Höhepunkt kippt die Tinte auf Phosphor-Schwarz. Matrix ist das
+     einzige dunkle Theme: sein Ruhe-Ink ist HELL (gray-950 ist hier fast
+     weiß), und die aufglühende Fläche wird ebenfalls hell — hell auf hell
+     ergab 1,08:1 (gemessen 14.08.2026), die Schrift verschwand im Puls.
+     #021206 ist derselbe Ton, den das Theme schon in `::selection` unter dem
+     Phosphorgrün einsetzt: eine helle Markierung mit dunkler Schrift ist hier
+     die vertraute Geste, nicht eine neue. */
+  --syflo-flash-ink: #021206;
+  /* Der Halo der Flash-Gruppe wird aus einer Silhouette geschnitten, die
+     selbst unsichtbar bleiben muss. Auf hellem Grund tut das Weiß × multiply,
+     auf dem Phosphor-Schwarz hier das Gegenstück Schwarz × screen. */
+  --syflo-flash-blend: screen;
+  --syflo-flash-fill: #000000;
 }
 /* design:matrix.terminal-details — phosphor caret and selection */
 :root[data-theme='matrix'] textarea,
@@ -899,9 +1309,16 @@ body .katex .accent-body {
  * ============================================================
  */
 :root {
-  /* ThinkingIndicator-Punkte (ChatArea): Akzent → Zweitfarbe des Themes */
-  --syflo-think-a: #2563eb;
-  --syflo-think-b: #34d399;
+  /* ThinkingIndicator-Punkte (ChatArea): Akzent → Zweitfarbe des Themes.
+     Simply Blue hat keine Zweitfarbe — seine Palette ist Weiß, Blau, Grau —
+     und erbte hier deshalb ein Smaragdgrün, das im ganzen Theme sonst nirgends
+     vorkommt (Nutzer-Report 2026-08-13). Beide Punkte tragen jetzt denselben
+     Akzent; die Bewegung kommt allein aus dem Versatz der Sprünge
+     (design/mockup-simply-blue-fixes.html §02, Variante B). Über das Token
+     statt als Hex-Wert, damit sie dem Theme folgen. Die vier anderen Themes
+     setzen beide Werte selbst und bleiben zweifarbig. */
+  --syflo-think-a: var(--color-blue-600);
+  --syflo-think-b: var(--color-blue-600);
   /* Bewegungscharakter des Themes (mockup-fun-themes-v4.html --ease-fun) */
   --syflo-ease-fun: ease;
   --syflo-map-canvas: #f9fafb;
@@ -909,11 +1326,26 @@ body .katex .accent-body {
   --syflo-map-node-bg: #ffffff;
   --syflo-map-node-line: #e5e7eb;
   --syflo-map-node-text: #111827;
-  --syflo-map-root-bg: #2563eb;
+  /* Wurzel und Aktivring über das Akzent-Token, nicht als Hex-Wert
+     (mockup-simply-blue-parity.html §07 Variante A, 2026-08-14). Beide standen
+     fest auf #2563EB und wichen damit von den Flächen der Oberfläche ab, die
+     Tailwind v4 auf #155DFC rendert — Knopf und Wurzel lagen im selben Bild
+     auf zwei Blautönen. Seit §01/B trägt das Token denselben Wert, aber ein
+     künftiger Wechsel des Akzents zieht die Karte jetzt mit. */
+  --syflo-map-root-bg: var(--color-blue-600);
   --syflo-map-root-text: #ffffff;
   --syflo-map-edge: #b6c2d4;
+  --syflo-map-edge-w: 2px;
+  /* Wie stark eine NICHT aktive Linie zum Canvas hin ausbleicht (Nutzer-
+     entscheidung 2026-08-06: „die anderen Linien heller, damit der aktive
+     Pfad heraussticht"). Als Anteil der Grundfarbe, gemischt gegen
+     --syflo-map-canvas — so bleibt es in jedem Theme im Ton, statt fünf
+     Graustufen von Hand zu setzen. Themes mit kräftigem Canvas (Mushroom
+     Kingdom) oder feinen Linien (Hyrule, Matrix) übersteuern den Wert. */
+  --syflo-map-edge-mix: 45%;
   --syflo-map-bw: 1.5px;
-  --syflo-map-active: #2563eb;
+  --syflo-map-active: var(--color-blue-600);
+  --syflo-map-band-mix: 5%;
 }
 /* Aktiv-Ring am Knoten des geöffneten Chats — „marching ants" aus syflo-2,
    Farbe über --syflo-map-active, Bewegungscharakter über --syflo-ease-fun.
@@ -947,9 +1379,33 @@ body .katex .accent-body {
 .syflo-mindmap-pane .react-flow {
   background-color: var(--syflo-map-canvas);
 }
+/* Nebenlinien: ausgeblichen gegen den Canvas, damit der aktive Pfad allein
+   durch Farbe trägt (der Glow ist deshalb weg — siehe unten). Die aktive
+   Linie überschreibt beides. */
 .syflo-mindmap-pane .react-flow__edge-path {
-  stroke: var(--syflo-map-edge);
-  stroke-width: 2;
+  stroke: color-mix(in srgb, var(--syflo-map-edge) var(--syflo-map-edge-mix), var(--syflo-map-canvas));
+  stroke-width: var(--syflo-map-edge-w);
+}
+/* Der Weg von der Wurzel zum geöffneten Zweig steht im Akzent des Themes —
+   NUR die Linien, nie die Karten (Regel aus design/mockup-tree-path-highlight.html,
+   übernommen für die Karte am 2026-08-06). Die Strichstärke wächst relativ zur
+   Grundstärke des Themes, damit Hyrules feine Feldpfade nicht plötzlich so dick
+   werden wie die von Mushroom Kingdom.
+   Gefärbt, nicht leuchtend (Nutzerentscheidung 2026-08-06): der drop-shadow-Glow
+   ist raus — er machte den Pfad unruhig, obwohl die Akzentfarbe ihn schon
+   eindeutig aus dem Baum heraushebt. */
+.syflo-mindmap-pane .react-flow__edge.syflo-map-edge-on-path .react-flow__edge-path {
+  stroke: var(--syflo-map-active);
+  stroke-width: calc(var(--syflo-map-edge-w) + 1.5px);
+}
+/* Ebenen-Streifen: jede zweite Tiefe bekommt eine Tönung, damit man eine Reihe
+   als Reihe liest (design/mockup-mindmap-rows-path.html §01, Variante A).
+   Der Ton wird aus der Textfarbe des Themes gemischt statt fest gesetzt — ein
+   Grauwert wäre auf dem schwarzen Matrix-Canvas unsichtbar. Die Stärke ist eine
+   eigene Variable, weil sie auf Mushroom Kingdoms kräftigem Himmelblau höher
+   liegen muss (dort sonst 4 von 255 Stufen Unterschied). */
+.syflo-map-row-band {
+  background: color-mix(in srgb, var(--syflo-map-node-text) var(--syflo-map-band-mix), transparent);
 }
 /* React-Flow-Zoom-Controls (+ / − / Fit / Lock) folgen dem Karten-Look des
    Themes statt dem weißen xyflow-Default (Nutzer-Report 2026-07-22: im
@@ -969,7 +1425,6 @@ body .katex .accent-body {
   color: var(--syflo-map-node-text);
   border: 1px solid var(--syflo-map-node-line);
 }
-
 /*
  * Typing indicator (design/mockup-fun-themes-v4.html .typing/.tdot):
  * three bouncing dots, no bubble around them (user decision 2026-07-20).
@@ -1033,6 +1488,107 @@ body .katex .accent-body {
   }
 }
 
+/* ---------- Kurzinfo (tooltip) ----------
+   `data-tip="…"` on any control that shows nothing but an icon. The native
+   `title` attribute is NOT enough for those: Chromium only pops it up after
+   roughly a second of complete stillness, and in the running app it often
+   never appeared at all (user report 2026-08-11) — so a button whose only
+   label is a symbol had no readable meaning.
+
+   CSS-only on purpose: no wrapper component, no state, so an icon button
+   becomes explainable by adding one attribute wherever it already lives.
+   Keep `title` for elements that DO show their text and only need the
+   untruncated version on hover — a chat title, a filename. Those two jobs
+   look different and should stay different.
+
+   And NOT every icon needs one. A control sitting right next to the value it
+   changes explains itself: −/+ beside "100 %", ‹/› beside "3 / 19", the
+   chevrons beside "2 / 2" (user decision 2026-08-11). Those keep their
+   `aria-label` for screen readers and show nothing on hover — a bubble that
+   repeats what the eye already read is noise. `data-tip` is for icons whose
+   meaning is NOT written anywhere beside them.
+
+   `position: relative` deliberately skips elements Tailwind already
+   positions: this rule is unlayered and would otherwise beat the `.absolute`
+   / `.fixed` / `.sticky` utilities in @layer utilities and tear them out of
+   their place. `data-tip-below` flips the bubble under the control, for rows
+   sitting against the top edge of a scroll container that would clip it. */
+[data-tip]:not(.absolute):not(.fixed):not(.sticky) {
+  position: relative;
+}
+[data-tip]::after {
+  content: attr(data-tip);
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  translate: -50%;
+  z-index: 60;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: var(--color-gray-900);
+  color: var(--color-gray-50);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.35;
+  white-space: nowrap;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+[data-tip][data-tip-below]::after {
+  bottom: auto;
+  top: calc(100% + 6px);
+}
+[data-tip][data-tip-start]::after {
+  left: 0;
+  translate: 0;
+}
+[data-tip][data-tip-end]::after {
+  left: auto;
+  right: 0;
+  translate: 0;
+}
+@media (hover: hover) {
+  [data-tip]:hover::after {
+    opacity: 1;
+  }
+}
+[data-tip]:focus-visible::after {
+  opacity: 1;
+}
+/* Für Knöpfe, die ihre Beschriftung erst in einer schmalen Spalte abwerfen:
+   solange sie noch dasteht, wäre die Kurzinfo derselbe Text ein zweites Mal.
+   Die Schwelle muss zu der passen, ab der die Beschriftung verschwindet —
+   und die ist NICHT überall gleich. `container-type: inline-size` misst die
+   CONTENT-Box: der Composer-Schacht trägt px-6/sm:px-8, seine Query-Breite
+   liegt also rund 64 px unter der des Chat-Kopfs. Mit einer gemeinsamen
+   30rem-Schwelle klappten die /btw-Knöpfe deshalb sichtbar früher zusammen
+   als der Markierungs-Knopf daneben (Nutzerbericht 2026-08-11). Darum zwei
+   Stufen: `data-tip-narrow-only` folgt der 30rem-Regel des Composers,
+   `data-tip-narrow-only="20"` der 20rem-Regel für Knopfpaare, die schon in
+   einer weit schmaleren Spalte bequem nebeneinander passen. */
+@container (width >= 30rem) {
+  [data-tip][data-tip-narrow-only='']::after {
+    content: none;
+  }
+}
+@container (width >= 20rem) {
+  [data-tip][data-tip-narrow-only='20']::after {
+    content: none;
+  }
+}
+/* Ein deaktivierter Knopf erklärt sich weiter — gerade dort will man wissen,
+   wofür er da wäre. */
+[data-tip]:disabled::after {
+  opacity: 0;
+}
+@media (hover: hover) {
+  [data-tip]:disabled:hover::after {
+    opacity: 1;
+  }
+}
+
 /* Ink Blue — Sticker-Karten, Marine-Tinte */
 :root[data-theme='ink-blue'] {
   --syflo-think-a: #3b82f6;
@@ -1047,9 +1603,7 @@ body .katex .accent-body {
   --syflo-map-root-text: #ffffff;
   --syflo-map-edge: #1c2b4a;
   --syflo-map-active: #3b82f6;
-}
-:root[data-theme='ink-blue'] .syflo-mindmap-pane .react-flow__edge-path {
-  stroke-width: 2.5;
+  --syflo-map-edge-w: 2.5px;
 }
 
 /* Mushroom Kingdom — Karton-Knoten überm Himmel, dicke Navy-Pfade */
@@ -1067,6 +1621,10 @@ body .katex .accent-body {
   --syflo-map-edge: #26264f;
   --syflo-map-bw: 2.5px;
   --syflo-map-active: #d8433b;
+  --syflo-map-edge-w: 3.5px;
+  /* Einziges Theme mit kräftig gefärbtem Canvas: bei 5 % hebt sich der
+     Ebenen-Streifen nur um 4 von 255 Stufen ab (gemessen 2026-08-06). */
+  --syflo-map-band-mix: 13%;
 }
 :root[data-theme='mushroom-kingdom'] .syflo-mindmap-pane .react-flow {
   background-image:
@@ -1077,9 +1635,6 @@ body .katex .accent-body {
     radial-gradient(ellipse 46% 120px at 6% 106%, #7fc06c 60%, transparent 61%),
     radial-gradient(ellipse 52% 140px at 60% 109%, #86c673 60%, transparent 61%),
     radial-gradient(ellipse 48% 110px at 100% 106%, #4f9c41 60%, transparent 61%);
-}
-:root[data-theme='mushroom-kingdom'] .syflo-mindmap-pane .react-flow__edge-path {
-  stroke-width: 3.5;
 }
 
 /* Hyrule — Pergament-Knoten, Teal-Wurzel mit Goldrand, dünne Feldpfade */
@@ -1092,16 +1647,20 @@ body .katex .accent-body {
   --syflo-map-node-bg: #f8f5e8;
   --syflo-map-node-line: #c9bc8c;
   --syflo-map-node-text: #33372a;
-  --syflo-map-root-bg: linear-gradient(165deg, #2faea4, #218a82);
+  /* Dasselbe volle Teal wie die User-Blase (#2aa198, siehe
+     design:hyrule.bubbles), nicht der frühere linear-gradient(165deg,
+     #2faea4, #218a82): der Verlauf machte die Wurzel plastisch und ihr Grün
+     wich sichtbar von den Blasen ab (Nutzer-Report 2026-08-06 — dieselbe
+     Korrektur wie bei den Blasen am 2026-07-24). Der harte Versatzschatten
+     und der Goldrand bleiben; sie sind der flache Cartoon-Look des Themes. */
+  --syflo-map-root-bg: #2aa198;
   --syflo-map-root-text: #fcfbf2;
   --syflo-map-edge: #8e9078;
   --syflo-map-active: #b8963a;
+  --syflo-map-edge-w: 1.5px;
 }
 :root[data-theme='hyrule'] .syflo-map-node-root {
   border-color: #b8963a;
-}
-:root[data-theme='hyrule'] .syflo-mindmap-pane .react-flow__edge-path {
-  stroke-width: 1.5;
 }
 /* Hyrule: sanfter Glow auf den Typing-Punkten (mockup v4, Zeile .typing .tdot) */
 :root[data-theme='hyrule'] .syflo-typing-dot {
@@ -1123,6 +1682,7 @@ body .katex .accent-body {
   --syflo-map-edge: rgba(43, 231, 107, 0.5);
   --syflo-map-bw: 1px;
   --syflo-map-active: #2be76b;
+  --syflo-map-edge-w: 1.5px;
 }
 /* Matrix: Phosphor-Glow auf dem Aktiv-Ring */
 :root[data-theme='matrix'] .syflo-map-active-ring {
@@ -1133,7 +1693,6 @@ body .katex .accent-body {
   text-shadow: 0 0 8px rgba(43, 231, 107, 0.4);
 }
 :root[data-theme='matrix'] .syflo-mindmap-pane .react-flow__edge-path {
-  stroke-width: 1.5;
   stroke-dasharray: 6 4;
 }
 
@@ -1282,4 +1841,163 @@ body .katex .accent-body {
 .syflo-code .hljs-variable,
 .syflo-code .hljs-template-variable {
   color: var(--syflo-code-type);
+}
+
+/* Clickable "Ask in chat" quote inside a user bubble
+   (design/mockup-quote-jump-to-source.html, variant A). Every value derives
+   from currentColor, so the treatment survives every theme repaint: the
+   bubble is gray in the standard themes, red in Mushroom, near-black in
+   Matrix — a literal tint would be invisible in at least one of them.
+   The resting state is deliberately identical to a non-clickable quote; only
+   the cursor and the hover reveal that there is somewhere to go. */
+.syflo-quote-link {
+  cursor: pointer;
+  border-radius: 0 0.375rem 0.375rem 0;
+  transition: opacity 140ms ease, background-color 140ms ease;
+}
+.syflo-quote-link:hover,
+.syflo-quote-link:focus-visible {
+  opacity: 1;
+  background-color: color-mix(in srgb, currentColor 10%, transparent);
+}
+.syflo-quote-link:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+/* The jump icon only appears on hover — at rest the quote must read exactly
+   as it did before the feature. */
+.syflo-quote-link-icon {
+  opacity: 0;
+  transition: opacity 140ms ease;
+}
+.syflo-quote-link:hover .syflo-quote-link-icon,
+.syflo-quote-link:focus-visible .syflo-quote-link-icon {
+  opacity: 0.8;
+}
+
+/* ── Keyboard focus ring (ADR-0011) ──────────────────────────────────────
+   The one visual element keyboard navigation adds. It carries no hue of its
+   own on purpose: colour is already spoken for — a blue fill means "this chat
+   is open" and a coloured left bar means highlight kind, one of which is blue.
+   Surface and text contrast by definition in every theme, so a halo in
+   --color-white followed by a ring in --color-gray-900 stays legible on the
+   blue pill, on a blue highlight card, and on the dark themes' ground.
+
+   Left unlayered so it beats Tailwind's shadow-* utilities on the same element
+   (the cascade-layer trap this repo has been bitten by before). */
+/* One indicator, not two. Clicking a button leaves Chrome's own focus ring on
+   it — drawn in the macOS accent colour, so it can be gold, and it reads as a
+   second place the keyboard is (user report 2026-08-11). Buttons give it up;
+   text fields keep theirs, because there the ring IS the caret's home. */
+button:focus,
+button:focus-visible,
+[role='button']:focus-visible {
+  outline: none;
+}
+
+/* The focus ring is ONE overlay on <body>, laid over the union of every piece
+   the focused item is drawn in. A formula is stored as several bands, and one
+   box per band read as three things instead of one (user report 2026-08-11).
+   Living outside the panes also frees it from every `overflow: hidden`
+   ancestor that used to clip it — and it can never move what it marks, which
+   an earlier `position: relative` on the item itself did.
+
+   It carries no hue of its own: colour already means "this chat is open"
+   (blue fill) and "highlight kind" (coloured bar, one of which is blue).
+   Surface and text contrast by definition in every theme. */
+/* Keep a gap when the ring is scrolled into view. Without it, `nearest`
+   parks an item flush against the container's edge — where the PDF pane's
+   horizontal scrollbar sits right on top of the ring's lower edge (user
+   report 2026-08-11). scroll-margin is exactly what scrollIntoView reads. */
+[data-focus-item] {
+  scroll-margin: 28px 16px;
+}
+
+#syflo-focus-ring {
+  position: fixed;
+  display: none;
+  pointer-events: none;
+  z-index: 60;
+  border-radius: 7px;
+  box-shadow: 0 0 0 2px var(--color-white), 0 0 0 3px var(--color-gray-900);
+}
+#syflo-focus-ring[data-visible] {
+  display: block;
+}
+
+/* Four beats when navigation mode goes on (user request 2026-08-12, raised from
+   two the same day). Same 0.75 s pulse as the jump flash out of the highlights
+   drawer, so "here is the keyboard" and "here is what you jumped to" read as
+   one language — but four of them, 3 s in all: the jump flash marks a place the
+   eye is already travelling to, while this one has to be FOUND somewhere on a
+   full screen, and two beats went by before the user had looked.
+   The ring's own two shadow layers repeat in every keyframe: box-shadow
+   animates as a whole list, and leaving them out of a step would blink the ring
+   itself off.
+   The glow itself is the THEME's accent (user correction 2026-08-12): an ink
+   glow around an ink outline barely reads on a light ground — a colour does.
+   Via the `blue-600` token, exactly like the jump flash's `--flash-color`, so
+   it is red in Mushroom and green in Matrix instead of blue everywhere. The
+   ring's steady outline stays colourless — the accent only appears while it
+   pulses, so nothing competes with "this chat is open" afterwards. */
+@keyframes syflo-focus-ring-glow {
+  0%, 100% {
+    box-shadow:
+      0 0 0 2px var(--color-white),
+      0 0 0 3px var(--color-gray-900),
+      0 0 0 0 transparent;
+  }
+  50% {
+    box-shadow:
+      0 0 0 2px var(--color-white),
+      0 0 0 3px var(--color-blue-600, #2563eb),
+      0 0 12px 4px color-mix(in srgb, var(--color-blue-600, #2563eb) 70%, transparent);
+  }
+}
+/* Derselbe Takt wie der Sprung-Flash: 3 × 0,45 s (Nutzerwunsch 2026-08-15).
+   Genau das war von Anfang an die Absicht — der Kommentar in
+   useKeyboardNavigation.ts nennt den Ring-Glow „the same … glow" wie den
+   Sprung aus dem Drawer. Nur war der Wert nie mitgezogen worden: der Sprung
+   pulste 2×, der Ring 4×, und mit 0,75 s pro Puls dauerte er 3 s — dreimal so
+   lang wie das, was er nachahmen sollte. Ändert sich der Takt des Flashs,
+   ändert sich dieser hier mit. */
+#syflo-focus-ring[data-glow] {
+  animation: syflo-focus-ring-glow 0.45s ease-in-out 3;
+}
+
+/* `data-focus-ring` stays on every piece of the focused item as a marker —
+   tests and debugging read it — but it draws nothing itself. The visible ring
+   is the single overlay above. */
+
+
+/*
+ * Aufglühen einer Transcript-/Kapitel-Markierung — GENAU wie im PDF und im
+ * Chat (Nutzerwunsch 2026-08-16: „überall soll die ganze markierte Stelle
+ * aufglühen, so wie im PDF").
+ *
+ * Hier steht nur noch die Fläche: die Spans tragen `data-flash` +
+ * `data-color`, die PDF-Regel weiter oben hellt sie damit auf. Den farbigen
+ * Schein legt die gemeinsame Halo-Gruppe darüber (flashGlow.ts) — dieselbe
+ * Silhouette, dieselbe Farbe, derselbe Takt wie im PDF.
+ *
+ * Vorher standen hier ein `text-shadow` pro Glyphe und ein 3 px starker
+ * Unterstrich, nachgebaut nach dem Chat. Beide sind mit dem Chat zusammen
+ * ausgezogen: der Schein verschwand unter der aufgehellten Fläche, und übrig
+ * blieb ein pulsierender Strich statt einer glühenden Stelle.
+ */
+
+/*
+ * Verknüpfte Markierung im Transcript / in den Kapiteln: dieselbe Linie wie
+ * im Chat (Nutzerfrage 2026-08-16: „warum sind sie anders unterstrichen als
+ * normaler Text?"). Der Chat malt sie über ::highlight(syflo-chat-hl-linked)
+ * — hier ist die Markierung ein echtes <span>, die Werte sind aber Zeile für
+ * Zeile dieselben: 1 px, halbtransparent aus currentColor, 3 px Abstand.
+ * Eine dicke oder gepunktete Linie las neben dem Pastellton als zu schwer
+ * (Nutzer-Report 2026-08-01 zur Chat-Variante).
+ */
+.syflo-mark-linked {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-decoration-color: color-mix(in srgb, currentColor 55%, transparent);
+  text-underline-offset: 3px;
 }

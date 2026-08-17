@@ -1,0 +1,923 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Syflo · /btw — the throwaway side question</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --brand-blue: #3B82F6;
+    --bg-app: #F8FAFC;
+    --surface: #FFFFFF;
+    --text-strong: #0F172A;
+    --text-default: #334155;
+    --text-muted: #64748B;
+    --border: #E2E8F0;
+    --blue-50: #EFF6FF; --blue-100: #DBEAFE; --blue-200: #BFDBFE;
+    --blue-500: #3B82F6; --blue-600: #2563EB; --blue-700: #1D4ED8;
+    --gray-50: #F9FAFB; --gray-100: #F3F4F6; --gray-200: #E5E7EB;
+    --gray-300: #D1D5DB; --gray-400: #9CA3AF; --gray-500: #6B7280; --gray-600: #4B5563;
+    --shadow: 0 1px 3px rgba(15,23,42,0.06), 0 1px 2px rgba(15,23,42,0.04);
+    --shadow-lg: 0 12px 28px rgba(15,23,42,0.14);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Inter', -apple-system, sans-serif; background: var(--bg-app);
+    color: var(--text-default); -webkit-font-smoothing: antialiased;
+    min-height: 100vh; padding: 48px 32px 120px;
+  }
+  .wrap { max-width: 1240px; margin: 0 auto; }
+
+  .intro { margin-bottom: 44px; }
+  .intro h1 { font-size: 24px; font-weight: 700; color: var(--text-strong); letter-spacing: -0.015em; margin-bottom: 8px; }
+  .intro p { font-size: 14px; color: var(--text-muted); line-height: 1.65; max-width: 820px; }
+  .intro p + p { margin-top: 10px; }
+  .intro strong { color: var(--text-default); }
+  .intro code, .section-desc code, .notes code, .cmp code {
+    background: var(--gray-100); border-radius: 4px; padding: 1px 5px;
+    font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+
+  .section { margin-bottom: 60px; }
+  .section-label {
+    font-size: 12px; font-weight: 600; color: var(--text-muted);
+    letter-spacing: 0.06em; text-transform: uppercase;
+    display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px;
+  }
+  .section-label .num { color: var(--brand-blue); font-weight: 700; }
+  .section-desc { font-size: 13px; color: var(--text-muted); line-height: 1.6; margin-bottom: 18px; max-width: 820px; }
+  .section-desc strong { color: var(--text-default); }
+
+  .stage {
+    background: #E2E8F0; border-radius: 14px; padding: 36px 24px;
+    display: flex; justify-content: center; gap: 28px; align-items: flex-start; flex-wrap: wrap;
+  }
+  .col { display: flex; flex-direction: column; }
+  .state-label {
+    text-align: center; font-size: 10.5px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.06em; color: var(--text-muted); margin-bottom: 10px;
+  }
+
+  /* ── Chat pane shell ── */
+  .chat-pane {
+    width: 470px; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; overflow: hidden; box-shadow: var(--shadow);
+    position: relative; display: flex; flex-direction: column;
+  }
+  .chat-pane.tall { min-height: 430px; }
+  .chat-header {
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px 12px 12px 16px; border-bottom: 1px solid var(--gray-100);
+  }
+  .chat-header .grow { flex: 1; min-width: 0; }
+  .chat-title { font-size: 14px; font-weight: 600; color: var(--text-strong); }
+  .hl-btn {
+    flex: none; display: inline-flex; align-items: center; gap: 6px;
+    height: 30px; padding: 0 10px; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--surface);
+    font-size: 12px; font-weight: 500; color: var(--gray-500);
+    font-family: inherit; cursor: pointer;
+  }
+  .hl-btn:hover { background: var(--gray-100); color: var(--text-default); }
+
+  .chat-msgs {
+    padding: 16px; display: flex; flex-direction: column; gap: 10px;
+    flex: 1; overflow: hidden;
+  }
+  .bubble-user {
+    align-self: flex-end; background: var(--brand-blue); color: white;
+    font-size: 12px; line-height: 1.5; padding: 8px 11px;
+    border-radius: 12px 12px 4px 12px; max-width: 85%;
+  }
+  .bubble-ai {
+    align-self: flex-start; background: var(--bg-app); color: var(--text-default);
+    font-size: 12px; line-height: 1.5; padding: 8px 11px;
+    border-radius: 12px 12px 12px 4px; max-width: 85%;
+  }
+
+  /* ── Composer ── */
+  .composer { border-top: 1px solid var(--gray-100); padding: 10px 12px 12px; background: var(--surface); }
+  .composer-box {
+    border: 1px solid var(--border); border-radius: 12px; background: var(--surface);
+    padding: 8px 10px 8px 12px; display: flex; align-items: flex-end; gap: 8px;
+  }
+  .composer-box.focused { border-color: var(--blue-500); box-shadow: 0 0 0 3px var(--blue-50); }
+  .composer-text { flex: 1; font-size: 12.5px; line-height: 1.5; color: var(--text-default); padding: 3px 0 3px; min-height: 20px; }
+  .composer-text.ph { color: var(--gray-400); }
+  .caret { display: inline-block; width: 1.5px; height: 14px; background: var(--text-strong); vertical-align: -2px; margin-left: 1px; }
+  .composer-actions { display: flex; align-items: center; gap: 6px; }
+  .icon-btn {
+    width: 28px; height: 28px; border-radius: 8px; border: none; background: none;
+    color: var(--gray-400); display: inline-flex; align-items: center; justify-content: center; cursor: pointer;
+  }
+  .icon-btn:hover { background: var(--gray-100); color: var(--gray-600); }
+  .send-btn {
+    width: 28px; height: 28px; border-radius: 8px; border: none; background: var(--brand-blue);
+    color: white; display: inline-flex; align-items: center; justify-content: center; cursor: pointer;
+  }
+  .composer-foot {
+    display: flex; align-items: center; gap: 8px; margin-top: 7px;
+    font-size: 11px; color: var(--gray-400);
+  }
+  .model-chip {
+    display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 8px;
+    border-radius: 7px; border: 1px solid var(--border); background: var(--surface);
+    font-size: 11px; color: var(--text-muted); font-weight: 500;
+  }
+
+  /* ── Slash command menu ── */
+  .slash-menu {
+    position: absolute; left: 12px; right: 12px; bottom: 100%; margin-bottom: 8px;
+    background: var(--surface); border: 1px solid var(--gray-100); border-radius: 10px;
+    box-shadow: var(--shadow-lg); padding: 5px; z-index: 6;
+  }
+  .slash-title {
+    font-size: 10px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--gray-400); padding: 6px 9px 5px;
+  }
+  .slash-item {
+    display: flex; align-items: center; gap: 9px; padding: 7px 9px; border-radius: 7px; cursor: pointer;
+  }
+  .slash-item.active { background: var(--blue-50); }
+  .slash-item svg { flex: none; color: var(--gray-400); }
+  .slash-item.active svg { color: var(--blue-700); }
+  .slash-cmd { font-size: 12.5px; font-weight: 600; color: var(--text-strong); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .slash-desc { font-size: 11.5px; color: var(--text-muted); }
+  .slash-kbd { margin-left: auto; font-size: 10px; color: var(--gray-400); }
+  kbd {
+    font-family: inherit; font-size: 10px; border: 1px solid var(--gray-200);
+    border-bottom-width: 2px; border-radius: 4px; padding: 1px 4px; color: var(--gray-500); background: var(--gray-50);
+  }
+
+  /* ── The "ephemeral" visual language: dashed border + muted fill ── */
+  .btw-chip {
+    display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 8px 0 6px;
+    border-radius: 6px; background: var(--gray-100); border: 1px dashed var(--gray-300);
+    font-size: 11px; font-weight: 600; color: var(--gray-600);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; flex: none;
+  }
+  .btw-chip svg { color: var(--gray-500); }
+  .btw-chip .x { margin-left: 2px; color: var(--gray-400); cursor: pointer; display: inline-flex; }
+
+  /* Variant A — ghost bubbles inline in the transcript */
+  .ghost-block {
+    align-self: stretch; border-left: 2px dashed var(--gray-300); padding-left: 10px;
+    display: flex; flex-direction: column; gap: 7px; margin: 3px 0;
+  }
+  .ghost-head {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 10.5px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--gray-400);
+  }
+  .ghost-head svg { color: var(--gray-400); }
+  .ghost-head .spacer { flex: 1; }
+  .ghost-act {
+    display: inline-flex; align-items: center; gap: 4px; border: none; background: none;
+    font-family: inherit; font-size: 10.5px; font-weight: 600; letter-spacing: 0.02em;
+    color: var(--gray-500); cursor: pointer; text-transform: none; padding: 2px 5px; border-radius: 5px;
+  }
+  .ghost-act:hover { background: var(--gray-100); color: var(--text-default); }
+  .ghost-act.keep { color: var(--blue-700); }
+  .ghost-act.keep:hover { background: var(--blue-50); }
+  .ghost-user {
+    align-self: flex-end; background: var(--gray-100); color: var(--gray-600);
+    border: 1px dashed var(--gray-300);
+    font-size: 12px; line-height: 1.5; padding: 7px 10px;
+    border-radius: 12px 12px 4px 12px; max-width: 88%;
+  }
+  .ghost-ai {
+    align-self: flex-start; background: var(--surface); color: var(--gray-600);
+    border: 1px dashed var(--gray-300);
+    font-size: 12px; line-height: 1.5; padding: 7px 10px;
+    border-radius: 12px 12px 12px 4px; max-width: 92%;
+  }
+  .ghost-fade { opacity: 0.45; }
+
+  /* Variant B — floating scratch card above the composer */
+  .scratch {
+    position: absolute; left: 12px; right: 12px; bottom: 100%; margin-bottom: 8px;
+    background: var(--surface); border: 1px solid var(--gray-200); border-radius: 12px;
+    box-shadow: var(--shadow-lg); z-index: 5; overflow: hidden;
+  }
+  .scratch-head {
+    display: flex; align-items: center; gap: 7px; padding: 8px 10px 8px 12px;
+    background: var(--gray-50); border-bottom: 1px dashed var(--gray-200);
+  }
+  .scratch-head .t { font-size: 11px; font-weight: 600; color: var(--gray-600); letter-spacing: 0.02em; }
+  .scratch-head svg { color: var(--gray-500); flex: none; }
+  .scratch-head .spacer { flex: 1; }
+  .scratch-body { padding: 11px 13px 12px; max-height: 210px; overflow: auto; }
+  .scratch-q { font-size: 12px; font-weight: 600; color: var(--text-strong); line-height: 1.5; margin-bottom: 7px; }
+  .scratch-a { font-size: 12px; line-height: 1.6; color: var(--text-default); }
+  .scratch-foot {
+    display: flex; align-items: center; gap: 7px; padding: 8px 12px 10px;
+    border-top: 1px solid var(--gray-100);
+  }
+  .mini-btn {
+    display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 9px;
+    border-radius: 7px; border: 1px solid var(--border); background: var(--surface);
+    font-family: inherit; font-size: 11px; font-weight: 500; color: var(--text-default); cursor: pointer;
+  }
+  .mini-btn:hover { background: var(--gray-50); }
+  .mini-btn svg { color: var(--gray-500); }
+  .mini-btn.primary { background: var(--blue-50); border-color: var(--blue-100); color: var(--blue-700); }
+  .mini-btn.primary svg { color: var(--blue-700); }
+  .mini-hint { margin-left: auto; font-size: 10.5px; color: var(--gray-400); }
+
+  /* Variant C — side lane drawer */
+  .with-lane { display: flex; align-items: flex-start; gap: 0; }
+  .lane {
+    width: 250px; align-self: stretch; background: var(--gray-50);
+    border: 1px solid var(--border); border-left: none;
+    border-radius: 0 10px 10px 0; display: flex; flex-direction: column; box-shadow: var(--shadow);
+  }
+  .lane-head {
+    display: flex; align-items: center; gap: 7px; padding: 12px 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  .lane-head .t { font-size: 12px; font-weight: 600; color: var(--text-strong); }
+  .lane-head svg { color: var(--gray-500); }
+  .lane-head .spacer { flex: 1; }
+  .lane-body { padding: 11px; display: flex; flex-direction: column; gap: 12px; flex: 1; }
+  .lane-item { border-left: 2px dashed var(--gray-300); padding-left: 9px; }
+  .lane-q { font-size: 11.5px; font-weight: 600; color: var(--text-default); line-height: 1.45; }
+  .lane-a { font-size: 11.5px; color: var(--gray-500); line-height: 1.5; margin-top: 4px; }
+  .lane-acts { display: flex; gap: 4px; margin-top: 6px; }
+  .lane-foot { padding: 9px 11px; border-top: 1px solid var(--border); font-size: 10.5px; color: var(--gray-400); line-height: 1.5; }
+  /* Chat and lane read as one surface: only the outer group carries a shadow,
+     otherwise the pane's own shadow falls across the lane's left edge. */
+  .with-lane { box-shadow: var(--shadow); border-radius: 10px; }
+  .with-lane .chat-pane { box-shadow: none; }
+  .with-lane .lane { box-shadow: none; }
+
+  /* Variant D — answer folds out of the composer itself */
+  .fold {
+    border: 1px solid var(--border); border-bottom: none;
+    border-radius: 12px 12px 0 0; background: var(--gray-50);
+    padding: 10px 12px 11px; position: relative;
+  }
+  .fold + .composer-box { border-radius: 0 0 12px 12px; border-top-color: var(--gray-200); }
+  .fold-head {
+    display: flex; align-items: center; gap: 6px; margin-bottom: 6px;
+    font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--gray-400);
+  }
+  .fold-head svg { color: var(--gray-400); }
+  .fold-head .spacer { flex: 1; }
+  .fold-q { font-size: 12px; font-weight: 600; color: var(--text-strong); line-height: 1.45; margin-bottom: 5px; }
+  .fold-a { font-size: 12px; line-height: 1.55; color: var(--text-default); }
+  .fold-acts { display: flex; align-items: center; gap: 6px; margin-top: 9px; }
+
+  /* Toast / status line */
+  .toast {
+    display: inline-flex; align-items: center; gap: 7px; padding: 7px 11px;
+    background: var(--surface); border: 1px solid var(--gray-200); border-radius: 9px;
+    box-shadow: var(--shadow); font-size: 11.5px; color: var(--text-default);
+  }
+  .toast svg { color: var(--gray-500); }
+
+  /* Notes + comparison table */
+  .notes { margin-top: 18px; font-size: 13px; color: var(--text-muted); line-height: 1.65; max-width: 860px; }
+  .notes ul { padding-left: 18px; display: flex; flex-direction: column; gap: 6px; }
+  .notes strong { color: var(--text-default); }
+
+  .cmp { width: 100%; border-collapse: collapse; font-size: 12.5px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+  .cmp th, .cmp td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--gray-100); vertical-align: top; line-height: 1.5; }
+  .cmp th { background: var(--gray-50); font-weight: 600; color: var(--text-strong); font-size: 11.5px; letter-spacing: 0.02em; }
+  .cmp td:first-child { font-weight: 600; color: var(--text-default); white-space: nowrap; }
+  .cmp tr:last-child td { border-bottom: none; }
+  .yes { color: #15803D; font-weight: 600; }
+  .no { color: var(--gray-400); }
+
+  .qbox { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px; box-shadow: var(--shadow); }
+  .qbox ol { padding-left: 20px; display: flex; flex-direction: column; gap: 12px; font-size: 13px; line-height: 1.6; color: var(--text-muted); }
+  .qbox li strong { color: var(--text-strong); display: block; margin-bottom: 2px; }
+  .qbox .opts { color: var(--text-default); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="intro">
+    <h1>/btw — the throwaway side question</h1>
+    <p>
+      User request 2026-08-08: type <code>/btw &lt;question&gt;</code> in the chat composer, get an answer —
+      but the exchange <strong>does not stay in the transcript</strong>. It is a quick aside
+      ("by the way, what does <em>logit</em> mean again?") that must not pollute the thread,
+      the branch context, or the mind map.
+    </p>
+    <p>
+      Four different answers to <em>where the aside lives and when it disappears</em>, plus the shared
+      trigger UX and the open decisions. Everything is a mockup — nothing is built yet.
+      Visual rule throughout: <strong>dashed borders + muted gray = temporary</strong>, solid + blue = permanent.
+    </p>
+  </div>
+
+  <!-- ============================================================ -->
+  <div class="section" id="sec00">
+    <div class="section-label"><span class="num">00</span> Shared trigger — the slash menu and the mode chip</div>
+    <p class="section-desc">
+      Identical in all four variants. Typing <code>/</code> as the <strong>first character</strong> of an empty
+      composer opens a small command menu; anywhere else <code>/</code> is just a slash (URLs, dates, math).
+      Picking <code>/btw</code> turns the prefix into a <strong>chip</strong> — so the user always sees which
+      mode they are sending in, and can leave it with <kbd>Backspace</kbd> or the ×.
+    </p>
+    <div class="stage">
+      <div class="col">
+        <div class="state-label">A — "/" opens the command menu</div>
+        <div class="chat-pane">
+          <div class="chat-header">
+            <div class="grow"><span class="chat-title">Attention Is All You Need</span></div>
+            <button class="hl-btn">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 11-6 6v3h9l3-3"/><path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"/></svg>
+              Highlights
+            </button>
+          </div>
+          <div class="chat-msgs">
+            <div class="bubble-user">How does multi-head attention differ from single-head?</div>
+            <div class="bubble-ai">Each head learns a different projection of queries and keys, so the model can attend to several relationships at once…</div>
+          </div>
+          <div class="composer" style="position: relative;">
+            <div class="slash-menu">
+              <div class="slash-title">Commands</div>
+              <div class="slash-item active">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
+                <div>
+                  <div class="slash-cmd">/btw</div>
+                  <div class="slash-desc">Ask a side question — not saved to this chat</div>
+                </div>
+                <span class="slash-kbd"><kbd>↵</kbd></span>
+              </div>
+              <div class="slash-item">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
+                <div>
+                  <div class="slash-cmd">/branch</div>
+                  <div class="slash-desc">Open a new branch from this point</div>
+                </div>
+              </div>
+            </div>
+            <div class="composer-box focused">
+              <div class="composer-text"><span style="font-family: ui-monospace, Menlo, monospace;">/</span><span class="caret"></span></div>
+              <div class="composer-actions">
+                <button class="icon-btn"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg></button>
+                <button class="send-btn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg></button>
+              </div>
+            </div>
+            <div class="composer-foot">
+              <span class="model-chip">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 9h6v6H9z"/><path d="M9 2v2"/><path d="M15 2v2"/><path d="M9 20v2"/><path d="M15 20v2"/><path d="M2 9h2"/><path d="M2 15h2"/><path d="M20 9h2"/><path d="M20 15h2"/></svg>
+                Gemini Flash
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="col">
+        <div class="state-label">B — chosen: the mode chip sits in the composer</div>
+        <div class="chat-pane">
+          <div class="chat-header">
+            <div class="grow"><span class="chat-title">Attention Is All You Need</span></div>
+            <button class="hl-btn">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 11-6 6v3h9l3-3"/><path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"/></svg>
+              Highlights
+            </button>
+          </div>
+          <div class="chat-msgs">
+            <div class="bubble-user">How does multi-head attention differ from single-head?</div>
+            <div class="bubble-ai">Each head learns a different projection of queries and keys, so the model can attend to several relationships at once…</div>
+          </div>
+          <div class="composer">
+            <div class="composer-box focused">
+              <span class="btw-chip" style="margin-bottom: 3px;">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
+                btw
+                <span class="x"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></span>
+              </span>
+              <div class="composer-text">what does <em>logit</em> mean again?<span class="caret"></span></div>
+              <div class="composer-actions">
+                <button class="send-btn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg></button>
+              </div>
+            </div>
+            <div class="composer-foot">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><path d="m2 2 20 20"/></svg>
+              This answer will not be saved to the chat
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="notes">
+      <ul>
+        <li><strong>Typing shortcut:</strong> <code>/btw </code> plus space converts to the chip immediately — no menu needed once the user knows the command. Keyboard alternative: <kbd>Alt</kbd>+<kbd>B</kbd> toggles the chip.</li>
+        <li><strong>Leaving the mode:</strong> <kbd>Backspace</kbd> on an empty composer removes the chip (like removing a file attachment), as does the ×. <kbd>Esc</kbd> clears chip and text together.</li>
+        <li><strong>The eye-off line under the composer</strong> is the promise: it names the consequence <em>before</em> sending, not after. It replaces the model chip row only while btw mode is on.</li>
+        <li><strong>Not a new file-type of message:</strong> the aside uses the same model and the same provider ladder as a normal message — only its persistence differs.</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ============================================================ -->
+  <div class="section" id="sec01">
+    <div class="section-label"><span class="num">01</span> Idea A — ghost bubbles in the transcript</div>
+    <p class="section-desc">
+      The aside appears <strong>where the user is already looking</strong>: at the bottom of the thread, but
+      drawn as dashed "ghost" bubbles behind a vertical dashed rail. It reads like the normal conversation,
+      just clearly marked as not-really-there. It vanishes on the <strong>next real message</strong> (or on
+      <em>Dismiss</em>), and <em>Keep</em> converts it into two ordinary, permanent bubbles.
+    </p>
+    <div class="stage">
+      <div class="col">
+        <div class="state-label">Answered — ghost bubbles alive</div>
+        <div class="chat-pane tall">
+          <div class="chat-header">
+            <div class="grow"><span class="chat-title">Attention Is All You Need</span></div>
+          </div>
+          <div class="chat-msgs">
+            <div class="bubble-user">How does multi-head attention differ from single-head?</div>
+            <div class="bubble-ai">Each head learns a different projection of queries and keys, so the model can attend to several relationships at once…</div>
+            <div class="ghost-block">
+              <div class="ghost-head">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
+                Side question · not saved
+                <span class="spacer"></span>
+                <button class="ghost-act keep">
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>
+                  Keep
+                </button>
+                <button class="ghost-act">
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+                  Dismiss
+                </button>
+              </div>
+              <div class="ghost-user">btw — what does <em>logit</em> mean again?</div>
+              <div class="ghost-ai">A logit is the raw, unnormalised score a model produces before softmax turns it into a probability. Higher logit = higher probability after normalisation.</div>
+            </div>
+          </div>
+          <div class="composer">
+            <div class="composer-box">
+              <div class="composer-text ph">Ask anything…</div>
+              <div class="composer-actions">
+                <button class="send-btn" style="background: var(--gray-200); color: var(--gray-400);"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg></button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="col">
+        <div class="state-label">Next real message sent — the ghost dissolves</div>
+        <div class="chat-pane tall">
+          <div class="chat-header">
+            <div class="grow"><span class="chat-title">Attention Is All You Need</span></div>
+          </div>
+          <div class="chat-msgs">
+            <div class="bubble-user">How does multi-head attention differ from single-head?</div>
+            <div class="bubble-ai">Each head learns a different projection of queries and keys, so the model can attend to several relationships at once…</div>
+            <div class="ghost-block ghost-fade">
+              <div class="ghost-user">btw — what does <em>logit</em> mean again?</div>
+              <div class="ghost-ai">A logit is the raw, unnormalised score…</div>
+            </div>
+            <div class="bubble-user">And why divide by the square root of d_k?</div>
+            <div style="align-self: center; margin-top: 4px;">
+              <span class="toast">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                Side question discarded
+                <button class="ghost-act" style="margin-left: 4px;">Undo</button>
+              </span>
+            </div>
+          </div>
+          <div class="composer">
+            <div class="composer-box">
+              <div class="composer-text ph">Ask anything…</div>
+              <div class="composer-actions">
+                <button class="send-btn" style="background: var(--gray-200); color: var(--gray-400);"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg></button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="notes">
+      <ul>
+        <li><strong>Strength:</strong> zero new surfaces. Reading flow, markdown, KaTeX, code blocks, copy buttons, question-nav — everything the normal bubble does, the ghost bubble does, because it <em>is</em> the normal bubble with a modifier class.</li>
+        <li><strong>Weakness:</strong> the aside still scrolls the thread and pushes real messages up. If the user asks three asides in a row, the transcript looks messy until they clear.</li>
+        <li><strong>Undo window:</strong> the toast keeps the discarded pair recoverable for ~10 s; after that it is gone from memory and never written to the database.</li>
+        <li><strong>Multiple asides:</strong> only the newest ghost block survives — asking a second <code>/btw</code> replaces the first (with the same toast), so the thread can never accumulate ghosts.</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ============================================================ -->
+  <div class="section" id="sec02">
+    <div class="section-label"><span class="num">02</span> Idea B — floating scratch card above the composer</div>
+    <p class="section-desc">
+      The transcript is <strong>never touched at all</strong>. The answer arrives in a card that floats over
+      the message list, anchored to the composer — the same place the "Ask in chat" quote already docks today,
+      so the pattern is familiar. Closing it leaves no trace; scrolling the thread leaves the card in place.
+    </p>
+    <div class="stage">
+      <div class="col">
+        <div class="state-label">Streaming</div>
+        <div class="chat-pane tall">
+          <div class="chat-header">
+            <div class="grow"><span class="chat-title">Attention Is All You Need</span></div>
+          </div>
+          <div class="chat-msgs">
+            <div class="bubble-user">How does multi-head attention differ from single-head?</div>
+            <div class="bubble-ai">Each head learns a different projection of queries and keys, so the model can attend to several relationships at once…</div>
+            <div class="bubble-user">And why divide by the square root of d_k?</div>
+            <div class="bubble-ai">Without the scaling the dot products grow with dimension, pushing softmax into regions with vanishing gradients…</div>
+          </div>
+          <div class="composer" style="position: relative;">
+            <div class="scratch">
+              <div class="scratch-head">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
+                <span class="t">Side question</span>
+                <span class="spacer"></span>
+                <button class="icon-btn" style="width: 22px; height: 22px;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+              </div>
+              <div class="scratch-body">
+                <div class="scratch-q">what does <em>logit</em> mean again?</div>
+                <div class="scratch-a">A logit is the raw, unnormalised score a model produces before softmax<span class="caret" style="height: 12px;"></span></div>
+              </div>
+            </div>
+            <div class="composer-box">
+              <div class="composer-text ph">Ask anything…</div>
+              <div class="composer-actions">
+                <button class="send-btn" style="background: var(--gray-200); color: var(--gray-400);"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg></button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="col">
+        <div class="state-label">Done — with the rescue actions</div>
+        <div class="chat-pane tall">
+          <div class="chat-header">
+            <div class="grow"><span class="chat-title">Attention Is All You Need</span></div>
+          </div>
+          <div class="chat-msgs">
+            <div class="bubble-user">How does multi-head attention differ from single-head?</div>
+            <div class="bubble-ai">Each head learns a different projection of queries and keys, so the model can attend to several relationships at once…</div>
+            <div class="bubble-user">And why divide by the square root of d_k?</div>
+            <div class="bubble-ai">Without the scaling the dot products grow with dimension, pushing softmax into regions with vanishing gradients…</div>
+          </div>
+          <div class="composer" style="position: relative;">
+            <div class="scratch">
+              <div class="scratch-head">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
+                <span class="t">Side question</span>
+                <span class="spacer"></span>
+                <button class="icon-btn" style="width: 22px; height: 22px;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+              </div>
+              <div class="scratch-body">
+                <div class="scratch-q">what does <em>logit</em> mean again?</div>
+                <div class="scratch-a">A logit is the raw, unnormalised score a model produces before softmax turns it into a probability. Higher logit = higher probability after normalisation.</div>
+              </div>
+              <div class="scratch-foot">
+                <button class="mini-btn primary">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>
+                  Keep in chat
+                </button>
+                <button class="mini-btn">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
+                  Make a branch
+                </button>
+                <span class="mini-hint"><kbd>Esc</kbd> to close</span>
+              </div>
+            </div>
+            <div class="composer-box">
+              <div class="composer-text ph">Ask anything…</div>
+              <div class="composer-actions">
+                <button class="send-btn" style="background: var(--gray-200); color: var(--gray-400);"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg></button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="notes">
+      <ul>
+        <li><strong>Strength:</strong> the promise is visibly kept — the transcript literally never changes, so there is nothing to un-write and no scroll jump.</li>
+        <li><strong>Weakness:</strong> the card covers the last one or two messages, exactly the ones the aside is usually about. Mitigation: the card is draggable by its header, or collapses to a one-line strip on hover-away.</li>
+        <li><strong>Follow-ups:</strong> asking a second <code>/btw</code> while the card is open appends a Q/A pair inside the card (it scrolls internally) — so a short side conversation is possible without ever entering the thread.</li>
+        <li><strong>"Make a branch"</strong> turns the aside into a real branch chat whose parent quote is the aside's question — the one path where an aside becomes permanent <em>without</em> touching the current thread.</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ============================================================ -->
+  <div class="section" id="sec03">
+    <div class="section-label"><span class="num">03</span> Idea C — a side lane next to the chat</div>
+    <p class="section-desc">
+      The asides get their own narrow column, like the Highlights drawer: a <strong>scratch lane</strong> that
+      slides in from the right the first time <code>/btw</code> is used. It holds several asides at once as a short
+      stack, survives while the user keeps reading — and is emptied when the chat is left. The transcript
+      stays untouched, and nothing covers it.
+    </p>
+    <div class="stage">
+      <div class="col">
+        <div class="state-label">Lane open with two asides</div>
+        <div class="with-lane">
+          <div class="chat-pane tall" style="width: 400px; border-radius: 10px 0 0 10px;">
+            <div class="chat-header">
+              <div class="grow"><span class="chat-title">Attention Is All You Need</span></div>
+              <button class="hl-btn">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
+                2
+              </button>
+            </div>
+            <div class="chat-msgs">
+              <div class="bubble-user">How does multi-head attention differ from single-head?</div>
+              <div class="bubble-ai">Each head learns a different projection of queries and keys, so the model can attend to several relationships at once…</div>
+              <div class="bubble-user">And why divide by the square root of d_k?</div>
+              <div class="bubble-ai">Without the scaling the dot products grow with dimension, pushing softmax into regions with vanishing gradients…</div>
+            </div>
+            <div class="composer">
+              <div class="composer-box">
+                <div class="composer-text ph">Ask anything…</div>
+                <div class="composer-actions">
+                  <button class="send-btn" style="background: var(--gray-200); color: var(--gray-400);"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg></button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="lane">
+            <div class="lane-head">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
+              <span class="t">Side questions</span>
+              <span class="spacer"></span>
+              <button class="icon-btn" style="width: 22px; height: 22px;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+            </div>
+            <div class="lane-body">
+              <div class="lane-item">
+                <div class="lane-q">what does <em>logit</em> mean again?</div>
+                <div class="lane-a">The raw, unnormalised score before softmax turns it into a probability.</div>
+                <div class="lane-acts">
+                  <button class="ghost-act keep">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>
+                    Keep
+                  </button>
+                  <button class="ghost-act">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+                    Drop
+                  </button>
+                </div>
+              </div>
+              <div class="lane-item">
+                <div class="lane-q">is d_k the same as d_model / h?</div>
+                <div class="lane-a">Yes — in the paper each of the 8 heads uses d_k = d_v = 512 / 8 = 64.</div>
+                <div class="lane-acts">
+                  <button class="ghost-act keep">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>
+                    Keep
+                  </button>
+                  <button class="ghost-act">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+                    Drop
+                  </button>
+                </div>
+              </div>
+            </div>
+            <div class="lane-foot">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: -1px; color: var(--gray-400);"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+              Cleared when you leave this chat
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="notes">
+      <ul>
+        <li><strong>Strength:</strong> the only variant where several asides coexist and stay readable side by side with the passage they are about — good for vocabulary-style questions while reading a paper.</li>
+        <li><strong>Weakness:</strong> a third column. With a PDF open, Syflo already runs source + chat + panel; the lane has to share space with the Highlights drawer, which means one of them must yield.</li>
+        <li><strong>Reuse:</strong> mechanically this is the Highlights drawer with a different data source — same slide-in, same width, same close behaviour. It could even become a second tab <em>inside</em> that drawer instead of a new column.</li>
+        <li><strong>Lifetime is explicit</strong> in the footer, so "cleared when you leave" is a promise the user reads before it happens.</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ============================================================ -->
+  <div class="section" id="sec04">
+    <div class="section-label"><span class="num">04</span> Idea D — the composer answers itself</div>
+    <p class="section-desc">
+      The most minimal option: the composer grows a <strong>fold-out panel</strong> upward and the answer appears
+      inside it, as part of the input area rather than as a message. Nothing floats, nothing scrolls, nothing is
+      added to the thread. The next keystroke in the composer collapses it.
+    </p>
+    <div class="stage">
+      <div class="col">
+        <div class="state-label">Answer folded out of the composer</div>
+        <div class="chat-pane tall">
+          <div class="chat-header">
+            <div class="grow"><span class="chat-title">Attention Is All You Need</span></div>
+          </div>
+          <div class="chat-msgs">
+            <div class="bubble-user">How does multi-head attention differ from single-head?</div>
+            <div class="bubble-ai">Each head learns a different projection of queries and keys, so the model can attend to several relationships at once…</div>
+            <div class="bubble-user">And why divide by the square root of d_k?</div>
+            <div class="bubble-ai">Without the scaling the dot products grow with dimension, pushing softmax into regions with vanishing gradients…</div>
+          </div>
+          <div class="composer">
+            <div class="fold">
+              <div class="fold-head">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
+                Side question
+                <span class="spacer"></span>
+                <button class="ghost-act">
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+                </button>
+              </div>
+              <div class="fold-q">what does <em>logit</em> mean again?</div>
+              <div class="fold-a">A logit is the raw, unnormalised score a model produces before softmax turns it into a probability.</div>
+              <div class="fold-acts">
+                <button class="mini-btn">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
+                  Copy
+                </button>
+                <button class="mini-btn">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>
+                  Keep in chat
+                </button>
+                <span class="mini-hint">Typing dismisses it</span>
+              </div>
+            </div>
+            <div class="composer-box">
+              <div class="composer-text ph">Ask anything…</div>
+              <div class="composer-actions">
+                <button class="send-btn" style="background: var(--gray-200); color: var(--gray-400);"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg></button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="col">
+        <div class="state-label">Long answer — capped, scrolls inside</div>
+        <div class="chat-pane tall">
+          <div class="chat-header">
+            <div class="grow"><span class="chat-title">Attention Is All You Need</span></div>
+          </div>
+          <div class="chat-msgs" style="flex: 0 0 auto;">
+            <div class="bubble-user">How does multi-head attention differ from single-head?</div>
+            <div class="bubble-ai">Each head learns a different projection of queries and keys…</div>
+          </div>
+          <div style="flex: 1;"></div>
+          <div class="composer">
+            <div class="fold">
+              <div class="fold-head">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
+                Side question
+                <span class="spacer"></span>
+                <button class="ghost-act">
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+                </button>
+              </div>
+              <div class="fold-q">how does layer normalisation differ from batch normalisation?</div>
+              <div class="fold-a" style="max-height: 96px; overflow: auto;">
+                Batch norm normalises each feature across the examples in a batch, so its statistics depend on
+                batch size and composition. Layer norm normalises across the features of a single example, so it
+                is independent of the batch — which is why sequence models use it: sequences in a batch have
+                different lengths, and inference often runs with a batch of one. In the Transformer, layer norm
+                sits around every sub-layer together with the residual connection.
+              </div>
+              <div class="fold-acts">
+                <button class="mini-btn">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>
+                  Keep in chat
+                </button>
+                <span class="mini-hint">Panel caps at ~40 % of the pane</span>
+              </div>
+            </div>
+            <div class="composer-box">
+              <div class="composer-text ph">Ask anything…</div>
+              <div class="composer-actions">
+                <button class="send-btn" style="background: var(--gray-200); color: var(--gray-400);"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg></button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="notes">
+      <ul>
+        <li><strong>Strength:</strong> smallest change of all four — one panel above the input, no overlay, no drawer, no message-list branching. The dismissal rule ("start typing") needs no button at all.</li>
+        <li><strong>Weakness:</strong> a long answer eats the message list from below, and the panel is <em>not</em> a message, so anything the bubble gives for free (question-nav anchors, per-message retry, streaming stop button) has to be re-declared here.</li>
+        <li><strong>Same anchor as today's quote:</strong> the "Ask in chat" quote already docks above the textarea (<code>composerQuote</code>) — this is that slot, reused for output instead of input.</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ============================================================ -->
+  <div class="section" id="sec05">
+    <div class="section-label"><span class="num">05</span> Side by side</div>
+    <p class="section-desc">
+      The four differ mostly in <strong>who yields space</strong> and <strong>how long the aside lives</strong>.
+      Everything else — the trigger, the model, the "keep" escape hatch — is shared.
+    </p>
+    <table class="cmp">
+      <tr>
+        <th style="width: 108px;"></th>
+        <th>A · Ghost bubbles</th>
+        <th>B · Floating card</th>
+        <th>C · Side lane</th>
+        <th>D · Composer fold-out</th>
+      </tr>
+      <tr>
+        <td>Where</td>
+        <td>In the transcript, dashed</td>
+        <td>Over the transcript</td>
+        <td>Own column, right</td>
+        <td>Above the input</td>
+      </tr>
+      <tr>
+        <td>Transcript touched</td>
+        <td><span class="no">Yes — scrolls</span></td>
+        <td><span class="yes">Never</span></td>
+        <td><span class="yes">Never</span></td>
+        <td><span class="yes">Never</span></td>
+      </tr>
+      <tr>
+        <td>Covers messages</td>
+        <td><span class="yes">No</span></td>
+        <td><span class="no">Yes, the last ones</span></td>
+        <td><span class="yes">No</span></td>
+        <td><span class="no">Shortens the list</span></td>
+      </tr>
+      <tr>
+        <td>Several asides</td>
+        <td>One at a time</td>
+        <td>Stacked in the card</td>
+        <td><span class="yes">A visible list</span></td>
+        <td>One at a time</td>
+      </tr>
+      <tr>
+        <td>Disappears on</td>
+        <td>Next real message</td>
+        <td>Close / <kbd>Esc</kbd></td>
+        <td>Leaving the chat</td>
+        <td>Next keystroke</td>
+      </tr>
+      <tr>
+        <td>Build cost</td>
+        <td>Low — bubble variant</td>
+        <td>Medium — new overlay</td>
+        <td><span class="no">High — third column</span></td>
+        <td><span class="yes">Lowest</span></td>
+      </tr>
+      <tr>
+        <td>Best when</td>
+        <td>The aside is about the last answer</td>
+        <td>The thread must stay pristine</td>
+        <td>Reading a PDF, many small asides</td>
+        <td>Quick lookups, one at a time</td>
+      </tr>
+    </table>
+    <div class="notes">
+      <ul>
+        <li><strong>My recommendation:</strong> <strong>B</strong> as the shape, with A's "Keep" and C's stacking folded in — it keeps the promise literally (the transcript is never written to), it reuses the composer anchor that already exists, and it does not cost a third column. D is the cheapest to build and a reasonable fallback if the overlay proves annoying.</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ============================================================ -->
+  <div class="section" id="sec06">
+    <div class="section-label"><span class="num">06</span> Decisions the mockups do not settle</div>
+    <p class="section-desc">
+      These change the backend, not the pixels — worth agreeing on before any variant is built.
+    </p>
+    <div class="qbox">
+      <ol>
+        <li>
+          <strong>Does the aside see the chat?</strong>
+          <span class="opts">The interesting case is asymmetric: the aside <em>reads</em> the thread (so "what does this mean?" works without repeating context), but the thread never sees the aside. Alternative: a fully isolated aside with no context at all — cheaper, faster, but then "logit" has no paper around it.</span>
+        </li>
+        <li>
+          <strong>Does the aside survive a reload?</strong>
+          <span class="opts">In-memory only means an accidental refresh loses it — matching "throwaway" honestly. Or persist with an <code>ephemeral</code> flag so the answer survives a crash and is filtered out of the transcript, the branch context and the mind map. The flag is more code, and every query that reads messages has to remember it.</span>
+        </li>
+        <li>
+          <strong>Do asides count toward quota and cost?</strong>
+          <span class="opts">They are real model calls, so yes — but should they use the <em>same</em> model as the chat, or always the cheap/fast rung of the ladder? A dedicated "side-question model" in settings would keep asides free while the thread runs on a paid model.</span>
+        </li>
+        <li>
+          <strong>What does "Keep" actually write?</strong>
+          <span class="opts">Append the pair at the current end of the thread (simplest), or insert it at the position where it was asked (truer to the reading order, but rewrites message order). Also: does a kept aside then become part of the branch context like every other message? Presumably yes — once kept, it is an ordinary message.</span>
+        </li>
+        <li>
+          <strong>Highlights and quoting.</strong>
+          <span class="opts">Can text in an aside be selected to create a branch or a highlight? If highlights point at a message id that never exists, the answer has to be "no" — or "Keep" is triggered implicitly the moment the user highlights inside an aside.</span>
+        </li>
+        <li>
+          <strong>Naming in the UI.</strong>
+          <span class="opts">The command stays <code>/btw</code>, but the label the user reads: "Side question" / "Nebenfrage", or "Aside", or "Scratch". Both language halves of <code>strings.ts</code> need the pair before anything is built.</span>
+        </li>
+      </ol>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

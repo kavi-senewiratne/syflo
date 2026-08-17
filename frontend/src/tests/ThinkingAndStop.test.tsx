@@ -132,7 +132,7 @@ describe('stop button', () => {
     );
 
     const stop = screen.getByTestId('stop-button');
-    expect(screen.queryByTitle('Send')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Send')).not.toBeInTheDocument();
     fireEvent.click(stop);
     expect(onStop).toHaveBeenCalled();
   });
@@ -142,6 +142,6 @@ describe('stop button', () => {
       <ChatArea chat={streamingChat} streaming={false} onStopStreaming={vi.fn()} {...baseProps} />
     );
     expect(screen.queryByTestId('stop-button')).not.toBeInTheDocument();
-    expect(screen.getByTitle('Send')).toBeInTheDocument();
+    expect(screen.getByLabelText('Send')).toBeInTheDocument();
   });
 });

@@ -1,0 +1,923 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<title>Syflo · Zitat-Karte — Standardmaß + Volltextsuche</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg-app: #F8FAFC;
+    --surface: #FFFFFF;
+    --text-strong: #0F172A;
+    --text-default: #334155;
+    --text-muted: #64748B;
+    --border: #E2E8F0;
+    --blue-50: #EFF6FF; --blue-100: #DBEAFE; --blue-200: #BFDBFE;
+    --blue-600: #2563EB; --blue-700: #1D4ED8;
+    --gray-50: #F9FAFB; --gray-100: #F3F4F6; --gray-200: #E5E7EB;
+    --gray-300: #D1D5DB; --gray-400: #9CA3AF; --gray-500: #6B7280;
+    --gray-600: #4B5563; --gray-700: #374151; --gray-900: #111827;
+    --shadow-pop: 0 25px 50px -12px rgba(15,23,42,0.25);
+    --card-w: 384px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Inter', -apple-system, sans-serif; background: var(--bg-app);
+    color: var(--text-default); -webkit-font-smoothing: antialiased;
+    padding: 44px 32px 120px;
+  }
+  .wrap { max-width: 1280px; margin: 0 auto; }
+  code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px;
+    background: var(--gray-100); border: 1px solid var(--border); border-radius: 4px; padding: 1px 4px;
+  }
+
+  .intro { margin-bottom: 44px; }
+  .intro h1 { font-size: 25px; font-weight: 700; color: var(--text-strong); letter-spacing: -0.015em; margin-bottom: 10px; }
+  .intro p { font-size: 14px; color: var(--text-muted); line-height: 1.68; max-width: 860px; }
+  .intro p + p { margin-top: 10px; }
+  .intro strong { color: var(--text-default); font-weight: 600; }
+
+  section { margin-bottom: 56px; }
+  .section-label {
+    font-size: 12px; font-weight: 600; color: var(--text-muted);
+    letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 6px;
+  }
+  .section-desc { font-size: 13px; color: var(--text-muted); line-height: 1.65; margin-bottom: 20px; max-width: 860px; }
+  .section-desc + .section-desc { margin-top: -12px; }
+
+  .stage {
+    background: #E2E8F0; border-radius: 14px; padding: 34px 24px;
+    display: flex; justify-content: center; gap: 26px; align-items: flex-start; flex-wrap: wrap;
+  }
+  .stage.left { justify-content: flex-start; }
+  .col { display: flex; flex-direction: column; align-items: center; }
+  .state-label {
+    font-size: 10.5px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.06em; color: var(--text-muted); margin-bottom: 4px;
+  }
+  .state-note { font-size: 11.5px; color: var(--gray-500); margin-bottom: 12px; max-width: 320px; text-align: center; line-height: 1.5; }
+  .verdict { font-size: 10.5px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; margin-bottom: 4px; }
+  .verdict.pick { color: var(--blue-700); }
+  .verdict.alt { color: var(--gray-400); }
+
+  /* ── Karten-Hülle ── */
+  .card {
+    background: var(--surface); border: 1px solid var(--gray-100);
+    border-radius: 16px; box-shadow: var(--shadow-pop); overflow: hidden;
+    width: var(--card-w); display: flex; flex-direction: column;
+  }
+  .card.loose { width: auto; min-width: 280px; max-width: 440px; }
+  .c-head {
+    display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+    padding: 16px 20px 12px; border-bottom: 1px solid var(--gray-100);
+  }
+  .c-over {
+    font-size: 10px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--gray-400); margin-bottom: 3px;
+  }
+  .c-title {
+    font-size: 14px; font-weight: 600; color: var(--text-strong); line-height: 1.4;
+    display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+  }
+  .c-title.raw { font-family: 'Times New Roman', Times, serif; font-size: 13px; font-weight: 400; color: var(--gray-700); }
+  .c-x { border: none; background: none; cursor: pointer; color: var(--gray-400); padding: 4px; margin: -2px -4px 0 0; display: inline-flex; }
+  .c-x:hover { color: var(--gray-600); }
+  .c-body {
+    padding: 14px 20px 16px; display: flex; flex-direction: column; gap: 7px;
+    min-height: 66px;
+  }
+  .c-authors { font-size: 12.5px; color: var(--gray-500); line-height: 1.55; }
+  .c-fold {
+    display: inline-flex; align-items: center; gap: 6px; border: none; background: none; padding: 0;
+    font-family: inherit; font-size: 11.5px; color: var(--blue-700); cursor: pointer; text-align: left;
+    max-width: 100%;
+  }
+  .c-fold span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .c-row { display: flex; align-items: flex-start; gap: 8px; font-size: 12px; color: var(--gray-500); line-height: 1.55; }
+  .c-row svg { flex: none; margin-top: 2px; color: var(--gray-400); }
+  .c-doors { padding: 12px; border-top: 1px solid var(--gray-100); background: var(--gray-50); display: flex; flex-direction: column; gap: 6px; }
+  .door {
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    width: 100%; padding: 8px 12px; border-radius: 8px; border: none;
+    font-family: inherit; font-size: 14px; font-weight: 500;
+    color: var(--blue-700); background: var(--blue-50); cursor: pointer;
+  }
+  .door:hover { background: var(--blue-100); }
+  .door.quiet { background: transparent; color: var(--gray-500); font-size: 13px; }
+  .door.quiet:hover { background: var(--gray-100); }
+  .door[disabled] { opacity: .55; cursor: default; }
+  .door-note { padding: 0 4px 2px; font-size: 11px; color: var(--gray-400); line-height: 1.5; }
+  .c-warn {
+    display: flex; align-items: flex-start; gap: 8px; margin-top: 2px;
+    border: 1px solid var(--gray-200); background: var(--gray-50);
+    border-radius: 8px; padding: 8px 10px; font-size: 12px; color: var(--gray-700); line-height: 1.5;
+  }
+  .c-warn svg { flex: none; margin-top: 2px; color: var(--gray-400); }
+
+  .spin { animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Suchtafel in der Karte ── */
+  .s-head {
+    display: flex; align-items: center; gap: 8px; padding: 10px 14px 10px 12px;
+    border-top: 1px solid var(--gray-100); background: var(--gray-50);
+    font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--gray-500);
+  }
+  .s-head .back { border: none; background: none; padding: 2px; margin-left: auto; color: var(--gray-400); cursor: pointer; display: inline-flex; }
+  .s-query {
+    padding: 8px 14px; background: var(--gray-50); border-top: 1px solid var(--gray-100);
+    font-size: 11px; color: var(--gray-400); line-height: 1.5;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .s-list { max-height: 214px; overflow-y: auto; background: var(--surface); }
+  .hit {
+    display: block; width: 100%; text-align: left; border: none; background: none; cursor: pointer;
+    font-family: inherit; padding: 10px 14px; border-bottom: 1px solid var(--gray-100);
+  }
+  .hit:hover { background: var(--blue-50); }
+  .hit:last-child { border-bottom: none; }
+  .hit-top { display: flex; align-items: center; gap: 6px; margin-bottom: 3px; }
+  .badge {
+    display: inline-flex; align-items: center; gap: 4px; padding: 1px 6px; border-radius: 4px;
+    font-size: 9.5px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+  }
+  .badge.pdf { background: var(--blue-100); color: var(--blue-700); }
+  .badge.page { background: var(--gray-100); color: var(--gray-500); }
+  .hit-host { font-size: 11px; color: var(--gray-400); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hit-title {
+    font-size: 12.5px; font-weight: 500; color: var(--text-strong); line-height: 1.45;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  }
+  .hit-act { display: flex; align-items: center; gap: 6px; margin-top: 5px; font-size: 11.5px; color: var(--blue-700); font-weight: 500; }
+  .hit.busy .hit-act { color: var(--gray-500); }
+  .skel { padding: 10px 14px; border-bottom: 1px solid var(--gray-100); }
+  .skel-line { height: 9px; border-radius: 4px; background: linear-gradient(90deg, var(--gray-100), var(--gray-200), var(--gray-100)); background-size: 200% 100%; animation: sweep 1.4s ease-in-out infinite; }
+  .skel-line + .skel-line { margin-top: 7px; }
+  @keyframes sweep { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+  .s-empty { padding: 20px 18px; text-align: center; }
+  .s-empty p { font-size: 12.5px; color: var(--gray-500); line-height: 1.6; }
+  .s-empty svg { color: var(--gray-300); margin-bottom: 8px; }
+
+  /* ── Anatomie-Diagramm ── */
+  .anat { display: flex; gap: 34px; align-items: flex-start; flex-wrap: wrap; }
+  .rulers { position: relative; }
+  .ruler-w {
+    position: absolute; top: -22px; left: 0; right: 0; height: 16px;
+    border-left: 1px solid var(--blue-600); border-right: 1px solid var(--blue-600);
+  }
+  .ruler-w::after {
+    content: '384 px — für jede Referenz gleich'; position: absolute; top: -2px; left: 50%;
+    transform: translateX(-50%); background: #E2E8F0; padding: 0 6px;
+    font-size: 10.5px; font-weight: 600; color: var(--blue-700); white-space: nowrap;
+  }
+  .ruler-w::before { content: ''; position: absolute; top: 8px; left: 0; right: 0; border-top: 1px dashed var(--blue-600); }
+  /* Die Zonen-Fähnchen ragen aus der Karte heraus — nur im Diagramm. */
+  .rulers .card { overflow: visible; }
+  .zone { position: relative; }
+  .zone::after {
+    content: attr(data-zone); position: absolute; right: -14px; top: 50%; transform: translate(100%, -50%);
+    font-size: 10.5px; color: var(--gray-600); background: var(--gray-100);
+    border: 1px solid var(--gray-200); border-radius: 5px; padding: 2px 7px; white-space: nowrap;
+  }
+  .legend { max-width: 340px; }
+  .legend h4 { font-size: 12px; font-weight: 700; color: var(--text-strong); margin-bottom: 10px; }
+  .legend dl { display: grid; grid-template-columns: auto 1fr; gap: 7px 12px; }
+  .legend dt { font-size: 10.5px; font-weight: 700; color: var(--blue-700); white-space: nowrap; }
+  .legend dd { font-size: 12px; color: var(--text-muted); line-height: 1.55; }
+
+  /* ── Notiz-Blöcke ── */
+  .notes { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px 22px; margin-top: 20px; }
+  .notes h4 { font-size: 12.5px; font-weight: 700; color: var(--text-strong); margin-bottom: 12px; }
+  .notes ol, .notes ul { margin-left: 18px; }
+  .notes li { font-size: 13px; color: var(--text-muted); line-height: 1.7; margin-bottom: 7px; }
+  .notes li strong { color: var(--text-default); font-weight: 600; }
+  .tag {
+    display: inline-block; font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+    padding: 1px 6px; border-radius: 4px; background: var(--blue-50); color: var(--blue-700); margin-right: 6px;
+  }
+  .tag.open { background: #FEF3C7; color: #92400E; }
+  .flow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 4px; }
+  .flow .step { font-size: 11.5px; color: var(--gray-600); background: var(--gray-100); border-radius: 6px; padding: 4px 9px; }
+  .flow .arr { color: var(--gray-400); }
+
+  /* ── Zeitpunkt-Vergleich (§05) ── */
+  .tl-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; }
+  .tl-card { border: 1px solid var(--gray-200); border-radius: 12px; padding: 16px 18px 18px; background: var(--gray-50); }
+  .tl-card.pick { border-color: var(--blue-200); background: var(--blue-50); }
+  .tl-verdict { font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--blue-700); margin-bottom: 6px; }
+  .tl-verdict.alt { color: var(--gray-400); }
+  .tl-h { font-size: 14px; font-weight: 600; color: var(--text-strong); margin-bottom: 12px; }
+  .req-bar { display: flex; height: 10px; border-radius: 5px; overflow: hidden; background: var(--gray-200); margin-bottom: 10px; }
+  .req { background: var(--blue-600); }
+  .req.burst { background: var(--gray-600); }
+  .req-gap, .req-rest { background: transparent; }
+  .tl-num { font-size: 12.5px; color: var(--text-default); margin-bottom: 8px; }
+  .tl-body { font-size: 12.5px; color: var(--text-muted); line-height: 1.6; }
+  .tl-flow { margin-top: 26px; border-top: 1px solid var(--gray-100); padding-top: 20px; }
+  .tl-flow-h { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--gray-500); margin-bottom: 14px; }
+  .fl { display: flex; align-items: stretch; gap: 12px; flex-wrap: wrap; }
+  .fl-step { flex: 1 1 190px; border: 1px solid var(--gray-200); border-radius: 10px; padding: 12px 14px; }
+  .fl-n {
+    display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px;
+    border-radius: 50%; background: var(--blue-100); color: var(--blue-700);
+    font-size: 10.5px; font-weight: 700; margin-bottom: 7px;
+  }
+  .fl-t { font-size: 12.5px; font-weight: 600; color: var(--text-strong); margin-bottom: 5px; }
+  .fl-t .mark { font-family: 'Times New Roman', Times, serif; border-bottom: 1px dotted var(--gray-400); }
+  .fl-d { font-size: 11.5px; color: var(--text-muted); line-height: 1.6; }
+  .fl-arr { align-self: center; color: var(--gray-300); font-size: 15px; }
+
+  /* ── Grundlinien-Demo (§07) ── */
+  .baseline-demo { display: flex; gap: 30px; flex-wrap: wrap; }
+  .bd-col { flex: 1 1 300px; min-width: 280px; }
+  .bd-cap { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--gray-500); margin-bottom: 10px; }
+  .bd-cap em { font-style: normal; color: var(--gray-400); text-transform: none; letter-spacing: 0; font-weight: 400; }
+  .bd-line { background: var(--gray-50); border: 1px solid var(--gray-100); border-radius: 8px; padding: 18px 14px 22px; }
+  .bd-text { font-family: 'Times New Roman', Times, serif; font-size: 17px; color: #1a1a1a; line-height: 1; }
+  .bd-mark { position: relative; }
+  .bd-mark::after {
+    content: ''; position: absolute; left: 0; right: 0;
+    border-bottom: 1px dotted var(--gray-400);
+  }
+  /* 1,1 pt unter der Grundlinie, auf 17px-Schrift hochgerechnet */
+  .bd-mark.n::after { bottom: -4px; }
+  /* 3,15 pt — der gemeldete Versatz */
+  .bd-mark.w::after { bottom: -8px; }
+  .bd-mark.fix::after { bottom: -4px; border-color: var(--blue-600); }
+  .bd-num { font-size: 11.5px; color: var(--gray-500); line-height: 1.6; margin-top: 9px; }
+  .bd-num strong { color: var(--text-strong); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="intro">
+    <h1>Zitat-Karte: ein Standardmaß und eine Volltextsuche</h1>
+    <p>Zwei Dinge auf einmal. <strong>Erstens</strong> hat die Karte heute keine feste Breite — sie wächst mit dem Titel zwischen 280 und 440&nbsp;px, und zwei Klicks nacheinander lassen zwei verschieden große Fenster erscheinen. <strong>Zweitens</strong> endet eine Referenz ohne verlinktes PDF heute in einer Sackgasse: „Kein herunterladbares PDF verfügbar" und eine Google-Suche im Browser. Dabei läuft SearXNG bereits lokal.</p>
+    <p><strong>Beides führt zur selben Antwort: eine Karte, immer.</strong> Die Websuche bekommt keinen eigenen Bildschirm — sie füllt nur die Lücke, die das PDF gelassen hat. Findet sie den Volltext, sieht die Karte aus wie bei einem verlinkten Paper; findet sie nichts, sagt sie das in einer Zeile. Die sichtbare Trefferliste steht als verworfene Variante in §06.</p>
+    <p>Alle Farben kommen aus den Standard-Tokens (<code>gray-*</code>, <code>blue-*</code>), damit die fünf Themes greifen. Keine Emojis, nur Lucide-Icons.</p>
+  </div>
+
+  <!-- ══════════════ 01 ══════════════ -->
+  <section>
+    <div class="section-label">01 · Das Problem heute</div>
+    <p class="section-desc">Drei echte Referenzen aus <em>Attention is all you need</em>, in den Breiten, die die gebaute Karte ihnen gibt. Die Ränder springen, die Türen sitzen bei jeder Karte woanders, und die dritte Karte ist eine Sackgasse.</p>
+    <div class="stage">
+
+      <div class="col">
+        <div class="state-label">280 px</div>
+        <div class="state-note">Kurzer Titel — die Karte schrumpft auf ihr Minimum.</div>
+        <div class="card loose" style="width:280px">
+          <div class="c-head">
+            <div>
+              <p class="c-over">Referenz [12] · bereits ein Baum</p>
+              <p class="c-title">Deep Residual Learning</p>
+            </div>
+            <button class="c-x"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+          </div>
+          <div class="c-body">
+            <p class="c-authors">He, Zhang, Ren u.&#8239;a.</p>
+            <button class="c-fold"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg><span>2016 | CVPR | bereits in Syflo geöffnet</span></button>
+          </div>
+          <div class="c-doors">
+            <button class="door"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>Zum Baum</button>
+            <button class="door"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>Im Browser öffnen</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="col">
+        <div class="state-label">440 px</div>
+        <div class="state-note">Langer Titel — die Karte reißt bis an ihre Obergrenze auf.</div>
+        <div class="card loose" style="width:440px">
+          <div class="c-head">
+            <div>
+              <p class="c-over">Referenz [31]</p>
+              <p class="c-title">Google's Neural Machine Translation System: Bridging the Gap between Human and Machine Translation</p>
+            </div>
+            <button class="c-x"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+          </div>
+          <div class="c-body">
+            <p class="c-authors">Wu, Schuster, Chen u.&#8239;a.</p>
+            <button class="c-fold"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg><span>2016 | arXiv | 8.412 Zitationen</span></button>
+          </div>
+          <div class="c-doors">
+            <button class="door"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></svg>In Syflo öffnen</button>
+            <button class="door"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>Im Browser öffnen</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="col">
+        <div class="state-label">~340 px · Sackgasse</div>
+        <div class="state-note">Kein PDF verlinkt: eine Zeile Bedauern und eine Google-Suche.</div>
+        <div class="card loose" style="width:340px">
+          <div class="c-head">
+            <div>
+              <p class="c-over">Referenz [27]</p>
+              <p class="c-title">Neural Machine Translation of Rare Words with Subword Units</p>
+            </div>
+            <button class="c-x"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+          </div>
+          <div class="c-body">
+            <p class="c-authors">Sennrich, Haddow, Birch</p>
+            <button class="c-fold"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg><span>2016 | ACL</span></button>
+          </div>
+          <div class="c-doors">
+            <p class="door-note">Kein herunterladbares PDF verfügbar.</p>
+            <button class="door"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>Im Web suchen</button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ══════════════ 02 ══════════════ -->
+  <section>
+    <div class="section-label">02 · Das Standardmaß</div>
+    <p class="section-desc">Eine Breite für alle: <strong>384&nbsp;px</strong>. Der Titel bricht auf höchstens drei Zeilen und wird danach abgeschnitten (voller Titel im Tooltip). Der Körper hat eine Mindesthöhe von zwei Zeilen, damit die Türen nicht bei jeder Karte auf einer anderen Höhe sitzen. Der Preis ist bekannt und wird bewusst bezahlt: bei einem kurzen Titel bleibt rechts Luft — dafür ist das Fenster jedes Mal dasselbe Fenster.</p>
+    <div class="stage left" style="padding-top:56px">
+      <div class="anat">
+        <div class="rulers">
+          <div class="ruler-w"></div>
+          <div class="card">
+            <div class="c-head zone" data-zone="Kopf · Overline + Titel (max. 3 Zeilen)">
+              <div>
+                <p class="c-over">Referenz [31]</p>
+                <p class="c-title">Google's Neural Machine Translation System: Bridging the Gap between Human and Machine Translation</p>
+              </div>
+              <button class="c-x"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+            </div>
+            <div class="c-body zone" data-zone="Körper · min. 66 px">
+              <p class="c-authors">Wu, Schuster, Chen u.&#8239;a.</p>
+              <button class="c-fold"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg><span>2016 | arXiv | 8.412 Zitationen</span></button>
+            </div>
+            <div class="c-doors zone" data-zone="Türen · immer unten, immer gleich breit">
+              <button class="door"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></svg>In Syflo öffnen</button>
+              <button class="door"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>Im Browser öffnen</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="legend" style="margin-left:256px">
+          <h4>Was fest ist und was atmet</h4>
+          <dl>
+            <dt>Breite</dt><dd>384&nbsp;px, ohne Ausnahme — auch bei einem Zwei-Wort-Titel.</dd>
+            <dt>Titel</dt><dd>höchstens 3 Zeilen, dann <code>line-clamp</code>; der volle Titel steht im <code>title</code>-Attribut.</dd>
+            <dt>Körper</dt><dd>Mindesthöhe 66&nbsp;px (Autorenzeile + Faltzeile). Fehlt beides, bleibt die Fläche leer statt zu schrumpfen.</dd>
+            <dt>Türen</dt><dd>gestapelt, volle Breite, gleiche Farbe — die Reihenfolge rangiert sie (Entscheidung 2026-07-20, bleibt).</dd>
+            <dt>Höhe</dt><dd>wächst nur mit dem <em>Inhalt</em>, nie mit der Breite; die Karte wächst nie in die Breite, auch nicht während der Suche.</dd>
+          </dl>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════ 03 ══════════════ -->
+  <section>
+    <div class="section-label">03 · Alle Zustände im selben Maß</div>
+    <p class="section-desc">Sechs Zustände, eine Silhouette. Nebeneinander sieht man, dass sich nur der Inhalt ändert — die Karte bleibt dieselbe Karte.</p>
+    <div class="stage">
+
+      <div class="col">
+        <div class="state-label">Identifiziert, PDF frei</div>
+        <div class="card">
+          <div class="c-head">
+            <div>
+              <p class="c-over">Referenz [31]</p>
+              <p class="c-title">Google's Neural Machine Translation System: Bridging the Gap between Human and Machine Translation</p>
+            </div>
+            <button class="c-x"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+          </div>
+          <div class="c-body">
+            <p class="c-authors">Wu, Schuster, Chen u.&#8239;a.</p>
+            <button class="c-fold"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg><span>2016 | arXiv | 8.412 Zitationen</span></button>
+          </div>
+          <div class="c-doors">
+            <button class="door"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></svg>In Syflo öffnen</button>
+            <button class="door"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>Im Browser öffnen</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="col">
+        <div class="state-label">Kurzer Titel — Luft rechts</div>
+        <div class="card">
+          <div class="c-head">
+            <div>
+              <p class="c-over">Referenz [12] · bereits ein Baum</p>
+              <p class="c-title">Deep Residual Learning</p>
+            </div>
+            <button class="c-x"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+          </div>
+          <div class="c-body">
+            <p class="c-authors">He, Zhang, Ren u.&#8239;a.</p>
+            <button class="c-fold"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg><span>2016 | CVPR | bereits in Syflo geöffnet</span></button>
+          </div>
+          <div class="c-doors">
+            <button class="door"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>Zum Baum</button>
+            <button class="door"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>Im Browser öffnen</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="col">
+        <div class="state-label">Lädt gerade</div>
+        <div class="card">
+          <div class="c-head">
+            <div>
+              <p class="c-over">Referenz [27]</p>
+              <p class="c-title">Neural Machine Translation of Rare Words with Subword Units</p>
+            </div>
+            <button class="c-x"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+          </div>
+          <div class="c-body">
+            <p class="c-authors">Sennrich, Haddow, Birch</p>
+            <button class="c-fold"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg><span>2016 | ACL | 4.930 Zitationen</span></button>
+          </div>
+          <div class="c-doors">
+            <button class="door" disabled><svg class="spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>Paper wird geladen …</button>
+            <button class="door"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>Im Browser öffnen</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="col">
+        <div class="state-label">Download blockiert</div>
+        <div class="state-note">Der verlinkte Fundort verweigert das PDF — Syflo sucht still weiter und bietet den Ersatz an. Nur wenn auch der fehlt, bleibt eine Warnung stehen.</div>
+        <div class="card">
+          <div class="c-head">
+            <div>
+              <p class="c-over">Referenz [8]</p>
+              <p class="c-title">Long Short-Term Memory</p>
+            </div>
+            <button class="c-x"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+          </div>
+          <div class="c-body">
+            <p class="c-authors">Hochreiter, Schmidhuber</p>
+            <button class="c-fold"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg><span>1997 | Neural Computation | 92.517 Zitationen</span></button>
+          </div>
+          <div class="c-doors">
+            <button class="door"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></svg>In Syflo öffnen</button>
+            <button class="door"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>Im Browser öffnen</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="col">
+        <div class="state-label">Nicht identifiziert</div>
+        <div class="state-note">Nichts aus der Zeile lesbar — die gedruckte Zeile <em>ist</em> die Antwort und geht roh in die Suche. Hier fand sie nichts Passendes.</div>
+        <div class="card">
+          <div class="c-head">
+            <div>
+              <p class="c-over">Referenz [44] · aus dem Text</p>
+              <p class="c-title raw">M. Zeiler. ADADELTA: An adaptive learning rate method. arXiv:1212.5701, 2012.</p>
+            </div>
+            <button class="c-x"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+          </div>
+          <div class="c-body" style="justify-content:center">
+            <p class="c-authors" style="color:var(--gray-400)">Kein Eintrag in OpenAlex gefunden.</p>
+          </div>
+          <div class="c-doors">
+            <p class="door-note">Kein frei verfügbarer Volltext gefunden.</p>
+            <button class="door"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>Im Browser suchen</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="col">
+        <div class="state-label">Wird nachgeschlagen</div>
+        <div class="state-note">Die Karte öffnet sofort; OpenAlex antwortet danach.</div>
+        <div class="card">
+          <div class="c-head">
+            <div>
+              <p class="c-over">Referenz [19]</p>
+              <p class="c-title raw">J. Ba, J. Kiros, G. Hinton. Layer normalization. 2016.</p>
+            </div>
+            <button class="c-x"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+          </div>
+          <div class="c-body">
+            <div class="skel-line" style="width:62%"></div>
+            <div class="skel-line" style="width:40%"></div>
+          </div>
+          <div class="c-doors">
+            <button class="door" disabled><svg class="spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>Wird nachgeschlagen …</button>
+            <button class="door"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>Im Browser suchen</button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ══════════════ 04 ══════════════ -->
+  <section>
+    <div class="section-label">04 · Neu: die stille Suche (SearXNG)</div>
+    <p class="section-desc"><strong>Die Suche ist kein Bildschirm, sondern eine Zutat.</strong> Findet SearXNG den Volltext, sieht die Karte exakt so aus wie bei einem im PDF verlinkten Paper — dieselbe Tür, dieselbe Beschriftung, dieselbe Reihenfolge. Der Leser erfährt nie, dass eine Websuche stattgefunden hat; er merkt nur, dass die Tür da ist. Woher der Volltext kommt, sagt die Karte gar nicht — das ist Bühnentechnik, nicht die Arbeit des Lesers (Entscheidung 2026-08-11).</p>
+    <p class="section-desc">Das ist auch der ehrlichere Umgang mit der Aufmerksamkeit: Eine Trefferliste zwingt zu einer Entscheidung, die Syflo besser selbst trifft — welcher von zwei arXiv-Links das Paper ist, weiß die Titelprüfung sicherer als das Auge im Vorbeilesen. Die sichtbare Liste liegt zum Vergleich in §06, verworfen.</p>
+    <div class="stage">
+
+      <div class="col">
+        <div class="verdict pick">Schritt 1</div>
+        <div class="state-label">Karte öffnet — Suche läuft im Hintergrund</div>
+        <div class="state-note">Kein Suchfeld, keine Liste. Die Tür sagt, dass gerade etwas passiert, und bleibt an ihrem Platz.</div>
+        <div class="card">
+          <div class="c-head">
+            <div>
+              <p class="c-over">Referenz [27]</p>
+              <p class="c-title">Neural Machine Translation of Rare Words with Subword Units</p>
+            </div>
+            <button class="c-x"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+          </div>
+          <div class="c-body">
+            <p class="c-authors">Sennrich, Haddow, Birch</p>
+            <button class="c-fold"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg><span>2016 | ACL | 4.930 Zitationen</span></button>
+          </div>
+          <div class="c-doors">
+            <button class="door" disabled><svg class="spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>Volltext wird gesucht …</button>
+            <button class="door"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>Im Browser öffnen</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="col">
+        <div class="verdict pick">Schritt 2</div>
+        <div class="state-label">Gefunden — normale Karte</div>
+        <div class="state-note">Nicht zu unterscheiden von einer Referenz mit verlinktem PDF. Es gibt keinen sichtbaren Unterschied.</div>
+        <div class="card">
+          <div class="c-head">
+            <div>
+              <p class="c-over">Referenz [27]</p>
+              <p class="c-title">Neural Machine Translation of Rare Words with Subword Units</p>
+            </div>
+            <button class="c-x"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+          </div>
+          <div class="c-body">
+            <p class="c-authors">Sennrich, Haddow, Birch</p>
+            <button class="c-fold"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg><span>2016 | ACL | 4.930 Zitationen</span></button>
+          </div>
+          <div class="c-doors">
+            <button class="door"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></svg>In Syflo öffnen</button>
+            <button class="door"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>Im Browser öffnen</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="col">
+        <div class="verdict pick">Schritt 3</div>
+        <div class="state-label">Lädt — und weicht still aus</div>
+        <div class="state-note">Scheitert der erste Fundort, probiert Syflo den zweiten, ohne davon zu erzählen. Erst wenn alle scheitern, sagt die Karte etwas.</div>
+        <div class="card">
+          <div class="c-head">
+            <div>
+              <p class="c-over">Referenz [27]</p>
+              <p class="c-title">Neural Machine Translation of Rare Words with Subword Units</p>
+            </div>
+            <button class="c-x"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+          </div>
+          <div class="c-body">
+            <p class="c-authors">Sennrich, Haddow, Birch</p>
+            <button class="c-fold"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg><span>2016 | ACL | 4.930 Zitationen</span></button>
+          </div>
+          <div class="c-doors">
+            <button class="door" disabled><svg class="spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>Paper wird geladen …</button>
+            <button class="door"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>Im Browser öffnen</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="col">
+        <div class="verdict pick">Schritt 4</div>
+        <div class="state-label">Geladen</div>
+        <div class="state-note">Ab hier gibt es keinen Unterschied mehr — es ist ein Baum wie jeder andere.</div>
+        <div class="card">
+          <div class="c-head">
+            <div>
+              <p class="c-over">Referenz [27] · bereits ein Baum</p>
+              <p class="c-title">Neural Machine Translation of Rare Words with Subword Units</p>
+            </div>
+            <button class="c-x"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+          </div>
+          <div class="c-body">
+            <p class="c-authors">Sennrich, Haddow, Birch</p>
+            <button class="c-fold"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg><span>2016 | ACL | bereits in Syflo geöffnet</span></button>
+          </div>
+          <div class="c-doors">
+            <button class="door"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>Zum Baum</button>
+            <button class="door"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>Im Browser öffnen</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="col">
+        <div class="state-label">Nichts gefunden</div>
+        <div class="state-note">Der einzige Fall, in dem die Suche überhaupt erwähnt wird — weil das Fehlen der Tür sonst unerklärt bliebe.</div>
+        <div class="card">
+          <div class="c-head">
+            <div>
+              <p class="c-over">Referenz [8]</p>
+              <p class="c-title">Long Short-Term Memory</p>
+            </div>
+            <button class="c-x"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+          </div>
+          <div class="c-body">
+            <p class="c-authors">Hochreiter, Schmidhuber</p>
+            <button class="c-fold"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg><span>1997 | Neural Computation | 92.517 Zitationen</span></button>
+          </div>
+          <div class="c-doors">
+            <p class="door-note">Kein frei verfügbarer Volltext gefunden.</p>
+            <button class="door"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>Im Browser öffnen</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="col">
+        <div class="verdict pick">Bei null</div>
+        <div class="state-label">Wiederaufnahme</div>
+        <div class="state-note">Der Countdown läuft ab, die Suche startet von selbst — und die Tür sagt es. Gemessen im laufenden Programm 2026-08-11: Pause → „Volltext wird gesucht …" → „In Syflo öffnen".</div>
+        <div class="card">
+          <div class="c-head">
+            <div>
+              <p class="c-over">Referenz [14]</p>
+              <p class="c-title">Self-training PCFG grammars with latent annotations across languages</p>
+            </div>
+            <button class="c-x"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+          </div>
+          <div class="c-body">
+            <p class="c-authors">Zhongqiang Huang, Mary P. Harper</p>
+            <button class="c-fold"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg><span>2009 | EMNLP</span></button>
+          </div>
+          <div class="c-doors">
+            <button class="door" disabled><svg class="spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>Volltext wird gesucht …</button>
+            <button class="door"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>Im Browser öffnen</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="col">
+        <div class="state-label">Ausgesperrt · Countdown</div>
+        <div class="state-note">Die Engines haben uns wegen zu vieler Anfragen ausgesperrt. Die Wartezeit steht als <strong>graue Zeile</strong> über der Tür, nie <em>in</em> ihr: Ein Countdown-Knopf verspricht eine Wahl, die es nicht gibt — der neue Versuch läuft von selbst. Die Tür bleibt stehen, ausgegraut, und nennt weiter das <strong>Ziel</strong> („In Syflo öffnen") — denn genau das ist die Frage, die eine Tür beantwortet. Sie dreht sich nicht: Während der Pause wird nichts gesucht. „Suche pausiert" nennt die <em>Folge</em> statt der Ursache; wessen Limit erreicht wurde, ist Bühnentechnik. Uhr und Satzbau kommen vom Rate-Limit im Chat (mockup-quota-states § 02). Alle Entscheidungen 2026-08-11.</div>
+        <div class="card">
+          <div class="c-head">
+            <div>
+              <p class="c-over">Referenz [27]</p>
+              <p class="c-title">Neural Machine Translation of Rare Words with Subword Units</p>
+            </div>
+            <button class="c-x"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+          </div>
+          <div class="c-body">
+            <p class="c-authors">Sennrich, Haddow, Birch</p>
+            <button class="c-fold"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg><span>2016 | ACL | 4.930 Zitationen</span></button>
+          </div>
+          <div class="c-doors">
+            <p class="door-note"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="vertical-align:-1px;margin-right:5px"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>Suche pausiert — weiter in 82 s</p>
+            <button class="door" disabled><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></svg>In Syflo öffnen</button>
+            <button class="door"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>Im Browser öffnen</button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="notes">
+      <h4>Was Syflo entscheidet, damit der Leser es nicht muss</h4>
+      <ul>
+        <li><span class="tag">Anfrage</span><strong>Titel in Anführungszeichen + erster Autor + Jahr</strong>. Ist nichts identifiziert, geht die gedruckte Zeile roh in die Suche — genau das, was man selbst tippen würde.</li>
+        <li><span class="tag">PDF</span>Ein Treffer zählt nur, wenn die URL auf <code>.pdf</code> endet oder ein bekanntes Muster trägt (<code>arxiv.org/abs/…</code> → <code>/pdf/…</code>, <code>aclanthology.org/…</code>, <code>openreview.net/pdf?id=…</code>). Verlagsseiten hinter einer Bezahlschranke fallen raus.</li>
+        <li><span class="tag">Titelabgleich</span>Der Treffertitel muss dem gesuchten Titel <strong>deutlich</strong> ähneln. Reicht die Ähnlichkeit nicht, gilt die Referenz als „nichts gefunden" — lieber keine Tür als die Tür zum falschen Paper.</li>
+        <li><span class="tag">Reihenfolge</span>Mehrere gültige Fundorte werden nach Verlässlichkeit sortiert (arXiv, ACL Anthology, OpenReview vor allem anderen). Der beste wird genommen; die übrigen bleiben als stille Reserve für Schritt 3.</li>
+        <li><span class="tag">Keine Spur</span>Die Karte nennt den Fundort NICHT. Eine Zeile „Volltext auf arxiv.org gefunden" stand kurz da und ist wieder verschwunden (Entscheidung 2026-08-11): Der Leser soll seine Arbeit machen, nicht erfahren, was unter der Haube passiert.</li>
+        <li><span class="tag">Blockiert</span>Verweigert ein <em>verlinkter</em> Fundort das PDF, greift dieselbe stille Suche als Ersatz (§03, „Download blockiert"). Erst wenn auch sie nichts findet, sieht der Leser eine Warnung.</li>
+        <li><span class="tag">Zeitpunkt</span>Gesucht wird beim Zeichnen der Seite und beim Darüberfahren, nie beim Import — die Rechnung dazu steht in §05.</li>
+      </ul>
+      <div class="flow" style="margin-top:14px">
+        <span class="step">Seite gezeichnet · Maus über der Marke</span><span class="arr">→</span>
+        <span class="step">kein PDF verlinkt</span><span class="arr">→</span>
+        <span class="step">POST /api/search</span><span class="arr">→</span>
+        <span class="step">filtern · Titel prüfen · sortieren</span><span class="arr">→</span>
+        <span class="step">bester Fundort = <code>pdfUrl</code></span><span class="arr">→</span>
+        <span class="step">Karte wie bei verlinktem PDF</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════ 05 ══════════════ -->
+  <section>
+    <div class="section-label">05 · Wann gesucht wird — Vorladen nach Nähe</div>
+    <p class="section-desc">Die Suche automatisch zu machen, heißt noch nicht, sie <em>früh</em> zu machen. Alle drei Zeitpunkte liefern dieselbe Karte; sie unterscheiden sich nur in dem, was sie kosten und was der Leser wartet. Die Zahlen stammen aus der laufenden Datenbank (4 Paper, 149 Referenzen, Stand 2026-08-10).</p>
+    <div class="stage" style="background:var(--surface);border:1px solid var(--border);display:block;padding:26px 24px">
+      <div class="tl-grid">
+
+        <div class="tl-card">
+          <p class="tl-verdict alt">Verworfen</p>
+          <h5 class="tl-h">Alles beim Import</h5>
+          <div class="req-bar"><span class="req burst" style="flex:25"></span><span class="req-rest" style="flex:75"></span></div>
+          <p class="tl-num"><strong>≈ 25 Anfragen</strong> auf einmal, direkt nach dem Import</p>
+          <p class="tl-body">Wartezeit für den Leser: <strong>keine</strong>. Aber 25 Suchen in wenigen Sekunden sind für die Engines hinter SearXNG eine Stoßlast — Google und Bing antworten darauf mit Captcha, und dann steht auch die YouTube-Suche. Genau dieses Muster hat am 2026-08-09 schon OpenAlex zum Aussperren gebracht.</p>
+        </div>
+
+        <div class="tl-card pick">
+          <p class="tl-verdict">Empfehlung</p>
+          <h5 class="tl-h">Seitenweise + beim Darüberfahren</h5>
+          <div class="req-bar"><span class="req" style="flex:4"></span><span class="req-gap" style="flex:6"></span><span class="req" style="flex:4"></span><span class="req-gap" style="flex:6"></span><span class="req" style="flex:4"></span><span class="req-rest" style="flex:76"></span></div>
+          <p class="tl-num"><strong>≈ 4 Anfragen pro Seite</strong>, verteilt über das Lesen</p>
+          <p class="tl-body">Gemessen an <em>Attention Is All You Need</em>: 40 Referenzen auf 11 Seiten, also rund vier neue Referenzen pro Seite. Wer nur die ersten drei Seiten liest, bezahlt auch nur zwölf Suchen. Wartezeit für den Leser: <strong>meist keine</strong>.</p>
+        </div>
+
+        <div class="tl-card">
+          <p class="tl-verdict alt">Zu spät</p>
+          <h5 class="tl-h">Erst beim Klick</h5>
+          <div class="req-bar"><span class="req-gap" style="flex:40"></span><span class="req" style="flex:4"></span><span class="req-gap" style="flex:56"></span></div>
+          <p class="tl-num"><strong>≈ 5 Anfragen pro Paper</strong> — nichts wird verschwendet</p>
+          <p class="tl-body">Die sparsamste Variante, und die einzige, die der Leser spürt: <strong>1–3&nbsp;s Warten bei jedem Klick</strong>. Gemessen wurden 21 tatsächlich geöffnete Referenzen auf 4 Paper — fünf pro Paper, jede mit voller Wartezeit.</p>
+        </div>
+
+      </div>
+
+      <div class="tl-flow">
+        <p class="tl-flow-h">Der Ablauf beim Lesen</p>
+        <div class="fl">
+          <div class="fl-step">
+            <span class="fl-n">1</span>
+            <p class="fl-t">Seite 3 wird gezeichnet</p>
+            <p class="fl-d">Syflo sucht still die Volltexte der vier Referenzen, die auf dieser Seite zitiert werden — eine nach der anderen, nicht alle gleichzeitig.</p>
+          </div>
+          <div class="fl-arr">→</div>
+          <div class="fl-step">
+            <span class="fl-n">2</span>
+            <p class="fl-t">Maus über <span class="mark">[27]</span></p>
+            <p class="fl-d">Ist diese Referenz noch nicht dran gewesen, rückt sie jetzt an die erste Stelle. Zwischen Zeigen und Klicken liegen meist 300–800&nbsp;ms.</p>
+          </div>
+          <div class="fl-arr">→</div>
+          <div class="fl-step">
+            <span class="fl-n">3</span>
+            <p class="fl-t">Klick</p>
+            <p class="fl-d">Die Karte öffnet mit fertiger Tür — „Volltext wird gesucht …" sieht man nur noch, wenn beides nicht gegriffen hat.</p>
+          </div>
+          <div class="fl-arr">→</div>
+          <div class="fl-step">
+            <span class="fl-n">4</span>
+            <p class="fl-t">Weitergeblättert</p>
+            <p class="fl-d">Noch laufende Suchen der alten Seite werden abgebrochen, die neue Seite kommt dran. Was einmal gefunden wurde, bleibt gespeichert.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="notes">
+      <h4>Was das technisch verlangt</h4>
+      <ul>
+        <li><span class="tag">Anfrage</span>Vorgeladen wird mit der <strong>rohen gedruckten Zeile</strong> der Referenz — sie enthält Titel und Autoren bereits. So bleibt die OpenAlex-Abfrage dort, wo sie heute ist: beim Klick. Sonst würde das Vorladen genau die 40–93 Anfragen pro Paper zurückbringen, die 2026-08-09 zur Sperre führten.</li>
+        <li><span class="tag">Warteschlange</span>Eine Suche zur Zeit, kurze Pause dazwischen, abbrechbar beim Seitenwechsel — dieselbe Zurückhaltung, die der Ollama-Pfad beim Warmlaufen übt.</li>
+        <li><span class="tag">Gespeichert</span>Das Ergebnis landet pro Referenz in <code>paper_references</code>; die Spalte <code>lookup_done</code> gibt es dort schon für genau dieses Muster. Der zweite Klick auf dieselbe Referenz wartet nie wieder — auch nach einem Neustart nicht.</li>
+        <li><span class="tag">Grenze</span>Referenzen mit verlinktem PDF (36 % — 53 von 149) werden nie gesucht. Sie haben ihre Tür schon.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ══════════════ 06 ══════════════ -->
+  <section>
+    <div class="section-label">06 · Verworfen: die sichtbare Suche</div>
+    <p class="section-desc">Beide Entwürfe zeigen dem Leser die Treffer. Links wächst die Karte um eine Liste, rechts wird sie zur 560&nbsp;px breiten Suchtafel. Sie stehen hier, damit die Entscheidung nachvollziehbar bleibt: <strong>Die Liste verlangt eine Wahl, die Syflo besser selbst trifft</strong> — und die breite Tafel bricht obendrein das Standardmaß aus §02, das Fenster wechselt also wieder seine Größe.</p>
+    <div class="stage">
+
+      <div class="col">
+        <div class="verdict alt">A · verworfen</div>
+        <div class="state-label">Trefferliste in der Karte</div>
+        <div class="card">
+          <div class="c-head">
+            <div>
+              <p class="c-over">Referenz [27]</p>
+              <p class="c-title">Neural Machine Translation of Rare Words with Subword Units</p>
+            </div>
+            <button class="c-x"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+          </div>
+          <div class="s-head">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+            5 Treffer im Web
+            <button class="back"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+          </div>
+          <div class="s-query">„Neural Machine Translation of Rare Words with Subword Units" Sennrich 2016 pdf</div>
+          <div class="s-list">
+            <button class="hit">
+              <div class="hit-top">
+                <span class="badge pdf">PDF</span><span class="hit-host">arxiv.org · 2016</span>
+              </div>
+              <p class="hit-title">Neural Machine Translation of Rare Words with Subword Units</p>
+              <p class="hit-act"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></svg>In Syflo laden</p>
+            </button>
+            <button class="hit">
+              <div class="hit-top">
+                <span class="badge pdf">PDF</span><span class="hit-host">aclanthology.org · 2016</span>
+              </div>
+              <p class="hit-title">P16-1162 — Neural Machine Translation of Rare Words with Subword Units</p>
+              <p class="hit-act"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></svg>In Syflo laden</p>
+            </button>
+            <button class="hit">
+              <div class="hit-top">
+                <span class="badge page">Seite</span><span class="hit-host">semanticscholar.org</span>
+              </div>
+              <p class="hit-title">Neural Machine Translation of Rare Words with Subword Units | Semantic Scholar</p>
+              <p class="hit-act" style="color:var(--gray-500)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>Im Browser öffnen</p>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="col">
+        <div class="verdict alt">B · verworfen</div>
+        <div class="state-label">Breite Suchtafel · 560 px</div>
+        <div class="card" style="width:560px">
+          <div class="c-head">
+            <div>
+              <p class="c-over">Referenz [27] · Volltextsuche</p>
+              <p class="c-title">Neural Machine Translation of Rare Words with Subword Units</p>
+            </div>
+            <button class="c-x"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+          </div>
+          <div class="s-query">„Neural Machine Translation of Rare Words with Subword Units" Sennrich 2016 pdf</div>
+          <div class="s-list" style="max-height:none">
+            <button class="hit">
+              <div class="hit-top">
+                <span class="badge pdf">PDF</span><span class="hit-host">arxiv.org/pdf/1508.07909 · 2016</span>
+              </div>
+              <p class="hit-title">Neural Machine Translation of Rare Words with Subword Units</p>
+              <p style="font-size:11.5px;color:var(--gray-500);line-height:1.5;margin-top:3px">Neural machine translation (NMT) models typically operate with a fixed vocabulary, but translation is an open-vocabulary problem …</p>
+              <p class="hit-act"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></svg>In Syflo laden</p>
+            </button>
+            <button class="hit">
+              <div class="hit-top">
+                <span class="badge pdf">PDF</span><span class="hit-host">aclanthology.org/P16-1162.pdf · 2016</span>
+              </div>
+              <p class="hit-title">Neural Machine Translation of Rare Words with Subword Units</p>
+              <p style="font-size:11.5px;color:var(--gray-500);line-height:1.5;margin-top:3px">Proceedings of the 54th Annual Meeting of the Association for Computational Linguistics, pages 1715–1725 …</p>
+              <p class="hit-act"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></svg>In Syflo laden</p>
+            </button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ══════════════ 07 ══════════════ -->
+  <section>
+    <div class="section-label">07 · Der Unterstrich sitzt bei Wort-Zitaten zu tief (gemessen)</div>
+    <p class="section-desc">Gemeldet am 2026-08-10, nachgemessen an zwei echten Papern. Der Unterstrich hängt heute an der <strong>Unterkante der Link-Annotation</strong> (<code>y0</code>) plus 2,5&nbsp;pt. Wie tief diese Unterkante unter der Schrift liegt, entscheidet aber der PDF-Ersteller, nicht wir:</p>
+    <div class="stage" style="background:var(--surface);border:1px solid var(--border);display:block;padding:26px 24px">
+      <div class="baseline-demo">
+        <div class="bd-col">
+          <p class="bd-cap">Zahlen — <em>Attention Is All You Need</em></p>
+          <div class="bd-line">
+            <span class="bd-text">machine translation <span class="bd-mark n">[35, 2, 5]</span>. Numerous</span>
+          </div>
+          <p class="bd-num">Grundlinie − <code>y0</code> = <strong>1,1&nbsp;pt</strong> → Linie 3,6&nbsp;pt unter der Schrift</p>
+        </div>
+        <div class="bd-col">
+          <p class="bd-cap">Wörter — <em>Structured Attention Networks</em></p>
+          <div class="bd-line">
+            <span class="bd-text">circuit <span class="bd-mark w">(Gormley et al., 2015)</span>, primarily</span>
+          </div>
+          <p class="bd-num">Grundlinie − <code>y0</code> = <strong>3,15&nbsp;pt</strong> → Linie 5,65&nbsp;pt unter der Schrift</p>
+        </div>
+        <div class="bd-col">
+          <p class="bd-cap">Soll — beide gleich</p>
+          <div class="bd-line">
+            <span class="bd-text">circuit <span class="bd-mark fix">(Gormley et al., 2015)</span>, primarily</span>
+          </div>
+          <p class="bd-num">Anker = <strong>Grundlinie</strong> der Schrift, Abstand konstant 2,5&nbsp;pt — unabhängig vom PDF</p>
+        </div>
+      </div>
+    </div>
+    <div class="notes">
+      <h4>Warum das passiert und was es kostet</h4>
+      <ul>
+        <li><span class="tag">Ursache</span>hyperref gibt einem <code>(Autor et al., Jahr)</code>-Link eine <strong>tiefere Box</strong> als einem schmalen <code>[15]</code>-Link — sie umfasst den Zeilenkontext mitsamt Unterlängen. Der Unterschied beträgt gemessen <strong>2,05&nbsp;pt</strong>, bei Zoom 1,5 also rund <strong>3&nbsp;px</strong>. Genau der sichtbare Versatz.</li>
+        <li><span class="tag">Fix</span>Nicht an der Boxunterkante ankern, sondern an der <strong>Grundlinie des Textes</strong>: in <code>backend/pdf-citations.js</code> die Textelemente unter jeder Annotation suchen und deren <code>transform[5]</code> mitspeichern; das Frontend zeichnet die Linie dann bei <code>Grundlinie − 2,5&nbsp;pt</code>.</li>
+        <li><span class="tag">Kosten</span>eine neue Spalte in <code>paper_citations</code> plus Migration, und bereits importierte Paper müssen ihre Zitate einmal neu extrahieren — sonst behalten alte Bäume den alten Versatz.</li>
+        <li><span class="tag">Nachtrag 08-11</span>Die Grundlinie muss die Zeile treffen, an der die Link-Box <em>klebt</em>. Viele PDFs speichern eine Textzeile als EIN spaltenbreites Element — dann überlappt die Zeile <strong>darüber</strong> die Box genau so stark, und der Unterstrich landete unter gewöhnlichen Wörtern („dependency parser", Nutzerbericht). Entscheidend ist jetzt die Nähe zur Unterkante der Box, nicht die Überlappung.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ══════════════ 08 ══════════════ -->
+  <section>
+    <div class="section-label">08 · Offene Fragen an dich</div>
+    <div class="notes">
+      <ul>
+        <li><span class="tag open">Breite</span><strong>384&nbsp;px</strong> oder lieber <strong>420</strong>? Gemessen im Mockup: bei 384 braucht der längste Titel aus <em>Attention Is All You Need</em> (Google NMT) genau die drei erlaubten Zeilen — es wird also nichts abgeschnitten, aber der Puffer ist aufgebraucht. 420 bringt ihn auf zwei Zeilen, lässt dafür bei kurzen Titeln mehr Fläche leer und wirkt in der schmalen PDF-Spalte wuchtiger.</li>
+        <li><span class="tag open">Absage-Texte</span>Bleiben „Kein frei verfügbarer Volltext gefunden." und „Die Websuche ist gerade nicht erreichbar."? Sie erklären die fehlende Tür — aber die zweite nennt die Maschinerie beim Namen, und genau das soll die Karte ja nicht tun.</li>
+        <li><span class="tag open">Vorladen</span>Reicht dir §05 — seitenweise plus beim Darüberfahren? Oder soll doch das ganze Literaturverzeichnis nach dem Import durchsucht werden, dann aber gedrosselt (eine Anfrage alle 2&nbsp;s, abbrechbar)?</li>
+        <li><span class="tag open">Strenge</span>Wie streng darf der Titelabgleich sein? Streng heißt: seltener eine Tür, aber nie das falsche Paper im Baum. Locker heißt: mehr Türen, gelegentlich ein Fehlgriff, den man erst im geöffneten Baum sieht.</li>
+        <li><span class="tag open">Wartezeit</span>Mit dem Vorladen aus §05 ist die Tür meist schon fertig. Für den Rest: soll „Volltext wird gesucht …" dastehen — oder gar nichts, und die Tür erscheint erst, wenn es etwas zu öffnen gibt?</li>
+      </ul>
+    </div>
+  </section>
+
+</div>
+</body>
+</html>

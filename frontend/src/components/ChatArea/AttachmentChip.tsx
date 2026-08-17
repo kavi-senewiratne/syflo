@@ -146,7 +146,7 @@ export function AttachmentChip({ alias, filename, mimetype, previewUrl, onRemove
         <button
           onClick={onRemove}
           className="absolute top-1 right-1 w-5 h-5 flex items-center justify-center rounded-full bg-black/50 text-[#fff] hover:bg-black/70 transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
-          title={S.remove}
+          data-tip={S.remove}
           aria-label={S.remove}
         >
           <X size={12} />

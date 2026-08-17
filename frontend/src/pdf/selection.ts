@@ -9,6 +9,8 @@
  * tight per-line rects for the highlight overlays.
  */
 
+import { composeMathAwareText, type GlyphRun } from './mathAwareText';
+
 /**
  * Result of column-aware span filtering for the current selection. Shared by
  * `extractColumnAwareSelectionText()` (text-only consumer) and the
@@ -404,8 +406,13 @@ function tightenRectToCanvasText(lineRect: DOMRect, textLayer: HTMLElement): DOM
  *
  * Fix: ignore the DOM-range text entirely. Use
  * `filterColumnAwareSelectionSpans()` to keep only the spans whose visual
- * rects actually fall inside the per-line selection rectangles, then
- * concatenate their `textContent` with single spaces.
+ * rects actually fall inside the per-line selection rectangles, then hand the
+ * kept spans to `composeMathAwareText()`.
+ *
+ * Composing is geometric rather than a plain `join(' ')`: pdf.js shreds a
+ * formula into one item per glyph, so joining with blanks yielded
+ * "ˆ P ( Z 1 = z 1 , · · · )" — the string the user found unreadable in the
+ * highlights drawer on 2026-08-08. See `pdf/mathAwareText.ts`.
  *
  * Returns `null` if there's no live selection or if extraction can't find any
  * spans (caller should fall back to `getSelection().toString()` in that case).
@@ -423,14 +430,24 @@ export function extractColumnAwareSelectionText(): string | null {
   // original range stops/starts at. Middle spans (fully inside the selection)
   // use their full textContent; the first and last spans use the original
   // range's offsets to clip to exactly the dragged characters.
-  const parts: string[] = [];
-  for (const span of filtered.spans) {
+  // Each kept span carries its own rect, which is what lets the composer tell
+  // an index from an exponent. A clipped boundary span keeps the full span's
+  // rect: the clip only shortens prose, where the geometry plays no role.
+  const runs: GlyphRun[] = [];
+  filtered.spans.forEach((span) => {
+    const rect = span.getBoundingClientRect();
+    const geometry = {
+      left: rect.left,
+      right: rect.right,
+      bottom: rect.bottom,
+      height: rect.height,
+    };
     const textNode = span.firstChild;
     if (!textNode || textNode.nodeType !== Node.TEXT_NODE) {
       // Span has no plain text-node child (rare — usually a wrapper). Fall
       // back to its full textContent so we don't drop the span entirely.
-      parts.push(span.textContent ?? '');
-      continue;
+      runs.push({ text: span.textContent ?? '', ...geometry });
+      return;
     }
     const full = textNode.textContent ?? '';
     const isStart = range.startContainer === textNode;
@@ -439,9 +456,9 @@ export function extractColumnAwareSelectionText(): string | null {
     let end = full.length;
     if (isStart) start = Math.max(0, Math.min(full.length, range.startOffset));
     if (isEnd) end = Math.max(start, Math.min(full.length, range.endOffset));
-    parts.push(full.slice(start, end));
-  }
-  const text = parts.join(' ').replace(/\s+/g, ' ').trim();
+    runs.push({ text: full.slice(start, end), ...geometry });
+  });
+  const text = composeMathAwareText(runs).replace(/[^\S\n]+/g, ' ').trim();
   return text || null;
 }
 

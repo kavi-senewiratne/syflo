@@ -11,7 +11,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 vi.mock('../api', () => ({ api: { passageTitle: vi.fn() } }));
 
 import { api } from '../api';
-import { tidyPassage, startPassageTitle, awaitTitle } from '../chat/passageTitle';
+import { tidyPassage, startPassageTitle, awaitTitle, mathRenders } from '../chat/passageTitle';
 
 const mocked = () => vi.mocked(api.passageTitle);
 
@@ -45,17 +45,21 @@ describe('awaitTitle', () => {
   afterEach(() => vi.useRealTimers());
 
   it('uses the model title once it arrived', async () => {
-    mocked().mockResolvedValue('$x^{(k)}$');
+    mocked().mockResolvedValue({ title: '$x^{(k)}$', quote: '$x^{(k)} = 1$' });
     const pending = startPassageTitle(PDF_FORMULA);
 
-    await expect(awaitTitle(pending, PDF_FORMULA)).resolves.toBe('$x^{(k)}$');
+    await expect(awaitTitle(pending, PDF_FORMULA)).resolves.toEqual({
+      title: '$x^{(k)}$', quote: '$x^{(k)} = 1$',
+    });
   });
 
   it('falls back to the tidied passage when the model returns nothing', async () => {
-    mocked().mockResolvedValue(null);
+    mocked().mockResolvedValue({ title: null, quote: null });
     const pending = startPassageTitle(PDF_FORMULA);
 
-    await expect(awaitTitle(pending, PDF_FORMULA)).resolves.toBe('x(k) = x(k) − E[x(k)] √Var[x(k)]');
+    await expect(awaitTitle(pending, PDF_FORMULA)).resolves.toEqual({
+      title: 'x(k) = x(k) − E[x(k)] √Var[x(k)]', quote: null,
+    });
   });
 
   it('never lets a slow model hold the branch hostage', async () => {
@@ -65,26 +69,66 @@ describe('awaitTitle', () => {
     const result = awaitTitle(pending, PDF_FORMULA, 2500);
     await vi.advanceTimersByTimeAsync(2500);
 
-    await expect(result).resolves.toBe('x(k) = x(k) − E[x(k)] √Var[x(k)]');
+    await expect(result).resolves.toEqual({
+      title: 'x(k) = x(k) − E[x(k)] √Var[x(k)]', quote: null,
+    });
   });
 
   it('swallows a failing lookup instead of rejecting', async () => {
     mocked().mockRejectedValue(new Error('offline'));
     const pending = startPassageTitle(PDF_FORMULA);
 
-    await expect(awaitTitle(pending, PDF_FORMULA)).resolves.toBe('x(k) = x(k) − E[x(k)] √Var[x(k)]');
+    await expect(awaitTitle(pending, PDF_FORMULA)).resolves.toEqual({
+      title: 'x(k) = x(k) − E[x(k)] √Var[x(k)]', quote: null,
+    });
   });
 
   it('ignores a lookup that belongs to an older selection', async () => {
-    mocked().mockResolvedValue('$\\mu_B$');
+    mocked().mockResolvedValue({ title: '$\\mu_B$', quote: '$\\mu_B$' });
     const stale = startPassageTitle('eine andere Passage');
 
-    await expect(awaitTitle(stale, PDF_FORMULA)).resolves.toBe(
-      'x(k) = x(k) − E[x(k)] √Var[x(k)]',
-    );
+    await expect(awaitTitle(stale, PDF_FORMULA)).resolves.toEqual({
+      title: 'x(k) = x(k) − E[x(k)] √Var[x(k)]', quote: null,
+    });
   });
 
   it('works without any pending lookup at all', async () => {
-    await expect(awaitTitle(null, 'nur Text')).resolves.toBe('nur Text');
+    await expect(awaitTitle(null, 'nur Text')).resolves.toEqual({ title: 'nur Text', quote: null });
+  });
+});
+
+describe('mathRenders — nur zeichenbare Formeln werden übernommen', () => {
+  it('lässt gültiges LaTeX durch', () => {
+    expect(mathRenders('$\\sigma_B^2 \\leftarrow \\frac{1}{m}\\sum_{i=1}^m x_i$')).toBe(true);
+  });
+
+  it('erkennt erfundene Makros', () => {
+    // gemini-flash-lite lieferte genau das (Messung 2026-08-02) — KaTeX
+    // zeichnet \\E und \\Var als roten Fehlertext.
+    expect(mathRenders('$x(k) = \\frac{x(k) - \\E[x(k)]}{\\sqrt{\\Var[x(k)]}}$')).toBe(false);
+  });
+
+  it('lässt reinen Text ohne Formeln durch', () => {
+    expect(mathRenders('careful parameter initialization')).toBe(true);
+  });
+});
+
+describe('awaitTitle verwirft unzeichenbare Ergebnisse', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    mocked().mockReset();
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it('fällt auf die aufgeräumte Passage zurück, wenn das LaTeX kaputt ist', async () => {
+    mocked().mockResolvedValue({
+      title: '$\\Var[x]$',
+      quote: '$x(k) = \\frac{x(k) - \\E[x(k)]}{\\sqrt{\\Var[x(k)]}}$',
+    });
+    const pending = startPassageTitle(PDF_FORMULA);
+
+    await expect(awaitTitle(pending, PDF_FORMULA)).resolves.toEqual({
+      title: 'x(k) = x(k) − E[x(k)] √Var[x(k)]', quote: null,
+    });
   });
 });

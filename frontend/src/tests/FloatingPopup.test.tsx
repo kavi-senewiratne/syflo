@@ -155,6 +155,45 @@ describe('FloatingPopup', () => {
     });
   });
 
+  // Branching blocks on the passage-title lookup (App.tsx / passageTitle.ts):
+  // measured 0.5 s with Gemini Flash, capped at TITLE_WAIT_MS = 2500. Until
+  // this state existed the button just sat there dead (user report
+  // 2026-08-08). Option A of design/mockup-branch-creation-loading.html.
+  describe('creating state while the branch is being made', () => {
+    it('turns the branch button into a spinner and blocks a second click', () => {
+      const onOpenChildChat = vi.fn();
+      render(
+        <FloatingPopup {...defaultProps} onOpenChildChat={onOpenChildChat} creating />,
+      );
+
+      const branch = screen.getByTestId('popup-open-child-chat');
+      expect(branch).toHaveTextContent(/creating chat/i);
+      expect(branch).toBeDisabled();
+      expect(branch).toHaveAttribute('aria-busy', 'true');
+
+      fireEvent.click(branch);
+      expect(onOpenChildChat).not.toHaveBeenCalled();
+    });
+
+    it('also blocks "Ask in chat" so the selection cannot be spent twice', () => {
+      const onAskInChat = vi.fn();
+      render(<FloatingPopup {...defaultProps} onAskInChat={onAskInChat} creating />);
+
+      const ask = screen.getByTestId('popup-ask-in-chat');
+      expect(ask).toBeDisabled();
+      fireEvent.click(ask);
+      expect(onAskInChat).not.toHaveBeenCalled();
+    });
+
+    it('stays a normal button while nothing is being created', () => {
+      render(<FloatingPopup {...defaultProps} />);
+      const branch = screen.getByTestId('popup-open-child-chat');
+      expect(branch).toHaveTextContent(/open as new chat/i);
+      expect(branch).not.toBeDisabled();
+      expect(branch).not.toHaveAttribute('aria-busy', 'true');
+    });
+  });
+
   describe('copy button', () => {
     it('writes the popup word to the clipboard when clicked', async () => {
       const writeText = vi.fn().mockResolvedValue(undefined);

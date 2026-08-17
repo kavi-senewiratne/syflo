@@ -682,7 +682,26 @@ function shapeReference(work) {
     authors,
     year: work?.publication_year ?? null,
     doi,
+    // Both arrive in the very response above and used to be dropped: 33 of
+    // 171 stored references carried an OpenAlex id and no citation count, and
+    // not one carried a venue (measured 2026-08-12). The card's fold then had
+    // nothing to show for a work OpenAlex knows well.
+    citations: work?.cited_by_count ?? null,
+    venue: venueOf(work),
   };
+}
+
+/**
+ * Where a work appeared, as OpenAlex names it. `primary_location` is the
+ * publisher's copy; `best_oa_location` is often a repository ("arXiv"), which
+ * is where to READ it, not where it was published — so the primary wins.
+ */
+function venueOf(work) {
+  return (
+    work?.primary_location?.source?.display_name ||
+    work?.best_oa_location?.source?.display_name ||
+    null
+  );
 }
 
 // Fetch the full details of every OpenAlex work in `referenced_works[]` and

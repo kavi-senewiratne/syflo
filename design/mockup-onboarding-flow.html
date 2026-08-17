@@ -1,0 +1,1002 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Syflo · From download to first answer (round 1)</title>
+<style>
+  /* ============================================================
+     Onboarding + vision path, round 1 (2026-08-11).
+
+     Companion to mockup-model-picker-truth.html. That one asks
+     "does the picker tell the truth about a CONFIGURED model".
+     This one zooms out: what does a user see who has just
+     downloaded the app and configured NOTHING — and what happens
+     the first time they attach an image.
+
+     Read from the code, not assumed:
+       · llm.js:21 — a fresh install starts on provider 'gemini'
+         with gemini_api_key: '' and gemini_model 'gemini-flash-latest'.
+       · ChatArea/index.tsx:1724 — while the active cloud provider has
+         no key, `setupNotice` replaces the WHOLE composer row: no text
+         field, no attachment button, no dictation, no model pill.
+       · CloudSetupNotice.tsx — three paths (free / own account /
+         private), each opening Settings with a provider preselected.
+       · SettingsModal — a key is saved with the settings patch. There
+         is NO validation and NO "test key" anywhere in the app.
+       · messages.js:1163 — the vision gate fires at SEND time, after
+         the question is already sent. With another vision model around
+         it fails over SILENTLY (reason 'no_vision'); only when no
+         candidate exists does the user see a card.
+       · ModelPicker.tsx:317 — with no keys and no Ollama the menu is
+         one empty local group plus a hint row.
+
+     Same vocabulary as mockup-model-cost-tiers / mockup-quota-states.
+     No variant is marked as chosen — every option carries both sides.
+     ============================================================ */
+
+  :root {
+    --bg-app: #EEF0F3;
+    --surface: #FFFFFF;
+    --surface-2: #F9FAFB;
+    --text-strong: #111827;
+    --text-default: #374151;
+    --text-muted: #9CA3AF;
+    --border: #E5E7EB;
+    --border-soft: #F3F4F6;   /* bg-gray-100 — the menu separator */
+    --text-sub: #6B7280;      /* text-gray-500 — every row subtitle */
+    --accent-strong: #1D4ED8; /* text-blue-700 — the active check mark */
+    --accent: #2563EB;
+    --accent-contrast: #FFFFFF;
+    --accent-soft: #EFF6FF;
+    --danger: #DC2626;
+    --danger-soft: #FEF2F2;
+    --warn: #B45309;
+    --warn-soft: #FFFBEB;
+    --ok: #15803D;
+    --ok-soft: #F0FDF4;
+    --radius-s: 8px;
+    --radius-m: 12px;
+    --radius-l: 16px;
+    --shadow: 0 1px 3px rgba(17, 24, 39, 0.08);
+    --shadow-lg: 0 10px 30px rgba(17, 24, 39, 0.10), 0 2px 8px rgba(17, 24, 39, 0.06);
+    --font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    --font-meta: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: var(--font-ui); background: var(--bg-app); color: var(--text-default);
+         -webkit-font-smoothing: antialiased; padding: 40px 32px 100px; }
+
+  .ic { width: 14px; height: 14px; stroke: currentColor; stroke-width: 2;
+        stroke-linecap: round; stroke-linejoin: round; fill: none; flex-shrink: 0; display: block; }
+  .ic.sm { width: 12px; height: 12px; }
+  .ic.xs { width: 10px; height: 10px; }
+  .ic.lg { width: 17px; height: 17px; }
+
+  .page-head { max-width: 1480px; margin: 0 auto 32px; }
+  .page-head h1 { font-size: 22px; font-weight: 700; color: var(--text-strong);
+                  letter-spacing: -0.01em; margin-bottom: 8px; }
+  .page-head p { font-size: 14px; color: var(--text-default); max-width: 960px; line-height: 1.6; }
+  .page-head p + p { margin-top: 10px; }
+  .page-head strong { color: var(--text-strong); }
+
+  .section { max-width: 1480px; margin: 0 auto 60px; }
+  .section-head { border-top: 2px solid var(--text-strong); padding-top: 12px; margin-bottom: 20px; }
+  .section-head h2 { font-size: 18px; font-weight: 700; color: var(--text-strong);
+                     display: flex; align-items: baseline; gap: 10px; }
+  .section-head h2 .num { font-family: var(--font-meta); font-size: 12px; color: var(--text-muted); }
+  .section-head p { font-size: 13.5px; color: var(--text-default); max-width: 960px;
+                    line-height: 1.6; margin-top: 6px; }
+  .section-head p code, .variant code, .finding code, td code, .verdict code, .note code {
+    font-family: var(--font-meta); font-size: 11.5px; background: var(--surface-2);
+    border: 1px solid var(--border); border-radius: 4px; padding: 1px 4px; }
+
+  .variants { display: flex; gap: 26px; flex-wrap: wrap; align-items: flex-start; }
+  .variant { background: var(--surface); border: 1px solid var(--border);
+             border-radius: var(--radius-l); padding: 20px; box-shadow: var(--shadow);
+             flex: 1 1 400px; min-width: 360px; }
+  .variant.wide { flex: 1 1 100%; }
+  .variant-head { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; flex-wrap: wrap; }
+  .variant-badge { font-family: var(--font-meta); font-size: 11.5px; font-weight: 700;
+                   background: var(--text-strong); color: var(--surface);
+                   padding: 3px 8px; border-radius: 5px; letter-spacing: 0.05em; }
+  .variant-badge.ist { background: var(--danger); }
+  .variant-head h3 { font-size: 15.5px; font-weight: 700; color: var(--text-strong); }
+  .variant > .idea { font-size: 13px; line-height: 1.55; margin-bottom: 16px; }
+  .pro-con { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 14px; }
+  .pc { font-size: 12px; line-height: 1.5; padding: 9px 11px; border-radius: var(--radius-s);
+        border: 1px solid var(--border); }
+  .pc.plus { background: var(--ok-soft); border-color: #BBF7D0; }
+  .pc.minus { background: var(--danger-soft); border-color: #FECACA; }
+  .pc b { display: block; font-size: 10px; font-family: var(--font-meta); letter-spacing: 0.07em;
+          text-transform: uppercase; margin-bottom: 3px; }
+  .pc.plus b { color: var(--ok); }
+  .pc.minus b { color: var(--danger); }
+  .verdict { margin-top: 14px; font-size: 12.5px; line-height: 1.55; padding: 10px 12px;
+             border-radius: var(--radius-s); background: var(--surface-2); border: 1px solid var(--border); }
+  .verdict b { color: var(--text-strong); }
+
+  /* ---------- app frame ---------- */
+  .frame { border: 1px solid var(--border); border-radius: var(--radius-m); overflow: hidden;
+           background: var(--surface); display: flex; flex-direction: column; height: 380px; }
+  .frame.tall { height: 470px; }
+  .frame-top { display: flex; align-items: center; gap: 7px; padding: 8px 11px;
+               border-bottom: 1px solid var(--border); background: var(--surface-2); }
+  .frame-top .tl { display: flex; gap: 4px; }
+  .frame-top .tl i { width: 8px; height: 8px; border-radius: 999px; background: #D1D5DB; display: block; }
+  .frame-top .ttl { font-size: 11px; color: var(--text-muted); font-weight: 600; }
+  .frame-body { flex: 1; display: flex; min-height: 0; }
+  .side { width: 132px; border-right: 1px solid var(--border); background: var(--surface-2);
+          padding: 10px 9px; flex-shrink: 0; }
+  .side .newchat { display: flex; align-items: center; gap: 5px; font-size: 10.5px; font-weight: 700;
+                   color: var(--accent); border: 1px dashed #BFDBFE; background: var(--accent-soft);
+                   border-radius: 7px; padding: 5px 7px; margin-bottom: 9px; }
+  .side .grp { font-family: var(--font-meta); font-size: 8.5px; letter-spacing: 0.08em;
+               text-transform: uppercase; color: var(--text-muted); margin: 8px 0 4px; }
+  .side .item { height: 7px; background: var(--border); border-radius: 3px; margin-bottom: 6px; }
+  .side .item.s { width: 70%; }
+  .side .empty { font-size: 10px; color: var(--text-muted); line-height: 1.5; font-style: italic; }
+  .main { flex: 1; display: flex; flex-direction: column; min-width: 0; background: var(--surface); }
+  .main-top { border-bottom: 1px solid var(--border); padding: 8px 12px; display: flex;
+              align-items: center; gap: 8px; }
+  .main-top .t { font-size: 12px; font-weight: 700; color: var(--text-strong); }
+  .main-top .sp { margin-left: auto; display: flex; gap: 7px; color: var(--text-muted); }
+  .main-scroll { flex: 1; padding: 14px 16px; overflow: hidden; display: flex; flex-direction: column; }
+  .main-scroll.center { align-items: center; justify-content: center; text-align: center; }
+  .quote { font-size: 12.5px; line-height: 1.6; color: var(--text-muted); max-width: 300px;
+           font-style: italic; }
+  .quote .who { display: block; margin-top: 7px; font-style: normal; font-size: 10.5px;
+                font-family: var(--font-meta); }
+  .bubble { border: 1px solid var(--border); background: var(--surface-2); border-radius: 10px;
+            padding: 7px 10px; font-size: 11px; line-height: 1.5; margin-bottom: 8px; max-width: 82%; }
+  .bubble.me { background: var(--accent-soft); border-color: #BFDBFE; margin-left: auto; }
+  .composer-wrap { border-top: 1px solid var(--border); padding: 10px 12px; }
+  .composer { border: 1px solid var(--border); border-radius: 18px; padding: 7px 9px;
+              display: flex; align-items: center; gap: 8px; }
+  .composer.locked { background: var(--surface-2); border-style: dashed; }
+  .composer .ph { flex: 1; font-size: 11px; color: var(--text-muted); }
+  .pill { display: inline-flex; align-items: center; gap: 5px; height: 25px; padding: 0 9px;
+          border: 1px solid var(--border); background: var(--surface-2); border-radius: 999px;
+          font-size: 10.5px; font-weight: 600; color: var(--text-default); white-space: nowrap; }
+  .pill.setup { border-color: #BFDBFE; background: var(--accent-soft); color: var(--accent); }
+  .pill.warn { border-color: #FDE68A; background: var(--warn-soft); color: var(--warn); }
+
+  /* setup card (today) */
+  .setup-card { background: var(--accent-soft); border: 1px solid #BFDBFE; border-radius: var(--radius-m);
+                padding: 12px; }
+  .setup-card .hd { display: flex; gap: 7px; margin-bottom: 9px; }
+  .setup-card .hd b { display: block; font-size: 11.5px; color: var(--text-strong); margin-bottom: 2px; }
+  .setup-card .hd p { font-size: 10.5px; line-height: 1.5; color: var(--text-default); }
+  .path { display: flex; align-items: center; gap: 8px; background: var(--surface);
+          border: 1px solid #BFDBFE; border-radius: 8px; padding: 6px 9px; margin-bottom: 5px; }
+  .path b { font-size: 11px; color: var(--text-strong); }
+  .path span { font-size: 10px; color: var(--text-muted); }
+  .path .go { margin-left: auto; color: var(--text-muted); }
+
+  /* menu */
+  .menu { width: 288px; background: var(--surface); border: 1px solid var(--border);
+          border-radius: var(--radius-m); box-shadow: var(--shadow-lg); padding: 6px; }
+  .menu.inline { box-shadow: none; width: 100%; }
+  .mg { display: flex; align-items: center; gap: 4px; padding: 6px 10px 2px;
+        font-family: var(--font-meta); font-size: 10px; font-weight: 700;
+        letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted); }
+  .mg.ok { color: var(--ok); } .mg.warn { color: var(--warn); } .mg.acc { color: var(--accent); }
+  .msep { height: 1px; background: var(--border-soft); margin: 4px; }
+  .row { display: flex; align-items: flex-start; gap: 8px; padding: 8px 10px; border-radius: var(--radius-s); }
+  .row.active { background: var(--accent-soft); }
+  .row.off .rn { color: var(--text-muted); }
+  .rm { flex: 1; min-width: 0; }
+  .rn { font-size: 13px; font-weight: 600; color: var(--text-strong);
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .rs { font-size: 11.5px; color: var(--text-sub); margin-top: 1px; }
+  .rs.warn { color: var(--warn); } .rs.acc { color: var(--accent); } .rs.ok { color: var(--ok); }
+  .badge { display: inline-flex; align-items: center; gap: 4px; border-radius: 999px;
+           padding: 1px 6px; font-size: 10px; font-weight: 600; white-space: nowrap;
+           border: 1px solid var(--border); background: var(--surface-2); color: var(--text-muted);
+           margin-top: 2px; }
+  .badge.acc { background: var(--accent-soft); border-color: #BFDBFE; color: var(--accent); }
+  .badge.cool { background: var(--warn-soft); border-color: #FDE68A; color: var(--warn); }
+  .badge.gone { background: var(--danger-soft); border-color: #FECACA; color: var(--danger); }
+  .badge.live { background: var(--ok-soft); border-color: #BBF7D0; color: var(--ok); }
+  .mfoot { display: flex; align-items: center; gap: 6px; padding: 7px 9px 3px;
+           font-size: 10.5px; color: var(--text-muted); }
+  .dot { width: 6px; height: 6px; border-radius: 999px; background: var(--text-muted); }
+  .dot.ok { background: #22C55E; }
+
+  /* chips + cards */
+  .chip { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--border);
+          background: var(--surface-2); border-radius: 8px; padding: 4px 8px; font-size: 10.5px;
+          color: var(--text-default); }
+  .chip .thumb { width: 18px; height: 18px; border-radius: 4px; background: #D9D2C4; flex-shrink: 0; }
+  .chip.warn { border-color: #FDE68A; background: var(--warn-soft); color: var(--warn); }
+  .card { border: 1px solid var(--border); border-radius: var(--radius-m); padding: 12px 14px;
+          background: var(--surface); }
+  .card.warn { border-left: 3px solid var(--warn); }
+  .card.acc { border-left: 3px solid var(--accent); }
+  .card h4 { font-size: 12.5px; font-weight: 700; color: var(--text-strong);
+             display: flex; align-items: center; gap: 7px; margin-bottom: 5px; }
+  .card p { font-size: 11.5px; line-height: 1.55; }
+  .btn-row { display: flex; gap: 7px; margin-top: 10px; flex-wrap: wrap; }
+  .btn { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600;
+         border-radius: var(--radius-s); padding: 5px 9px; border: 1px solid var(--border);
+         background: var(--surface); color: var(--text-default); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-contrast); }
+  .btn.soft { background: var(--accent-soft); border-color: #BFDBFE; color: var(--accent); }
+
+  /* steps */
+  .steps { display: grid; grid-template-columns: 86px 1fr; gap: 0 14px; }
+  .st-n { font-family: var(--font-meta); font-size: 10.5px; color: var(--text-muted);
+          padding-top: 10px; text-align: right; }
+  .st-b { border-left: 2px solid var(--border); padding: 8px 0 20px 18px; position: relative; }
+  .st-b::before { content: ''; position: absolute; left: -6px; top: 13px; width: 10px; height: 10px;
+                  border-radius: 999px; background: var(--surface); border: 2px solid var(--text-muted); }
+  .st-b.bad::before { background: var(--danger); border-color: var(--danger); }
+  .st-b.good::before { background: var(--ok); border-color: var(--ok); }
+  .st-b.acc::before { background: var(--accent); border-color: var(--accent); }
+  .st-b h4 { font-size: 12.5px; font-weight: 700; color: var(--text-strong); margin-bottom: 3px; }
+  .st-b p { font-size: 12px; line-height: 1.55; }
+  .st-b .ui { margin-top: 9px; }
+  .gap { display: inline-flex; align-items: center; gap: 5px; margin-top: 7px; font-size: 11px;
+         font-weight: 700; color: var(--danger); background: var(--danger-soft);
+         border: 1px solid #FECACA; border-radius: 6px; padding: 2px 7px; }
+
+  /* vocabulary table */
+  table.vocab { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  table.vocab th { text-align: left; font-family: var(--font-meta); font-size: 10px;
+                   letter-spacing: 0.07em; text-transform: uppercase; color: var(--text-muted);
+                   padding: 0 10px 7px; border-bottom: 1px solid var(--border); }
+  table.vocab td { padding: 9px 10px; border-bottom: 1px solid var(--border); vertical-align: top;
+                   line-height: 1.5; }
+  table.vocab td:first-child { width: 190px; }
+  table.vocab td b { color: var(--text-strong); }
+  table.vocab tr.new td { background: var(--accent-soft); }
+  table.vocab tr.new td:first-child b::after { content: ' neu'; font-family: var(--font-meta);
+                   font-size: 9px; color: var(--accent); letter-spacing: 0.06em; }
+  .scroll-x { overflow-x: auto; }
+
+  .note { max-width: 960px; font-size: 12.5px; line-height: 1.6; padding: 11px 13px;
+          border-radius: var(--radius-s); background: var(--warn-soft); border: 1px solid #FDE68A;
+          border-left: 3px solid var(--warn); margin-top: 18px; }
+  .note.q { background: var(--accent-soft); border-color: #BFDBFE; border-left-color: var(--accent); }
+  .note b { color: var(--text-strong); }
+  ul.tight { margin: 8px 0 0 18px; }
+  ul.tight li { font-size: 12.5px; line-height: 1.6; margin-bottom: 5px; }
+  .caption { font-size: 11px; color: var(--text-muted); margin-top: 8px; font-style: italic; }
+
+  .term { background: #1F2430; border-radius: var(--radius-s); padding: 11px 13px;
+          font-family: var(--font-meta); font-size: 11.5px; line-height: 1.75; color: #D5DAE3;
+          overflow-x: auto; }
+  .term .p { color: #7C879B; }
+  .term .c { color: #86EFAC; }
+  .term .d { color: #7C879B; }
+  .term .w { color: #FCD34D; }
+  .term .b { color: #93C5FD; }
+
+  .prov { max-width: 1480px; margin: 0 auto 44px; background: var(--surface);
+          border: 1px solid var(--border); border-left: 3px solid var(--accent);
+          border-radius: var(--radius-m); padding: 15px 18px; box-shadow: var(--shadow); }
+  .prov h3 { font-size: 13.5px; font-weight: 700; color: var(--text-strong); margin-bottom: 4px;
+             display: flex; align-items: center; gap: 7px; }
+  .prov > p { font-size: 12.5px; line-height: 1.6; max-width: 960px; }
+  .prov table { width: 100%; border-collapse: collapse; margin-top: 11px; font-size: 12px; }
+  .prov th { text-align: left; font-family: var(--font-meta); font-size: 9.5px; letter-spacing: 0.07em;
+             text-transform: uppercase; color: var(--text-muted); padding: 0 9px 6px;
+             border-bottom: 1px solid var(--border); }
+  .prov td { padding: 6px 9px; border-bottom: 1px solid var(--border-soft); vertical-align: top; }
+  .prov td:first-child { width: 165px; font-weight: 600; color: var(--text-strong); }
+  .prov td code { font-family: var(--font-meta); font-size: 11px; background: var(--surface-2);
+                  border: 1px solid var(--border); border-radius: 4px; padding: 1px 4px; }
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+    <symbol id="i-chev-d" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+    <symbol id="i-chev-r" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+    <symbol id="i-card" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
+    <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><path d="m10.3 3.9-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.7-3l-8-14a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 21v-5h5"/></symbol>
+    <symbol id="i-zap" viewBox="0 0 24 24"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></symbol>
+    <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></symbol>
+    <symbol id="i-cpu" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3"/></symbol>
+    <symbol id="i-key" viewBox="0 0 24 24"><circle cx="7.5" cy="15.5" r="4.5"/><path d="m10.5 12.5 8-8 3 3-3 3-2-2-3 3"/></symbol>
+    <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-5-5L5 21"/></symbol>
+    <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></symbol>
+    <symbol id="i-eye-off" viewBox="0 0 24 24"><path d="M10.7 5.1A10.4 10.4 0 0 1 12 5c7 0 10 7 10 7a17 17 0 0 1-2.6 3.7"/><path d="M6.6 6.6A17 17 0 0 0 2 12s3 7 10 7a10 10 0 0 0 5.4-1.6"/><path d="m2 2 20 20"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v4"/></symbol>
+    <symbol id="i-send" viewBox="0 0 24 24"><path d="M22 2 11 13M22 2l-7 20-4-9-9-4 20-7z"/></symbol>
+    <symbol id="i-swap" viewBox="0 0 24 24"><path d="M8 3 4 7l4 4M4 7h16M16 21l4-4-4-4M20 17H4"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12M7 11l5 5 5-5M4 21h16"/></symbol>
+    <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></symbol>
+    <symbol id="i-slider" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/><circle cx="9" cy="6" r="2"/><circle cx="15" cy="12" r="2"/><circle cx="7" cy="18" r="2"/></symbol>
+  </defs>
+</svg>
+
+<div class="page-head">
+  <h1>Vom Download bis zur ersten Antwort</h1>
+  <p>
+    Zweite Runde zum Modell-Thema, diesmal weiter herausgezoomt. Ausgangspunkt sind drei Fragen:
+    Wie sieht Syflo aus, wenn <strong>noch nichts eingerichtet</strong> ist? Woran merkt der Nutzer,
+    was er tun muss? Und was passiert beim <strong>ersten Bild</strong> — mit einem Modell, das keine
+    Bilder liest, und wenn es gar kein solches Modell gibt?
+  </p>
+  <p>
+    Dazu kommt eine Wortfrage aus der letzten Runde: <strong>„Gerade nicht nutzbar“ ist beim ersten
+    Start falsch</strong> — es klingt, als sei etwas kaputt. Beim ersten Start ist nichts kaputt, es ist
+    nur nichts eingerichtet. Das sind zwei verschiedene Zustände und brauchen zwei verschiedene Wörter
+    (§02).
+  </p>
+  <p>
+    Alle Ist-Zustände sind aus dem Code gelesen, nicht angenommen — die Fundstellen stehen jeweils dran.
+    Keine Variante ist vorausgewählt; jede nennt beide Seiten.
+  </p>
+</div>
+
+
+<div class="prov">
+  <h3><svg class="ic sm" style="color:var(--accent)"><use href="#i-slider"/></svg>Design-Herkunft: 1:1 aus den echten Komponenten</h3>
+  <p>
+    Damit aus dem Entwurf ohne Übersetzungsverluste Code wird, benutzen die Menüs und Zeilen hier
+    exakt die Maße der laufenden App (Standard-Theme „Basic“ = Tailwind-Grundwerte). Farben nur über
+    die Token-Familien <code>gray-*</code> / <code>blue-*</code>, damit alle fünf Themes tragen.
+  </p>
+  <table>
+    <thead><tr><th>Element im Entwurf</th><th>Klassen in der App</th><th>Wert</th></tr></thead>
+    <tbody>
+      <tr><td>Menü</td><td><code>w-72 rounded-xl p-1.5 border-gray-200 shadow-lg</code></td><td>288 px · 12 px · 6 px</td></tr>
+      <tr><td>Zeile</td><td><code>px-2.5 py-2 gap-2 rounded-lg</code> · aktiv <code>bg-blue-50</code></td><td>10/8 px · 8 px</td></tr>
+      <tr><td>Modellname</td><td><code>text-[13px] font-semibold text-gray-900</code></td><td>13 px · 600</td></tr>
+      <tr><td>Unterzeile</td><td><code>text-[11.5px] text-gray-500</code></td><td>11,5 px · #6B7280</td></tr>
+      <tr><td>Gruppen-Überschrift</td><td><code>text-[10px] font-bold uppercase tracking-wider</code></td><td>10 px · 700</td></tr>
+      <tr><td>Trennlinie</td><td><code>h-px bg-gray-100 my-1 mx-1</code></td><td>1 px · #F3F4F6</td></tr>
+      <tr><td>Abzeichen</td><td><code>text-[10px] font-semibold px-1.5 py-px rounded-full</code></td><td>10 px · 600</td></tr>
+      <tr><td>Kontingent-Balken</td><td><code>w-8 h-1 rounded-full font-mono text-[10px]</code></td><td>32 × 4 px</td></tr>
+      <tr><td>Pille</td><td><code>h-9 px-3 rounded-full text-[12.5px] bg-gray-50</code></td><td>36 px hoch</td></tr>
+      <tr><td>Häkchen</td><td><code>text-blue-700</code>, Lucide 14 px</td><td>#1D4ED8</td></tr>
+    </tbody>
+  </table>
+  <p style="margin-top:11px;color:var(--text-muted);font-size:11.5px">
+    In den kleinen App-Rahmen dieser Seite sind die Maße bewusst herunterskaliert — maßgeblich sind
+    die freistehenden Menüs.
+  </p>
+</div>
+
+<!-- ============================================================ -->
+<div class="section">
+  <div class="section-head">
+    <h2><span class="num">§00</span> Vor dem ersten Start: die Installation</h2>
+    <p>
+      Verteilt wird über npm (ADR-0009): <code>npm install -g syflo</code>, danach startet
+      <code>syflo</code> das Backend und öffnet das Electron-Fenster. Modelle sind darin nicht
+      enthalten — und genau da hängt eine Frage, die heute unbeantwortet ist.
+    </p>
+  </div>
+
+  <div class="variants">
+    <div class="variant">
+      <div class="variant-head"><span class="variant-badge ist">IST</span><h3>Was die Installation heute tut</h3></div>
+      <div class="term">
+        <div><span class="p">$</span> npm install -g syflo</div>
+        <div class="d">…  Electron-Binärdatei wird geladen (~100 MB)</div>
+        <div class="c">+ syflo@0.1.0</div>
+        <div style="margin-top:7px"><span class="p">$</span> syflo</div>
+        <div class="d">Syflo läuft auf http://127.0.0.1:3001</div>
+      </div>
+      <div style="margin-top:14px">
+        <p style="font-size:12.5px;line-height:1.6">
+          Kein Sprachmodell, kein Ollama, kein Einbettungs-Modell. Voraussetzung ist nur Node ≥ 20.
+          Der Electron-Download im <code>postinstall</code> ist laut ADR-0009 schon heute die
+          wahrscheinlichste Fehlerquelle der Installation; <code>syflo --browser</code> ist der Ausweg.
+        </p>
+      </div>
+      <div class="pro-con">
+        <div class="pc plus"><b>gut</b>Ein Befehl für macOS, Linux und Windows. Keine Signatur, kein Gatekeeper, keine Installer-Pflege.</div>
+        <div class="pc minus"><b>Problem</b>Nach der Installation ist die App leer und gesperrt (§01). Der Weg „Komplett privat“ endet heute in einer Anleitung, <code>ollama pull</code> im Terminal einzugeben (ADR-0008, Zusatz vom 25.07.).</div>
+      </div>
+    </div>
+
+    <div class="variant">
+      <div class="variant-head"><span class="variant-badge ist">IST</span><h3>Die versteckte Voraussetzung</h3></div>
+      <p class="idea">
+        Ein lokales Modell braucht Syflo <em>immer</em> — auch bei reiner Cloud-Nutzung. Die Einbettungen
+        für den Retrieval-Modus (lange Papers) laufen laut ADR-0008 grundsätzlich auf dem eigenen
+        Rechner: <code>bge-m3</code>.
+      </p>
+      <div class="term">
+        <div><span class="p">$</span> ollama pull bge-m3</div>
+        <div class="d">pulling manifest</div>
+        <div class="d">pulling 970aa74c0a90: <span class="b">100%</span> ▕████████████▏ 1,16 GB</div>
+        <div class="c">success</div>
+      </div>
+      <p style="font-size:12.5px;line-height:1.6;margin-top:12px">
+        Auf diesem Rechner ist das genau so passiert — von Hand im Terminal, protokolliert in
+        <code>logs/embed-pull.log</code>. In der Oberfläche gibt es dafür keinen Knopf und keinen Hinweis.
+      </p>
+      <div class="pro-con">
+        <div class="pc plus"><b>gut</b>1,16 GB sind überschaubar, und die Einbettungen bleiben privat — das ist ein bewusstes Versprechen der App.</div>
+        <div class="pc minus"><b>Problem</b>Wer es nicht pullt, merkt es erst, wenn ein langes Paper stumm bleibt. Eine Pflichtabhängigkeit, die niemand ankündigt.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="note">
+    <b>Zwei Größen, zwei völlig verschiedene Fragen.</b> Auf diesem Rechner gemessen:
+    <code>bge-m3</code> = <b>1,16 GB</b>, braucht <em>jeder</em> Nutzer für lange Quellen.
+    <code>qwen3.5:9b</code> = <b>6,59 GB</b>, braucht nur, wer den privaten Weg gehen will — und
+    antwortet laut ADR-0008-Messung in ~108 s statt ~1 s. Ein Automatismus, der beides in einen Topf
+    wirft, wird immer für die eine Hälfte falsch sein.
+  </div>
+
+  <div class="variants" style="margin-top:26px">
+    <div class="variant">
+      <div class="variant-head"><span class="variant-badge">I1</span><h3>Installation bleibt schlank</h3></div>
+      <p class="idea">
+        <code>npm install</code> lädt nur Code. Modelle holt die App zur Laufzeit — mit Größe,
+        Fortschrittsbalken und Abbrechen, an der Stelle, wo sie gebraucht werden: das Einbettungs-Modell
+        beim ersten langen Paper, das Chat-Modell beim Weg „Komplett privat“.
+      </p>
+      <div class="card acc">
+        <h4><svg class="ic sm" style="color:var(--accent)"><use href="#i-download"/></svg>Langes Paper geöffnet</h4>
+        <p>Für Quellen dieser Länge sucht Syflo die passenden Stellen selbst heraus. Dafür fehlt noch
+          das Einbettungs-Modell — <b>1,16 GB</b>, läuft nur auf diesem Rechner.</p>
+        <div class="btn-row">
+          <button class="btn primary"><svg class="ic xs"><use href="#i-download"/></svg>Laden (1,16 GB)</button>
+          <button class="btn">Erstmal ohne</button>
+        </div>
+      </div>
+      <div class="pro-con">
+        <div class="pc plus"><b>gut</b>Nichts wird heruntergeladen, was nicht gebraucht wird. Der Nutzer sieht Größe und Grund im selben Moment und kann abbrechen.</div>
+        <div class="pc minus"><b>Problem</b>Braucht eine Download-Oberfläche in der App — genau das, was der ADR-0008-Zusatz gestrichen hat. Diese Entscheidung müsste man aufmachen.</div>
+      </div>
+    </div>
+
+    <div class="variant">
+      <div class="variant-head"><span class="variant-badge">I2</span><h3>Ein eigener Befehl nach der Installation</h3></div>
+      <p class="idea">
+        <code>npm install</code> bleibt unangetastet; die Einrichtung ist ein zweiter, ausdrücklicher
+        Schritt. Der Befehl prüft Ollama, fragt nach dem Weg und lädt nur, was der gewählte Weg braucht.
+      </p>
+      <div class="term">
+        <div><span class="p">$</span> syflo setup</div>
+        <div class="c">✓</div><div style="margin-top:-22px;padding-left:14px">Node 22.4 · Ollama 0.6.2 gefunden</div>
+        <div style="margin-top:4px"><span class="w">?</span> Wie möchtest du antworten lassen?</div>
+        <div style="padding-left:14px" class="d">› Kostenlos über die Cloud (Schlüssel einfügen)</div>
+        <div style="padding-left:14px" class="d">  Komplett privat (6,59 GB laden)</div>
+        <div style="margin-top:4px"><span class="w">?</span> Lange Papers durchsuchbar machen? <span class="b">bge-m3, 1,16 GB</span> <span class="d">(J/n)</span></div>
+        <div class="d">pulling bge-m3 <span class="b">64%</span> ▕███████▏ 0,74/1,16 GB</div>
+      </div>
+      <div class="pro-con">
+        <div class="pc plus"><b>gut</b>Passt zum Publikum, das ohnehin im Terminal installiert. Fortschritt und Abbruch sind dort selbstverständlich, und die App startet fertig eingerichtet.</div>
+        <div class="pc minus"><b>Problem</b>Ein zweiter Schritt, den man überspringen kann — dann greift wieder §01. Und die Einrichtung lebt an zwei Orten (Terminal und Einstellungen), die dasselbe können müssen.</div>
+      </div>
+    </div>
+
+    <div class="variant">
+      <div class="variant-head"><span class="variant-badge">I3</span><h3>Automatisch beim Installieren</h3></div>
+      <p class="idea">
+        Das <code>postinstall</code>-Skript zieht das Modell gleich mit — die Idee aus der Frage,
+        ehrlich zu Ende gedacht.
+      </p>
+      <div class="term">
+        <div><span class="p">$</span> npm install -g syflo</div>
+        <div class="d">…  Electron-Binärdatei wird geladen (~100 MB)</div>
+        <div class="d">…  Ollama wird gesucht …</div>
+        <div class="w">⚠ Ollama nicht gefunden — Modell kann nicht geladen werden</div>
+        <div class="d">…  überspringe Modell-Download</div>
+        <div class="c">+ syflo@0.1.0</div>
+      </div>
+      <p style="font-size:12.5px;line-height:1.6;margin-top:12px">
+        <b style="color:var(--text-strong)">Der Haken steckt in der ersten Zeile:</b> Ollama ist kein
+        npm-Paket, sondern eine eigene Anwendung mit Hintergrunddienst. Ein <code>postinstall</code> kann
+        sie nicht seriös mitinstallieren — es kann nur prüfen, ob sie da ist, und sonst überspringen.
+        Also läuft I3 in der Praxis auf I1 oder I2 hinaus, nur ohne Rückfrage.
+      </p>
+      <div class="pro-con">
+        <div class="pc plus"><b>gut</b>Im günstigsten Fall ist nach einem Befehl alles fertig — kein zweiter Schritt, kein leerer Bildschirm.</div>
+        <div class="pc minus"><b>Problem</b>GB-Downloads ohne Rückfrage brechen mit den npm-Gepflogenheiten: <code>--ignore-scripts</code>, CI-Installationen und getaktete Verbindungen. Ein <code>npm install</code>, das zehn Minuten „hängt“, sieht kaputt aus.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="note q">
+    <b>Was die Antwort in Wahrheit blockiert:</b> Ollama. Solange der private Weg über eine fremde
+    Anwendung läuft, kann Syflos Installation ihn nicht abschließen — sie kann nur erkennen und führen.
+    <br><br>
+    <b>Geprüft am 12.08.2026:</b> Der naheliegende Ausweg <code>node-llama-cpp</code> (echte
+    npm-Abhängigkeit, vorgebaute Binärdateien, 13,2 MB für Apple Silicon) trägt den <em>Chat</em>-Weg
+    <b>nicht</b>: Bildverständnis fehlt (Issue&nbsp;#88 offen, keine Multimodal-Seite in der Doku), und
+    Syflo lässt lokal ausschließlich bild-fähige Modelle zu (<code>settings.js:60</code>).
+    Für <em>Einbettungen</em> passt es dagegen genau — <code>bge-m3</code> liefe damit ohne Ollama, und
+    der Modell-Download samt Fortschritt gehört zum Paket. Das wäre ein Zuschnitt, den ADR-0007 nicht
+    berührt: kein Inferenz-Prozess für den Chat, nur die Pflichtabhängigkeit aus §00 links.
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<div class="section">
+  <div class="section-head">
+    <h2><span class="num">§01</span> Die erste Minute, wie sie heute abläuft</h2>
+    <p>
+      Frisch installiert, kein Schlüssel, kein Ollama. Der Standard-Anbieter ist Gemini
+      (<code>llm.js:21</code>) — ohne Schlüssel.
+    </p>
+  </div>
+
+  <div class="variants">
+    <div class="variant">
+      <div class="variant-head"><span class="variant-badge ist">IST</span><h3>Der Bildschirm nach dem ersten Öffnen</h3></div>
+      <p class="idea">
+        Die Setup-Karte ersetzt <em>die ganze Eingabezeile</em> (<code>ChatArea/index.tsx:1724</code>):
+        kein Textfeld, kein Anhang-Knopf, kein Diktat, keine Modell-Pille.
+      </p>
+      <div class="frame">
+        <div class="frame-top"><span class="tl"><i></i><i></i><i></i></span><span class="ttl">Syflo</span></div>
+        <div class="frame-body">
+          <div class="side">
+            <div class="newchat"><svg class="ic xs"><use href="#i-plus"/></svg>Neuer Chat</div>
+            <div class="grp">Chats</div>
+            <div class="empty">Noch keine Chats</div>
+          </div>
+          <div class="main">
+            <div class="main-top"><span class="t">Neuer Chat</span>
+              <span class="sp"><svg class="ic sm"><use href="#i-file"/></svg><svg class="ic sm"><use href="#i-slider"/></svg></span></div>
+            <div class="main-scroll center">
+              <p class="quote">„Das Wichtigste ist, dass man nicht aufhört zu fragen.“<span class="who">Albert Einstein</span></p>
+            </div>
+            <div class="composer-wrap">
+              <div class="setup-card">
+                <div class="hd"><svg class="ic sm" style="color:var(--accent);margin-top:1px"><use href="#i-info"/></svg>
+                  <div><b>Noch kein Modell eingerichtet</b>
+                    <p>Wähle einen Weg — du kannst ihn später jederzeit wechseln.</p></div></div>
+                <div class="path"><svg class="ic sm" style="color:var(--accent)"><use href="#i-zap"/></svg>
+                  <b>Kostenlos starten</b><span>Gemini Flash oder Groq</span>
+                  <svg class="ic sm go"><use href="#i-chev-r"/></svg></div>
+                <div class="path"><svg class="ic sm" style="color:var(--text-muted)"><use href="#i-card"/></svg>
+                  <b>Eigenes Konto nutzen</b><span>OpenAI, Claude, Gemini Pro</span>
+                  <svg class="ic sm go"><use href="#i-chev-r"/></svg></div>
+                <div class="path"><svg class="ic sm" style="color:var(--text-muted)"><use href="#i-cpu"/></svg>
+                  <b>Komplett privat</b><span>lokales Modell, ohne Konto</span>
+                  <svg class="ic sm go"><use href="#i-chev-r"/></svg></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="pro-con">
+        <div class="pc plus"><b>gut</b>Drei echte Wege statt einer Werbung für einen Anbieter. Jede Zeile öffnet die Einstellungen mit dem passenden Anbieter.</div>
+        <div class="pc minus"><b>Problem</b>Die App ist zu 100 % gesperrt. Man kann nicht tippen, kein PDF anhängen, nichts ausprobieren — und nicht sehen, wofür man den Schlüssel eigentlich braucht.</div>
+      </div>
+    </div>
+
+    <div class="variant">
+      <div class="variant-head"><span class="variant-badge ist">IST</span><h3>Und wenn er das Modell-Fenster öffnet?</h3></div>
+      <p class="idea">
+        Kann er nicht — die Pille ist mit dem Composer verschwunden. Kommt er über die Einstellungen
+        zurück und hat einen Schlüssel, aber kein Ollama, sieht das Fenster so aus
+        (<code>ModelPicker.tsx:317</code>):
+      </p>
+      <div class="menu" style="margin:0 auto 14px">
+        <div class="mg ok"><svg class="ic xs"><use href="#i-check"/></svg>Kostenlos</div>
+        <div class="row active"><div class="rm"><div class="rn">Gemini Flash</div><div class="rs">Gemini</div></div>
+          <svg class="ic sm" style="color:var(--accent-strong)"><use href="#i-check"/></svg></div>
+        <div class="row"><div class="rm"><div class="rn">Gemini Flash Lite</div><div class="rs">Gemini</div></div></div>
+        <div class="msep"></div>
+        <div class="mg">Lokal · Ollama</div>
+        <div class="row off" style="background:var(--surface-2)">
+          <svg class="ic sm" style="color:var(--text-muted);margin-top:2px"><use href="#i-info"/></svg>
+          <div class="rm"><div class="rn" style="font-weight:600;font-size:11.5px">Ollama starten, um lokal zu antworten</div></div>
+          <svg class="ic sm" style="color:var(--text-muted)"><use href="#i-chev-r"/></svg></div>
+        <div class="msep"></div>
+        <div class="row"><div class="rm"><div class="rn">Modelle verwalten</div></div>
+          <svg class="ic sm" style="color:var(--text-muted)"><use href="#i-chev-r"/></svg></div>
+        <div class="mfoot"><span class="dot"></span>Ollama läuft nicht · 1 Cloud-Anbieter</div>
+      </div>
+      <div class="pro-con">
+        <div class="pc plus"><b>gut</b>Die lokale Option verschwindet nie stillschweigend — die Zeile sagt, warum sie fehlt, und führt zur Lösung.</div>
+        <div class="pc minus"><b>Problem</b>„Ollama“ ist ein Fachwort, das ein neuer Nutzer nicht kennt. Und die drei anderen Anbieter (OpenAI, Claude, Groq) fehlen komplett — schlüssellose Anbieter werden ausgeblendet, also erfährt man hier nie, dass es sie gibt.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="note">
+    <b>Der eigentliche Bruch:</b> Der Modell-Picker ist als <em>Auswahl</em> gebaut — er zeigt nur, was
+    schon eingerichtet ist. Beim ersten Start gibt es aber nichts auszuwählen; da wäre eine
+    <em>Einrichtungsliste</em> das Richtige. Ein Fenster, zwei Aufgaben. §03 zeigt drei Wege, das zu lösen.
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<div class="section">
+  <div class="section-head">
+    <h2><span class="num">§02</span> Wortschatz: sechs Zustände, sechs Wörter</h2>
+    <p>
+      „Gerade nicht nutzbar“ aus der letzten Runde deckt zu viel ab. Ein Modell ohne Schlüssel ist nicht
+      kaputt, ein erschöpftes Kontingent ist nicht dasselbe wie ein abgeschaltetes Modell, und ein
+      Text-Modell ist nur <em>für diese Frage</em> ungeeignet.
+    </p>
+  </div>
+  <div class="variant wide">
+    <div class="scroll-x">
+      <table class="vocab">
+        <thead><tr><th>Wort in der Oberfläche</th><th>Heißt</th><th>Woher Syflo das weiß</th><th>Was der Nutzer tun kann</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><span class="badge live"><svg class="ic xs"><use href="#i-check"/></svg>Nutzbar</span></td>
+            <td><b>Läuft.</b> Der letzte echte Aufruf ging durch.</td>
+            <td>letzte geglückte Antwort</td>
+            <td>auswählen</td>
+          </tr>
+          <tr class="new">
+            <td><span class="badge acc"><svg class="ic xs"><use href="#i-key"/></svg>Einrichten</span></td>
+            <td><b>Noch nie eingerichtet.</b> Kein Schlüssel, kein Download — nichts ist kaputt.</td>
+            <td>Einstellungen: kein Schlüssel gespeichert</td>
+            <td>Schlüssel holen bzw. Modell laden</td>
+          </tr>
+          <tr>
+            <td><span class="badge cool"><svg class="ic xs"><use href="#i-clock"/></svg>Limit erreicht</span></td>
+            <td><b>Eingerichtet, aber gerade aufgebraucht.</b> Kommt von selbst zurück.</td>
+            <td>429 vom Anbieter + dessen Wartezeit</td>
+            <td>warten oder wechseln</td>
+          </tr>
+          <tr>
+            <td><span class="badge"><svg class="ic xs"><use href="#i-help"/></svg>Status unbekannt</span></td>
+            <td><b>Wartezeit vorbei, aber nichts geprüft.</b></td>
+            <td>abgelaufene Wartezeit, keine Messung</td>
+            <td>einfach senden — das klärt es</td>
+          </tr>
+          <tr class="new">
+            <td><span class="badge"><svg class="ic xs"><use href="#i-eye-off"/></svg>Liest keine Bilder</span></td>
+            <td><b>Läuft, passt aber nicht zu <em>dieser</em> Frage.</b> Nur relevant, solange ein Bild anhängt.</td>
+            <td>Registry-Eigenschaft <code>vision</code></td>
+            <td>Modell wechseln oder Bild entfernen</td>
+          </tr>
+          <tr>
+            <td><span class="badge gone"><svg class="ic xs"><use href="#i-alert"/></svg>Nicht mehr verfügbar</span></td>
+            <td><b>Abgeschaltet.</b> Der Anbieter kennt es nicht mehr.</td>
+            <td>404 vom Anbieter</td>
+            <td>aus der Liste nehmen</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="verdict">
+      <b>Folge für die Gruppen-Überschrift aus der letzten Runde:</b> statt einer Sammelgruppe
+      „Gerade nicht nutzbar“ zwei Gruppen — <em>„Noch einzurichten“</em> (Zustand 2) und
+      <em>„Gerade nicht nutzbar“</em> (Zustände 3, 4, 6). Beim ersten Start ist die zweite Gruppe leer und
+      die erste voll: der Picker liest sich dann wie eine Einkaufsliste, nicht wie ein Schadensbericht.
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<div class="section">
+  <div class="section-head">
+    <h2><span class="num">§03</span> Erster Start: drei Zuschnitte</h2>
+    <p>Wo lernt der Nutzer, was er tun muss — und darf er die App vorher anschauen?</p>
+  </div>
+
+  <div class="variants">
+    <div class="variant">
+      <div class="variant-head"><span class="variant-badge">O1</span><h3>Karte bleibt, Picker wird zur Einkaufsliste</h3></div>
+      <p class="idea">
+        Kleinster Eingriff. Die Setup-Karte bleibt wie heute, aber der Picker zeigt <em>alle</em> Anbieter —
+        auch die ohne Schlüssel — im Zustand „Einrichten“. Die Pille bleibt sichtbar und heißt
+        „Modell einrichten“.
+      </p>
+      <div class="menu" style="margin:0 auto">
+        <div class="mg acc"><svg class="ic xs"><use href="#i-key"/></svg>Noch einzurichten</div>
+        <div class="row"><svg class="ic sm" style="color:var(--accent);margin-top:2px"><use href="#i-zap"/></svg>
+          <div class="rm"><div class="rn">Gemini Flash</div><div class="rs acc">kostenlos · 20 Fragen am Tag · Schlüssel holen</div></div>
+          <span class="badge acc">Einrichten</span></div>
+        <div class="row"><svg class="ic sm" style="color:var(--accent);margin-top:2px"><use href="#i-zap"/></svg>
+          <div class="rm"><div class="rn">Llama 3.3 70B</div><div class="rs acc">kostenlos · Groq · Schlüssel holen</div></div>
+          <span class="badge acc">Einrichten</span></div>
+        <div class="row"><svg class="ic sm" style="color:var(--text-muted);margin-top:2px"><use href="#i-card"/></svg>
+          <div class="rm"><div class="rn">GPT-4o mini</div><div class="rs">eigenes OpenAI-Konto · nach Nutzung</div></div>
+          <span class="badge">Einrichten</span></div>
+        <div class="row"><svg class="ic sm" style="color:var(--text-muted);margin-top:2px"><use href="#i-cpu"/></svg>
+          <div class="rm"><div class="rn">Lokales Modell</div><div class="rs">läuft auf diesem Mac · ohne Konto · 5,4 GB laden</div></div>
+          <span class="badge">Einrichten</span></div>
+        <div class="msep"></div>
+        <div class="mfoot"><span class="dot"></span>Noch kein Modell eingerichtet</div>
+      </div>
+      <div class="pro-con">
+        <div class="pc plus"><b>gut</b>Ein Fenster für beides. Der Nutzer sieht sofort das ganze Angebot samt Preis und Aufwand — heute erfährt er von OpenAI oder Groq an dieser Stelle nichts.</div>
+        <div class="pc minus"><b>Problem</b>Zwei Einstiege für dieselbe Aufgabe (Karte + Picker), die man synchron halten muss. Und die App bleibt gesperrt.</div>
+      </div>
+    </div>
+
+    <div class="variant">
+      <div class="variant-head"><span class="variant-badge">O2</span><h3>Composer bleibt, mit gesperrtem Senden</h3></div>
+      <p class="idea">
+        Die Karte wird zu einer schmalen Zeile <em>über</em> dem Composer. Tippen, PDF anhängen, Diktat,
+        Zitate markieren — alles geht. Nur der Senden-Knopf ist gesperrt und erklärt sich beim Darüberfahren.
+        Beim ersten Senden-Versuch öffnet sich die Pfad-Wahl, und die getippte Frage bleibt stehen.
+      </p>
+      <div class="frame">
+        <div class="frame-top"><span class="tl"><i></i><i></i><i></i></span><span class="ttl">Syflo</span></div>
+        <div class="frame-body">
+          <div class="side">
+            <div class="newchat"><svg class="ic xs"><use href="#i-plus"/></svg>Neuer Chat</div>
+            <div class="grp">Chats</div><div class="empty">Noch keine Chats</div>
+          </div>
+          <div class="main">
+            <div class="main-top"><span class="t">Attention Is All You Need</span>
+              <span class="sp"><svg class="ic sm"><use href="#i-file"/></svg></span></div>
+            <div class="main-scroll">
+              <div class="bubble me">Was ist ein Attention-Head?</div>
+              <div class="bubble" style="border-style:dashed;color:var(--text-muted);font-style:italic">
+                Zum Antworten fehlt noch ein Modell.</div>
+            </div>
+            <div class="composer-wrap">
+              <div style="display:flex;align-items:center;gap:7px;margin-bottom:8px;
+                          background:var(--accent-soft);border:1px solid #BFDBFE;border-radius:8px;
+                          padding:5px 9px">
+                <svg class="ic sm" style="color:var(--accent)"><use href="#i-key"/></svg>
+                <span style="font-size:10.5px;color:var(--text-default)">
+                  Noch kein Modell — <b style="color:var(--accent)">in 1 Minute einrichten</b></span>
+                <svg class="ic sm" style="margin-left:auto;color:var(--accent)"><use href="#i-chev-r"/></svg>
+              </div>
+              <div class="composer">
+                <svg class="ic sm" style="color:var(--text-muted)"><use href="#i-plus"/></svg>
+                <svg class="ic sm" style="color:var(--text-muted)"><use href="#i-mic"/></svg>
+                <span class="ph">Frage stellen …</span>
+                <span class="pill setup"><svg class="ic xs"><use href="#i-key"/></svg>Modell einrichten</span>
+                <svg class="ic sm" style="color:var(--text-muted);opacity:0.4"><use href="#i-send"/></svg>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="pro-con">
+        <div class="pc plus"><b>gut</b>Der Nutzer versteht erst, <em>wofür</em> er einen Schlüssel braucht, und richtet dann ein. Er kann ein Paper laden, markieren, den Baum anschauen — der Wert der App ist sichtbar, bevor er Arbeit investiert.</div>
+        <div class="pc minus"><b>Problem</b>Man kann tippen und dann nicht senden — das kann sich wie eine Sackgasse anfühlen, wenn die Zeile darüber überlesen wird. Braucht sorgfältige Wörter am Senden-Knopf.</div>
+      </div>
+    </div>
+
+    <div class="variant">
+      <div class="variant-head"><span class="variant-badge">O3</span><h3>Ein Begrüßungsbildschirm beim allerersten Start</h3></div>
+      <p class="idea">
+        Einmalig, vollflächig, drei Schritte: Weg wählen → Schlüssel einsetzen (mit Link und
+        <em>„Schlüssel prüfen“</em>) → eine Testfrage, die sofort antwortet. Danach nie wieder zu sehen.
+      </p>
+      <div class="frame">
+        <div class="frame-top"><span class="tl"><i></i><i></i><i></i></span><span class="ttl">Willkommen bei Syflo</span></div>
+        <div class="frame-body" style="flex-direction:column;align-items:center;justify-content:center;padding:20px;gap:12px;background:var(--surface-2)">
+          <div style="display:flex;gap:7px;align-items:center;margin-bottom:2px">
+            <span class="badge acc" style="margin:0">1 · Weg</span>
+            <span style="width:22px;height:1px;background:var(--border)"></span>
+            <span class="badge" style="margin:0">2 · Schlüssel</span>
+            <span style="width:22px;height:1px;background:var(--border)"></span>
+            <span class="badge" style="margin:0">3 · Testfrage</span>
+          </div>
+          <div class="card acc" style="width:330px">
+            <h4><svg class="ic sm" style="color:var(--accent)"><use href="#i-key"/></svg>Schlüssel einsetzen</h4>
+            <p style="margin-bottom:8px">Gemini gibt kostenlose Schlüssel aus — 20 Fragen am Tag, keine Kreditkarte.</p>
+            <div style="display:flex;align-items:center;gap:6px;border:1px solid var(--border);
+                        border-radius:7px;padding:5px 8px;background:var(--surface-2)">
+              <svg class="ic sm" style="color:var(--text-muted)"><use href="#i-key"/></svg>
+              <span style="font-family:var(--font-meta);font-size:10.5px;color:var(--text-muted)">AQ.Ab8…</span>
+              <span class="badge live" style="margin:0 0 0 auto"><svg class="ic xs"><use href="#i-check"/></svg>funktioniert</span>
+            </div>
+            <div class="btn-row">
+              <button class="btn primary">Weiter</button>
+              <button class="btn soft">Schlüssel bei Google holen</button>
+              <button class="btn">Überspringen</button>
+            </div>
+          </div>
+          <p class="caption" style="max-width:330px;text-align:center">
+            „Überspringen“ landet in O2: App benutzbar, Senden gesperrt.</p>
+        </div>
+      </div>
+      <div class="pro-con">
+        <div class="pc plus"><b>gut</b>Der einzige Zuschnitt, der die Einrichtung wirklich <em>abschließt</em> — mit Prüfung und Testantwort. Danach weiß der Nutzer, dass es läuft, statt es zu hoffen.</div>
+        <div class="pc minus"><b>Problem</b>Ein Begrüßungsassistent ist eine neue Bildschirmfläche mit eigenen Zuständen, und viele Nutzer klicken ihn reflexhaft weg. Größter Bauaufwand der drei.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="note">
+    <b>Lücke unabhängig vom Zuschnitt:</b> Es gibt <em>nirgends</em> eine Schlüssel-Prüfung. Der Schlüssel
+    wird gespeichert wie ein Text; ob er stimmt, erfährt der Nutzer erst bei der ersten Frage — und dann
+    als gescheiterte Antwort. Ein einzelner Ein-Token-Aufruf beim Speichern („Schlüssel prüfen“) erkennt
+    Tippfehler, den falschen Anbieter <em>und</em> ob der Schlüssel Abrechnung hat (§05 der ersten Runde).
+    Er kostet fast nichts und ist von allen drei Zuschnitten unabhängig.
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<div class="section">
+  <div class="section-head">
+    <h2><span class="num">§04</span> Das erste Bild</h2>
+    <p>
+      Heute steht die Bild-Sperre in <code>messages.js:1163</code> — sie greift erst beim
+      <strong>Senden</strong>. Der Nutzer hängt das Bild an, tippt seine Frage, schickt sie ab, und
+      <em>dann</em> erfährt er, dass sein Modell keine Bilder liest. Vier Fälle, die sich völlig
+      verschieden verhalten:
+    </p>
+  </div>
+
+  <div class="variants">
+    <div class="variant">
+      <div class="variant-head"><span class="variant-badge ist">IST · Fall A</span><h3>Ein anderes Bild-Modell ist da</h3></div>
+      <p class="idea">
+        Syflo wechselt <strong>still</strong> auf ein Bild-fähiges Modell und antwortet. In der Pille steht
+        weiter das alte Modell; die Antwort kommt von einem anderen.
+      </p>
+      <div class="card warn">
+        <h4><svg class="ic sm" style="color:var(--warn)"><use href="#i-swap"/></svg>Was der Nutzer sieht</h4>
+        <p>Eine ganz normale Antwort. Kein Hinweis, kein Vermerk — außer der Wechsel-Zeile im Verlauf,
+          die leicht zu übersehen ist.</p>
+      </div>
+      <div class="pro-con">
+        <div class="pc plus"><b>gut</b>Es funktioniert einfach. Kein Klick, keine Unterbrechung.</div>
+        <div class="pc minus"><b>Problem</b>Bei Kosten-Modellen ist ein stiller Wechsel eine Geldentscheidung ohne Frage. Und wer eine bestimmte Qualität erwartet, bekommt sie unbemerkt nicht.</div>
+      </div>
+    </div>
+
+    <div class="variant">
+      <div class="variant-head"><span class="variant-badge ist">IST · Fall B</span><h3>Kein Bild-Modell verfügbar</h3></div>
+      <p class="idea">Die Frage scheitert, und darunter erscheint diese Karte:</p>
+      <div class="card warn">
+        <h4><svg class="ic sm" style="color:var(--warn)"><use href="#i-alert"/></svg>Llama 3.3 70B kann keine Bilder lesen.</h4>
+        <div class="btn-row">
+          <button class="btn soft"><svg class="ic xs"><use href="#i-cpu"/></svg>Lokal versuchen</button>
+          <button class="btn"><svg class="ic xs"><use href="#i-swap"/></svg>Modell wechseln</button>
+        </div>
+        <p style="margin-top:8px;color:var(--text-muted);font-size:10.5px">
+          Oder entferne das Bild aus der Frage und sende sie erneut.</p>
+      </div>
+      <div class="pro-con">
+        <div class="pc plus"><b>gut</b>Sagt klar, welches Modell schuld ist, und bietet drei echte Ausgänge.</div>
+        <div class="pc minus"><b>Problem</b>Kommt zu spät — die Frage ist schon getippt und abgeschickt. „Modell wechseln“ öffnet ein Fenster, in dem <em>kein</em> Bild-Modell steht: der Ausgang führt in eine Wand. „Lokal versuchen“ erscheint nur, wenn ein lokales Modell existiert.</div>
+      </div>
+    </div>
+
+    <div class="variant">
+      <div class="variant-head"><span class="variant-badge">V1</span><h3>Den Moment vorziehen: beim Anhängen</h3></div>
+      <p class="idea">
+        Die Prüfung wandert vom Senden zum <strong>Anhängen</strong>. Wer ein Bild anhängt, sieht sofort,
+        ob das aktuelle Modell es lesen kann — bevor er die Frage tippt.
+      </p>
+      <div class="frame" style="height:auto">
+        <div class="frame-top"><span class="tl"><i></i><i></i><i></i></span><span class="ttl">Eingabezeile</span></div>
+        <div style="padding:12px">
+          <div style="display:flex;gap:7px;margin-bottom:8px;align-items:center">
+            <span class="chip"><span class="thumb"></span>@foto <svg class="ic xs" style="color:var(--text-muted)"><use href="#i-x"/></svg></span>
+            <span class="chip warn"><svg class="ic xs"><use href="#i-eye-off"/></svg>Llama liest keine Bilder</span>
+          </div>
+          <div class="composer">
+            <svg class="ic sm" style="color:var(--text-muted)"><use href="#i-plus"/></svg>
+            <svg class="ic sm" style="color:var(--text-muted)"><use href="#i-mic"/></svg>
+            <span class="ph">Frage stellen …</span>
+            <span class="pill warn"><svg class="ic xs"><use href="#i-eye-off"/></svg>Llama 3.3 70B <svg class="ic xs"><use href="#i-chev-d"/></svg></span>
+          </div>
+          <div style="margin-top:9px">
+            <div class="card acc">
+              <p><b style="color:var(--text-strong)">Zum Lesen des Bildes braucht Syflo ein anderes Modell.</b></p>
+              <div class="btn-row">
+                <button class="btn primary"><svg class="ic xs"><use href="#i-eye"/></svg>Auf Gemini Flash Lite wechseln</button>
+                <button class="btn">Bild entfernen</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="pro-con">
+        <div class="pc plus"><b>gut</b>Nichts geht verloren, weil noch nichts abgeschickt wurde. Der Vorschlag nennt das konkrete Modell, nicht „ein Bild-fähiges Modell“.</div>
+        <div class="pc minus"><b>Problem</b>Ein Hinweis direkt beim Anhängen kann als Störung wirken, wenn der Nutzer sowieso wechseln wollte. Und die Pille muss zwei Warn-Zustände tragen (Limit + Bild).</div>
+      </div>
+      <p class="caption">Fall A würde damit zur Frage statt zum stillen Wechsel — offene Entscheidung, siehe Notiz unten.</p>
+    </div>
+
+    <div class="variant">
+      <div class="variant-head"><span class="variant-badge">V2</span><h3>Wenn es gar kein Bild-Modell gibt</h3></div>
+      <p class="idea">
+        Der heute fehlende Fall. Kein Cloud-Bild-Modell, kein lokales — der Ausgang „Modell wechseln“
+        führt ins Leere. Stattdessen benennt die Karte, was fehlt, und bietet den kürzesten Weg dorthin.
+      </p>
+      <div class="card acc">
+        <h4><svg class="ic sm" style="color:var(--accent)"><use href="#i-eye-off"/></svg>Noch kein Modell, das Bilder liest</h4>
+        <p>
+          Deine eingerichteten Modelle verstehen nur Text. Bilder lesen können:
+        </p>
+        <div style="margin-top:9px;border:1px solid var(--border);border-radius:8px;overflow:hidden">
+          <div class="row" style="border-radius:0"><svg class="ic sm" style="color:var(--accent);margin-top:2px"><use href="#i-zap"/></svg>
+            <div class="rm"><div class="rn">Gemini Flash Lite</div><div class="rs acc">kostenlos · 500 Fragen am Tag · Schlüssel holen</div></div>
+            <span class="badge acc">Einrichten</span></div>
+          <div class="row" style="border-radius:0;border-top:1px solid var(--border)">
+            <svg class="ic sm" style="color:var(--text-muted);margin-top:2px"><use href="#i-cpu"/></svg>
+            <div class="rm"><div class="rn">qwen3.5:9b</div><div class="rs">lokal · privat · 5,4 GB laden</div></div>
+            <span class="badge">Laden</span></div>
+        </div>
+        <div class="btn-row">
+          <button class="btn">Bild entfernen und trotzdem fragen</button>
+        </div>
+      </div>
+      <div class="pro-con">
+        <div class="pc plus"><b>gut</b>Der einzige Zustand, in dem der Nutzer heute strandet, bekommt einen Ausgang — und zwar einen mit Preis und Größe dran.</div>
+        <div class="pc minus"><b>Problem</b>Mitten in einer Frage eine Einrichtung anzufangen, reißt aus dem Gedanken. Braucht die Zusicherung, dass die Frage samt Bild danach noch steht.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="note q">
+    <b>Offene Entscheidung in §04:</b> Soll der stille Wechsel aus Fall A bleiben? Drei Haltungen sind
+    vertretbar — (a) immer still wechseln, Bequemlichkeit zuerst; (b) still wechseln, aber nur auf
+    <em>kostenlose</em> Modelle, sonst fragen; (c) immer fragen, weil das Modell die Antwort prägt.
+    Variante (b) passt zur Kosten-Regel, die die Failover-Leiter schon befolgt (nur bewusst gewählte
+    Modelle dürfen Geld kosten).
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<div class="section">
+  <div class="section-head">
+    <h2><span class="num">§05</span> Der ganze Weg, in Schritten</h2>
+    <p>Vom Download bis zur ersten Antwort — mit den Stellen, an denen heute etwas fehlt.</p>
+  </div>
+  <div class="variant wide">
+    <div class="steps">
+      <div class="st-n">Schritt 1</div>
+      <div class="st-b">
+        <h4>App geladen und geöffnet</h4>
+        <p>Standard: Anbieter Gemini, kein Schlüssel. Sidebar leer, Zitat in der Mitte, Setup-Karte statt Eingabezeile.</p>
+        <span class="gap"><svg class="ic xs"><use href="#i-alert"/></svg>Die App ist gesperrt, bevor der Nutzer weiß, was sie kann</span>
+      </div>
+
+      <div class="st-n">Schritt 2</div>
+      <div class="st-b">
+        <h4>Weg wählen</h4>
+        <p>„Kostenlos starten“ / „Eigenes Konto“ / „Komplett privat“ öffnet die Einstellungen mit vorgewähltem Anbieter.</p>
+        <span class="gap"><svg class="ic xs"><use href="#i-alert"/></svg>Im Modell-Fenster fehlen genau diese Wege — dort sieht man nur Eingerichtetes</span>
+      </div>
+
+      <div class="st-n">Schritt 3</div>
+      <div class="st-b">
+        <h4>Schlüssel holen und einsetzen</h4>
+        <p>Der Link führt zur Anbieterseite, der Schlüssel wird eingefügt und gespeichert.</p>
+        <span class="gap"><svg class="ic xs"><use href="#i-alert"/></svg>Keine Prüfung: ein Tippfehler fällt erst bei der ersten Frage auf</span>
+      </div>
+
+      <div class="st-n">Schritt 4</div>
+      <div class="st-b acc">
+        <h4>Erste Frage</h4>
+        <p>Klappt sie, ist alles gut. Klappt sie nicht, entscheidet der Fehlergrund über die Karte —
+          und die war bei Gemini bisher oft falsch beschriftet (Runde 1, B1).</p>
+      </div>
+
+      <div class="st-n">Schritt 5</div>
+      <div class="st-b">
+        <h4>Erstes PDF, erstes Bild</h4>
+        <p>Hier trifft der Nutzer die Bild-Sperre — beim Senden, nicht beim Anhängen (§04).</p>
+        <span class="gap"><svg class="ic xs"><use href="#i-alert"/></svg>Ohne Bild-Modell führt „Modell wechseln“ in ein Fenster ohne Lösung</span>
+      </div>
+
+      <div class="st-n">Schritt 6</div>
+      <div class="st-b">
+        <h4>Erstes Limit</h4>
+        <p>Nach 20 Fragen ist Gemini Flash leer. Ab hier gilt Runde 1: ehrliche Uhr, ehrlicher Zähler,
+          „Status unbekannt“ statt falscher Zuversicht.</p>
+      </div>
+
+      <div class="st-n">Schritt 7</div>
+      <div class="st-b good">
+        <h4>Eingerichtet</h4>
+        <p>Der Nutzer hat mindestens ein Modell, das läuft, und weiß, was es kostet.
+          Das ist der Zustand, den die Oberfläche heute schon voraussetzt.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

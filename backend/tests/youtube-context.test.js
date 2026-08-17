@@ -95,7 +95,7 @@ describe('chat title in a video tree', () => {
     mockCreate.mockResolvedValue(makeStream(['Overview.']));
     const res = await request(app)
       .post(`/api/chats/${chat.id}/messages`)
-      .send({ content: 'Structure the information in this video.' });
+      .send({ content: 'Structure the entire content of this video in detail — no summary.' });
     expect(res.status).toBe(200);
 
     const detail = await request(app).get(`/api/chats/${chat.id}`);
@@ -119,8 +119,13 @@ describe('YouTube transcript in the chat context', () => {
     expect(system).toContain('[00:00] Hi everyone.');
     expect(system).toContain('[01:30] So what is a large language model really?');
     expect(system).toContain('--- VIDEO TRANSCRIPT END ---');
-    // Video overview rule: restructure, never summarize (user decision 2026-07-23).
-    expect(system).toMatch(/do NOT summarize/i);
+    // Video overview rule: restructure, never summarize (user decision
+    // 2026-07-23). Since 2026-08-15 the rule states the output SHAPE instead
+    // of the prohibition — the three parts per section are what the chapter
+    // list in VideoPane parses, so they are what this asserts.
+    expect(system).toMatch(/not a summary/i);
+    expect(system).toContain('[m:ss - m:ss]');
+    expect(system).toMatch(/one bold sentence stating the section's key point/i);
     // Untrimmed transcript → no truncation note.
     expect(system).not.toMatch(/truncated at/i);
   });

@@ -1,0 +1,1319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Syflo · Reference links — clickable citations, two doors</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --brand-blue: #3B82F6;
+    --bg-app: #F8FAFC;
+    --surface: #FFFFFF;
+    --text-strong: #0F172A;
+    --text-default: #334155;
+    --text-muted: #64748B;
+    --border: #E2E8F0;
+    --blue-50: #EFF6FF; --blue-100: #DBEAFE; --blue-200: #BFDBFE;
+    --blue-500: #3B82F6; --blue-600: #2563EB; --blue-700: #1D4ED8;
+    --gray-50: #F9FAFB; --gray-100: #F3F4F6; --gray-200: #E5E7EB;
+    --gray-300: #D1D5DB; --gray-400: #9CA3AF; --gray-500: #6B7280; --gray-600: #4B5563;
+    --shadow: 0 1px 3px rgba(15,23,42,0.06), 0 1px 2px rgba(15,23,42,0.04);
+    --shadow-pop: 0 10px 30px rgba(15,23,42,0.14), 0 2px 8px rgba(15,23,42,0.08);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Inter', -apple-system, sans-serif; background: var(--bg-app);
+    color: var(--text-default); -webkit-font-smoothing: antialiased;
+    min-height: 100vh; padding: 48px 32px 120px;
+  }
+  .wrap { max-width: 1240px; margin: 0 auto; }
+
+  .intro { margin-bottom: 44px; }
+  .intro h1 { font-size: 24px; font-weight: 700; color: var(--text-strong); letter-spacing: -0.015em; margin-bottom: 8px; }
+  .intro p { font-size: 14px; color: var(--text-muted); line-height: 1.65; max-width: 840px; }
+  .intro p + p { margin-top: 10px; }
+  .intro strong { color: var(--text-default); font-weight: 600; }
+  code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px;
+    background: var(--gray-100); border: 1px solid var(--border); border-radius: 4px; padding: 1px 4px;
+  }
+
+  .section { margin-bottom: 60px; }
+  .section-label {
+    font-size: 12px; font-weight: 600; color: var(--text-muted);
+    letter-spacing: 0.06em; text-transform: uppercase;
+    display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px;
+  }
+  .section-label .num { color: var(--brand-blue); font-weight: 700; }
+  .section-desc { font-size: 13px; color: var(--text-muted); line-height: 1.6; margin-bottom: 18px; max-width: 840px; }
+  .section-desc strong { color: var(--text-default); font-weight: 600; }
+
+  .stage { background: #E2E8F0; border-radius: 14px; padding: 32px 24px; display: flex; justify-content: center; gap: 28px; align-items: flex-start; flex-wrap: wrap; }
+  .stage.tight { padding: 26px 20px; gap: 20px; }
+  .col { display: flex; flex-direction: column; }
+  .state-label {
+    text-align: center; font-size: 10.5px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.06em; color: var(--text-muted); margin-bottom: 10px;
+  }
+
+  /* ─────────── Process flow ─────────── */
+  .flow { display: flex; align-items: stretch; gap: 0; flex-wrap: wrap; justify-content: center; }
+  .step {
+    width: 194px; background: var(--surface); border: 1px solid var(--border); border-radius: 11px;
+    padding: 14px; display: flex; flex-direction: column; gap: 7px; box-shadow: var(--shadow);
+  }
+  .step .snum {
+    display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px;
+    border-radius: 6px; background: var(--blue-600); color: #fff; font-size: 11px; font-weight: 700;
+  }
+  .step .stitle { font-size: 12.5px; font-weight: 600; color: var(--text-strong); line-height: 1.35; }
+  .step .sbody { font-size: 11.5px; color: var(--text-muted); line-height: 1.5; }
+  .step .swhen {
+    font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;
+    color: var(--gray-400); margin-top: auto; padding-top: 6px;
+  }
+  .step.ghost { background: var(--gray-50); border-style: dashed; }
+  .step.ghost .snum { background: var(--gray-400); }
+  .arrow { display: flex; align-items: center; color: var(--gray-400); padding: 0 6px; }
+  .branch-wrap { display: flex; flex-direction: column; gap: 12px; }
+  .branch-tag {
+    font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
+    color: var(--blue-700); background: var(--blue-100); border-radius: 5px;
+    padding: 2px 6px; align-self: flex-start; margin-bottom: -3px;
+  }
+  .branch-tag.gray { color: var(--gray-600); background: var(--gray-200); }
+
+  /* ─────────── PDF pane ─────────── */
+  .pdf-pane {
+    background: var(--gray-100); border: 1px solid var(--border);
+    border-radius: 10px; overflow: hidden; box-shadow: var(--shadow);
+  }
+  .pdf-toolbar {
+    display: flex; align-items: center; gap: 8px; padding: 8px 12px;
+    background: var(--surface); border-bottom: 1px solid var(--border);
+  }
+  .pdf-toolbar .fname { font-size: 12.5px; font-weight: 600; color: var(--text-strong); flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pdf-toolbar .pnum { font-size: 11.5px; color: var(--gray-400); font-variant-numeric: tabular-nums; }
+  .pdf-page {
+    background: var(--surface); margin: 14px; padding: 20px 22px; border-radius: 4px;
+    box-shadow: 0 1px 4px rgba(15,23,42,0.10); position: relative;
+  }
+  .pdf-h { font-size: 12.5px; font-weight: 700; color: #111; margin-bottom: 8px; letter-spacing: -0.01em; }
+  .pdf-p {
+    font-family: 'Times New Roman', Times, serif; font-size: 12.5px; line-height: 1.75;
+    color: #1a1a1a; text-align: justify; hyphens: auto;
+  }
+  .pdf-p + .pdf-p { margin-top: 9px; }
+
+  /* The citation link. Dotted underline only — the page must still read as a
+     paper, not as a web page. No toggle: this is the permanent look. */
+  .cite {
+    cursor: pointer; border-bottom: 1px dotted var(--gray-400); padding-bottom: 0.5px;
+  }
+  .cite:hover { color: var(--blue-700); border-bottom: 1px solid var(--blue-600); background: var(--blue-50); }
+  .cite.active { color: var(--blue-700); border-bottom: 1px solid var(--blue-600); background: var(--blue-100); }
+  .cite.weak { border-bottom: 1px dotted var(--gray-300); cursor: default; }
+  .cite.weak:hover { color: inherit; background: none; border-bottom: 1px dotted var(--gray-300); }
+  /* The separators between two citations inside one bracket stay dead. */
+  .sep { color: #1a1a1a; }
+  .selspan { background: rgba(59,130,246,0.28); }
+
+  /* Rect diagram: raw annotation rect vs. word-snapped hit area */
+  .rectdemo {
+    font-family: 'Times New Roman', Times, serif; font-size: 15px; line-height: 2.6;
+    color: #1a1a1a; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 9px; padding: 16px 18px; width: 372px;
+  }
+  .rectdemo .lbl {
+    font-family: 'Inter', sans-serif; font-size: 10px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.05em; color: var(--gray-400); line-height: 1.4; display: block; margin-bottom: 2px;
+  }
+  .raw { outline: 1.5px dashed #B45309; outline-offset: 1px; background: rgba(180,83,9,0.07); }
+  .snap { outline: 1.5px solid var(--blue-600); outline-offset: 1px; background: var(--blue-50); border-radius: 2px; }
+  .legend { display: flex; gap: 16px; margin-top: 12px; font-family: 'Inter', sans-serif; font-size: 11px; color: var(--text-muted); }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .swatch { width: 11px; height: 11px; border-radius: 3px; flex: none; }
+  .swatch.raw { outline: 1.5px dashed #B45309; outline-offset: 0; background: rgba(180,83,9,0.07); }
+  .swatch.snap { outline: 1.5px solid var(--blue-600); background: var(--blue-50); }
+
+  /* ─────────── Citation card ─────────── */
+  /* 1:1 the FloatingPopup shell: rounded-2xl, shadow-2xl, border-gray-100,
+     an uppercase overline above the title, a gray-50 footer whose buttons are
+     stacked, full-width and all blue-50 — "gleiche Fläche, gleiche Farbe, die
+     Reihenfolge allein kommuniziert die Priorität" (FloatingPopup, user
+     decision 2026-07-20). */
+  .pop {
+    width: 340px; background: var(--surface); border: 1px solid var(--gray-100);
+    border-radius: 16px; overflow: hidden;
+    box-shadow: 0 25px 50px -12px rgba(15,23,42,0.25);
+  }
+  .pop-head {
+    display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+    padding: 16px 20px 12px; border-bottom: 1px solid var(--gray-100);
+  }
+  .pop-head .ph-main { min-width: 0; flex: 1; }
+  .pop-over {
+    font-size: 10px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--gray-400); margin-bottom: 2px;
+  }
+  .pop-title { font-size: 14px; font-weight: 600; color: var(--text-strong); line-height: 1.4; }
+  .pop-x {
+    flex: none; border: none; background: none; cursor: pointer; color: var(--gray-400);
+    border-radius: 6px; padding: 4px; display: inline-flex; margin: -2px -4px 0 0;
+  }
+  .pop-x:hover { background: var(--gray-100); color: var(--gray-600); }
+
+  .pop-body { padding: 14px 20px 16px; }
+  .pop-meta { font-size: 12px; color: var(--gray-500); line-height: 1.5; }
+  .pop-meta .dot { color: var(--gray-300); margin: 0 5px; }
+  .pop-abstract {
+    font-size: 13px; color: var(--gray-600); line-height: 1.6; margin-top: 8px;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  }
+  /* A failed attempt speaks inside the card — Syflo has no toasts. */
+  .pop-fail {
+    display: flex; gap: 8px; align-items: flex-start; margin-top: 10px; padding: 9px 11px;
+    background: var(--gray-50); border: 1px solid var(--gray-200); border-radius: 8px;
+    font-size: 12px; color: var(--text-default); line-height: 1.5;
+  }
+  .pop-fail svg { flex: none; color: var(--gray-400); margin-top: 1px; }
+
+  .doors {
+    display: flex; flex-direction: column; gap: 6px;
+    padding: 12px; border-top: 1px solid var(--gray-100); background: var(--gray-50);
+  }
+  .door {
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    width: 100%; padding: 8px 12px; border-radius: 8px; border: none;
+    font-family: inherit; font-size: 14px; font-weight: 500;
+    color: var(--blue-700); background: var(--blue-50); cursor: pointer;
+  }
+  .door:hover { background: var(--blue-100); }
+  .door:disabled { opacity: 0.5; cursor: default; }
+  .door:disabled:hover { background: var(--blue-50); }
+
+  .sk { background: var(--gray-100); border-radius: 4px; height: 11px; }
+  .sk.t { height: 13px; }
+  .sk + .sk { margin-top: 7px; }
+
+  /* ─────────── Reference list ─────────── */
+  /* Same gesture as in the running text: the TITLE is the link, a click opens
+     the same card. No hover buttons, no second vocabulary. */
+  .ref-row {
+    display: flex; gap: 10px; padding: 7px 12px; border-radius: 8px;
+    font-family: 'Times New Roman', Times, serif; font-size: 12px; line-height: 1.6; color: #1a1a1a;
+  }
+  .ref-row .num { flex: none; width: 30px; color: var(--gray-500); }
+  .ref-row .body { flex: 1; min-width: 0; }
+  .ref-row .rtitle { border-bottom: 1px dotted var(--gray-400); cursor: pointer; padding-bottom: 0.5px; }
+  .ref-row .rtitle:hover { color: var(--blue-700); border-bottom: 1px solid var(--blue-600); background: var(--blue-50); }
+  .ref-row .rtitle.active { color: var(--blue-700); border-bottom: 1px solid var(--blue-600); background: var(--blue-100); }
+  .ref-row .rtitle.weak { border-bottom: 1px dotted var(--gray-300); cursor: default; }
+  .ref-row .rtitle.weak:hover { color: inherit; background: none; border-bottom: 1px dotted var(--gray-300); }
+  .pill {
+    display: inline-flex; align-items: center; gap: 4px; height: 18px; padding: 0 6px;
+    border-radius: 999px; background: var(--gray-100); border: 1px solid var(--gray-200);
+    font-family: 'Inter', sans-serif; font-size: 10px; font-weight: 500; color: var(--gray-500);
+    margin-left: 6px; vertical-align: 1.5px;
+  }
+
+  /* ─────────── "Already a tree" state ─────────── */
+  /* Syflo already has a visual language for "a chat hangs off this": a
+     highlight with a linked chat gets a SOLID underline (PdfView, 2026-08-01).
+     A citation that became a tree borrows exactly that — solid instead of
+     dotted. Nothing else changes; the page stays black on white. */
+  .cite.opened, .rtitle.opened {
+    border-bottom: 1px solid rgba(15,23,42,0.55); color: inherit; background: none;
+  }
+  .cite.opened:hover, .rtitle.opened:hover {
+    color: var(--blue-700); border-bottom-color: var(--blue-600); background: var(--blue-50);
+  }
+  /* Rejected variants, shown for comparison only */
+  .cite.v-tint { border-bottom: 1px solid var(--blue-600); color: var(--blue-700); }
+  .cite.v-fill { border-bottom: 1px solid var(--blue-600); color: var(--blue-700); background: var(--blue-100); }
+
+  .variant-box {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 9px;
+    padding: 13px 15px; width: 344px;
+  }
+  .variant-box + .variant-box { margin-top: 10px; }
+  .variant-box .vh {
+    display: flex; align-items: baseline; gap: 8px; margin-bottom: 9px;
+  }
+  .variant-box .vname { font-size: 12px; font-weight: 600; color: var(--text-strong); }
+  .variant-box .vverdict { font-size: 10.5px; font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase; }
+  .variant-box .vverdict.pick { color: var(--blue-700); }
+  .variant-box .vverdict.drop { color: var(--gray-400); }
+  .variant-box .vdemo {
+    font-family: 'Times New Roman', Times, serif; font-size: 12.5px; line-height: 1.8; color: #1a1a1a;
+  }
+  .variant-box .vwhy { font-size: 11.5px; color: var(--text-muted); line-height: 1.5; margin-top: 8px; }
+
+  .tree-chip {
+    display: inline-flex; align-items: center; gap: 5px; height: 20px; padding: 0 8px;
+    border-radius: 999px; background: var(--gray-100); border: 1px solid var(--gray-200);
+    font-size: 10px; font-weight: 600; color: var(--gray-600); letter-spacing: 0.02em;
+  }
+
+  /* ─────────── Fallback tiers ─────────── */
+  .tier-head {
+    display: flex; align-items: center; gap: 8px; padding: 9px 12px;
+    border-bottom: 1px solid var(--border); background: var(--surface);
+  }
+  .tier-head .tname { font-size: 12px; font-weight: 600; color: var(--text-strong); flex: 1; }
+  .tier-badge {
+    display: inline-flex; align-items: center; gap: 5px; height: 20px; padding: 0 8px;
+    border-radius: 999px; font-size: 10px; font-weight: 600; letter-spacing: 0.02em;
+  }
+  .tier-badge.full { background: var(--blue-50); border: 1px solid var(--blue-100); color: var(--blue-700); }
+  .tier-badge.part { background: var(--gray-100); border: 1px solid var(--gray-200); color: var(--gray-600); }
+  .tier-badge.none { background: var(--gray-100); border: 1px solid var(--gray-200); color: var(--gray-500); }
+
+  /* A scanned page: no text layer at all — pixels only */
+  .scan-p {
+    font-family: 'Times New Roman', Times, serif; font-size: 12.5px; line-height: 1.75;
+    color: #3a3a3a; text-align: justify;
+    filter: blur(0.35px); opacity: 0.85; transform: rotate(-0.35deg);
+  }
+  .scan-page { background: #FBFAF7; }
+  .scan-noise {
+    position: absolute; inset: 0; pointer-events: none; border-radius: 4px;
+    background:
+      linear-gradient(105deg, rgba(0,0,0,0.035) 0%, rgba(0,0,0,0) 30%),
+      linear-gradient(255deg, rgba(0,0,0,0.03) 0%, rgba(0,0,0,0) 26%);
+  }
+
+  /* Regex-matched citation: same look, but derived — shown with a subtly
+     lighter underline in the annotated/regex comparison. */
+  .cite.rx { border-bottom-style: dotted; border-bottom-color: var(--gray-400); }
+
+  /* Comparison grid for what each tier delivers */
+  .cmp { width: 100%; border-collapse: collapse; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; font-size: 12.5px; }
+  .cmp th { text-align: left; font-weight: 600; color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; padding: 10px 14px; background: var(--gray-50); border-bottom: 1px solid var(--border); }
+  .cmp td { padding: 9px 14px; border-bottom: 1px solid var(--gray-100); color: var(--text-default); line-height: 1.5; vertical-align: top; }
+  .cmp tr:last-child td { border-bottom: none; }
+  .cmp td:first-child { color: var(--text-strong); font-weight: 500; }
+  .yes { color: #15803D; font-weight: 600; }
+  .partial { color: #B45309; font-weight: 600; }
+  .no { color: var(--gray-400); font-weight: 600; }
+
+  /* ─────────── Sidebar sketch ─────────── */
+  .side {
+    width: 262px; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; overflow: hidden; box-shadow: var(--shadow); padding: 10px;
+  }
+  .side-h { font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--gray-400); padding: 4px 6px 8px; }
+  .side-item { display: flex; align-items: center; gap: 8px; padding: 8px; border-radius: 7px; font-size: 12.5px; color: var(--text-default); }
+  .side-item svg { flex: none; color: var(--gray-400); }
+  .side-item .st { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .side-item.new { background: var(--blue-50); color: var(--blue-700); font-weight: 500; }
+  .side-item.new svg { color: var(--blue-600); }
+  .side-sub {
+    display: flex; align-items: flex-start; gap: 5px; padding: 2px 8px 8px 30px;
+    font-size: 11px; color: var(--gray-500); line-height: 1.45;
+  }
+  .side-sub a { color: var(--blue-600); text-decoration: none; border-bottom: 1px solid currentColor; cursor: pointer; }
+
+    flex: 1; background: var(--surface); border: 1px solid var(--border); border-radius: 999px;
+    padding: 3px 9px; font-size: 10.5px; color: var(--gray-500);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+
+  .spin { animation: sp 1.1s linear infinite; transform-origin: center; }
+  @keyframes sp { to { transform: rotate(360deg); } }
+
+  .notes { margin-top: 16px; display: grid; gap: 8px; }
+  .note {
+    display: flex; gap: 9px; font-size: 12.5px; line-height: 1.6; color: var(--text-muted);
+    background: var(--surface); border: 1px solid var(--border); border-radius: 9px; padding: 11px 13px;
+  }
+  .note svg { flex: none; color: var(--gray-400); margin-top: 2px; }
+  .note strong { color: var(--text-default); font-weight: 600; }
+  .note.warn { background: var(--blue-50); border-color: var(--blue-100); color: var(--text-default); }
+  .note.warn svg { color: var(--blue-600); }
+
+  table { width: 100%; border-collapse: collapse; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; font-size: 12.5px; }
+  th { text-align: left; font-weight: 600; color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; padding: 10px 14px; background: var(--gray-50); border-bottom: 1px solid var(--border); }
+  td { padding: 10px 14px; border-bottom: 1px solid var(--gray-100); color: var(--text-default); line-height: 1.5; vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  td strong { color: var(--text-strong); font-weight: 600; }
+  td .ok { color: #15803D; font-weight: 600; }
+  td .mid { color: #B45309; font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="intro">
+    <h1>Reference links — clickable citations, two doors, no switch</h1>
+    <p>
+      Every citation in the paper is a link: the numbers in the running text, the author-year forms in
+      brackets, and every row of the reference list at the end. There is <strong>no toggle</strong> — one
+      permanent, quiet look, no setting to find or explain.
+    </p>
+    <p>
+      There is also only <strong>one gesture</strong>: click a citation, get a card. The reference list at
+      the end behaves exactly like a citation in the running text — same underline, same click, same card,
+      same <strong>two doors</strong>: <em>Browser</em> and <em>Open in Syflo</em>. Nothing new to learn at
+      the bottom of the paper.
+    </p>
+  </div>
+
+  <!-- ══════════════ 01 — the whole process ══════════════ -->
+  <div class="section">
+    <div class="section-label"><span class="num">01</span> The whole process, end to end</div>
+    <div class="section-desc">
+      Steps 1 and 2 run once, in the background, right after the paper is imported — the reader waits for
+      nothing. Steps 3 to 5 are the reading loop.
+    </div>
+    <div class="stage" style="padding: 30px 20px;">
+      <div class="flow">
+        <div class="step">
+          <span class="snum">1</span>
+          <div class="stitle">Read the PDF's own links</div>
+          <div class="sbody"><code>getAnnotations()</code> per page returns one rect per citation, with the
+            BibTeX key in the destination and a pointer to its reference row.</div>
+          <div class="swhen">On import · background</div>
+        </div>
+        <div class="arrow">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+        </div>
+        <div class="step">
+          <span class="snum">2</span>
+          <div class="stitle">Resolve the bibliography</div>
+          <div class="sbody">OpenAlex <code>referenced_works[]</code> gives ~40 known candidates; each
+            printed row is matched against that small set, not the open web.</div>
+          <div class="swhen">On import · background</div>
+        </div>
+        <div class="arrow">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+        </div>
+        <div class="step">
+          <span class="snum">3</span>
+          <div class="stitle">The reader clicks a citation</div>
+          <div class="sbody">Click without drag, no selection left behind. Works on <code>[16]</code>, on
+            <code>(Vaswani et al., 2017)</code>, and on any reference row.</div>
+          <div class="swhen">Reading</div>
+        </div>
+        <div class="arrow">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+        </div>
+        <div class="step">
+          <span class="snum">4</span>
+          <div class="stitle">The card offers two doors</div>
+          <div class="sbody">Title, authors, year, citation count, two lines of abstract — then
+            <em>browser</em> or <em>Syflo</em>.</div>
+          <div class="swhen">Reading</div>
+        </div>
+      </div>
+    </div>
+    <div class="stage" style="margin-top: 14px; padding: 30px 20px;">
+      <div class="flow" style="align-items: flex-start;">
+        <div class="branch-wrap">
+          <span class="branch-tag gray">Door A</span>
+          <div class="step">
+            <span class="snum" style="background: var(--gray-400)">5a</span>
+            <div class="stitle">Open in browser</div>
+            <div class="sbody">The system browser opens the DOI, arXiv abstract, or publisher page. Syflo
+              stays exactly where it was.</div>
+            <div class="swhen">Always available</div>
+          </div>
+        </div>
+        <div style="width: 34px"></div>
+        <div class="branch-wrap">
+          <span class="branch-tag">Door B</span>
+          <div class="step">
+            <span class="snum">5b</span>
+            <div class="stitle">Open in Syflo</div>
+            <div class="sbody">The PDF is fetched through the existing <code>from-url</code> path, with the
+              open-access mirrors as fallbacks.</div>
+            <div class="swhen">Only with a free PDF</div>
+          </div>
+        </div>
+        <div class="arrow">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+        </div>
+        <div class="step">
+          <span class="snum">6</span>
+          <div class="stitle">A new tree, loaded quietly</div>
+          <div class="sbody">A tree holds one source (ADR-0005), so the cited paper becomes its own tree.
+            It appears in the sidebar; the view does <strong>not</strong> jump.</div>
+          <div class="swhen">Background</div>
+        </div>
+        <div class="arrow">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+        </div>
+        <div class="step">
+          <span class="snum">7</span>
+          <div class="stitle">A way back</div>
+          <div class="sbody">The new tree's header carries <em>"Cited in …"</em>, mirroring the
+            "Branched from" line. One click returns to the citing paper.</div>
+          <div class="swhen">Later</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════ 02 — the two citation styles ══════════════ -->
+  <div class="section">
+    <div class="section-label"><span class="num">02</span> Two citation styles, one mechanism</div>
+    <div class="section-desc">
+      Papers cite in two shapes: <strong>numeric</strong> — <code>[16]</code>, <code>[38, 24, 15]</code> —
+      and <strong>author-year</strong> — <code>(Vaswani et al., 2017)</code>,
+      <code>(Bengio &amp; Glorot, 2010; Saxe et al., 2013)</code>. Both were found in the stored papers
+      (13 numeric, 2 author-year among the annotated ones). The style makes <strong>no difference</strong>:
+      hyperref writes one rect per cited work either way, so <code>[38, 24, 15]</code> is three separate
+      click targets and <code>(A, 2010; B, 2013)</code> is two. The commas between them stay dead text.
+    </div>
+    <div class="stage">
+      <div class="col">
+        <div class="state-label">Numeric style</div>
+        <div class="pdf-pane" style="width: 372px;">
+          <div class="pdf-toolbar">
+            <span class="fname">Attention Is All You Need</span>
+            <span class="pnum">p. 2</span>
+          </div>
+          <div class="pdf-page">
+            <div class="pdf-h">2 &nbsp;Background</div>
+            <div class="pdf-p">
+              Recurrent neural networks have been firmly established as state-of-the-art approaches
+              <span class="sep">[</span><span class="cite">13</span><span class="sep">, </span><span class="cite">7</span><span class="sep">]</span>.
+              Numerous efforts have since continued to push the boundaries of recurrent architectures
+              <span class="sep">[</span><span class="cite">38</span><span class="sep">, </span><span class="cite active">24</span><span class="sep">, </span><span class="cite">15</span><span class="sep">]</span>.
+            </div>
+            <div class="pdf-p">
+              Self-attention has been used successfully in reading comprehension
+              <span class="sep">[</span><span class="cite">4</span><span class="sep">, </span><span class="cite">22</span><span class="sep">]</span>
+              and in learning task-independent sentence representations
+              <span class="sep">[</span><span class="cite">27</span><span class="sep">]</span>.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="col">
+        <div class="state-label">Author-year style</div>
+        <div class="pdf-pane" style="width: 372px;">
+          <div class="pdf-toolbar">
+            <span class="fname">Gemma: Open Models</span>
+            <span class="pnum">p. 2</span>
+          </div>
+          <div class="pdf-page">
+            <div class="pdf-h">2 &nbsp;Model Architecture</div>
+            <div class="pdf-p">
+              The Gemma model architecture is based on the transformer decoder
+              <span class="sep">(</span><span class="cite active">Vaswani et al., 2017</span><span class="sep">)</span>.
+              We use multi-query attention, which has been shown to work well at small scales
+              <span class="sep">(</span><span class="cite">Shazeer, 2019</span><span class="sep">)</span>.
+            </div>
+            <div class="pdf-p">
+              We follow standard initialization practice
+              <span class="sep">(</span><span class="cite">Bengio &amp; Glorot, 2010</span><span class="sep">; </span><span class="cite">Saxe et al., 2013</span><span class="sep">)</span>
+              and apply RoPE embeddings
+              <span class="sep">(</span><span class="cite">Su et al., 2021</span><span class="sep">)</span>.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="col">
+        <div class="state-label">Selection still wins</div>
+        <div class="pdf-pane" style="width: 372px;">
+          <div class="pdf-toolbar">
+            <span class="fname">Gemma: Open Models</span>
+            <span class="pnum">p. 2</span>
+          </div>
+          <div class="pdf-page">
+            <div class="pdf-h">2 &nbsp;Model Architecture</div>
+            <div class="pdf-p">
+              <span class="selspan">The Gemma model architecture is based on the transformer decoder
+              (<span class="cite">Vaswani et al., 2017</span>). We use multi-query attention</span>, which
+              has been shown to work well at small scales
+              <span class="sep">(</span><span class="cite">Shazeer, 2019</span><span class="sep">)</span>.
+            </div>
+            <div class="pdf-p">
+              We follow standard initialization practice
+              <span class="sep">(</span><span class="cite">Bengio &amp; Glorot, 2010</span><span class="sep">; </span><span class="cite">Saxe et al., 2013</span><span class="sep">)</span>.
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="stage tight" style="margin-top: 14px;">
+      <div class="col">
+        <div class="state-label">The rect the PDF gives vs. the rect we click</div>
+        <div class="rectdemo">
+          <span class="lbl">Raw annotation rect — cuts mid-token</span>
+          architectures [<span class="raw">38,</span> <span class="raw">24,</span> <span class="raw">15</span>].
+          <br>
+          <span class="lbl" style="margin-top: 10px;">Snapped to the citation token</span>
+          architectures [<span class="snap">38</span>, <span class="snap">24</span>, <span class="snap">15</span>].
+          <br>
+          <span class="lbl" style="margin-top: 10px;">Author-year, snapped the same way</span>
+          practice (<span class="snap">Bengio &amp; Glorot, 2010</span>; <span class="snap">Saxe et al., 2013</span>).
+          <div class="legend">
+            <span><i class="swatch raw"></i> what <code>getAnnotations()</code> returns</span>
+            <span><i class="swatch snap"></i> what the reader hits</span>
+          </div>
+        </div>
+      </div>
+      <div class="col" style="max-width: 420px; padding-top: 26px;">
+        <div class="note">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2M20 14h2M15 13v2M9 13v2"/></svg>
+          <div><strong>Measured, not assumed:</strong> the raw rects really do include the trailing comma
+          (<code>"38,"</code>, <code>", 3]"</code>) and sometimes clip the bracket. The existing word-snap
+          helper in <code>pdf/selection.ts</code> already solves exactly this class of problem for
+          selections — the same trick grows each rect out to its whole citation token.</div>
+        </div>
+        <div class="note" style="margin-top: 8px;">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+          <div><strong>No <code>&lt;a&gt;</code> elements.</strong> An anchor over the text layer would
+          swallow <code>mousedown</code> and break the drag-select that Syflo's branching rests on. The rects
+          are hit-tested inside the existing click handler instead — only for a click that carried no drag
+          and left no selection.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════ 03 — the card ══════════════ -->
+  <div class="section">
+    <div class="section-label"><span class="num">03</span> The card, and the two doors</div>
+    <div class="section-desc">
+      Click, not hover — a hover card would fire constantly while the eye scans a dense paragraph. Four
+      lines and two doors, nothing else: <strong>title, one meta line, two lines of abstract</strong>. No
+      badge repeating the number you just clicked, no footnote explaining what the buttons do.
+      <strong>The state lives in the door</strong> — a paywalled paper reads <em>No free PDF</em> instead of
+      an explanation underneath.
+    </div>
+    <div class="stage">
+      <div class="col">
+        <div class="state-label">Free PDF — both doors open</div>
+        <div class="pop">
+          <div class="pop-head">
+            <div class="ph-main">
+              <div class="pop-over">Reference [24]</div>
+              <div class="pop-title">Effective Approaches to Attention-based Neural Machine Translation</div>
+            </div>
+            <button class="pop-x" aria-label="Close"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+          </div>
+          <div class="pop-body">
+            <div class="pop-meta">Luong, Pham, Manning <span class="dot">·</span> 2015 <span class="dot">·</span> 11 204 citations</div>
+            <div class="pop-abstract">An attentional mechanism has lately been used to improve neural machine translation by selectively focusing on parts of the source sentence during translation…</div>
+          </div>
+          <div class="doors">
+            <button class="door"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m8 11 4 4 4-4"/><path d="M20 17v2a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-2"/></svg> Open in Syflo</button>
+            <button class="door"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg> Open in browser</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="col">
+        <div class="state-label">Paywalled — the door says why</div>
+        <div class="pop">
+          <div class="pop-head">
+            <div class="ph-main">
+              <div class="pop-over">Reference [13]</div>
+              <div class="pop-title">Long Short-Term Memory</div>
+            </div>
+            <button class="pop-x" aria-label="Close"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+          </div>
+          <div class="pop-body">
+            <div class="pop-meta">Hochreiter, Schmidhuber <span class="dot">·</span> 1997 <span class="dot">·</span> 92 640 citations</div>
+            <div class="pop-abstract">Learning to store information over extended time intervals by recurrent backpropagation takes a very long time, mostly because of insufficient, decaying error backflow…</div>
+          </div>
+          <div class="doors">
+            <button class="door" disabled><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m8 11 4 4 4-4"/><path d="M20 17v2a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-2"/></svg> No free PDF</button>
+            <button class="door"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg> Open in browser</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="col">
+        <div class="state-label">Resolving · not identified</div>
+        <div class="pop" style="margin-bottom: 16px;">
+          <div class="pop-head">
+            <div class="ph-main">
+              <div class="pop-over">Reference [27]</div>
+              <div class="sk t" style="width: 82%; margin-top: 4px;"></div>
+            </div>
+            <button class="pop-x" aria-label="Close"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+          </div>
+          <div class="pop-body">
+            <div class="sk" style="width: 58%;"></div>
+            <div class="sk" style="width: 74%;"></div>
+            <div class="pop-meta" style="display: flex; align-items: center; gap: 7px; margin-top: 10px;"><svg class="spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg> Looking it up…</div>
+          </div>
+        </div>
+        <div class="pop">
+          <div class="pop-head">
+            <div class="ph-main">
+              <div class="pop-over">Reference [31] · not identified</div>
+              <div class="pop-title" style="font-family: 'Times New Roman', serif; font-weight: 400; font-size: 12.5px; color: var(--text-default);">R. Sennrich, B. Haddow, A. Birch. Improving neural machine translation models with monolingual data. Technical report, 2015.</div>
+            </div>
+            <button class="pop-x" aria-label="Close"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+          </div>
+          <div class="pop-body">
+            <div class="pop-meta">No match in OpenAlex — shown exactly as printed.</div>
+          </div>
+          <div class="doors">
+            <button class="door"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg> Search the web</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="notes">
+      <div class="note">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
+        <div><strong>What was cut, and why:</strong> the <em>Reference [24]</em> badge repeated the number
+        the reader had just clicked. The footnote explained the buttons. The arXiv ID and DOI duplicated
+        where the doors already lead. What is left is what actually decides <em>do I want this?</em></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════ 04 — reference list ══════════════ -->
+  <div class="section">
+    <div class="section-label"><span class="num">04</span> The reference list behaves exactly like a citation</div>
+    <div class="section-desc">
+      A row of the reference list is <strong>the same thing</strong> as <code>[24]</code> in the running
+      text — so it gets the same treatment, not a second one. Same dotted underline on the title, same
+      click, same card, same two doors. No buttons appearing on hover, no separate vocabulary at the bottom
+      of the paper. Both list shapes work: the numbered list and the alphabetical author-year list.
+    </div>
+    <div class="stage">
+      <div class="col">
+        <div class="state-label">Numbered list · title clicked</div>
+        <div class="pdf-pane" style="width: 520px;">
+          <div class="pdf-toolbar">
+            <span class="fname">Attention Is All You Need</span>
+            <span class="pnum">p. 11 · References</span>
+          </div>
+          <div class="pdf-page">
+            <div class="pdf-h" style="margin-bottom: 10px;">References</div>
+            <div class="ref-row">
+              <span class="num">[13]</span>
+              <span class="body">Sepp Hochreiter and Jürgen Schmidhuber.
+                <span class="rtitle">Long short-term memory</span>. <em>Neural Computation</em>,
+                9(8):1735–1780, 1997.</span>
+            </div>
+            <div class="ref-row">
+              <span class="num">[24]</span>
+              <span class="body">Minh-Thang Luong, Hieu Pham, and Christopher D. Manning.
+                <span class="rtitle active">Effective approaches to attention-based neural machine
+                translation</span>. <em>arXiv:1508.04025</em>, 2015.</span>
+            </div>
+            <div class="ref-row">
+              <span class="num">[38]</span>
+              <span class="body">Yonghui Wu, Mike Schuster, Zhifeng Chen, et al.
+                <span class="rtitle">Google's neural machine translation system: bridging the gap between
+                human and machine translation</span>. <em>arXiv:1609.08144</em>, 2016.</span>
+            </div>
+            <div class="ref-row">
+              <span class="num">[31]</span>
+              <span class="body" style="color: var(--gray-600);">R. Sennrich, B. Haddow, A. Birch.
+                <span class="rtitle weak">Improving neural machine translation models with monolingual
+                data</span>. Technical report, 2015.<span class="pill">
+                  <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                  not identified</span></span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="col">
+        <div class="state-label">…opens the very same card</div>
+        <div class="pop">
+          <div class="pop-head">
+            <div class="ph-main">
+              <div class="pop-over">Reference [24]</div>
+              <div class="pop-title">Effective Approaches to Attention-based Neural Machine Translation</div>
+            </div>
+            <button class="pop-x" aria-label="Close"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+          </div>
+          <div class="pop-body">
+            <div class="pop-meta">Luong, Pham, Manning <span class="dot">·</span> 2015 <span class="dot">·</span> 11 204 citations</div>
+            <div class="pop-abstract">An attentional mechanism has lately been used to improve neural machine translation by selectively focusing on parts of the source sentence during translation…</div>
+          </div>
+          <div class="doors">
+            <button class="door"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m8 11 4 4 4-4"/><path d="M20 17v2a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-2"/></svg> Open in Syflo</button>
+            <button class="door"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg> Open in browser</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="stage" style="margin-top: 14px;">
+      <div class="col">
+        <div class="state-label">Alphabetical author-year list</div>
+        <div class="pdf-pane" style="width: 520px;">
+          <div class="pdf-toolbar">
+            <span class="fname">Gemma: Open Models</span>
+            <span class="pnum">p. 12 · References</span>
+          </div>
+          <div class="pdf-page">
+            <div class="pdf-h" style="margin-bottom: 10px;">References</div>
+            <div class="ref-row">
+              <span class="num" style="width: 0"></span>
+              <span class="body">Y. Bengio and X. Glorot.
+                <span class="rtitle">Understanding the difficulty of training deep feedforward neural
+                networks</span>. In <em>AISTATS</em>, pages 249–256, 2010.</span>
+            </div>
+            <div class="ref-row">
+              <span class="num" style="width: 0"></span>
+              <span class="body">N. Shazeer.
+                <span class="rtitle">Fast transformer decoding: One write-head is all you need</span>.
+                <em>arXiv:1911.02150</em>, 2019.</span>
+            </div>
+            <div class="ref-row">
+              <span class="num" style="width: 0"></span>
+              <span class="body">A. Vaswani, N. Shazeer, N. Parmar, et al.
+                <span class="rtitle">Attention is all you need</span>. In <em>NeurIPS</em>, 2017.</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="col" style="max-width: 380px; padding-top: 26px;">
+        <div class="note">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m9 18 6-6-6-6"/></svg>
+          <div><strong>The underline sits on the title only</strong> — never the whole row. The authors and
+          the venue are not the link; the paper is.</div>
+        </div>
+        <div class="note" style="margin-top: 8px;">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+          <div>A row Syflo could not identify keeps its printed text and a quiet <em>not identified</em>
+          pill. No underline — nothing to click, nothing promised.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════ 05 — already a tree ══════════════ -->
+  <div class="section">
+    <div class="section-label"><span class="num">05</span> A reference that already became a tree</div>
+    <div class="section-desc">
+      Once a cited paper has been opened in Syflo, the citation should say so — otherwise the reader opens
+      it a second time and gets a duplicate tree. Syflo already has a word for "something hangs off this":
+      a highlight with a linked chat carries a <strong>solid underline</strong>. A citation that became a
+      tree borrows exactly that — <strong>solid instead of dotted</strong>. No new color, no new symbol.
+    </div>
+    <div class="stage">
+      <div class="col">
+        <div class="state-label">In the text and in the list</div>
+        <div class="pdf-pane" style="width: 372px;">
+          <div class="pdf-toolbar">
+            <span class="fname">Attention Is All You Need</span>
+            <span class="pnum">p. 2</span>
+          </div>
+          <div class="pdf-page">
+            <div class="pdf-p">
+              Numerous efforts have since continued to push the boundaries of recurrent architectures
+              <span class="sep">[</span><span class="cite">38</span><span class="sep">, </span><span class="cite opened">24</span><span class="sep">, </span><span class="cite">15</span><span class="sep">]</span>.
+              The architecture builds on the transformer decoder
+              <span class="sep">(</span><span class="cite opened">Vaswani et al., 2017</span><span class="sep">)</span>
+              and on multi-query attention
+              <span class="sep">(</span><span class="cite">Shazeer, 2019</span><span class="sep">)</span>.
+            </div>
+            <div style="border-top: 1px solid var(--gray-200); margin: 12px 0 9px;"></div>
+            <div class="ref-row" style="padding: 5px 0;">
+              <span class="num" style="width: 26px;">[24]</span>
+              <span class="body">M.-T. Luong, H. Pham, C. Manning.
+                <span class="rtitle opened">Effective approaches to attention-based NMT</span>, 2015.</span>
+            </div>
+            <div class="ref-row" style="padding: 5px 0;">
+              <span class="num" style="width: 26px;">[38]</span>
+              <span class="body">Y. Wu, M. Schuster, Z. Chen, et al.
+                <span class="rtitle">Google's neural machine translation system</span>, 2016.</span>
+            </div>
+          </div>
+        </div>
+        <div class="note" style="margin-top: 10px; width: 372px;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H19a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6.5a1 1 0 0 1 0-5H20"/></svg>
+          <div>Citation and reference row change together — same reference, same mark. <code>[38]</code> and
+          <code>(Shazeer, 2019)</code> stay dotted: not opened yet.</div>
+        </div>
+      </div>
+
+      <div class="col">
+        <div class="state-label">One word different</div>
+        <div class="pop">
+          <div class="pop-head">
+            <div class="ph-main">
+              <div class="pop-over">Reference [24] · already a tree</div>
+              <div class="pop-title">Effective Approaches to Attention-based Neural Machine Translation</div>
+            </div>
+            <button class="pop-x" aria-label="Close"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+          </div>
+          <div class="pop-body">
+            <div class="pop-meta">Luong, Pham, Manning <span class="dot">·</span> 2015 <span class="dot">·</span> opened 3 days ago</div>
+            <div class="pop-abstract">An attentional mechanism has lately been used to improve neural machine translation by selectively focusing on parts of the source sentence during translation…</div>
+          </div>
+          <div class="doors">
+            <button class="door"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg> Go to tree</button>
+            <button class="door"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg> Open in browser</button>
+          </div>
+        </div>
+        <div class="note" style="margin-top: 10px; width: 344px;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+          <div><em>Go to tree</em> instead of <em>Open in Syflo</em>. It switches the view — the reader
+          asked for it explicitly — and never creates a duplicate.</div>
+        </div>
+      </div>
+
+      <div class="col">
+        <div class="state-label">Why not colored?</div>
+        <div class="variant-box">
+          <div class="vh">
+            <span class="vname">Solid underline only</span>
+            <span class="vverdict pick">chosen</span>
+          </div>
+          <div class="vdemo">
+            architectures [38, <span class="cite opened">24</span>, 15] and
+            (<span class="cite opened">Vaswani et al., 2017</span>).
+          </div>
+          <div class="vwhy">Already Syflo's word for "a chat hangs off this". The page still reads as a
+            printed paper.</div>
+        </div>
+        <div class="variant-box">
+          <div class="vh">
+            <span class="vname">Blue text</span>
+            <span class="vverdict drop">rejected</span>
+          </div>
+          <div class="vdemo">
+            architectures [38, <span class="cite v-tint">24</span>, 15] and
+            (<span class="cite v-tint">Vaswani et al., 2017</span>).
+          </div>
+          <div class="vwhy">A dense paragraph turns speckled, and blue competes with the highlight colors
+            the reader paints themselves.</div>
+        </div>
+        <div class="variant-box">
+          <div class="vh">
+            <span class="vname">Blue fill</span>
+            <span class="vverdict drop">rejected</span>
+          </div>
+          <div class="vdemo">
+            architectures [38, <span class="cite v-fill">24</span>, 15] and
+            (<span class="cite v-fill">Vaswani et al., 2017</span>).
+          </div>
+          <div class="vwhy">A filled background <em>is</em> a highlight in Syflo. Reusing it for something
+            the user did not paint would be a lie.</div>
+        </div>
+      </div>
+    </div>
+    <div class="notes">
+      <div class="note warn">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
+        <div><strong>What counts as "already a tree":</strong> any tree whose paper resolves to the same
+        OpenAlex work — no matter how it got there. A paper imported by hand last month lights the citation
+        up too, which is exactly where the mark earns its keep: <em>you already have this one</em>.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════ 06 — unannotated papers ══════════════ -->
+  <div class="section">
+    <div class="section-label"><span class="num">06</span> Papers without annotations — three levels</div>
+    <div class="section-desc">
+      Not every PDF carries its links. What a paper offers decides what the reader gets, and the difference
+      must be <strong>visible in the page itself</strong>, never announced in a banner: an underline that is
+      there, or an underline that is not. Nothing to dismiss, nothing to read.
+    </div>
+    <div class="stage">
+      <div class="col">
+        <div class="state-label">Level 1 · the PDF carries its own links</div>
+        <div class="pdf-pane" style="width: 356px;">
+          <div class="tier-head">
+            <span class="tname">LaTeX with hyperref</span>
+            <span class="tier-badge full">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg>
+              everything works
+            </span>
+          </div>
+          <div class="pdf-page">
+            <div class="pdf-p">
+              Numerous efforts have since continued to push the boundaries of recurrent architectures
+              <span class="sep">[</span><span class="cite">38</span><span class="sep">, </span><span class="cite">24</span><span class="sep">, </span><span class="cite">15</span><span class="sep">]</span>.
+              Self-attention has been used successfully in reading comprehension
+              <span class="sep">[</span><span class="cite">4</span><span class="sep">]</span>.
+            </div>
+            <div style="border-top: 1px solid var(--gray-200); margin: 12px 0 9px;"></div>
+            <div class="ref-row" style="padding: 5px 0;">
+              <span class="num" style="width: 26px;">[24]</span>
+              <span class="body">M.-T. Luong, H. Pham, C. Manning.
+                <span class="rtitle">Effective approaches to attention-based NMT</span>, 2015.</span>
+            </div>
+          </div>
+        </div>
+        <div class="note" style="margin-top: 10px; width: 356px;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg>
+          <div>Every number is its own target. The destination names the exact reference row — no matching
+          needed at all.</div>
+        </div>
+      </div>
+
+      <div class="col">
+        <div class="state-label">Level 2 · the text is there, the links are not</div>
+        <div class="pdf-pane" style="width: 356px;">
+          <div class="tier-head">
+            <span class="tname">Word export, older PDF</span>
+            <span class="tier-badge part">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 8v4M12 16h.01"/><circle cx="12" cy="12" r="9"/></svg>
+              Syflo finds them itself
+            </span>
+          </div>
+          <div class="pdf-page">
+            <div class="pdf-p">
+              Numerous efforts have since continued to push the boundaries of recurrent architectures
+              <span class="cite rx">[38, 24, 15]</span>.
+              Self-attention has been used successfully in reading comprehension
+              <span class="cite rx">[4]</span>.
+            </div>
+            <div style="border-top: 1px solid var(--gray-200); margin: 12px 0 9px;"></div>
+            <div class="ref-row" style="padding: 5px 0;">
+              <span class="num" style="width: 26px;">[24]</span>
+              <span class="body">M.-T. Luong, H. Pham, C. Manning.
+                <span class="rtitle">Effective approaches to attention-based NMT</span>, 2015.</span>
+            </div>
+          </div>
+        </div>
+        <div class="note" style="margin-top: 10px; width: 356px;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 8v4M12 16h.01"/><circle cx="12" cy="12" r="9"/></svg>
+          <div>The bracket is <strong>one</strong> target — Syflo cannot tell which number was hit, so the
+          card stacks all three. Everything else is identical.</div>
+        </div>
+      </div>
+
+      <div class="col">
+        <div class="state-label">Level 3 · a photo of a page, no text at all</div>
+        <div class="pdf-pane" style="width: 356px;">
+          <div class="tier-head">
+            <span class="tname">Photocopy or scan</span>
+            <span class="tier-badge none">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+              nothing to link
+            </span>
+          </div>
+          <div class="pdf-page scan-page">
+            <div class="scan-noise"></div>
+            <div class="scan-p">
+              Numerous efforts have since continued to push the boundaries of recurrent architectures
+              [38, 24, 15]. Self-attention has been used successfully in reading comprehension [4].
+            </div>
+            <div style="border-top: 1px solid var(--gray-200); margin: 12px 0 9px;"></div>
+            <div class="scan-p" style="font-size: 12px;">
+              [24] M.-T. Luong, H. Pham, C. Manning. Effective approaches to attention-based NMT, 2015.
+            </div>
+          </div>
+        </div>
+        <div class="note" style="margin-top: 10px; width: 356px;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+          <div>No underlines, no card, no message. Text selection and highlighting are already impossible
+          here today — the reader loses nothing they had.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="stage tight" style="margin-top: 14px;">
+      <div class="col">
+        <div class="state-label">Level 2 only: the bracket is hit as a whole</div>
+        <div class="pop">
+          <div class="stack-head">
+            <span class="sh-t">3 references</span>
+            <span class="sh-src">[38, 24, 15]</span>
+          </div>
+          <div class="stack-item">
+            <span class="sk-num">[38]</span>
+            <span class="sk-body">
+              <span class="sk-title">Google's Neural Machine Translation System</span>
+              <div class="sk-meta">Wu, Schuster, Chen et al. <span style="color: var(--gray-300)">·</span> 2016</div>
+            </span>
+            <span class="stack-doors">
+              <button class="mini plain" title="Browser">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>
+              </button>
+              <button class="mini" title="Open in Syflo">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3v12"/><path d="m8 11 4 4 4-4"/><path d="M20 17v2a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-2"/></svg>
+              </button>
+            </span>
+          </div>
+          <div class="stack-item">
+            <span class="sk-num">[24]</span>
+            <span class="sk-body">
+              <span class="sk-title">Effective Approaches to Attention-based NMT</span>
+              <div class="sk-meta">Luong, Pham, Manning <span style="color: var(--gray-300)">·</span> 2015</div>
+            </span>
+            <span class="stack-doors">
+              <button class="mini plain" title="Browser">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>
+              </button>
+              <button class="mini" title="Open in Syflo">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3v12"/><path d="m8 11 4 4 4-4"/><path d="M20 17v2a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-2"/></svg>
+              </button>
+            </span>
+          </div>
+          <div class="stack-item" style="border-bottom: none;">
+            <span class="sk-num">[15]</span>
+            <span class="sk-body">
+              <span class="sk-title">Exploring the Limits of Language Modeling</span>
+              <div class="sk-meta">Jozefowicz, Vinyals, Schuster et al. <span style="color: var(--gray-300)">·</span> 2016</div>
+            </span>
+            <span class="stack-doors">
+              <button class="mini plain" title="Browser">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>
+              </button>
+              <button class="mini" title="Open in Syflo">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3v12"/><path d="m8 11 4 4 4-4"/><path d="M20 17v2a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-2"/></svg>
+              </button>
+            </span>
+          </div>
+        </div>
+      </div>
+      <div class="col" style="max-width: 420px; padding-top: 26px;">
+        <div class="note">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 9v4M12 17h.01"/><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/></svg>
+          <div><strong>The one real loss at level 2</strong> is precision, not capability. Two clicks instead
+          of one when several works share a bracket — and in author-year papers, an ambiguity annotations
+          never have: two different works cited as <code>(Vaswani et al., 2017)</code> can only be told
+          apart by the printed <code>2017a</code> / <code>2017b</code> suffix, if the paper bothered.</div>
+        </div>
+        <div class="note" style="margin-top: 8px;">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H19a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6.5a1 1 0 0 1 0-5H20"/></svg>
+          <div><strong>The reference list at level 2</strong> is found the same way: rows start at a
+          <code>[n]</code> or at an author-year line and run to the next one. OpenAlex's
+          <code>referenced_works[]</code> still supplies the candidates, so a row matches or it does
+          not — the same two outcomes as at level 1.</div>
+        </div>
+      </div>
+    </div>
+
+    <div style="margin-top: 18px;">
+      <table class="cmp">
+        <thead>
+          <tr>
+            <th style="width: 34%">What the reader gets</th>
+            <th style="width: 22%">Level 1 · own links</th>
+            <th style="width: 22%">Level 2 · text only</th>
+            <th>Level 3 · scan</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Inline citations clickable</td>
+            <td><span class="yes">yes</span>, per work</td>
+            <td><span class="partial">yes</span>, per bracket</td>
+            <td><span class="no">no</span></td>
+          </tr>
+          <tr>
+            <td>Reference rows clickable</td>
+            <td><span class="yes">yes</span></td>
+            <td><span class="yes">yes</span></td>
+            <td><span class="no">no</span></td>
+          </tr>
+          <tr>
+            <td>Both citation styles</td>
+            <td><span class="yes">yes</span></td>
+            <td><span class="yes">yes</span></td>
+            <td><span class="no">no</span></td>
+          </tr>
+          <tr>
+            <td>Which work in <code>[38, 24, 15]</code></td>
+            <td><span class="yes">known</span></td>
+            <td><span class="partial">card stacks all three</span></td>
+            <td><span class="no">—</span></td>
+          </tr>
+          <tr>
+            <td>Card, two doors, new tree</td>
+            <td><span class="yes">yes</span></td>
+            <td><span class="yes">yes</span></td>
+            <td><span class="no">no</span></td>
+          </tr>
+          <tr>
+            <td>How the reader notices</td>
+            <td colspan="2">The underline is simply there. Level 2 is indistinguishable until a bracket holds several works.</td>
+            <td>No underlines. No banner, no error.</td>
+          </tr>
+          <tr>
+            <td>In the stored corpus</td>
+            <td><span class="yes">15 papers</span></td>
+            <td>9 files — all copies of <strong>one</strong> document</td>
+            <td>6 files, only 1 a real scan; the rest are not papers</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ══════════════ 07 — after the click ══════════════ -->
+  <div class="section">
+    <div class="section-label"><span class="num">07</span> What happens after the click</div>
+    <div class="section-desc">
+      Syflo has no toast system, so nothing is announced in a floating strip. The card the reader is already
+      looking at does the talking — exactly like the FloatingPopup during a branch: the button keeps its
+      place and size, only its icon and label change. When the download finishes, the second door has
+      quietly become <em>Go to tree</em>; when it fails, the card says so and the remaining door takes over.
+    </div>
+    <div class="stage">
+      <div class="col">
+        <div class="state-label">1 · downloading</div>
+        <div class="pop">
+          <div class="pop-head">
+            <div class="ph-main">
+              <div class="pop-over">Reference [24]</div>
+              <div class="pop-title">Effective Approaches to Attention-based Neural Machine Translation</div>
+            </div>
+            <button class="pop-x" aria-label="Close"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+          </div>
+          <div class="pop-body">
+            <div class="pop-meta">Luong, Pham, Manning <span class="dot">·</span> 2015 <span class="dot">·</span> 11 204 citations</div>
+            <div class="pop-abstract">An attentional mechanism has lately been used to improve neural machine translation by selectively focusing on parts of the source sentence during translation…</div>
+          </div>
+          <div class="doors">
+            <button class="door" disabled><svg class="spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg> Loading paper…</button>
+            <button class="door"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg> Open in browser</button>
+          </div>
+        </div>
+      </div>
+      <div class="col">
+        <div class="state-label">2 · done — the door changed its verb</div>
+        <div class="pop">
+          <div class="pop-head">
+            <div class="ph-main">
+              <div class="pop-over">Reference [24] · already a tree</div>
+              <div class="pop-title">Effective Approaches to Attention-based Neural Machine Translation</div>
+            </div>
+            <button class="pop-x" aria-label="Close"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+          </div>
+          <div class="pop-body">
+            <div class="pop-meta">Luong, Pham, Manning <span class="dot">·</span> 2015 <span class="dot">·</span> added just now</div>
+            <div class="pop-abstract">An attentional mechanism has lately been used to improve neural machine translation by selectively focusing on parts of the source sentence during translation…</div>
+          </div>
+          <div class="doors">
+            <button class="door"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg> Go to tree</button>
+            <button class="door"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg> Open in browser</button>
+          </div>
+        </div>
+      </div>
+      <div class="col">
+        <div class="state-label">3 · the publisher blocked it</div>
+        <div class="pop">
+          <div class="pop-head">
+            <div class="ph-main">
+              <div class="pop-over">Reference [24]</div>
+              <div class="pop-title">Effective Approaches to Attention-based Neural Machine Translation</div>
+            </div>
+            <button class="pop-x" aria-label="Close"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+          </div>
+          <div class="pop-body">
+            <div class="pop-meta">Luong, Pham, Manning <span class="dot">·</span> 2015 <span class="dot">·</span> 11 204 citations</div>
+            <div class="pop-fail"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01"/><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/></svg><span>The download was blocked. Save the PDF from the publisher and upload it into a new tree.</span></div>
+          </div>
+          <div class="doors">
+            <button class="door"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg> Open in browser</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="stage" style="margin-top: 14px;">
+      <div class="col">
+        <div class="state-label">The new tree, and the way back</div>
+        <div class="side">
+          <div class="side-h">Today</div>
+          <div class="side-item new">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H19a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6.5a1 1 0 0 1 0-5H20"/></svg>
+            <span class="st">Effective Approaches to Attention-…</span>
+          </div>
+          <div class="side-sub">
+            <span style="margin-top:2px;flex:none;"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18 3 12l6-6"/><path d="M3 12h13a5 5 0 0 1 0 10h-1"/></svg></span>
+            <span>Cited in <a>Attention Is All You Need</a>, ref. [24]</span>
+          </div>
+          <div class="side-item">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H19a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6.5a1 1 0 0 1 0-5H20"/></svg>
+            <span class="st">Attention Is All You Need</span>
+          </div>
+          <div class="side-item">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 8-6 4 6 4V8Z"/><rect width="14" height="12" x="2" y="6" rx="2"/></svg>
+            <span class="st">Karpathy — Let's build GPT</span>
+          </div>
+        </div>
+      </div>
+      <div class="col" style="max-width: 430px; padding-top: 26px;">
+        <div class="note">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>
+          <div><strong>Door A · browser.</strong> The system browser opens the DOI or arXiv page. Syflo
+          changes nothing at all — no tree, no entry, no state. That is the whole point of the door: a look
+          that costs nothing.</div>
+        </div>
+        <div class="note" style="margin-top: 8px;">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
+          <div><strong>Door B · Syflo.</strong> The paper lands as a new tree in the sidebar, with a
+          <em>"Cited in …"</em> line beneath it — the same shape as the "Branched from" line the branch
+          header already uses. The view does <strong>not</strong> jump; the reader stays in the paragraph
+          they were in until they press <em>Go to tree</em>.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════ 08 — measurements ══════════════ -->
+  <div class="section">
+    <div class="section-label"><span class="num">08</span> What the probe actually measured</div>
+    <div class="section-desc">
+      Numbers from <code>page.getAnnotations()</code> over the papers already stored in
+      <code>uploads/papers/</code> — not estimates.
+    </div>
+    <table>
+      <thead>
+        <tr><th style="width: 30%">Question</th><th style="width: 20%">Result</th><th>Detail</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Are inline citations machine-readable?</strong></td>
+          <td><span class="ok">Yes, in LaTeX PDFs</span></td>
+          <td>15 of 30 papers carry <code>cite.*</code> link annotations — 76 to 228 per paper, the BibTeX key in the destination, the destination pointing at the reference row.</td>
+        </tr>
+        <tr>
+          <td><strong>Numeric or author-year?</strong></td>
+          <td><span class="ok">Both, same mechanism</span></td>
+          <td>13 numeric (<code>"[20]"</code>, <code>"[38,"</code>), 2 author-year (<code>"(Vaswani et al., 2017)"</code>, <code>"(Bengio &amp; Glorot, 2010"</code>). hyperref emits one rect per cited work in both styles.</td>
+        </tr>
+        <tr>
+          <td><strong>Is <code>[38, 24, 15]</code> one target or three?</strong></td>
+          <td><span class="ok">Three</span></td>
+          <td>Rects at x=164, 179, 194, each ~12 pt wide, each with its own destination. A click is never ambiguous in an annotated PDF.</td>
+        </tr>
+        <tr>
+          <td><strong>Are the rects clean?</strong></td>
+          <td><span class="mid">No — snap needed</span></td>
+          <td>They include the trailing comma (<code>"38,"</code>) and sometimes clip a bracket. The existing word-snap helper handles exactly this.</td>
+        </tr>
+        <tr>
+          <td><strong>What about unannotated PDFs?</strong></td>
+          <td><span class="mid">Mostly level 2</span></td>
+          <td>Of 30 papers: 15 annotated (level 1), 9 with a text layer but no annotations (level 2) — and those 9 are all copies of <em>one</em> document, so the corpus is skewed. 6 files had no citations to find; exactly one of them is a true scan with an empty text layer, the rest are not research papers at all.</td>
+        </tr>
+        <tr>
+          <td><strong>Can a reference be resolved?</strong></td>
+          <td><span class="ok">Usually</span></td>
+          <td>OpenAlex <code>referenced_works[]</code>; <code>fetchReferences()</code> already exists in <code>backend/openalex.js:696</code>, unused. ~40 candidates to match against, not the open web.</td>
+        </tr>
+        <tr>
+          <td><strong>Can Syflo open it as a PDF?</strong></td>
+          <td><span class="mid">Depends on OA</span></td>
+          <td>Only with a downloadable open-access PDF — high in CS/arXiv, low for Elsevier &amp; co. Everything else takes Door A.</td>
+        </tr>
+        <tr>
+          <td><strong>Does it break text selection?</strong></td>
+          <td><span class="ok">Not if built right</span></td>
+          <td>No anchor elements over the text layer. Rects hit-tested in the existing click handler, only for a click with no drag and no selection.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<title>Syflo · Basic — blaue Frage-Blase, graue Antwort-Fläche (3 Varianten)</title>
+<style>
+  :root {
+    /* Basic = die reine Tailwind-Palette, wie sie die App heute benutzt */
+    --white: #FFFFFF;
+    --gray-50: #F9FAFB; --gray-100: #F3F4F6; --gray-200: #E5E7EB; --gray-300: #D1D5DB;
+    --gray-400: #9CA3AF; --gray-500: #6B7280; --gray-700: #374151; --gray-900: #111827;
+    --blue-50: #EFF6FF; --blue-100: #DBEAFE; --blue-200: #BFDBFE; --blue-600: #2563EB;
+    --blue-700: #1D4ED8; --blue-900: #1E3A8A;
+    --slate-200: #E2E8F0;
+    /* die beschlossene Schatten-Tinte von Basic (mockup-shadow-elements.html) */
+    --shadow-ink: #E2E8F0;
+    --hl-yellow: #FEF08A;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    background: var(--gray-50); color: var(--gray-900);
+    -webkit-font-smoothing: antialiased; padding: 48px 32px 96px;
+  }
+  .wrap { max-width: 1240px; margin: 0 auto; }
+
+  .intro { margin-bottom: 40px; }
+  .intro h1 { font-size: 23px; font-weight: 700; letter-spacing: -0.015em; margin-bottom: 10px; }
+  .intro p { font-size: 14px; color: var(--gray-500); line-height: 1.65; max-width: 820px; }
+  .intro p + p { margin-top: 10px; }
+  .intro code { background: var(--gray-100); padding: 1px 5px; border-radius: 4px; font-size: 12.5px; }
+
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; align-items: start; }
+  @media (max-width: 1100px) { .grid { grid-template-columns: 1fr; } }
+
+  .col-head { margin-bottom: 12px; }
+  .col-head .tag {
+    display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--gray-400); margin-bottom: 4px;
+  }
+  .col-head h2 { font-size: 16px; font-weight: 650; letter-spacing: -0.01em; }
+  .col-head p { font-size: 12.5px; color: var(--gray-500); line-height: 1.55; margin-top: 5px; }
+
+  /* Die Chat-Spalte, so breit wie in der App neben dem PDF */
+  .pane {
+    background: var(--white); border: 1px solid var(--gray-200); border-radius: 14px;
+    padding: 18px 16px 20px;
+  }
+  .row { display: flex; margin-bottom: 14px; }
+  .row.me { justify-content: flex-end; }
+  .msg { max-width: 92%; font-size: 14px; line-height: 1.65; }
+  .msg p + p { margin-top: 10px; }
+  .msg h3 { font-size: 15px; font-weight: 700; margin-bottom: 8px; }
+  .msg .mark { background: var(--hl-yellow); }
+  .msg .branch { color: var(--blue-600); border-bottom: 1px solid rgba(37,99,235,.55); font-weight: 500; }
+  .msg .math { font-style: italic; font-family: 'Times New Roman', serif; font-size: 15px; }
+  .quote {
+    border-left: 2px solid currentColor; padding-left: 10px; font-size: 12.5px;
+    opacity: .75; margin-bottom: 8px;
+  }
+
+  /* ---------- Variante A · voll gefärbt ---------- */
+  .a .me .msg {
+    background: var(--blue-600); color: var(--white);
+    border-radius: 2rem; padding: 12px 18px;
+    box-shadow: 4px 4px 0 var(--blue-200);
+  }
+  .a .ai .msg {
+    background: var(--gray-100); color: var(--gray-900);
+    border-radius: 2rem; padding: 12px 18px;
+    box-shadow: 4px 4px 0 var(--shadow-ink);
+  }
+  .a .ai .branch { color: var(--blue-700); }
+
+  /* ---------- Variante B · zart ---------- */
+  .b .me .msg {
+    background: var(--blue-50); color: var(--blue-900);
+    border: 1px solid var(--blue-100);
+    border-radius: 2rem; padding: 12px 18px;
+    box-shadow: 4px 4px 0 var(--blue-100);
+  }
+  .b .ai .msg {
+    background: var(--gray-50); color: var(--gray-900);
+    border: 1px solid var(--gray-200);
+    border-radius: 2rem; padding: 12px 18px;
+    box-shadow: 4px 4px 0 var(--shadow-ink);
+  }
+
+  /* ---------- Variante C · Ecke zeigt den Sprecher ---------- */
+  .c .me .msg {
+    background: var(--blue-600); color: var(--white);
+    border-radius: 16px 16px 4px 16px; padding: 12px 18px;
+    box-shadow: 4px 4px 0 var(--blue-200);
+  }
+  .c .ai .msg {
+    background: var(--gray-100); color: var(--gray-900);
+    border-radius: 16px 16px 16px 4px; padding: 12px 18px;
+    box-shadow: 4px 4px 0 var(--shadow-ink);
+  }
+  .c .ai .branch { color: var(--blue-700); }
+
+  .specs {
+    margin-top: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11px; color: var(--gray-500); line-height: 1.75;
+    background: var(--white); border: 1px solid var(--gray-200);
+    border-radius: 10px; padding: 10px 12px;
+  }
+  .specs b { color: var(--gray-700); font-weight: 600; }
+
+  .note {
+    margin-top: 40px; background: var(--white); border: 1px solid var(--gray-200);
+    border-radius: 14px; padding: 18px 20px;
+  }
+  .note h3 { font-size: 14px; font-weight: 650; margin-bottom: 8px; }
+  .note ul { margin: 0; padding-left: 18px; }
+  .note li { font-size: 13px; color: var(--gray-500); line-height: 1.7; }
+  .note code { background: var(--gray-100); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+
+  .today { margin-bottom: 44px; }
+  .today .pane { max-width: 420px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="intro">
+    <h1>Basic — blaue Frage-Blase, graue Antwort-Fläche</h1>
+    <p>Heute trägt in Basic nur die Frage eine Fläche (grau, <code>bg-gray-100</code>) samt Cartoon-Schatten;
+       die Antwort steht ohne Fläche direkt auf Weiß. Die vier anderen Themes geben beiden Seiten eine
+       Fläche — Basic ist das einzige Theme ohne diese Regel.</p>
+    <p>Drei Varianten, wie Basic nachzieht. Gleicher Inhalt in jeder Spalte: eine Frage mit Zitat, eine
+       Antwort mit Markierung, Formel und Branch-Link.</p>
+  </div>
+
+  <!-- Ist-Zustand -->
+  <div class="today">
+    <div class="col-head">
+      <span class="tag">Heute</span>
+      <h2>Frage grau, Antwort ohne Fläche</h2>
+    </div>
+    <div class="pane">
+      <div class="row me">
+        <div class="msg" style="background:var(--gray-100);border-radius:2rem;padding:12px 18px;box-shadow:4px 4px 0 var(--shadow-ink);">
+          <div class="quote">Textkorpora getestet: dem Brown-Korpus</div>
+          Was bedeutet das für die Perplexität?
+        </div>
+      </div>
+      <div class="row ai">
+        <div class="msg">
+          <h3>Die Ergebnisse</h3>
+          <p>Die Modelle wurden an zwei großen <span class="mark">Textkorpora getestet</span>. Als Maß diente
+             die Perplexität — bei einem Vokabular <span class="math">V</span> von 100.000 Wörtern ist das
+             ein <span class="branch">deutlicher Sprung</span>.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid">
+
+    <!-- A -->
+    <div class="a">
+      <div class="col-head">
+        <span class="tag">Variante A</span>
+        <h2>Voll gefärbt</h2>
+        <p>Frage im Basic-Blau mit weißer Schrift, Antwort in Grau. Beide mit Cartoon-Schatten, beide
+           rund wie heute. Stärkster Kontrast zwischen den Sprechern; lange Antworten liegen komplett
+           auf grauem Grund.</p>
+      </div>
+      <div class="pane">
+        <div class="row me">
+          <div class="msg">
+            <div class="quote">Textkorpora getestet: dem Brown-Korpus</div>
+            Was bedeutet das für die Perplexität?
+          </div>
+        </div>
+        <div class="row ai">
+          <div class="msg">
+            <h3>Die Ergebnisse</h3>
+            <p>Die Modelle wurden an zwei großen <span class="mark">Textkorpora getestet</span>. Als Maß
+               diente die Perplexität — bei einem Vokabular <span class="math">V</span> von 100.000 Wörtern
+               ist das ein <span class="branch">deutlicher Sprung</span>.</p>
+          </div>
+        </div>
+      </div>
+      <div class="specs">
+        <b>Frage</b> bg #2563EB · Schrift #FFF · Schatten 4px 4px 0 #BFDBFE<br>
+        <b>Antwort</b> bg #F3F4F6 · Schrift #111827 · Schatten 4px 4px 0 #E2E8F0<br>
+        <b>Radius</b> 2rem, beide Seiten
+      </div>
+    </div>
+
+    <!-- B -->
+    <div class="b">
+      <div class="col-head">
+        <span class="tag">Variante B</span>
+        <h2>Zart</h2>
+        <p>Frage in hellem Blau mit dunkelblauer Schrift, Antwort fast weiß mit dünnem Rand. Die Farbe
+           markiert den Sprecher, ohne die Textfarbe zu wechseln — Markierungen und Formeln lesen sich
+           wie auf Weiß.</p>
+      </div>
+      <div class="pane">
+        <div class="row me">
+          <div class="msg">
+            <div class="quote">Textkorpora getestet: dem Brown-Korpus</div>
+            Was bedeutet das für die Perplexität?
+          </div>
+        </div>
+        <div class="row ai">
+          <div class="msg">
+            <h3>Die Ergebnisse</h3>
+            <p>Die Modelle wurden an zwei großen <span class="mark">Textkorpora getestet</span>. Als Maß
+               diente die Perplexität — bei einem Vokabular <span class="math">V</span> von 100.000 Wörtern
+               ist das ein <span class="branch">deutlicher Sprung</span>.</p>
+          </div>
+        </div>
+      </div>
+      <div class="specs">
+        <b>Frage</b> bg #EFF6FF · Rand #DBEAFE · Schrift #1E3A8A · Schatten 4px 4px 0 #DBEAFE<br>
+        <b>Antwort</b> bg #F9FAFB · Rand #E5E7EB · Schatten 4px 4px 0 #E2E8F0<br>
+        <b>Radius</b> 2rem, beide Seiten
+      </div>
+    </div>
+
+    <!-- C -->
+    <div class="c">
+      <div class="col-head">
+        <span class="tag">Variante C</span>
+        <h2>Ecke zeigt den Sprecher</h2>
+        <p>Farben wie A, aber eine Ecke bleibt eckig: bei der Frage unten rechts, bei der Antwort unten
+           links. Dieselbe Sprache, die Mushroom Kingdom und Hyrule schon benutzen — Basic wäre damit
+           formgleich mit den anderen Themes.</p>
+      </div>
+      <div class="pane">
+        <div class="row me">
+          <div class="msg">
+            <div class="quote">Textkorpora getestet: dem Brown-Korpus</div>
+            Was bedeutet das für die Perplexität?
+          </div>
+        </div>
+        <div class="row ai">
+          <div class="msg">
+            <h3>Die Ergebnisse</h3>
+            <p>Die Modelle wurden an zwei großen <span class="mark">Textkorpora getestet</span>. Als Maß
+               diente die Perplexität — bei einem Vokabular <span class="math">V</span> von 100.000 Wörtern
+               ist das ein <span class="branch">deutlicher Sprung</span>.</p>
+          </div>
+        </div>
+      </div>
+      <div class="specs">
+        <b>Frage</b> bg #2563EB · Schrift #FFF · Radius 16/16/4/16<br>
+        <b>Antwort</b> bg #F3F4F6 · Schrift #111827 · Radius 16/16/16/4<br>
+        <b>Schatten</b> 4px 4px 0, wie in A
+      </div>
+    </div>
+
+  </div>
+
+  <div class="note">
+    <h3>Was in jeder Variante gleich mitentschieden wird</h3>
+    <ul>
+      <li><b>Reichweite</b>: Die Regel käme als <code>:root[data-theme='professional']</code>-Block in
+          <code>index.css</code> — genau die Form, die die vier anderen Themes schon haben. Nur Basic
+          ändert sich, die anderen Themes bleiben unberührt.</li>
+      <li><b>Zitat in der Frage</b>: bleibt <code>currentColor</code> mit 75 % Deckkraft. Auf Blau (A, C)
+          wird es dadurch automatisch hellblau-weiß statt grau.</li>
+      <li><b>Markierungen</b>: die fünf Highlight-Pastelltöne sind Produktkonstanten und ändern sich nicht.
+          Auf grauem Antwortgrund (A, C) sitzen sie sichtbar; auf Blau kämen sie nur vor, wenn eine
+          <i>Frage</i> markiert wird — dort bleiben sie unverändert pastell auf Blau.</li>
+      <li><b>Antwort-Padding</b>: eine Fläche braucht Innenabstand (10–12 px), sonst klebt der Text am Rand.
+          Damit rückt der Antworttext um dieselbe Strecke nach rechts wie in den anderen Themes.</li>
+    </ul>
+  </div>
+
+</div>
+</body>
+</html>

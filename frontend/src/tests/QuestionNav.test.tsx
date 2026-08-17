@@ -206,4 +206,24 @@ describe('ChatArea-Integration', () => {
       window.HTMLElement.prototype.scrollIntoView = () => {};
     }
   });
+
+  // Nutzerreport 2026-08-10: in einer schmalen Spalte wächst der Composer auf
+  // seine Maximalhöhe, und der Stepper mit festem Abstand vom Spaltenboden
+  // (bottom-32) landete DARIN. Er gehört an die Oberkante des Composers, also
+  // in dessen Container — dann steigt er bei jeder Feldhöhe mit
+  // (design/mockup-composer-narrow.html §05).
+  it('Stepper hängt am Composer, nicht an einem festen Abstand vom Spaltenboden', () => {
+    vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(600);
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(400);
+    render(<ChatArea chat={twoQuestionChat} {...defaultProps} />);
+
+    const stepper = screen.getByTestId('question-stepper');
+    const composerArea = screen.getByTestId('chat-input-dropzone');
+    const anchor = stepper.closest('[data-testid="composer-floaters"]');
+
+    expect(anchor).not.toBeNull();
+    expect(composerArea.contains(anchor as Node)).toBe(true);
+    expect(anchor).toHaveClass('bottom-full');
+    expect(anchor?.className).not.toMatch(/bottom-32/);
+  });
 });

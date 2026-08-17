@@ -219,7 +219,7 @@ describe('ChatArea — composer quote', () => {
         onSendMessage={onSendMessage}
         onWordRightClick={vi.fn()}
         onSelectChat={vi.fn()}
-        composerQuote={{ text: 'Gradient clipping alone', sourceLabel: 'Optimizer deep dive', color: 'pink' }}
+        composerQuote={{ text: 'Gradient clipping alone', sourceLabel: 'Optimizer deep dive', color: 'pink', highlightId: 'hl-pink' }}
         onClearComposerQuote={onClear}
       />,
     );
@@ -249,6 +249,10 @@ describe('ChatArea — composer quote', () => {
       expect(onSendMessage).toHaveBeenCalledWith(
         '> Gradient clipping alone\n\nIs there a fix?',
         [],
+        undefined,
+        // Der Anker reist mit, damit das gesendete Zitat anklickbar bleibt
+        // (mockup-quote-jump-to-source.html).
+        'hl-pink',
       ),
     );
     expect(onClear).toHaveBeenCalled();
@@ -388,6 +392,9 @@ describe('App — chat highlight + Ask in chat flow', () => {
 
     await waitFor(() =>
       expect(api.createChat).toHaveBeenCalledWith('clipping alone', 'c1', 'clipping alone', // chat branches carry no parent_context — parent_word IS the full passage (2026-07-26)
+        undefined,
+        // 5th arg: parent_word_display — no model quote here, so the header
+        // falls back to the verbatim passage (2026-08-02).
         undefined),
     );
     await waitFor(() =>
@@ -412,6 +419,9 @@ describe('App — chat highlight + Ask in chat flow', () => {
     fireEvent.click(screen.getByText('Open as new chat'));
     await waitFor(() =>
       expect(api.createChat).toHaveBeenCalledWith('clipping alone', 'c1', 'clipping alone', // chat branches carry no parent_context — parent_word IS the full passage (2026-07-26)
+        undefined,
+        // 5th arg: parent_word_display — no model quote here, so the header
+        // falls back to the verbatim passage (2026-08-02).
         undefined),
     );
     await waitFor(() => expect(screen.getByTestId('parent-context-pane')).toBeInTheDocument());
@@ -443,6 +453,9 @@ describe('App — chat highlight + Ask in chat flow', () => {
 
     await waitFor(() =>
       expect(api.createChat).toHaveBeenCalledWith('clipping alone', 'c1', 'clipping alone', // chat branches carry no parent_context — parent_word IS the full passage (2026-07-26)
+        undefined,
+        // 5th arg: parent_word_display — no model quote here, so the header
+        // falls back to the verbatim passage (2026-08-02).
         undefined),
     );
     // The branch opens in the right pane, parent chat renders in the center.

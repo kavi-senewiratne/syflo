@@ -19,7 +19,28 @@
  *     the text layer sprinkles between glyphs, which alone reads far better.
  */
 
+import katex from 'katex';
 import { api } from '../api';
+
+/**
+ * Can KaTeX actually render every `$…$` span in here? Models invent macros:
+ * gemini-flash-lite returned `\\E[x(k)]` and `\\Var[x(k)]` for the
+ * normalization formula (measured 2026-08-02), which KaTeX draws as RED
+ * error text. A title that renders red is worse than the raw passage, so an
+ * unrenderable result is dropped and the fallback takes over.
+ */
+export function mathRenders(text: string): boolean {
+  const spans = text.match(/\$\$?[^$]+\$\$?/g) || [];
+  return spans.every((span) => {
+    const expr = span.replace(/^\$\$?/, '').replace(/\$\$?$/, '');
+    try {
+      katex.renderToString(expr, { throwOnError: true, displayMode: false });
+      return true;
+    } catch {
+      return false;
+    }
+  });
+}
 
 /** How long the branch click waits for a title that is still in flight. */
 export const TITLE_WAIT_MS = 2500;
@@ -42,41 +63,56 @@ export function tidyPassage(passage: string): string {
     .trim();
 }
 
-/** A pending title lookup, started when the popup opened. */
+/** What the lookup yields: a short title, and the passage with math restored. */
+export interface PassageTitle {
+  title: string | null;
+  quote: string | null;
+}
+
+/** A pending lookup, started when the popup opened. */
 export interface PendingTitle {
   passage: string;
-  promise: Promise<string | null>;
+  promise: Promise<PassageTitle>;
 }
 
 /**
  * Kick off the lookup. Never rejects — a failed lookup resolves to null, so
  * no caller needs a catch.
  */
+const NOTHING: PassageTitle = { title: null, quote: null };
+
 export function startPassageTitle(passage: string): PendingTitle {
-  let promise: Promise<string | null>;
+  let promise: Promise<PassageTitle>;
   try {
-    promise = api.passageTitle(passage).catch(() => null);
+    promise = api.passageTitle(passage).then(
+      (r) => r ?? NOTHING,
+      () => NOTHING,
+    );
   } catch {
     // A title is a nicety — nothing about branching may hinge on it, not
     // even an api layer that doesn't offer the call.
-    promise = Promise.resolve(null);
+    promise = Promise.resolve(NOTHING);
   }
   return { passage, promise };
 }
 
 /**
- * The title to create the branch with: the model's, if it arrives within
- * `waitMs`, else the tidied passage. `pending` may belong to an older
- * selection — then it is ignored.
+ * What to create the branch with: the model's title and restored quote if
+ * they arrive within `waitMs`, else the tidied passage as the title and no
+ * quote (the UI then falls back to the verbatim parent_word). `pending` may
+ * belong to an older selection — then it is ignored.
  */
 export async function awaitTitle(
   pending: PendingTitle | null,
   passage: string,
   waitMs: number = TITLE_WAIT_MS,
-): Promise<string> {
+): Promise<{ title: string; quote: string | null }> {
   const fallback = tidyPassage(passage) || passage;
-  if (!pending || pending.passage !== passage) return fallback;
-  const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), waitMs));
-  const title = await Promise.race([pending.promise, timeout]);
-  return title ?? fallback;
+  if (!pending || pending.passage !== passage) return { title: fallback, quote: null };
+  const timeout = new Promise<PassageTitle>((resolve) => setTimeout(() => resolve(NOTHING), waitMs));
+  const result = await Promise.race([pending.promise, timeout]);
+  // Only accept math the renderer can actually draw.
+  const title = result.title && mathRenders(result.title) ? result.title : fallback;
+  const quote = result.quote && mathRenders(result.quote) ? result.quote : null;
+  return { title, quote };
 }

@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Syflo · Was gehört in einen Knoten — und was die drei Linsen bedeuten</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=DM+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'DM Sans', -apple-system, sans-serif;
+    background: #101623; color: #C7D2E4;
+    padding: 48px 32px 110px; -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; }
+
+  .page-head h1 {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 25px; font-weight: 700; color: #F2F6FC; letter-spacing: -0.01em;
+  }
+  .page-head p { margin-top: 10px; font-size: 14px; color: #8DA0BF; max-width: 78ch; line-height: 1.6; }
+
+  .section-head { margin: 56px 0 18px; }
+  .section-head h2 {
+    font-family: 'Space Grotesk', sans-serif; font-size: 15px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.12em; color: #F2F6FC;
+    display: flex; align-items: baseline; gap: 10px;
+  }
+  .section-head h2 .num { color: #3B82F6; }
+  .section-head p { margin-top: 9px; font-size: 13.5px; color: #8DA0BF; max-width: 82ch; line-height: 1.6; }
+
+  /* ---------- Kartenreihe ---------- */
+  .row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; align-items: start; }
+  .col {
+    background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07);
+    border-radius: 14px; padding: 16px; display: flex; flex-direction: column; gap: 12px; min-width: 0;
+  }
+  .col.pick { border-color: #3B82F6; background: rgba(59,130,246,0.07); }
+  .col h3 {
+    font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+    color: #F2F6FC; display: flex; align-items: center; gap: 7px; flex-wrap: wrap;
+  }
+  .col h3 .tag {
+    font-size: 9px; font-weight: 700; letter-spacing: 0.08em; padding: 2px 7px;
+    border-radius: 99px; background: #3B82F6; color: #fff;
+  }
+  .col h3 .tag.warn { background: rgba(251,191,36,0.18); color: #FCD34D; }
+  .col .verdict { font-size: 12.5px; line-height: 1.55; color: #B8C6DC; }
+  .col .verdict b { color: #F2F6FC; }
+  .col .verdict .no { color: #8DA0BF; }
+
+  /* Bühne für einen einzelnen Knoten, Professional-Theme */
+  .stage {
+    background: #F9FAFB;
+    background-image: radial-gradient(#E2E8F0 1px, transparent 1px);
+    background-size: 20px 20px;
+    border-radius: 10px; padding: 20px 8px;
+    display: flex; justify-content: center;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    --hl-pink: #FBCFE8; --hl-pink-deep: #DB2777; --hl-pink-ink: #9D174D;
+    --hl-yellow: #FEF08A; --hl-yellow-deep: #CA8A04; --hl-yellow-ink: #854D0E;
+    --hl-blue: #BFDBFE; --hl-blue-deep: #2563EB; --hl-blue-ink: #1E40AF;
+    --hl-orange: #FED7AA; --hl-orange-deep: #EA580C; --hl-orange-ink: #9A3412;
+  }
+  .node {
+    width: 200px; background: #fff; color: #111827;
+    border: 1.5px solid #E5E7EB; border-radius: 12px;
+    padding: 11px 13px; box-shadow: 4px 4px 0 #E2E8F0;
+  }
+  .node.striped { border-left-width: 5px; border-left-color: var(--hl-pink-deep); }
+  .node .parentword {
+    display: flex; align-items: center; gap: 4px; margin-bottom: 5px;
+    font-size: 9.5px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
+    color: #6B7280; white-space: nowrap; overflow: hidden;
+  }
+  .node .parentword svg { width: 10px; height: 10px; flex: none; }
+  .node .title { font-size: 13px; font-weight: 600; line-height: 1.35; }
+  .node .quote { margin-top: 6px; font-size: 10.5px; line-height: 1.45; color: #6B7280; font-style: italic; }
+  .node .takeaway {
+    margin-top: 7px; font-size: 11px; line-height: 1.45; color: #374151;
+    border-left: 2px solid #34D399; padding-left: 8px;
+  }
+  .node .foot {
+    margin-top: 8px; display: flex; align-items: center; gap: 8px;
+    font-size: 10px; color: #6B7280;
+  }
+  .node .foot svg { width: 11px; height: 11px; }
+  .kind {
+    display: inline-flex; align-items: center; gap: 4px; margin-bottom: 5px;
+    font-size: 9px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+    padding: 2.5px 7px; border-radius: 99px;
+    background: var(--hl-pink); color: var(--hl-pink-ink);
+  }
+  .status {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 9.5px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase;
+  }
+  .status .d { width: 7px; height: 7px; border-radius: 99px; }
+  .status.answered { color: #15803D; } .status.answered .d { background: #22C55E; }
+  .status.open { color: #B45309; } .status.open .d { background: #F59E0B; }
+  .status.conflict { color: #BE185D; } .status.conflict .d { background: #EC4899; }
+
+  /* ---------- Linsen-Vergleich ---------- */
+  .lenses { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .lens {
+    background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07);
+    border-radius: 14px; overflow: hidden;
+  }
+  .lens .head { padding: 14px 16px 12px; }
+  .lens .head h3 {
+    font-size: 12.5px; font-weight: 700; color: #F2F6FC;
+    display: flex; align-items: center; gap: 7px;
+  }
+  .lens .head h3 svg { width: 14px; height: 14px; color: #93B4F5; }
+  .lens .head .q { margin-top: 7px; font-size: 12.5px; line-height: 1.5; color: #93B4F5; font-style: italic; }
+  .lens .head .a { margin-top: 6px; font-size: 12.5px; line-height: 1.55; color: #B8C6DC; }
+  .mini {
+    position: relative; height: 226px; margin: 0 16px 16px; border-radius: 10px;
+    background: #F9FAFB; background-image: radial-gradient(#E2E8F0 1px, transparent 1px);
+    background-size: 18px 18px; border: 1px solid #E5E7EB;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  }
+  .mini svg.edges { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .mini svg.edges path { fill: none; stroke: #C7D0DC; stroke-width: 1.6; }
+  .mn {
+    position: absolute; width: 108px; padding: 6px 8px; border-radius: 8px;
+    background: #fff; border: 1.2px solid #E5E7EB; border-left-width: 4px;
+    box-shadow: 3px 3px 0 #E8EDF3;
+    font-size: 9.5px; font-weight: 600; line-height: 1.3; color: #111827;
+  }
+  .mn small { display: block; margin-top: 3px; font-size: 8px; font-weight: 600;
+    letter-spacing: 0.06em; text-transform: uppercase; color: #6B7280; }
+  .mn.root {
+    width: 96px; background: #2563EB; color: #fff; border-color: #2563EB;
+    border-left-width: 1.2px; font-size: 10px;
+  }
+  .legend {
+    position: absolute; left: 8px; bottom: 8px; background: rgba(255,255,255,0.96);
+    border: 1px solid #E5E7EB; border-radius: 8px; padding: 7px 9px; display: grid; gap: 4px;
+  }
+  .legend .r { display: flex; align-items: center; gap: 6px; font-size: 9px; color: #374151; }
+  .legend .sw { width: 9px; height: 9px; border-radius: 2px; flex: none; }
+
+  /* ---------- Fußnoten ---------- */
+  .facts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 20px; }
+  .fact {
+    background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07);
+    border-radius: 12px; padding: 13px 15px;
+  }
+  .fact h4 {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
+    color: #6F86A8; margin-bottom: 6px;
+  }
+  .fact p { font-size: 12.5px; line-height: 1.55; color: #B8C6DC; }
+  .fact code {
+    font-family: 'IBM Plex Mono', monospace; font-size: 11.5px;
+    color: #93B4F5; background: rgba(59,130,246,0.10); padding: 1px 5px; border-radius: 4px;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<div class="page-head">
+  <h1>Was gehört in einen Knoten — und was „Source section" und „Status" bedeuten</h1>
+  <p>Zwei Fragen, zwei Teile. Oben: vier Varianten desselben Knotens, damit sichtbar wird,
+     welche Zeile wirklich etwas nützt. Unten: dieselbe kleine Karte dreimal — einmal pro
+     Linse, mit der Frage, die sie beantwortet.</p>
+</div>
+
+<!-- ============================================================
+     TEIL 1 — Knoteninhalt
+     ============================================================ -->
+<div class="section-head">
+  <h2><span class="num">01</span> Was gehört in den Knoten?</h2>
+  <p>Der Platz auf einer Karte ist die knappste Ressource der ganzen Ansicht. Jede Zeile muss
+     eine Frage beantworten, die man <em>vor</em> dem Öffnen des Chats hat. Alles andere kostet
+     nur Höhe — und Höhe kostet Überblick.</p>
+</div>
+
+<div class="row">
+
+  <!-- A · heute -->
+  <div class="col">
+    <h3>A · Heute</h3>
+    <div class="stage">
+      <div class="node">
+        <div class="parentword">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 10 20 15 15 20"/><path d="M4 4v7a4 4 0 0 0 4 4h12"/></svg>
+          <span>scaled dot-product</span>
+        </div>
+        <div class="title">Why divide by √d_k?</div>
+        <div class="quote">„Why do they divide the dot products by the square root of d_k?"</div>
+        <div class="foot">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          <span>6</span>
+        </div>
+      </div>
+    </div>
+    <div class="verdict">
+      Das Verzweigungswort steht schon an der Kante, und der Auszug wiederholt fast wörtlich
+      den Titel. <b>Zwei von vier Zeilen sagen dasselbe.</b>
+    </div>
+  </div>
+
+  <!-- B · schlank -->
+  <div class="col">
+    <h3>B · Schlank</h3>
+    <div class="stage">
+      <div class="node striped">
+        <div class="title">Why divide by √d_k?</div>
+        <div class="foot">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          <span>6</span>
+        </div>
+      </div>
+    </div>
+    <div class="verdict">
+      Farbstreifen statt Abzeichen: die Art der Markierung ist eine <b>Farbe</b>, kein Wort —
+      kostet null Höhe. <span class="no">Aber: man weiß immer noch nicht, was herauskam.</span>
+    </div>
+  </div>
+
+  <!-- C · Empfehlung -->
+  <div class="col pick">
+    <h3>C · Titel + Erkenntnis <span class="tag">Empfehlung</span></h3>
+    <div class="stage">
+      <div class="node striped">
+        <div class="title">Why divide by √d_k?</div>
+        <div class="takeaway">Keeps dot-product variance at 1, so softmax stays out of its flat region.</div>
+        <div class="foot">
+          <span class="status answered"><span class="d"></span> Answered</span>
+          <span style="margin-left:auto; display:flex; align-items:center; gap:4px">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+            6
+          </span>
+        </div>
+      </div>
+    </div>
+    <div class="verdict">
+      Drei Dinge ohne einen Klick: <b>worum es ging</b> (Titel), <b>was herauskam</b>
+      (eine Zeile aus der schon vorhandenen Zusammenfassung), <b>ob es fertig ist</b>
+      (Punkt + Wort). Die Farbe trägt den vierten.
+    </div>
+  </div>
+
+  <!-- D · überladen -->
+  <div class="col">
+    <h3>D · Alles <span class="tag warn">Warnung</span></h3>
+    <div class="stage">
+      <div class="node striped">
+        <span class="kind">Question</span>
+        <div class="parentword">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 10 20 15 15 20"/><path d="M4 4v7a4 4 0 0 0 4 4h12"/></svg>
+          <span>scaled dot-product</span>
+        </div>
+        <div class="title">Why divide by √d_k?</div>
+        <div class="quote">„Why do they divide the dot products by √d_k?"</div>
+        <div class="takeaway">Keeps dot-product variance at 1, so softmax stays out of its flat region.</div>
+        <div class="foot">
+          <span class="status answered"><span class="d"></span> Answered</span>
+          <span style="margin-left:auto; display:flex; align-items:center; gap:4px">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+            6
+          </span>
+        </div>
+      </div>
+    </div>
+    <div class="verdict">
+      Doppelt so hoch wie C — bei zwölf Zweigen passt die Karte nicht mehr auf den Bildschirm,
+      und man liest trotzdem nur die erste Zeile. <b>Höhe ist der Preis für jede Zeile.</b>
+    </div>
+  </div>
+
+</div>
+
+<div class="facts">
+  <div class="fact">
+    <h4>Regel dahinter</h4>
+    <p>Was schon an der Kante steht (das Verzweigungswort), gehört nicht in den Knoten.
+       Was aus dem Titel folgt (die Originalfrage), auch nicht.</p>
+  </div>
+  <div class="fact">
+    <h4>Beim Zeigen mit der Maus</h4>
+    <p>Das Weggelassene ist nicht verloren: Zitat und Verzweigungswort können beim Hover
+       auftauchen — genau wie heute schon der Auszug beim Hover länger wird.</p>
+  </div>
+  <div class="fact">
+    <h4>Kosten</h4>
+    <p>Die Erkenntnis-Zeile kostet nichts Neues: <code>chats.summary_display.gist</code>
+       wird bereits für das Kontext-Banner erzeugt und im Hintergrund gewärmt.</p>
+  </div>
+</div>
+
+<!-- ============================================================
+     TEIL 2 — Die drei Linsen
+     ============================================================ -->
+<div class="section-head">
+  <h2><span class="num">02</span> Was die drei Linsen bedeuten</h2>
+  <p>Eine Linse (lens) ändert nichts an der Karte — nur die <strong>Farbe</strong> der Knoten.
+     Wie bei einer Landkarte, die man umschaltet: dieselben Städte, einmal nach Land gefärbt,
+     einmal nach Einwohnerzahl. Jede Linse beantwortet eine andere Frage.</p>
+</div>
+
+<div class="lenses">
+
+  <!-- Linse 1 -->
+  <div class="lens">
+    <div class="head">
+      <h3>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m9 11-6 6v3h9l3-3"/><path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"/></svg>
+        Highlight kind — Markierungsart
+      </h3>
+      <div class="q">„Was für eine Art von Sache ist dieser Zweig?"</div>
+      <div class="a">Die Farbe kommt aus der Markierung, aus der der Zweig entstanden ist:
+        Frage, Wichtig, Referenz, Widerspruch. <strong>Deine ursprüngliche Idee.</strong></div>
+    </div>
+    <div class="mini">
+      <svg class="edges" viewBox="0 0 300 226" preserveAspectRatio="none">
+        <path d="M112 96 C 140 96, 150 44, 172 40"/>
+        <path d="M112 104 C 140 104, 150 110, 172 112"/>
+        <path d="M112 112 C 140 112, 150 176, 172 182"/>
+      </svg>
+      <div class="mn root" style="left:12px; top:82px;">Attention Is All You Need</div>
+      <div class="mn" style="left:172px; top:24px; border-left-color:#DB2777;">Why divide by √d_k?<small>Question</small></div>
+      <div class="mn" style="left:172px; top:96px; border-left-color:#CA8A04;">Multi-head attention<small>Important</small></div>
+      <div class="mn" style="left:172px; top:166px; border-left-color:#2563EB;">Layer normalization<small>Reference</small></div>
+      <div class="legend">
+        <div class="r"><span class="sw" style="background:#DB2777"></span> Question</div>
+        <div class="r"><span class="sw" style="background:#CA8A04"></span> Important</div>
+        <div class="r"><span class="sw" style="background:#2563EB"></span> Reference</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Linse 2 -->
+  <div class="lens">
+    <div class="head">
+      <h3>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        Source section — Stelle in der Quelle
+      </h3>
+      <div class="q">„Über welchen Teil des Papers rede ich hier?"</div>
+      <div class="a">Die Farbe kommt aus dem Abschnitt, in dem die Markierung steht (bei
+        einem Video: die Minute). Gleiche Farbe = gleiche Stelle im Dokument.</div>
+    </div>
+    <div class="mini">
+      <svg class="edges" viewBox="0 0 300 226" preserveAspectRatio="none">
+        <path d="M112 96 C 140 96, 150 44, 172 40"/>
+        <path d="M112 104 C 140 104, 150 110, 172 112"/>
+        <path d="M112 112 C 140 112, 150 176, 172 182"/>
+      </svg>
+      <div class="mn root" style="left:12px; top:82px;">Attention Is All You Need</div>
+      <div class="mn" style="left:172px; top:24px; border-left-color:#7C3AED;">Why divide by √d_k?<small>§3.2 Attention</small></div>
+      <div class="mn" style="left:172px; top:96px; border-left-color:#7C3AED;">Multi-head attention<small>§3.2 Attention</small></div>
+      <div class="mn" style="left:172px; top:166px; border-left-color:#0891B2;">Layer normalization<small>§3.1 Stacks</small></div>
+      <div class="legend">
+        <div class="r"><span class="sw" style="background:#7C3AED"></span> §3.2 Attention · 2</div>
+        <div class="r"><span class="sw" style="background:#0891B2"></span> §3.1 Stacks · 1</div>
+        <div class="r" style="color:#9CA3AF"><span class="sw" style="background:#E5E7EB"></span> §5 Training · 0</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Linse 3 -->
+  <div class="lens">
+    <div class="head">
+      <h3>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="2.5" fill="currentColor" stroke="none"/></svg>
+        Status — Arbeitsstand
+      </h3>
+      <div class="q">„Wo bin ich noch nicht fertig?"</div>
+      <div class="a">Die Farbe kommt aus dem Zustand des Gesprächs: beantwortet, offen
+        (die letzte Nachricht ist deine Frage), widersprüchlich.</div>
+    </div>
+    <div class="mini">
+      <svg class="edges" viewBox="0 0 300 226" preserveAspectRatio="none">
+        <path d="M112 96 C 140 96, 150 44, 172 40"/>
+        <path d="M112 104 C 140 104, 150 110, 172 112"/>
+        <path d="M112 112 C 140 112, 150 176, 172 182"/>
+      </svg>
+      <div class="mn root" style="left:12px; top:82px;">Attention Is All You Need</div>
+      <div class="mn" style="left:172px; top:24px; border-left-color:#22C55E;">Why divide by √d_k?<small>Answered</small></div>
+      <div class="mn" style="left:172px; top:96px; border-left-color:#EC4899;">Multi-head attention<small>Conflict</small></div>
+      <div class="mn" style="left:172px; top:166px; border-left-color:#F59E0B;">Layer normalization<small>Open</small></div>
+      <div class="legend">
+        <div class="r"><span class="sw" style="background:#22C55E"></span> Answered</div>
+        <div class="r"><span class="sw" style="background:#F59E0B"></span> Open</div>
+        <div class="r"><span class="sw" style="background:#EC4899"></span> Conflict</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div class="facts">
+  <div class="fact">
+    <h4>Warum überhaupt drei</h4>
+    <p>Weil dieselbe Karte verschiedene Fragen beantworten muss: <em>was</em> ist das
+       (Markierungsart), <em>wo</em> im Dokument (Abschnitt), <em>wie weit</em> bin ich
+       (Status).</p>
+  </div>
+  <div class="fact">
+    <h4>Mein Vorschlag</h4>
+    <p>Mit <strong>einer</strong> anfangen — Markierungsart, deine Idee. „Status" braucht die
+       Erkenntnis-Zeile aus Teil 1 und kommt zusammen mit ihr. „Source section" erst, wenn die
+       Abschnitte aus dem Quellen-Skelett zuverlässig sind.</p>
+  </div>
+  <div class="fact">
+    <h4>Eine Linse zur Zeit</h4>
+    <p>Nie zwei gleichzeitig — zwei Farbsysteme auf einer Karte kann niemand lesen. Deshalb
+       ein Segmentschalter (nur eine Wahl) und keine Häkchen.</p>
+  </div>
+</div>
+
+</div>
+</body>
+</html>

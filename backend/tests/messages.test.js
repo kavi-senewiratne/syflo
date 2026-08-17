@@ -388,6 +388,57 @@ describe('POST /api/chats/:chatId/messages – streaming', () => {
     expect(chatRes.body.messages[1].content).toBe('DB test reply');
   });
 
+  it('stores the quote anchor so the rendered quote can jump back to its source', async () => {
+    // "Ask in chat" quotes carry the highlight they were taken from
+    // (mockup-quote-jump-to-source.html, variant A). The quote text itself
+    // stays inside content as blockquote lines — only the anchor is new.
+    mockCreate.mockResolvedValueOnce(makeStream(['Because they are independent.']));
+    mockCreate.mockResolvedValueOnce({ choices: [{ message: { content: 'Coins' } }] });
+
+    await request(app)
+      .post(`/api/chats/${chatId}/messages`)
+      .send({ content: '> 0.5 × 0.5 = 0.25\n\nWhy multiply?', quoteHighlightId: 'hl-42' })
+      .buffer(true);
+
+    const chatRes = await request(app).get(`/api/chats/${chatId}`);
+    expect(chatRes.body.messages[0].quote_highlight_id).toBe('hl-42');
+    // The answer is not a quote and must not inherit the anchor.
+    expect(chatRes.body.messages[1].quote_highlight_id).toBeNull();
+  });
+
+  it('carries the quote anchor in the started and done events', async () => {
+    // These two events REPLACE the frontend's optimistic question. An anchor
+    // missing here left the just-sent quote unclickable until a reload —
+    // invisible to every DB-level assertion (found in the running app,
+    // 2026-08-08).
+    mockCreate.mockResolvedValueOnce(makeStream(['Because they are independent.']));
+    mockCreate.mockResolvedValueOnce({ choices: [{ message: { content: 'Coins' } }] });
+
+    const res = await request(app)
+      .post(`/api/chats/${chatId}/messages`)
+      .send({ content: '> 0.5 × 0.5 = 0.25\n\nWhy multiply?', quoteHighlightId: 'hl-42' })
+      .buffer(true);
+
+    const events = parseSSE(res.text);
+    const started = events.find(e => e.started);
+    const done = events.find(e => e.done);
+    expect(started.userMessage.quote_highlight_id).toBe('hl-42');
+    expect(done.userMessage.quote_highlight_id).toBe('hl-42');
+  });
+
+  it('leaves the quote anchor null for a question sent without a quote', async () => {
+    mockCreate.mockResolvedValueOnce(makeStream(['Plain answer']));
+    mockCreate.mockResolvedValueOnce({ choices: [{ message: { content: 'Plain' } }] });
+
+    await request(app)
+      .post(`/api/chats/${chatId}/messages`)
+      .send({ content: 'No quote here' })
+      .buffer(true);
+
+    const chatRes = await request(app).get(`/api/chats/${chatId}`);
+    expect(chatRes.body.messages[0].quote_highlight_id).toBeNull();
+  });
+
   it('title generation reuses the conversation prompt prefix instead of evicting it', async () => {
     // Ollama has only ONE cache slot (vision models: Parallel:1). A
     // standalone title prompt would evict the paper prefix; that is why
@@ -446,16 +497,251 @@ describe('POST /api/chats/:chatId/messages – streaming', () => {
     // call still carries the conversation prefix for the KV cache — the
     // instruction at the end is what steers the summary.)
     const titleCall = mockCreate.mock.calls.find(c =>
-      c[0].messages.some(m => typeof m.content === 'string' && m.content.includes('selected passage'))
+      c[0].messages.some(m => typeof m.content === 'string' && m.content.includes('selected the passage'))
     );
     expect(titleCall).toBeDefined();
     const instruction = titleCall[0].messages[titleCall[0].messages.length - 1].content;
-    expect(instruction).toContain('summarizes the following selected passage');
+    expect(instruction).toContain('selected the passage below');
     expect(instruction).toContain('Die Energie $E(w_t)$');
     expect(instruction).not.toContain('Kannst du mir alle Details');
 
     const chatRes = await request(app).get(`/api/chats/${branch.body.id}`);
     expect(chatRes.body.title).toBe('Energie und OOV');
+  });
+
+  it('parses the branch reply instead of storing it verbatim (2026-08-02)', async () => {
+    // The branch instruction asks for TITLE/QUOTE lines. Taking the reply
+    // as-is put the raw object into the tree: `{ "title": "θ₂ Update`.
+    const branch = await request(app).post('/api/chats').send({
+      title: 'About: θ 2',
+      parent_id: chatId,
+      parent_word: 'θ 2 ← θ 2 − α m m ∑ i =1 ∂F 2 (x i , θ 2 ) ∂ θ 2',
+    });
+    await new Promise(r => setTimeout(r, 25));
+
+    mockCreate.mockResolvedValueOnce(makeStream(['Reply']));
+    mockCreate.mockResolvedValueOnce({ choices: [{ message: { content:
+      'TITLE: $\\Theta_2$ Update\n'
+      + 'QUOTE: $\\Theta_2 \\leftarrow \\Theta_2 - \\frac{\\alpha}{m}\\sum_{i=1}^{m}'
+      + '\\frac{\\partial F_2(x_i, \\Theta_2)}{\\partial \\Theta_2}$',
+    } }] });
+
+    await request(app)
+      .post(`/api/chats/${branch.body.id}/messages`)
+      .send({ content: 'Was bedeutet das?' })
+      .buffer(true);
+
+    const chatRes = await request(app).get(`/api/chats/${branch.body.id}`);
+    expect(chatRes.body.title).toBe('$\\Theta_2$ Update');
+    // The branch header gets the restored formula too, even though the
+    // pre-branch lookup came back empty.
+    expect(chatRes.body.parent_word_display).toContain('\\frac{\\partial F_2');
+  });
+
+  it('stores the outcome line from the same call as the title (2026-08-02)', async () => {
+    // The mindmap node shows the title AND what the conversation produced
+    // (design/mockup-mindmap-node-final.html §03). Both come out of the ONE
+    // call that already runs after the first answer — no extra LLM round.
+    const branch = await request(app).post('/api/chats').send({
+      title: 'About: scaling',
+      parent_id: chatId,
+      parent_word: 'we scale the dot products by 1/ d k',
+    });
+    await new Promise(r => setTimeout(r, 25));
+
+    mockCreate.mockResolvedValueOnce(makeStream(['Because the variance grows']));
+    mockCreate.mockResolvedValueOnce({ choices: [{ message: { content:
+      'TITLE: Scaled dot-product\n'
+      + 'QUOTE: we scale the dot products by $1/\\sqrt{d_k}$\n'
+      + 'OUTCOME: Hält die Varianz bei 1, Softmax bleibt im steilen Bereich',
+    } }] });
+
+    await request(app)
+      .post(`/api/chats/${branch.body.id}/messages`)
+      .send({ content: 'Warum?' })
+      .buffer(true);
+
+    const chatRes = await request(app).get(`/api/chats/${branch.body.id}`);
+    expect(chatRes.body.title).toBe('Scaled dot-product');
+    expect(chatRes.body.outcome).toBe('Hält die Varianz bei 1, Softmax bleibt im steilen Bereich');
+
+    // The instruction must actually ask for it, in the passage's language.
+    const titleCall = mockCreate.mock.calls.find(c =>
+      c[0].messages.some(m => typeof m.content === 'string' && m.content.includes('selected the passage'))
+    );
+    expect(titleCall[0].messages.at(-1).content).toContain('OUTCOME:');
+  });
+
+  it('carries the answer INSIDE the outcome instruction, for every provider (2026-08-03)', async () => {
+    // The first version asked what "the conversation above" had established.
+    // On the Ollama path that conversation is really there (the call reuses the
+    // prompt prefix for the KV cache); on every cloud provider the call is the
+    // single instruction, so the model had nothing to read and left the line
+    // empty — 22 of 60 branches were stuck on "Ergebnis folgt …". The answer
+    // now lives in the instruction itself, which is the one message all
+    // providers get.
+    const branch = await request(app).post('/api/chats').send({
+      title: 'About: warmup',
+      parent_id: chatId,
+      parent_word: 'we used warmup steps = 4000',
+    });
+    await new Promise(r => setTimeout(r, 25));
+
+    mockCreate.mockResolvedValueOnce(makeStream(['Die Lernrate steigt linear und fällt danach mit 1/sqrt(step).']));
+    mockCreate.mockResolvedValueOnce({ choices: [{ message: { content:
+      'TITLE: Warmup-Schritte\nQUOTE: we used warmup steps $= 4000$\n'
+      + 'OUTCOME: Lernrate steigt linear, dann invers zur Wurzel',
+    } }] });
+
+    await request(app)
+      .post(`/api/chats/${branch.body.id}/messages`)
+      .send({ content: 'Was macht das?' })
+      .buffer(true);
+
+    const titleCall = mockCreate.mock.calls.find(c =>
+      c[0].messages.some(m => typeof m.content === 'string' && m.content.includes('selected the passage'))
+    );
+    const instruction = titleCall[0].messages.at(-1).content;
+    // The answer is quoted in the instruction, fenced and scoped to OUTCOME.
+    expect(instruction).toContain('Die Lernrate steigt linear');
+    expect(instruction).toContain('Use it ONLY for the OUTCOME line');
+    // …and the question still is not, or the title starts summarizing the
+    // question again (rule from 2026-07-26).
+    expect(instruction).not.toContain('Was macht das?');
+
+    const chatRes = await request(app).get(`/api/chats/${branch.body.id}`);
+    expect(chatRes.body.outcome).toBe('Lernrate steigt linear, dann invers zur Wurzel');
+  });
+
+  it('catches the outcome up on a later answer when the first attempt returned none (2026-08-03)', async () => {
+    // The outcome used to be written only inside the title gate, which opens
+    // exactly once. A title call that timed out, hit a quota, or came back
+    // without the OUTCOME line left the node on its placeholder forever.
+    const branch = await request(app).post('/api/chats').send({
+      title: 'About: dropout',
+      parent_id: chatId,
+      parent_word: 'we apply dropout to the output of each sub-layer',
+    });
+    await new Promise(r => setTimeout(r, 25));
+
+    // First exchange: title and quote arrive, the OUTCOME line does not.
+    mockCreate.mockResolvedValueOnce(makeStream(['Erste Antwort']));
+    mockCreate.mockResolvedValueOnce({ choices: [{ message: { content:
+      'TITLE: Dropout je Sub-Layer\nQUOTE: we apply dropout to the output of each sub-layer',
+    } }] });
+    await request(app)
+      .post(`/api/chats/${branch.body.id}/messages`)
+      .send({ content: 'Warum?' })
+      .buffer(true);
+
+    let chatRes = await request(app).get(`/api/chats/${branch.body.id}`);
+    expect(chatRes.body.outcome).toBeNull();
+
+    // Second exchange: the catch-up call asks for the one missing line.
+    mockCreate.mockClear();
+    mockCreate.mockResolvedValueOnce(makeStream(['Dropout mit p = 0.1 wirkt regularisierend.']));
+    mockCreate.mockResolvedValueOnce({ choices: [{ message: { content:
+      'OUTCOME: Regularisiert jede Sub-Layer-Ausgabe mit $p = 0.1$',
+    } }] });
+    await request(app)
+      .post(`/api/chats/${branch.body.id}/messages`)
+      .send({ content: 'Und der Wert?' })
+      .buffer(true);
+
+    const catchUp = mockCreate.mock.calls.find(c =>
+      c[0].messages.some(m => typeof m.content === 'string' && m.content.includes('OUTCOME:'))
+    );
+    const instruction = catchUp[0].messages.at(-1).content;
+    // One line asked for, and no title machinery: re-titling a branch the user
+    // has been reading for days is not an acceptable side effect.
+    expect(instruction).toContain('EXACTLY ONE line');
+    expect(instruction).not.toContain('TITLE:');
+    expect(instruction).toContain('Dropout mit p = 0.1');
+
+    chatRes = await request(app).get(`/api/chats/${branch.body.id}`);
+    expect(chatRes.body.outcome).toBe('Regularisiert jede Sub-Layer-Ausgabe mit $p = 0.1$');
+    expect(chatRes.body.title).toBe('Dropout je Sub-Layer');
+  });
+
+  it('walks the failover ladder for the outcome line when the active model is out of quota (2026-08-06)', async () => {
+    // Live report 2026-08-06: mindmap nodes stuck on "Ergebnis folgt …". The
+    // outcome call used the configured model and nothing else, so an exhausted
+    // Gemini quota killed the line — and the next answer retried on exactly
+    // the model that had just hit the wall. Now it walks the same candidate
+    // ladder as the answer itself (quota.js).
+    const { setSetting } = require('../llm');
+    setSetting(db, 'llm_provider', 'gemini');
+    setSetting(db, 'gemini_api_key', 'AIza-test');
+    setSetting(db, 'gemini_model', 'gemini-flash-latest');
+    app = createApp(db);
+
+    const root = await request(app).post('/api/chats').send({ title: 'Root' });
+    const branch = await request(app).post('/api/chats').send({
+      title: 'About: beam search',
+      parent_id: root.body.id,
+      parent_word: 'we use beam search with a beam size of 4',
+    });
+    await new Promise(r => setTimeout(r, 25));
+
+    mockCreate.mockImplementation(async (body) => {
+      // The answer stream itself succeeds on the active model.
+      if (body.stream) return makeStream(['Beam search vergleicht 4 Kandidaten.']);
+      // The side call: the active model is out of quota, the next candidate
+      // delivers.
+      if (body.model === 'gemini-flash-latest') {
+        throw Object.assign(new Error('429 quota exceeded'), { status: 429 });
+      }
+      return { choices: [{ message: { content: 'OUTCOME: Beam 4 schlägt Greedy um 1,2 BLEU' } }] };
+    });
+
+    await request(app)
+      .post(`/api/chats/${branch.body.id}/messages`)
+      .send({ content: 'Warum 4?' })
+      .buffer(true);
+
+    const chatRes = await request(app).get(`/api/chats/${branch.body.id}`);
+    expect(chatRes.body.outcome).toBe('Beam 4 schlägt Greedy um 1,2 BLEU');
+
+    // A second model was actually asked — the ladder moved, it did not just
+    // retry the same name.
+    const sideModels = mockCreate.mock.calls
+      .filter(c => !c[0].stream)
+      .map(c => c[0].model);
+    expect(sideModels[0]).toBe('gemini-flash-latest');
+    expect(sideModels.some(m => m !== 'gemini-flash-latest')).toBe(true);
+  });
+
+  it('stops asking once an outcome is stored (2026-08-03)', async () => {
+    // The catch-up must not turn into a per-answer tax: an outcome that exists
+    // is never regenerated.
+    const branch = await request(app).post('/api/chats').send({
+      title: 'About: label smoothing',
+      parent_id: chatId,
+      parent_word: 'label smoothing of value 0.1',
+    });
+    await new Promise(r => setTimeout(r, 25));
+
+    mockCreate.mockResolvedValueOnce(makeStream(['Antwort']));
+    mockCreate.mockResolvedValueOnce({ choices: [{ message: { content:
+      'TITLE: Label Smoothing\nQUOTE: label smoothing of value $0.1$\n'
+      + 'OUTCOME: Verschlechtert Perplexität, verbessert BLEU',
+    } }] });
+    await request(app)
+      .post(`/api/chats/${branch.body.id}/messages`)
+      .send({ content: 'Was bringt das?' })
+      .buffer(true);
+
+    mockCreate.mockClear();
+    mockCreate.mockResolvedValueOnce(makeStream(['Zweite Antwort']));
+    await request(app)
+      .post(`/api/chats/${branch.body.id}/messages`)
+      .send({ content: 'Noch etwas?' })
+      .buffer(true);
+
+    // Exactly one call: the answer stream. No title, no outcome.
+    expect(mockCreate).toHaveBeenCalledTimes(1);
+    const chatRes = await request(app).get(`/api/chats/${branch.body.id}`);
+    expect(chatRes.body.outcome).toBe('Verschlechtert Perplexität, verbessert BLEU');
   });
 });
 
@@ -538,16 +824,19 @@ describe('POST /api/chats/:chatId/messages – parent context', () => {
       .send({ content: 'Child question' })
       .buffer(true);
 
-    // The system message should reference the parent word and include parent context
+    // The prompt should reference the parent word and include parent context:
+    // the inherited context in the system prompt, the selection in the focus
+    // block right before the question.
     const branchCall = mockCreate.mock.calls.find(c =>
-      c[0].messages.some(m => m.role === 'system' && m.content.includes('exploring the term'))
+      c[0].messages.some(m => typeof m.content === 'string' && m.content.includes('exploring the term'))
     );
     const systemMessage = branchCall[0].messages.find(m => m.role === 'system');
+    const focus = branchCall[0].messages.at(-2).content;
     expect(systemMessage.content).toContain('quantum');
     expect(systemMessage.content).toContain('Parent question');
     // Chat-selection branch: no PDF wording, no math-flattening note.
-    expect(systemMessage.content).toContain('from a previous conversation');
-    expect(systemMessage.content).not.toContain('PDF source');
+    expect(focus).toContain('from a previous conversation');
+    expect(focus).not.toContain('PDF source');
   });
 
   it('uses the PDF-selection wording with the surroundings when parent_context is set (decision 2026-07-26)', async () => {
@@ -579,14 +868,270 @@ describe('POST /api/chats/:chatId/messages – parent context', () => {
       .buffer(true);
 
     const branchCall = mockCreate.mock.calls.find(c =>
-      c[0].messages.some(m => m.role === 'system' && m.content.includes('PDF source'))
+      c[0].messages.some(m => typeof m.content === 'string' && m.content.includes('PDF source'))
     );
     expect(branchCall).toBeDefined();
-    const systemMessage = branchCall[0].messages.find(m => m.role === 'system');
-    expect(systemMessage.content).toContain('selected "Rm" inside the tree\'s PDF source');
-    expect(systemMessage.content).toContain('Merkmalsvektor C(i)');
-    expect(systemMessage.content).toContain('flattens math notation');
-    expect(systemMessage.content).not.toContain('from a previous conversation');
+    const focus = branchCall[0].messages.at(-2).content;
+    expect(focus).toContain('selected "Rm" inside the tree\'s PDF source');
+    expect(focus).toContain('Merkmalsvektor C(i)');
+    expect(focus).toContain('flattens math notation');
+    expect(focus).not.toContain('from a previous conversation');
+  });
+
+  it('puts the selection LAST in the system prompt, behind the parent transcript', async () => {
+    // Bug 2026-08-08: "Ich habe dies nicht verstanden." in a fresh branch made
+    // the model explain the whole paper. The selection was one clause in the
+    // middle of the prompt — between the source text and the parent
+    // transcript, i.e. the weakest position. What the model read LAST was a
+    // conversation about the entire source, so "this" resolved to the source.
+    const parent = await request(app).post('/api/chats').send({ title: 'Paper chat' });
+    mockCreate.mockResolvedValueOnce(makeStream(['Parent reply']));
+    mockCreate.mockResolvedValueOnce({ choices: [{ message: { content: 'Parent Title' } }] });
+    await request(app)
+      .post(`/api/chats/${parent.body.id}/messages`)
+      .send({ content: 'Parent question' })
+      .buffer(true);
+
+    mockCreate.mockResolvedValueOnce({ choices: [{ message: { content: 'Parent summary.' } }] });
+    const child = await request(app).post('/api/chats').send({
+      title: 'About: perplexity',
+      parent_id: parent.body.id,
+      parent_word: 'Below, we report the geometric average',
+    });
+    await new Promise(r => setTimeout(r, 25));
+
+    mockCreate.mockResolvedValueOnce(makeStream(['Child reply']));
+    mockCreate.mockResolvedValueOnce({ choices: [{ message: { content: 'Child Title' } }] });
+    await request(app)
+      .post(`/api/chats/${child.body.id}/messages`)
+      .send({ content: 'Ich habe dies nicht verstanden.' })
+      .buffer(true);
+
+    const branchCall = mockCreate.mock.calls.find(c =>
+      c[0].messages.some(m => typeof m.content === 'string' && m.content.includes('exploring the term'))
+    );
+    // The focus block is its OWN message directly before the question — the
+    // last thing the model reads, behind the inherited parent transcript.
+    const focus = branchCall[0].messages.at(-2);
+    // A LATE block travels as a labelled user turn, never as a second system
+    // message: on Gemini a second system message erases the first — and with
+    // it the paper text (bug 2026-08-10, see llm.js).
+    expect(focus.role).toBe('user');
+    expect(focus.content).toContain("THE USER'S CURRENT FOCUS");
+    expect(focus.content).toContain('Below, we report the geometric average');
+  });
+
+  it('repeats the origin paragraph in the focus block and stops forbidding the parent chat', async () => {
+    // Bug 2026-08-09 (overcorrection of the 2026-08-08 fix): the focus block
+    // demoted the inherited conversation to "background" and forbade it
+    // outright — "never the earlier conversation". Flash Lite obeyed: a
+    // selection saying word embeddings need no "imaginary" part was answered
+    // as language philosophy, although the parent chat had explained
+    // imaginary NUMBERS two messages earlier. Fix: separate WHAT to explain
+    // (the passage) from WHERE its words get their meaning (the parent), and
+    // repeat the origin paragraph HERE, next to the selection, instead of
+    // leaving it behind ~58k characters of source text.
+    const parentReply =
+      'Reelle Zahlen sind die ganz normalen Dezimalzahlen.\n\n' +
+      'Daneben gibt es die **imaginäre Einheit** $i$ mit $i^2 = -1$.\n\n' +
+      'Man braucht keine komplexen Zahlen, weil die Bedeutung eines Wortes ' +
+      'keinen imaginären Anteil braucht.';
+    const parent = await request(app).post('/api/chats').send({ title: 'Paper chat' });
+    mockCreate.mockResolvedValueOnce(makeStream([parentReply]));
+    mockCreate.mockResolvedValueOnce({ choices: [{ message: { content: 'Parent Title' } }] });
+    await request(app)
+      .post(`/api/chats/${parent.body.id}/messages`)
+      .send({ content: 'Was sind reelle Zahlen?' })
+      .buffer(true);
+
+    mockCreate.mockResolvedValueOnce({ choices: [{ message: { content: 'Parent summary.' } }] });
+    const child = await request(app).post('/api/chats').send({
+      title: 'About: imaginär',
+      parent_id: parent.body.id,
+      parent_word: 'weil die Bedeutung eines Wortes keinen imaginären Anteil braucht',
+    });
+    await new Promise(r => setTimeout(r, 25));
+
+    mockCreate.mockResolvedValueOnce(makeStream(['Child reply']));
+    mockCreate.mockResolvedValueOnce({ choices: [{ message: { content: 'Child Title' } }] });
+    await request(app)
+      .post(`/api/chats/${child.body.id}/messages`)
+      .send({ content: 'Warum?' })
+      .buffer(true);
+
+    const branchCall = mockCreate.mock.calls.find(c =>
+      c[0].messages.some(m => typeof m.content === 'string' && m.content.includes('exploring the term'))
+    );
+    const focus = branchCall[0].messages.at(-2).content;
+    // The disambiguating paragraph now sits in the LAST block before the
+    // question, not only in the system message far above.
+    expect(focus).toContain('selected from this part of the parent conversation');
+    expect(focus).toContain('imaginäre Einheit');
+    // The prohibition that caused the bug is gone …
+    expect(focus).not.toContain('never the earlier conversation');
+    expect(focus).not.toMatch(/inherited conversation\) is only\s+background/);
+    // … replaced by an instruction to READ the selection through the parent.
+    expect(focus).toMatch(/in the sense the earlier conversation above gave them/i);
+    // … while the 2026-08-08 protection survives: the passage stays the subject.
+    expect(focus).toContain('THE SELECTED PASSAGE');
+    expect(focus).toMatch(/only when the user explicitly asks/);
+  });
+
+  it('omits the origin block when the selection cannot be located', async () => {
+    // PDF branches, selections spanning several messages, edited parents: the
+    // block is dropped rather than guessed at, and the rest still holds.
+    const parent = await request(app).post('/api/chats').send({ title: 'Paper chat' });
+    mockCreate.mockResolvedValueOnce(makeStream(['Parent reply about something else.']));
+    mockCreate.mockResolvedValueOnce({ choices: [{ message: { content: 'Parent Title' } }] });
+    await request(app)
+      .post(`/api/chats/${parent.body.id}/messages`)
+      .send({ content: 'Parent question' })
+      .buffer(true);
+
+    mockCreate.mockResolvedValueOnce({ choices: [{ message: { content: 'Parent summary.' } }] });
+    const child = await request(app).post('/api/chats').send({
+      title: 'About: Rm',
+      parent_id: parent.body.id,
+      parent_word: 'a real vector C(i) in Rm',
+      parent_context: 'mapping C from any element i of V to a real vector C(i) in Rm.',
+    });
+    await new Promise(r => setTimeout(r, 25));
+
+    mockCreate.mockResolvedValueOnce(makeStream(['Child reply']));
+    mockCreate.mockResolvedValueOnce({ choices: [{ message: { content: 'Child Title' } }] });
+    await request(app)
+      .post(`/api/chats/${child.body.id}/messages`)
+      .send({ content: 'Warum?' })
+      .buffer(true);
+
+    const branchCall = mockCreate.mock.calls.find(c =>
+      c[0].messages.some(m => typeof m.content === 'string' && m.content.includes("CURRENT FOCUS"))
+    );
+    const focus = branchCall[0].messages.at(-2).content;
+    expect(focus).not.toContain('selected from this part of the parent conversation');
+    // The PDF branch keeps its own surroundings and the math-flattening note.
+    expect(focus).toContain('inside the tree\'s PDF source');
+    expect(focus).toContain('THE SELECTED PASSAGE');
+  });
+
+  it('prefixes the question sent to the model with the selected passage', async () => {
+    // Measured against the real app 2026-08-08 (gemini-flash-lite, same
+    // 67k-char prompt): with the selection only in a system message the model
+    // explained the whole paper; with it prefixed to the user turn it
+    // explained the passage. Same thing the user did by hand when they wrote
+    // "also ich meine, was ich markiert habe". The STORED message stays raw —
+    // the passage is prompt scaffolding, not something the user typed.
+    const parent = await request(app).post('/api/chats').send({ title: 'Paper chat' });
+    mockCreate.mockResolvedValueOnce(makeStream(['Parent reply']));
+    mockCreate.mockResolvedValueOnce({ choices: [{ message: { content: 'Parent Title' } }] });
+    await request(app)
+      .post(`/api/chats/${parent.body.id}/messages`)
+      .send({ content: 'Parent question' })
+      .buffer(true);
+
+    mockCreate.mockResolvedValueOnce({ choices: [{ message: { content: 'Parent summary.' } }] });
+    const child = await request(app).post('/api/chats').send({
+      title: 'About: perplexity',
+      parent_id: parent.body.id,
+      parent_word: 'Below, we report the geometric average',
+    });
+    await new Promise(r => setTimeout(r, 25));
+
+    mockCreate.mockResolvedValueOnce(makeStream(['Child reply']));
+    mockCreate.mockResolvedValueOnce({ choices: [{ message: { content: 'Child Title' } }] });
+    await request(app)
+      .post(`/api/chats/${child.body.id}/messages`)
+      .send({ content: 'Ich habe dies nicht verstanden.' })
+      .buffer(true);
+
+    const branchCall = mockCreate.mock.calls.find(c =>
+      c[0].messages.some(m => typeof m.content === 'string' && m.content.includes('exploring the term'))
+    );
+    const question = branchCall[0].messages.at(-1);
+    expect(question.role).toBe('user');
+    expect(question.content).toContain('Below, we report the geometric average');
+    expect(question.content).toContain('Ich habe dies nicht verstanden.');
+
+    // What the UI shows and what the tree stores is the raw question.
+    const stored = db
+      .prepare("SELECT content FROM messages WHERE chat_id = ? AND role = 'user'")
+      .get(child.body.id);
+    expect(stored.content).toBe('Ich habe dies nicht verstanden.');
+  });
+
+  it('marks the inherited transcript as another conversation, not its own last turn', async () => {
+    // Observed 2026-08-08 in the running app: the model opened with
+    // "Entschuldigung, wenn meine vorherige Antwort unklar war" and repeated
+    // the parent's paper explanation — it read the inherited transcript as
+    // its OWN previous answer, so "I didn't understand this" became "explain
+    // your last answer again" instead of "explain the selection".
+    const parent = await request(app).post('/api/chats').send({ title: 'Paper chat' });
+    mockCreate.mockResolvedValueOnce(makeStream(['Parent reply']));
+    mockCreate.mockResolvedValueOnce({ choices: [{ message: { content: 'Parent Title' } }] });
+    await request(app)
+      .post(`/api/chats/${parent.body.id}/messages`)
+      .send({ content: 'Parent question' })
+      .buffer(true);
+
+    mockCreate.mockResolvedValueOnce({ choices: [{ message: { content: 'Parent summary.' } }] });
+    const child = await request(app).post('/api/chats').send({
+      title: 'Child',
+      parent_id: parent.body.id,
+      parent_word: 'perplexity',
+    });
+    await new Promise(r => setTimeout(r, 25));
+
+    mockCreate.mockResolvedValueOnce(makeStream(['Child reply']));
+    mockCreate.mockResolvedValueOnce({ choices: [{ message: { content: 'Child Title' } }] });
+    await request(app)
+      .post(`/api/chats/${child.body.id}/messages`)
+      .send({ content: 'Ich habe dies nicht verstanden.' })
+      .buffer(true);
+
+    // The inherited transcript lives in the ONE system message at the front —
+    // the parent chat's own call also contains the string 'Parent question',
+    // as its user turn, so match on the system message itself.
+    const branchCall = mockCreate.mock.calls.find(c =>
+      c[0].messages[0].content.includes('Parent question')
+    );
+    const system = branchCall[0].messages[0].content;
+    expect(system).toContain('not your own earlier answers');
+  });
+
+  it('tells the model that vague references ("this", "it") mean the selection', async () => {
+    // Without an explicit resolution rule the model resolves "this" against
+    // the LARGEST context in the prompt — the source — instead of the passage
+    // the branch was opened from.
+    const parent = await request(app).post('/api/chats').send({ title: 'Paper chat' });
+    mockCreate.mockResolvedValueOnce(makeStream(['Parent reply']));
+    mockCreate.mockResolvedValueOnce({ choices: [{ message: { content: 'Parent Title' } }] });
+    await request(app)
+      .post(`/api/chats/${parent.body.id}/messages`)
+      .send({ content: 'Parent question' })
+      .buffer(true);
+
+    mockCreate.mockResolvedValueOnce({ choices: [{ message: { content: 'Parent summary.' } }] });
+    const child = await request(app).post('/api/chats').send({
+      title: 'About: Rm',
+      parent_id: parent.body.id,
+      parent_word: 'Rm',
+      parent_context: 'C(i) ∈ Rm',
+    });
+    await new Promise(r => setTimeout(r, 25));
+
+    mockCreate.mockResolvedValueOnce(makeStream(['Child reply']));
+    mockCreate.mockResolvedValueOnce({ choices: [{ message: { content: 'Child Title' } }] });
+    await request(app)
+      .post(`/api/chats/${child.body.id}/messages`)
+      .send({ content: 'Ich habe dies nicht verstanden.' })
+      .buffer(true);
+
+    const branchCall = mockCreate.mock.calls.find(c =>
+      c[0].messages.some(m => typeof m.content === 'string' && m.content.includes('PDF source'))
+    );
+    const focus = branchCall[0].messages.at(-2).content;
+    expect(focus).toContain('"this"');
+    expect(focus).toContain('SELECTED PASSAGE');
   });
 
   it('ignores parent_context on chats without a parent_word', async () => {
@@ -817,7 +1362,7 @@ describe('POST /api/chats/:chatId/messages – retrieval mode for long papers', 
     expect(system.content).not.toContain(FACT_PARA);
     // … but in the excerpts block directly before the user message.
     const excerpts = call.messages.at(-2);
-    expect(excerpts.role).toBe('system');
+    expect(excerpts.role).toBe('user');
     expect(excerpts.content).toContain('EXCERPTS');
     expect(excerpts.content).toContain(FACT_PARA);
     expect(call.messages.at(-1)).toMatchObject({
@@ -855,6 +1400,35 @@ describe('POST /api/chats/:chatId/messages – retrieval mode for long papers', 
     } finally {
       global.fetch = realFetch;
     }
+  });
+
+  it('retrieves for the branch selection, not only for a contentless question', async () => {
+    // Bug 2026-08-08: in retrieval mode the query was the raw user message.
+    // "Ich habe dies nicht verstanden." carries no content word, so it
+    // matched nothing and the answer was built on the skeleton alone — the
+    // passage the branch was opened from never made it into the excerpts.
+    const app2 = retrievalApp();
+    const parent = await request(app2).post('/api/chats').send({ title: 'Long' });
+    bindPaper(parent.body.id);
+
+    mockCreate.mockResolvedValueOnce({ choices: [{ message: { content: 'Parent summary.' } }] });
+    const child = await request(app2).post('/api/chats').send({
+      title: 'About: RoPE',
+      parent_id: parent.body.id,
+      parent_word: 'Rotary positional encodings twist query and key vectors',
+    });
+    await new Promise(r => setTimeout(r, 25));
+
+    mockCreate.mockResolvedValueOnce(makeStream(['Answer']));
+    await request(app2)
+      .post(`/api/chats/${child.body.id}/messages`)
+      .send({ content: 'Ich habe dies nicht verstanden.' })
+      .buffer(true);
+
+    const call = mockCreate.mock.calls.at(-1)[0];
+    const excerpts = call.messages.at(-2);
+    expect(excerpts.role).toBe('user');
+    expect(excerpts.content).toContain(FACT_PARA);
   });
 
   it('falls back to the old full-text truncation when embedding is unavailable', async () => {
@@ -1058,6 +1632,107 @@ describe('POST /api/chats/:chatId/messages – custom instructions', () => {
     } finally {
       global.fetch = realFetch;
     }
+  });
+
+  // ─── Instruction sandwich (2026-08-09) ────────────────────────────────────
+  // Reported symptom: in deep trees the answers stopped following the
+  // settings instructions. The block sat at the FRONT of a prompt that had
+  // grown past 20k tokens. Same fix as the branch focus (2026-08-08): repeat
+  // it next to the question.
+
+  it('repeats the instructions in their own message behind the history', async () => {
+    setSetting(db, 'custom_instructions', 'Correct my German after every answer.');
+
+    await sendMessage();
+
+    const messages = mockCreate.mock.calls[0][0].messages;
+    // Last message is the question; the reminder sits directly before it.
+    expect(messages.at(-1).role).toBe('user');
+    const reminder = messages.at(-2);
+    expect(reminder.role).toBe('user');
+    expect(reminder.content).toContain('REMINDER');
+    expect(reminder.content).toContain('Correct my German after every answer.');
+    // Still present up front too — the shared prefix must not change, or
+    // Ollama's KV cache and the warm-up contract break.
+    expect(messages[0].content).toContain('Correct my German after every answer.');
+  });
+
+  it('adds no reminder when the toggle is off', async () => {
+    setSetting(db, 'custom_instructions', 'Correct my German after every answer.');
+    setSetting(db, 'custom_instructions_enabled', 'false');
+
+    await sendMessage();
+
+    for (const m of mockCreate.mock.calls[0][0].messages) {
+      expect(m.content).not.toContain('Correct my German');
+    }
+  });
+
+  it('adds no reminder while the text is empty (default)', async () => {
+    await sendMessage();
+
+    for (const m of mockCreate.mock.calls[0][0].messages) {
+      expect(String(m.content)).not.toContain('REMINDER');
+    }
+  });
+
+  it('keeps the reminder in the warm-up too (identical prompt, KV cache)', async () => {
+    const realFetch = global.fetch;
+    global.fetch = jest.fn().mockResolvedValue({ ok: true, json: async () => ({}) });
+    try {
+      setSetting(db, 'custom_instructions', 'Correct my German after every answer.');
+      const chat = await request(app).post('/api/chats').send({ title: 'Warm' });
+      mockCreate.mockResolvedValueOnce({ choices: [{ message: { content: 'x' } }] });
+
+      await request(app).post(`/api/chats/${chat.body.id}/messages/warmup`);
+
+      const messages = mockCreate.mock.calls[0][0].messages;
+      expect(messages.at(-1).content).toContain('REMINDER');
+    } finally {
+      global.fetch = realFetch;
+    }
+  });
+
+  it('does not let the branch focus demote the instructions', async () => {
+    // The focus block closes a branch prompt and used to open with
+    // "everything above is only background" — which included the settings
+    // instructions sitting above it. It must demote source and inherited
+    // conversation only.
+    setSetting(db, 'custom_instructions', 'Correct my German after every answer.');
+    const parent = await request(app).post('/api/chats').send({ title: 'Paper chat' });
+    mockCreate.mockResolvedValueOnce(makeStream(['Parent reply']));
+    mockCreate.mockResolvedValueOnce({ choices: [{ message: { content: 'Parent Title' } }] });
+    await request(app)
+      .post(`/api/chats/${parent.body.id}/messages`)
+      .send({ content: 'Parent question' })
+      .buffer(true);
+
+    mockCreate.mockResolvedValueOnce({ choices: [{ message: { content: 'Parent summary.' } }] });
+    const child = await request(app).post('/api/chats').send({
+      title: 'About: perplexity',
+      parent_id: parent.body.id,
+      parent_word: 'geometric average',
+    });
+    await new Promise(r => setTimeout(r, 25));
+
+    mockCreate.mockResolvedValueOnce(makeStream(['Child reply']));
+    mockCreate.mockResolvedValueOnce({ choices: [{ message: { content: 'Child Title' } }] });
+    await request(app)
+      .post(`/api/chats/${child.body.id}/messages`)
+      .send({ content: 'Ich habe dies nicht verstanden.' })
+      .buffer(true);
+
+    const branchCall = mockCreate.mock.calls.find(c =>
+      c[0].messages.some(m => typeof m.content === 'string' && m.content.includes('exploring the term'))
+    );
+    const messages = branchCall[0].messages;
+    const focus = messages.at(-2);
+    // The focus keeps the last word (fix 2026-08-08) — the reminder sits
+    // right before it, still within reach of the question.
+    expect(focus.content).toContain("THE USER'S CURRENT FOCUS");
+    expect(focus.content).not.toContain('everything above is only background');
+    expect(focus.content).toMatch(/custom instructions above still apply/i);
+    expect(messages.at(-3).content).toContain('REMINDER');
   });
 });
 
@@ -1453,6 +2128,85 @@ describe('cloud rate limits (429)', () => {
     expect(events.find((e) => e.error)).toBeDefined();
     // One attempt on the active model (then instant failover), three waited
     // attempts on the sibling — only then *Failed*.
+    expect(mockCreate).toHaveBeenCalledTimes(4);
+  });
+});
+
+// ─── Overloaded provider (503) ───────────────────────────────────────────────
+// "This model is currently experiencing high demand" is neither a quota nor a
+// key problem: measured 2026-08-16, the same prompt drew five 503s and one
+// clean answer inside four minutes. So it is retried in place, the wait is
+// announced, and the model keeps its place in the picker
+// (design/mockup-truncated-answer.html §03).
+
+describe('overloaded provider (503)', () => {
+  function useGemini() {
+    const { setSetting } = require('../llm');
+    setSetting(db, 'llm_provider', 'gemini');
+    setSetting(db, 'gemini_api_key', 'AIza-test');
+  }
+
+  function err503() {
+    const e = new Error('This model is currently experiencing high demand. Please try again later.');
+    e.status = 503;
+    return e;
+  }
+
+  // Zero-second pauses: the production ladder waits 2+4+8 s, which this suite
+  // would otherwise spend doing nothing.
+  const fastApp = () => createApp(db, { messages: { overloadBackoffSeconds: [0, 0, 0] } });
+
+  async function send(appUnderTest) {
+    const chat = await request(app).post('/api/chats').send({ title: 'OL' });
+    const res = await request(appUnderTest)
+      .post(`/api/chats/${chat.body.id}/messages`)
+      .send({ content: 'hello' });
+    return parseSSE(res.text);
+  }
+
+  it('retries the SAME model and announces the wait', async () => {
+    useGemini();
+    mockCreate
+      .mockRejectedValueOnce(err503())
+      .mockResolvedValueOnce(makeStream(['Recovered.']))
+      .mockResolvedValueOnce({ choices: [{ message: { content: 'Title' } }] });
+
+    const events = await send(fastApp());
+
+    const ol = events.find((e) => e.overloaded);
+    expect(ol).toBeDefined();
+    expect(ol.overloaded).toMatchObject({ attempt: 1, maxAttempts: 3, provider: 'gemini' });
+    expect(typeof ol.overloaded.retryInSeconds).toBe('number');
+    // Same model, no ladder move: the model is fine, its servers are busy.
+    expect(events.find((e) => e.failover)).toBeUndefined();
+    expect(events.find((e) => e.done)).toBeDefined();
+    expect(events.find((e) => e.error)).toBeUndefined();
+  });
+
+  it('never puts an overloaded model on cooldown — the picker keeps offering it', async () => {
+    useGemini();
+    mockCreate
+      .mockRejectedValueOnce(err503())
+      .mockResolvedValueOnce(makeStream(['Recovered.']))
+      .mockResolvedValueOnce({ choices: [{ message: { content: 'Title' } }] });
+
+    await send(fastApp());
+
+    const res = await request(app).get('/api/quota-cooldowns');
+    const list = Array.isArray(res.body) ? res.body : res.body.cooldowns ?? [];
+    expect(list.filter((c) => c.model === 'gemini-flash-latest')).toEqual([]);
+  });
+
+  it('gives up after three attempts and names the cause', async () => {
+    useGemini();
+    mockCreate.mockRejectedValue(err503());
+
+    const events = await send(fastApp());
+
+    const err = events.find((e) => e.error);
+    expect(err).toBeDefined();
+    expect(err.failReason).toBe('overloaded');
+    // One first try plus three retries — the 429 budget stays untouched.
     expect(mockCreate).toHaveBeenCalledTimes(4);
   });
 });
@@ -2525,9 +3279,9 @@ describe('queue split: settings kick + prompt hygiene', () => {
     await request(app).post(`/api/chats/${child.body.id}/messages`).send({ content: 'Explain.' });
 
     // The summary refresh fires in the background too — pick the chat call
-    // (its system prompt carries the branch intro).
+    // (its system prompt carries the inherited transcript).
     const chatCall = mockCreate.mock.calls.find((c) =>
-      String(c[0].messages[0]?.content || '').includes('exploring the term'));
+      String(c[0].messages[0]?.content || '').includes('Parent answer'));
     const system = chatCall[0].messages[0].content;
     expect(system).toContain('Parent answer');
     expect(system).not.toContain('*Failed*');

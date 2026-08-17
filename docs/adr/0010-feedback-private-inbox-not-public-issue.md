@@ -45,3 +45,33 @@ review step, would break that promise for anyone who forgets what's in frame.
   stand up the relay server option above.
 - Web3Forms free tier caps at 250 submissions/month; revisit if the project
   outgrows that.
+
+## Amendment 2026-08-06: the POST must come from the browser, not the backend
+
+Verified against the real Web3Forms API (not caught by any mock): a Node
+backend calling `api.web3forms.com/submit` server-to-server gets HTTP 403 —
+"Use our API in client side or contact support ... Pro plan is required."
+Their free plan only accepts submissions that originate from a browser.
+
+`routes/feedback.js` is no longer a submit proxy. It now only serves
+`GET /api/feedback/config` — the access key (still non-secret) plus the
+version/OS/provider diagnostics — and `frontend/src/api/index.ts` posts
+directly to Web3Forms from the browser with that config. Same inbox, same
+diagnostics, same no-attachments scope; only the network hop moved.
+
+## Amendment 2026-08-08: default key ships in code; GitHub issues as fallback
+
+An env-only key would silently disable feedback for every npm install (no
+`.env` ships with the package) — defeating the feature's whole point for an
+open-source release. Since Web3Forms access keys are client-safe by design
+(they can do nothing but deliver a message to the maintainer's inbox), a
+default key is now baked into `routes/feedback.js`; `WEB3FORMS_ACCESS_KEY`
+remains as override for forks and for rotation.
+
+The failure path degrades instead of dead-ending: the config hands out
+`issuesUrl`, and a failed send (key rotated, 250/month quota exhausted,
+offline) shows "Open a GitHub issue instead" next to the error — with a
+hardcoded frontend fallback URL so the link works even when the backend is
+unreachable. A honeypot field was considered and skipped: it only stops
+form-crawling bots, not someone who scrapes the public key and posts their
+own payloads — for that, rotation is the answer.

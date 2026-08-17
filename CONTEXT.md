@@ -15,6 +15,28 @@ The hierarchy of a root chat and all its branches, shown in the left sidebar wit
 connector lines (trunk + elbows).
 _Avoid_: chat list, history
 
+**Pinned chat**:
+A root chat lifted out of the sidebar's date sections into one **Pinned section** at the
+top, ordered most recently pinned first (`chats.pinned_at`). Pinning is pure navigation —
+it changes where a tree is listed, nothing about the tree itself. Only roots can be
+pinned; the rows carry no marking of their own, the section heading does
+(design/mockup-pinned-chats.html).
+_Avoid_: favorite, starred, bookmark
+
+**Category / Subcategory**:
+A named container for root chats that the USER creates — the third grouping in the
+sidebar, next to the two the system imposes (Pinned, and the date sections). A
+**subcategory** is a category with a `parent_id`: one table, one type, so renaming,
+collapsing and deleting are the same code at both levels. Nesting stops at two;
+`chats.category_id` points at either level. A **filed** chat leaves the date sections.
+Filing and pinning are **mutually exclusive** — they answer the same question
+(where does this tree live), so filing clears the pin and pinning unfiles.
+Only the positive gesture clears the other: taking a chat out of a category
+does not unpin it, and unpinning does not unfile it.
+Deleting a category frees its chats, never deletes them
+(design/mockup-sidebar-categories-v2.html).
+_Avoid_: folder, tag, label, project
+
 **Highlight**:
 A colored, persistent marking of a text passage, created via the right-click menu.
 Five colors: yellow, green, blue, pink, orange. Two kinds sharing colors and labels:
@@ -29,6 +51,42 @@ The popup action on a selection (PDF or chat text) that drops the selection into
 (branching stays "Open as new chat"); sending renders the quote as a blockquote above
 the question.
 _Avoid_: quote to chat, reply with quote
+
+**Side question** (`/btw`):
+A question asked with the `/btw` composer command that **never enters the transcript**.
+Its answer folds out above the input field as the **btw panel** — part of the composer,
+not a message — and is discarded by the first keystroke, Escape, or the panel's ×, none
+of which the UI explains. The panel belongs to its **chat**, not to the screen: opening
+another branch leaves it behind and coming back finds it there; a reload clears every
+side question, because none ever reaches the database. Two actions make one permanent:
+**Keep in chat** appends question and answer as ordinary messages at the end of the
+thread, **Make a branch** opens a branch whose parent quote is the question, so the
+**answer is its first bubble**. The panel is labelled `/btw` in both languages — it is
+named after the command, not translated.
+_Avoid_: aside message, temporary message, scratch chat
+
+**Topic branch** (`/branch`):
+A branch created by typing `/branch <topic>` in the composer instead of selecting a
+passage. It has **no `parent_word` and no highlight kind** — its header shows the parent
+link alone and its map node carries no colour bar. The topic is asked verbatim as the
+branch's first message, and the branch's title comes from the same `passage-title` call
+the selection popup uses. Where it hangs is chosen before Enter: the composer chip names
+the parent — the current chat by default, changeable to the root or any chat of the same
+tree via the **branch target** picker. Never crosses into another tree (ADR-0002).
+_Avoid_: manual branch, empty branch, quick branch
+
+**Branch trace**:
+The mark a branch leaves in the chat it was opened from. A branch from a **selection**
+already has one — its coloured passage, which carries `message_highlights.child_chat_id`.
+For the two commands **without** a passage, `/btw` and `/branch`, the trace is a
+**branch line**: a divider in the parent transcript, drawn right after
+`chats.branch_anchor_message_id` — the last message that existed when the command was
+sent — carrying a pill with the command name and the branch title. A click opens the
+branch; from inside the branch, the header link walks back and makes the line glow.
+An anchor that resolves to nothing (empty chat, deleted message) floats its line to the
+top of the transcript. Selection branches deliberately get no line: their passage is the
+more precise trace (design/mockup-branch-trace.html, variant A, 2026-08-09).
+_Avoid_: branch marker, fork line, breadcrumb
 
 **Parent context**:
 The read-only rendering of a branch's parent chat in the center pane when the tree
@@ -61,6 +119,34 @@ _Avoid_: digest, compression
 A user-editable name attached to one of the five highlight colors (e.g. "Important",
 "Question"), renamed inline in the right-click menu.
 _Avoid_: tag, category
+
+**Highlight kind**:
+The color (and thus color label) of the highlight a branch was opened from — carried
+into the chat tree as `highlight_color` and shown as the color bar on the left edge of
+a mind-map node. Branches opened without a highlight have none; that is not a sixth
+kind. It is the only lens the map colors by (decision 2026-08-02: "source section" and
+"status" were dropped).
+_Avoid_: highlight type, category, lens (that's the mechanism, not the value)
+
+**Outcome line**:
+The mind-map node's second line: 4–8 words on what the conversation established,
+stored in `chats.outcome`. Written by the title call that already runs after the first
+answer, so it costs no extra LLM round — and the answer travels inside that
+instruction, because on cloud providers the call is that single message and nothing
+else. While a branch has a real answer but no outcome yet, the node shows a
+same-height placeholder; a freshly opened branch — or one whose only answer ended in a
+`*Failed*`/`*Interrupted*` marker — shows the title alone. If the line never arrived
+(quota, timeout, a model that skipped it), the next answer in that branch asks again
+with an outcome-only call, and `scripts/backfill-outcomes.js` fills in branches nobody
+revisits.
+_Avoid_: gist (that's `summary_display.gist`, the context banner's), summary, result
+
+**Kind filter**:
+The chip row above the mind map — "All" plus one chip per highlight kind that occurs,
+multi-select, stored per tree in `localStorage`. Filtered-out branches fade, they never
+disappear: hiding intermediate nodes would break the tree into floating islands.
+The highlights drawer wears the same chips.
+_Avoid_: lens switch, colour-by (that switch was dropped)
 
 **Source**:
 The one external document a chat tree is about, bound to the tree's root — today either
@@ -195,6 +281,41 @@ email) sent from the sidebar button or the `/feedback` composer command to a
 private inbox (ADR-0010) — never auto-posted as a public GitHub issue.
 _Avoid_: bug report (too narrow — also covers ideas/questions), issue (that's
 the public GitHub artifact the maintainer may create afterward)
+
+**Keyboard region**:
+One of the areas the keyboard moves between: the mind map lying across the top, then
+sidebar, source, chat and highlights drawer left to right — an **L**, not a row. Each
+region is one stop and remembers the item last focused in it. A region that is not on
+screen is skipped; a region that is on screen is never skipped, even when empty (a paper
+with no highlights falls back to focusing the page). Everything interactive inside a
+region is an item — message bubbles and chat rows, but equally the composer's attach,
+mic, model and send buttons and the collapsed sidebar's rail buttons. A control the
+layout has hidden is not an item. An **open menu** is a region too, and while one is up
+it is the only one there is.
+_Avoid_: pane, panel (that's the drawer), landmark, column (the map isn't one)
+
+**Focus ring**:
+The single neutral outline marking where the keyboard is — one shape around the whole
+item even when the item is painted in several pieces (a formula's bands, a highlight
+wrapping over lines) — the only visual element keyboard
+navigation adds, and the **only** one: `Tab` no longer moves the browser's own focus
+inside the app, because two indicators read as two places the keyboard was. Its first
+appearance is on whatever the app already marks as current (the open chat's row);
+afterwards it returns to wherever it was left. It carries no hue of its own, because colour is already spoken for:
+a blue fill means "this chat is open" and a coloured left bar means highlight kind, one
+of which is blue. Fill, bar and ring are three separate channels and can all be true of
+one row at once.
+_Avoid_: selection (that's text or the open chat), highlight, active state, cursor
+
+**Edge overflow**:
+The single rule that lets arrow keys mean two things without a mode: an arrow key serves
+the focused region first, and only once that region has nothing left to do does it leave
+for the neighbour. A region is **rows** — mostly rows of one, but the composer's
+buttons and the sidebar's header sit side by side — so `←` `→` walk the row first,
+then collapse a tree node, and only then cross into the neighbouring region; `↑` `↓`
+change row and only then rise into the mind map. Same rule on both axes, and the mind
+map's generations are not a special case, they are just a region with wide rows.
+_Avoid_: fallthrough, bubbling (that's the DOM's), wrap-around (it never wraps)
 
 **Dictation**:
 Voice input in the chat composer: while recording, speech is buffered; on stop the

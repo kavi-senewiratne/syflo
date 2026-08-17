@@ -352,6 +352,42 @@ describe('POST /api/explain – quota failover between cloud models', () => {
     expect(res.body.error).toContain('Incorrect API key');
   });
 
+  it('retries WITHOUT the no-thinking flag when the model rejects it (2026-08-06)', async () => {
+    // Live report: the popup showed "400 `reasoning_effort` is not supported
+    // with this model" instead of a definition. The flag is ours, not the
+    // user's — the same model answers fine without it.
+    useGeminiAndGroq();
+    mockCreate
+      .mockRejectedValueOnce(
+        Object.assign(new Error('400 `reasoning_effort` is not supported with this model'), { status: 400 })
+      )
+      .mockResolvedValueOnce({ choices: [{ message: { content: 'Ein Greif-Modell.' } }] });
+
+    const res = await explain();
+
+    expect(res.status).toBe(200);
+    expect(res.body.explanation).toBe('Ein Greif-Modell.');
+    // Same model, second attempt — and this time without the flag.
+    expect(mockCreate.mock.calls[0][0].model).toBe(mockCreate.mock.calls[1][0].model);
+    expect(mockCreate.mock.calls[0][0].reasoning_effort).toBeDefined();
+    expect(mockCreate.mock.calls[1][0].reasoning_effort).toBeUndefined();
+  });
+
+  it('moves to the next candidate on any other 400 instead of dying', async () => {
+    // The old private loop rethrew every non-quota error, so ONE broken model
+    // ended the definition even though four others were ready.
+    useGeminiAndGroq();
+    mockCreate
+      .mockRejectedValueOnce(Object.assign(new Error('400 bad request'), { status: 400 }))
+      .mockResolvedValueOnce({ choices: [{ message: { content: 'Doch eine Definition.' } }] });
+
+    const res = await explain();
+
+    expect(res.status).toBe(200);
+    expect(res.body.explanation).toBe('Doch eine Definition.');
+    expect(mockCreate.mock.calls[0][0].model).not.toBe(mockCreate.mock.calls[1][0].model);
+  });
+
   it('never falls over from the local provider to the cloud (privacy guard)', async () => {
     const { setSetting } = require('../llm');
     setSetting(db, 'llm_provider', 'ollama');

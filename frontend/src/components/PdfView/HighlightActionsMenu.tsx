@@ -107,7 +107,7 @@ export function HighlightActionsMenu({
                 type="button"
                 onClick={() => onChangeColor(c)}
                 aria-label={labels[c]}
-                title={labels[c]}
+                data-tip={labels[c]}
                 className={`w-7 h-7 rounded-full flex items-center justify-center transition-transform hover:scale-110 ${SWATCH_BG[c]} ${
                   isCurrent ? 'ring-2 ring-gray-900' : 'ring-1 ring-gray-200/60'
                 }`}

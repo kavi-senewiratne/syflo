@@ -32,6 +32,10 @@ export interface PdfDocumentHandle {
    * call again after a zoom change so span positions match the new scale.
    */
   renderTextLayer: (pageNumber: number, container: HTMLElement, scale: number) => Promise<void>;
+  // Page size in PDF points (scale 1). Reference-link rects arrive in PDF
+  // user space with the origin bottom-left, so converting them to CSS
+  // coordinates needs the page height.
+  getPageSize: (pageNumber: number) => Promise<{ width: number; height: number }>;
   destroy?: () => void;
 }
 
@@ -67,6 +71,11 @@ export async function loadPdfDocument(url: string): Promise<PdfDocumentHandle> {
       };
       chained._renderChain = (chained._renderChain ?? Promise.resolve()).then(run, run);
       await chained._renderChain;
+    },
+    async getPageSize(pageNumber) {
+      const page = await doc.getPage(pageNumber);
+      const { width, height } = page.getViewport({ scale: 1 });
+      return { width, height };
     },
     async renderTextLayer(pageNumber, container, scale) {
       const page = await doc.getPage(pageNumber);

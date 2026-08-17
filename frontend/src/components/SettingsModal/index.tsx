@@ -298,6 +298,7 @@ export function SettingsModal({ open, onClose, onSaved, initialTab = 'appearance
 
   return (
     <div
+      data-overlay
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
       onClick={onClose}
     >
@@ -631,7 +632,7 @@ export function SettingsModal({ open, onClose, onSaved, initialTab = 'appearance
                                   type="button"
                                   onClick={() => setShowKey(s => !s)}
                                   aria-label={showKey ? S.model.keyHide : S.model.keyShow}
-                                  title={showKey ? S.model.keyHide : S.model.keyShow}
+                                  data-tip={showKey ? S.model.keyHide : S.model.keyShow}
                                   className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-1"
                                 >
                                   {showKey ? <EyeOff size={14} /> : <Eye size={14} />}
@@ -749,7 +750,7 @@ export function SettingsModal({ open, onClose, onSaved, initialTab = 'appearance
                               type="button"
                               onClick={loadOllamaModels}
                               disabled={ollamaModelsLoading}
-                              title={S.model.refreshList}
+                              data-tip={S.model.refreshList}
                               aria-label={S.model.refreshList}
                               className="p-1 rounded text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors disabled:opacity-40"
                             >

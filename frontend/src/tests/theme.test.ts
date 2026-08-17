@@ -37,10 +37,20 @@ describe('applyTheme', () => {
     expect(() => applyTheme('ink-blue')).not.toThrow();
   });
 
-  it('hides "Basic" from the picker list but keeps it as a valid theme', () => {
+  it('offers the default theme in the picker again, labelled "Simply Blue"', () => {
     const basic = THEMES.find(t => t.id === 'professional');
-    expect(basic?.hidden).toBe(true);
-    // versteckt ≠ entfernt: der Eintrag bleibt Teil von THEMES
+    expect(basic?.hidden).toBeUndefined();
+    // Umbenannt 2026-08-13; die ID bleibt `professional` (localStorage-Prefs).
+    expect(basic?.label).toBe('Simply Blue');
     expect(THEMES).toHaveLength(5);
+  });
+
+  it('hides Ink Blue from the picker but keeps it a valid theme (2026-08-13)', () => {
+    const ink = THEMES.find(t => t.id === 'ink-blue');
+    expect(ink?.hidden).toBe(true);
+    // versteckt ≠ entfernt: gespeicherte Prefs bleiben gültig.
+    expect(THEMES.filter(t => !t.hidden).map(t => t.id)).toEqual([
+      'professional', 'mushroom-kingdom', 'hyrule', 'matrix',
+    ]);
   });
 });

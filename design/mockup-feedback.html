@@ -256,6 +256,30 @@
           Feedback sent — thank you!
         </div>
       </div>
+      <div class="col">
+        <div class="state-label">Send failed — GitHub fallback (hybrid feedback, 2026-08-08)</div>
+        <div class="dialog">
+          <div class="dialog-header">
+            <h3>Send feedback</h3>
+            <button><svg class="icon" viewBox="0 0 24 24" width="15" height="15"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+          </div>
+          <div class="dialog-body">
+            <textarea class="ta">The highlight color picker closes as soon as I click a swatch.</textarea>
+            <div class="field-label">Your email (optional — only if you want a reply)</div>
+            <input class="input" type="email" placeholder="you@example.com">
+            <!-- Degradation, never a dead end: error line grows a link to the
+                 public issue tracker (key rotated / quota exhausted / offline). -->
+            <div style="font-size:12px; color:#dc2626; margin-top:10px;">
+              Could not send feedback. Please try again.
+              <a href="https://github.com/kavi-senewiratne/syflo/issues" style="color:var(--brand-blue); font-weight:500; text-decoration:underline; text-underline-offset:2px;">Open a GitHub issue instead</a>
+            </div>
+          </div>
+          <div class="dialog-footer">
+            <button class="btn-secondary">Cancel</button>
+            <button class="btn-primary"><svg class="icon" viewBox="0 0 24 24" width="13" height="13"><path d="M22 2 11 13M22 2 15 22l-4-9-9-4z"/></svg> Send</button>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 

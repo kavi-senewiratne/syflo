@@ -45,7 +45,7 @@ describe('MessageBubble – math in plain-text renders', () => {
       content: 'Antwort.',
       reasoning: 'Erst $\\sum_i y_i$ betrachten…',
     };
-    const { container } = render(<MessageBubble message={msg} onWordRightClick={vi.fn()} />);
+    render(<MessageBubble message={msg} onWordRightClick={vi.fn()} />);
     fireEvent.click(screen.getByTestId('thinking-toggle'));
     const panel = screen.getByTestId('thinking-panel');
     expect(panel.querySelector('.katex')).not.toBeNull();

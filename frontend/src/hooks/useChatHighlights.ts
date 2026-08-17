@@ -29,6 +29,9 @@ export function useChatHighlights(chatId: string | null) {
     error: null,
   });
 
+  // Bumped by reload() below to re-run the effect without a chat change.
+  const [reloadToken, setReloadToken] = useState(0);
+
   useEffect(() => {
     if (!chatId) {
       setState({ highlights: [], loading: false, error: null });
@@ -49,7 +52,12 @@ export function useChatHighlights(chatId: string | null) {
     return () => {
       active = false;
     };
-  }, [chatId]);
+  }, [chatId, reloadToken]);
+
+  // Re-fetch for the SAME chat — the twin of useHighlights' reload. A deleted
+  // branch clears child_chat_id on the passage it came from, and only a reload
+  // takes the dead "Open linked chat" entry out of the menu.
+  const reload = useCallback(() => setReloadToken((n) => n + 1), []);
 
   const create = useCallback(
     async (payload: CreateMessageHighlightPayload): Promise<MessageHighlight | null> => {
@@ -180,5 +188,6 @@ export function useChatHighlights(chatId: string | null) {
     recolor,
     linkChat,
     remove,
+    reload,
   };
 }

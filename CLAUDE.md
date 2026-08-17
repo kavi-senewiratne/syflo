@@ -45,10 +45,38 @@
   weaker fallback model echoing the prompt's own example back as the answer.
   None of it was visible to a mock.
 
+## Shipping to Electron
+
+**Electron is how the app is actually used** (user rule 2026-08-02), so a
+change that only lives in `backend/` or `frontend/` is not yet in the app the
+user opens. The desktop build runs a MIRROR: `electron/resources/backend/`
+(loaded by `main.js` via a bundled Node binary) and `frontend/dist/`. Nothing
+in the running desktop app resolves back to the source folders.
+
+After any backend change, refresh the mirror:
+
+```bash
+bash scripts/sync-electron-resources.sh
+```
+
+- That script is the single source of truth — `rsync -a --delete` from
+  `backend/`, plus a copy of the system `node` binary (better-sqlite3 is a
+  native module built against the system Node ABI). `electron/resources/` is
+  gitignored and fully generated: NEVER hand-edit a file inside it, the next
+  sync deletes the edit.
+- `electron/package.json`'s `build` / `build:dir` scripts call the sync and
+  the frontend build themselves, so a full `npm run build` is always
+  consistent. A bare `npm run dev` in `electron/` is NOT — it serves whatever
+  the mirror last received.
+- A new backend dependency is installed in `backend/` as usual; the sync
+  mirrors `node_modules` along with the code.
+- Left unsynced, the mirror rots silently: on 2026-08-02 it was missing
+  `title.js`, `routes/feedback.js`, the `parent_word_display` migration and
+  the loopback/CORS security fix — the desktop app was running backend code
+  from weeks earlier while the browser dev server was current.
+
 ## Gotchas
 
-- The Electron bundle carries a COPY of the backend under
-  `electron/resources/backend/` — sync changed backend files there.
 - Ollama is the only provider with warm-up/KV-cache machinery; keep it
   gated behind `provider === 'ollama'` and never add complexity to the
   local path.

@@ -18,7 +18,7 @@ import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
-import { AlertCircle, ArrowLeftRight, Brain, ChevronDown, ChevronRight, Clock, Cloud, Cpu, ExternalLink, Key, RotateCcw, SlidersHorizontal, Square, WifiOff, Zap } from 'lucide-react';
+import { AlertCircle, ArrowLeftRight, ArrowRight, Brain, ChevronDown, ChevronRight, Clock, Cloud, CornerUpLeft, Cpu, ExternalLink, Key, RotateCcw, SlidersHorizontal, Square, WifiOff, Zap } from 'lucide-react';
 import { ThinkingIndicator } from './ThinkingIndicator';
 import {
   clearFlashChatRange,
@@ -30,9 +30,15 @@ import {
   paintPendingChatSelection,
   textOffsetInRoot,
 } from '../../chat/highlightAnchors';
+import { markedOccurrenceIndex } from '../../chat/markedOccurrence';
 import { splitLeadingQuote } from '../../chat/messageQuote';
 import { rangeToCleanText } from '../../chat/selectionText';
+import { snapLiveSelectionToWords } from '../../selection/wordSnap';
 import { sanitizeMath } from '../../markdown/sanitizeMath';
+import { protectTablePipes } from '../../markdown/protectTablePipes';
+import { insertBranchLinks, type BranchWord } from '../../markdown/branchLinks';
+import { insertTimeLinks, lastTimeMark, youtubeTimeUrl } from '../../markdown/timeLinks';
+import { markWideFormulas } from '../../markdown/wideMath';
 import { MathText, plainMathText } from '../MathText';
 import { useStrings } from '../../strings';
 import { gfmTableComponents } from './markdownTables';
@@ -41,16 +47,23 @@ import { FAILED_MARKER, INTERRUPTED_MARKER } from '../../types';
 import type { ChatSelection, HighlightColor, Message, MessageHighlight } from '../../types';
 
 // ReactMarkdown's defaultUrlTransform strips URLs with unknown schemes (anything
-// besides http, https, mailto, tel) for safety. Our internal "branch:<chatId>"
-// links would be wiped out, so we let those through and defer to the default
-// behaviour for everything else.
+// besides http, https, mailto, tel) for safety. Our internal schemes would be
+// wiped out, so we let those through and defer to the default behaviour for
+// everything else.
+//
+// Both are internal and never reach the network as-is: `branch:<chatId>` is
+// handled by a click handler, `t:<seconds>` is rebuilt into a real
+// https://youtube.com URL by the `a()` renderer. Anything added here has to
+// keep that property — this function is the only thing standing between model
+// output and an href.
+//
+// The `t:` case cost an hour on 2026-08-15: regex, prop and renderer were all
+// correct, but the scheme was silently dropped HERE, so `a()` never saw an
+// `href` to act on. When an internal link "does nothing", look at this line
+// first.
+const INTERNAL_SCHEMES = ['branch:', 't:'];
 const urlTransform = (url: string) =>
-  url.startsWith('branch:') ? url : defaultUrlTransform(url);
-
-interface BranchWord {
-  word: string;
-  chatId: string;
-}
+  INTERNAL_SCHEMES.some((s) => url.startsWith(s)) ? url : defaultUrlTransform(url);
 
 interface Props {
   message: Message;
@@ -58,6 +71,15 @@ interface Props {
   onWordRightClick: (word: string, context: string, x: number, y: number) => void;
   branchWords?: BranchWord[];
   onBranchClick?: (chatId: string) => void;
+  // YouTube-Kennung des Baum-Videos. Gesetzt heißt: Zeitmarken in dieser
+  // Nachricht werden zu Links auf genau diese Sekunde (markdown/timeLinks.ts).
+  // Ohne Video bleibt „[3:15]" gewöhnlicher Text.
+  videoYoutubeId?: string;
+  // Mit eingebettetem Player in der Mittelspalte liegt das Ziel einer
+  // Zeitmarke IM Fenster: ein normaler Klick springt dort hin, statt YouTube
+  // zu öffnen (mockup-youtube-embed-layout.html §03). Ohne Handler — Video
+  // nicht einbettbar oder Player zu — bleibt die Marke der Link von vorher.
+  onTimeMarkClick?: (seconds: number) => void;
   // Persistent chat-text highlights of the whole chat; this bubble paints the
   // ones anchored to its own message (mockup-chat-highlights-ask-in-chat.html).
   highlights?: MessageHighlight[];
@@ -85,6 +107,9 @@ interface Props {
   // dass der Nutzer die Frage erneut tippen/diktieren muss. Ohne Handler
   // wird nur die Fehlerzeile ohne Button gezeigt (z. B. ParentContextPane).
   onRetryMessage?: (message: Message) => void;
+  // Continue a cut-off answer in place (mockup-truncated-answer §01) —
+  // distinct from onRetryMessage, which throws the text away and starts over.
+  onContinueMessage?: (message: Message) => void;
   // Registry display labels per model name (name → label) for the failover
   // note. Optional; unknown or missing names render raw.
   modelLabels?: Record<string, string>;
@@ -132,6 +157,10 @@ interface Props {
   // the chat being answered RIGHT NOW and it is a different chat, the
   // waiting text becomes a link that jumps there.
   onOpenChat?: (chatId: string) => void;
+  // Click on the quote of an "Ask in chat" question
+  // (mockup-quote-jump-to-source.html, variant A): jump back to the passage
+  // it was taken from. Only offered when the message carries an anchor.
+  onQuoteClick?: (message: Message) => void;
 }
 
 // "Thought for 1m 42s" / "Thought for 34s".
@@ -139,23 +168,6 @@ function formatThoughtDuration(seconds: number): string {
   const s = Math.max(1, Math.round(seconds));
   if (s < 60) return `${s}s`;
   return `${Math.floor(s / 60)}m ${s % 60}s`;
-}
-
-// Escape special regex characters in a string.
-function escapeRegex(s: string) {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-// Pre-process markdown content: replace branch words with markdown link syntax
-// so ReactMarkdown can render them as clickable links.
-// e.g. "quantum mechanics" becomes "[quantum](branch:chat-id)"
-function insertBranchLinks(content: string, branchWords: BranchWord[]): string {
-  let result = content;
-  for (const { word, chatId } of branchWords) {
-    const regex = new RegExp(`\\b(${escapeRegex(word)})\\b`, 'gi');
-    result = result.replace(regex, `[$1](branch:${chatId})`);
-  }
-  return result;
 }
 
 // Modelle schreiben LaTeX teils als \(...\)/\[...\] — remark-math versteht
@@ -240,6 +252,8 @@ export function MessageBubble({
   isStreaming,
   onWordRightClick,
   branchWords,
+  videoYoutubeId,
+  onTimeMarkClick,
   onBranchClick,
   highlights,
   onChatSelection,
@@ -248,6 +262,7 @@ export function MessageBubble({
   showThinkingTips,
   flashRange,
   onRetryMessage,
+  onContinueMessage,
   modelLabels,
   onRetryLocalModel,
   hasLocalModel,
@@ -263,6 +278,7 @@ export function MessageBubble({
   freeFallback,
   onRetryFreeModel,
   onOpenChat,
+  onQuoteClick,
 }: Props) {
   // UI-Texte in der App language — re-rendert beim Sprachwechsel mit.
   const STR = useStrings();
@@ -335,6 +351,10 @@ export function MessageBubble({
     if (isStreaming) return;
     const root = contentRef.current;
     if (!root) return;
+    // VOR dem Malen: eine zu breite Inline-Formel wird hier zum Block (§03).
+    // Das verschiebt ihre Grundlinie, und genau die messen die Markierungs-
+    // Unterstriche unten aus — in dieser Reihenfolge messen sie das Endergebnis.
+    markWideFormulas(root);
     if (highlights) paintMessageHighlights(message.id, root, highlights);
     // Pending-Selektion des offenen Popups: der Besitzer malt sie bei jedem
     // Commit neu, alle anderen räumen nur ihre frühere Besitzerschaft auf.
@@ -345,6 +365,23 @@ export function MessageBubble({
     );
     // Nach den Farb-Stilen malen, damit der Flash sie sicher überdeckt.
     paintFlashChatRange(message.id, root, flashRange ?? null);
+    // Ordinal der markierten Stelle nachmessen (§04, Variante A). Läuft im
+    // selben Effekt, weil es dieselbe Bedingung braucht: fertig gestreamter
+    // Text und ein DOM, der zum Inhalt passt.
+    if (branchWords && branchWords.length > 0 && highlights) {
+      let next: Record<string, number | 'none'> | null = null;
+      for (const w of branchWords) {
+        const mark = highlights.find(
+          (h) => h.childChatId === w.chatId && h.messageId === message.id,
+        );
+        if (!mark) continue;
+        const found = markedOccurrenceIndex(root, w.word, mark.startOffset);
+        const value: number | 'none' = found ?? 'none';
+        if (markOrdinals[w.chatId] === value) continue;
+        (next ??= { ...markOrdinals })[w.chatId] = value;
+      }
+      if (next) setMarkOrdinals(next);
+    }
   });
   useEffect(() => () => {
     clearMessageHighlights(message.id);
@@ -352,23 +389,92 @@ export function MessageBubble({
     clearFlashChatRange(message.id);
   }, [message.id]);
 
+  // Spaltenbreite geändert (Trennlinie gezogen, Fenster verkleinert, Drawer
+  // auf) → Formeln neu messen. Ohne das bliebe die Entscheidung aus §03 auf der
+  // Breite von damals stehen: eine Formel, die in der breiten Spalte passte,
+  // liefe in der schmalen wieder heraus. Kein Commit begleitet einen Ziehvorgang,
+  // also kann der Effekt oben das nicht mitbekommen.
+  useLayoutEffect(() => {
+    const root = contentRef.current;
+    if (!root || typeof ResizeObserver === 'undefined') return;
+    let lastWidth = -1;
+    const observer = new ResizeObserver(() => {
+      // Nur die Breite zählt. Das Umschalten selbst ändert die HÖHE der Blase,
+      // was den Observer erneut auslösen würde — die Wächter-Zeile beendet die
+      // Kette nach einem Durchlauf.
+      const width = root.clientWidth;
+      if (width === lastWidth) return;
+      lastWidth = width;
+      markWideFormulas(root);
+    });
+    observer.observe(root);
+    return () => observer.disconnect();
+  }, []);
+
+  // ─── Zweig aus einer markierten Stelle: nur DIESE Stelle verlinken ────────
+  // (Nutzerentscheid 2026-08-13, design/mockup-simply-blue-fixes.html §04,
+  // Variante A). Vorher wurde jedes Vorkommen der Elternwörter zum Link — eine
+  // Antwort, die „Leaky Abstraction" dreimal schreibt, zeigte eine
+  // gelb-und-blaue Stelle und zwei blaue, ohne dass etwas den Unterschied
+  // erklärte (Nutzer-Report 2026-08-13).
+  //
+  // Markierung und Link leben in verschiedenen Koordinaten (gerenderter Text
+  // vs. rohes Markdown), also treffen sie sich auf einem Ordinal: „der n-te
+  // Treffer". Gemessen wird im DOM (chat/markedOccurrence.ts), gesetzt wird im
+  // Markdown (branchLinks). Der gerenderte TEXT ändert sich dabei nicht — ein
+  // Link trägt genau seinen Wortlaut —, also ist die Messung stabil und die
+  // Schleife läuft nach einem zusätzlichen Rendern aus.
+  //   undefined = noch nicht gemessen → nichts verlinken (ein Frame lang)
+  //   'none'    = gemessen, kein Treffer (z. B. Formel-Passage) → wie bisher
+  //               ALLE Vorkommen verlinken, statt den Sprung zu verlieren
+  const [markOrdinals, setMarkOrdinals] = useState<Record<string, number | 'none'>>({});
+
+  const effectiveBranchWords = useMemo(() => {
+    if (!branchWords || branchWords.length === 0 || !highlights) return branchWords;
+    return branchWords.map((w) => {
+      const mark = highlights.find((h) => h.childChatId === w.chatId);
+      // Kein Markierungs-Zweig (/branch, /btw, Rechtsklick auf ein Wort):
+      // unveränderte Alle-Vorkommen-Regel.
+      if (!mark) return w;
+      // Die Markierung sitzt in einer ANDEREN Nachricht — dort gehört der
+      // Sprung hin, hier bleibt der Text schlicht.
+      if (mark.messageId !== message.id) return { ...w, occurrence: -1 };
+      const ordinal = markOrdinals[w.chatId];
+      if (ordinal === 'none') return w;
+      return { ...w, occurrence: ordinal ?? -1 };
+    });
+  }, [branchWords, highlights, markOrdinals, message.id]);
+
   // Pre-process content: branch word links einbetten, LaTeX-Trenner
   // normalisieren. Muss VOR dem isUser-Early-Return stehen (Hook-Regeln).
-  const linkedContent = branchWords && branchWords.length > 0 && message.content
-    ? insertBranchLinks(message.content, branchWords)
+  const branchLinked = effectiveBranchWords && effectiveBranchWords.length > 0 && message.content
+    ? insertBranchLinks(message.content, effectiveBranchWords)
     : message.content;
+  // Zeitmarken der Video overview anklickbar machen — nur in Bäumen mit
+  // Video, sonst wäre ein „[3:15]" in einem PDF-Chat ein toter Link.
+  // NACH insertBranchLinks: dessen Links sind dann schon geschrieben, und
+  // die Zeit-Regex überspringt alles, was bereits `](` trägt.
+  const linkedContent = videoYoutubeId && branchLinked
+    ? insertTimeLinks(branchLinked)
+    : branchLinked;
   // sanitizeMath läuft NACH normalizeMathDelimiters: erst Backtick-Mathe
   // auspacken und \(…\)-Paare wandeln, dann Reste (verwaiste Trenner,
   // Absatz-Verschlucker) reparieren. Während des Streamens auf dem
   // sichtbaren Präfix — offene End-Trenner bleiben dann unmaskiert.
+  // protectTablePipes zuletzt: es braucht fertige $-Trenner, um die Pipes
+  // INNERHALB einer Formel von den Zelltrennern der Tabelle zu unterscheiden.
   const processedContent = linkedContent
-    ? sanitizeMath(normalizeMathDelimiters(linkedContent), { streaming: isStreaming })
+    ? protectTablePipes(sanitizeMath(normalizeMathDelimiters(linkedContent), { streaming: isStreaming }))
     : linkedContent;
 
   // onBranchClick über eine Ref in den memoizten Baum reichen — der Baum
   // wird nur bei Inhaltsänderung neu erzeugt, der Handler bleibt aktuell.
   const onBranchClickRef = useRef(onBranchClick);
   onBranchClickRef.current = onBranchClick;
+  // Dieselbe Ref-Brücke für den Sprung in den eingebetteten Player: der
+  // memoizte Baum sieht sonst den Handler vom ersten Rendern.
+  const onTimeMarkClickRef = useRef(onTimeMarkClick);
+  onTimeMarkClickRef.current = onTimeMarkClick;
 
   // Den gerenderten Markdown-Baum pro Inhalt memoizen (Nutzer-Report
   // 2026-07-22, 3. Runde): Ohne Memo re-parst ReactMarkdown bei JEDEM
@@ -386,19 +492,90 @@ export function MessageBubble({
         urlTransform={urlTransform}
         components={{
           ...gfmTableComponents,
-          // Branch links: rendered as blue buttons (not real <a> tags).
-          // border-b, not underline: text-decoration skips inline-block
-          // children (KaTeX), leaving broken underline fragments.
+          // Branch links: a blue clickable span, never a real <a> tag — and,
+          // since 2026-08-12, never a real <button> either. A <button> is an
+          // atomic inline-BLOCK with the UA's own `text-align: center`: a
+          // branch word long enough to wrap came out centred inside its own
+          // box, with the border-b drawn across the full box width — a blue
+          // block sitting in the middle of the paragraph (user screenshot
+          // 2026-08-12, "Textkorpora getestet: dem Brown-Korpus …", measured
+          // in the DOM). role="button" on a span keeps the semantics and the
+          // keyboard path while the text stays ordinary inline prose that
+          // wraps, aligns and can be selected like its neighbours — the same
+          // conclusion the clickable quote reached (see the quote block below).
+          // KEIN eigener Unterstrich mehr (Nutzer-Report 2026-08-15, zweiter
+          // zum selben Strich nach dem 2026-08-06).
+          //
+          // Am 06.08. war die Linie voll deckend und lief als harter zweiter
+          // Strich unter dem Unterstrich der Markierung — im Mushroom-Theme in
+          // der roten Akzentfarbe, wo sie wie ein Fehler aussah statt wie ein
+          // Link. Der Versuch, sie auf 55 % zu dämpfen, hat das Problem nur
+          // leiser gemacht, nicht gelöst: es waren immer noch ZWEI Striche für
+          // EINE Aussage.
+          //
+          // Der zweite ist der überflüssige. Ein Zweig-Link im Fließtext sitzt
+          // per Konstruktion in genau der Markierung, aus der der Zweig
+          // entstanden ist, und `::highlight(syflo-chat-hl-linked)` zeichnet
+          // dort bereits einen Unterstrich — in der Tinte der Markierung, also
+          // in jedem Theme unauffällig. Übrig bleibt hier die Farbe, die den
+          // Link als Link ausweist.
           a({ href, children }) {
+            // Zeitmarke der Video overview → YouTube an genau dieser Sekunde
+            // (Nutzerentscheid 2026-08-15, Variante A). Ein echtes <a>, kein
+            // role="button"-Span wie beim Zweig-Link: das Ziel IST eine
+            // externe Seite, und nur so gibt es Mittelklick, „in neuem Tab
+            // öffnen" und die Vorschau in der Statuszeile geschenkt. Die
+            // Inline-Block-Falle vom 2026-08-12 greift hier nicht — eine
+            // Zeitmarke ist ein paar Zeichen lang und bricht nie um.
+            //
+            // Aussehen wie die Zeit-Chips im Transkript-Drawer, damit „das ist
+            // eine Stelle im Video" an beiden Orten gleich aussieht. Farben
+            // über blue-*, also pro Theme umgefärbt.
+            if (href?.startsWith('t:') && videoYoutubeId) {
+              const seconds = Number(href.slice(2));
+              if (Number.isFinite(seconds)) {
+                return (
+                  <a
+                    href={youtubeTimeUrl(videoYoutubeId, seconds)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    data-testid="video-time-link"
+                    // Steht der Player in der Mittelspalte, gehört der
+                    // einfache Klick ihm (mockup-youtube-embed-layout.html
+                    // §03). Mittelklick, Cmd/Ctrl- und Shift-Klick bleiben
+                    // dem Browser: das sind die Gesten für „woanders öffnen",
+                    // und dafür ist das href noch da.
+                    onClick={(e) => {
+                      const jump = onTimeMarkClickRef.current;
+                      if (!jump) return;
+                      if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+                      e.preventDefault();
+                      jump(seconds);
+                    }}
+                    title={S.openAtTime}
+                    className="mx-px rounded-md bg-blue-50 px-1.5 py-px font-mono text-[0.85em] font-medium text-blue-700 no-underline transition-colors hover:bg-blue-100"
+                  >
+                    {children}
+                  </a>
+                );
+              }
+            }
             if (href?.startsWith('branch:')) {
               const chatId = href.replace('branch:', '');
               return (
-                <button
+                <span
+                  role="button"
+                  tabIndex={0}
                   onClick={() => onBranchClickRef.current?.(chatId)}
-                  className="text-blue-600 border-b border-current hover:text-blue-800 font-medium cursor-pointer"
+                  onKeyDown={e => {
+                    if (e.key !== 'Enter' && e.key !== ' ') return;
+                    e.preventDefault();
+                    onBranchClickRef.current?.(chatId);
+                  }}
+                  className="text-blue-600 hover:text-blue-800 font-medium cursor-pointer"
                 >
                   {children}
-                </button>
+                </span>
               );
             }
             // Keep children as-is: String() turned element children
@@ -471,8 +648,13 @@ export function MessageBubble({
     if (!root) return;
     const selection = window.getSelection();
     if (!selection || selection.isCollapsed || selection.rangeCount === 0) return;
-    const range = selection.getRangeAt(0);
-    if (!root.contains(range.startContainer) || !root.contains(range.endContainer)) return;
+    const live = selection.getRangeAt(0);
+    if (!root.contains(live.startContainer) || !root.contains(live.endContainer)) return;
+    // Chrome hands back a range that starts/ends wherever the press point
+    // rounded to — half a glyph in, and the first or last letter is gone
+    // (repro 2026-08-06). Grow it to whole words first, and write it back so
+    // the blue selection shows what the popup and the branch will carry.
+    const range = snapLiveSelectionToWords() ?? live;
     const raw = range.toString();
     // Clean quote text: KaTeX formulas as their $…$ source instead of the
     // tripled DOM text (chat/selectionText.ts). The highlight anchor offsets
@@ -519,6 +701,9 @@ export function MessageBubble({
     // covers drag-selections in bubbles wired for chat highlighting).
     if (isUser) return;
     e.preventDefault();
+    // Same word snap as the mouseup path: a right-click over a selection whose
+    // start rounded into a glyph must not define half a word.
+    snapLiveSelectionToWords();
     const selection = window.getSelection()?.toString().trim();
     const word = selection || getWordAtPoint(e);
     if (word) {
@@ -535,10 +720,35 @@ export function MessageBubble({
     if (!root) return;
     const selection = window.getSelection();
     if (selection && !selection.isCollapsed) return;
-    if ((e.target as HTMLElement).closest('a, button')) return;
+    // [role="button"] belongs in the list: branch links and clickable quotes
+    // are spans with button semantics, not <button> elements.
+    if ((e.target as HTMLElement).closest('a, button, [role="button"]')) return;
     const mine = highlights.filter((h) => h.messageId === message.id);
     const hit = highlightAtPoint(root, mine, e.clientX, e.clientY);
     if (hit) onHighlightContextMenu(hit, e.clientX, e.clientY);
+  };
+
+  // Ein Zitat ist nur dann ein Sprung, wenn die Nachricht einen Anker trägt
+  // (mockup-quote-jump-to-source.html): Fragen ohne Zitat, Nachrichten von
+  // vor dem Feature und PDF-Zitate ohne Farbwahl bleiben toter Text.
+  const quoteIsClickable = Boolean(onQuoteClick && message.quote_highlight_id);
+
+  const handleQuoteClick = (e: React.MouseEvent) => {
+    // Ein Klick, der eine Textmarkierung beendet, ist keine Navigation — der
+    // Nutzer wollte gerade zitieren, nicht springen.
+    const selection = window.getSelection();
+    if (selection && !selection.isCollapsed) return;
+    // Der Klick gehört dem Zitat: die Bubble darunter würde sonst noch ihr
+    // Highlight-Kontextmenü öffnen.
+    e.stopPropagation();
+    onQuoteClick?.(message);
+  };
+
+  const handleQuoteKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    e.preventDefault();
+    e.stopPropagation();
+    onQuoteClick?.(message);
   };
 
   // User messages: gray bubble, right-aligned.
@@ -548,7 +758,15 @@ export function MessageBubble({
     const others = attachments.filter(a => !a.mimetype.startsWith('image/'));
     return (
       <div className="flex justify-end">
-        <div className="flex flex-col items-end gap-2" style={{ maxWidth: '42rem' }}>
+        {/* min(42rem, 100%): die feste Obergrenze war breiter als die Spalte,
+            sobald der Chat neben PDF und Eltern-Kontext steht — die
+            rechtsbündige Bubble wuchs dann nach LINKS aus dem Bild heraus
+            (Nutzer-Screenshot 2026-08-09). min-w-0 lässt den Umbruch im
+            Flex-Kind überhaupt erst greifen. */}
+        <div
+          className="flex min-w-0 flex-col items-end gap-2"
+          style={{ maxWidth: 'min(42rem, 100%)' }}
+        >
           {/* Bild-Vorschauen oberhalb der Bubble */}
           {images.length > 0 && (
             <div className="flex flex-wrap gap-2 justify-end">
@@ -588,7 +806,12 @@ export function MessageBubble({
                 onContextMenu={handleContextMenu}
                 onMouseUp={handleMouseUp}
                 onClick={handleClick}
-                className="bg-gray-100 text-gray-900 select-text"
+                // max-w-full: ohne eine Breitengrenze AN DER BUBBLE selbst ist
+                // sie shrink-to-fit auf max-content — dann gibt es keine Kante,
+                // an der break-words greifen könnte, und ein einziges langes
+                // Wort schiebt die rechtsbündige Bubble aus der Spalte heraus
+                // (Nutzer-Screenshot 2026-08-09, schmale Chat-Spalte).
+                className="max-w-full bg-gray-100 text-gray-900 select-text"
                 style={{
                   borderRadius: '2rem',
                   padding: '0.75rem 1.125rem',
@@ -604,17 +827,44 @@ export function MessageBubble({
                     // (Nutzer-Report 2026-07-22). So bleibt das Zitat immer
                     // eine gedimmte Variante der Bubble-Textfarbe: lesbar auf
                     // jedem Grund, aber klar von der Frage unterscheidbar.
+                    //
+                    // Mit Anker wird derselbe Block zum Sprung zurück zur
+                    // Quelle (mockup-quote-jump-to-source.html, Variante A):
+                    // role="button" statt <button>, damit der Zitattext
+                    // markierbar bleibt — "Ask in chat" auf einem Zitat muss
+                    // weiter funktionieren.
                     <div
-                      className="mb-2 border-l-2 border-current pl-3 text-sm whitespace-pre-wrap opacity-75"
+                      className={`mb-2 border-l-2 border-current pl-3 text-sm whitespace-pre-wrap break-words opacity-75${
+                        quoteIsClickable ? ' syflo-quote-link' : ''
+                      }`}
                       data-testid="user-message-quote"
+                      {...(quoteIsClickable
+                        ? {
+                            role: 'button',
+                            tabIndex: 0,
+                            title: S.quoteJumpTitle,
+                            onClick: handleQuoteClick,
+                            onKeyDown: handleQuoteKeyDown,
+                          }
+                        : {})}
                     >
                       {/* MathText, not the markdown pipeline: user text is
                           plain by design, but "Ask in chat" quotes carry $…$
                           from KaTeX selections (audit 2026-07-28). */}
                       <MathText text={quote} />
+                      {quoteIsClickable && (
+                        <CornerUpLeft
+                          className="syflo-quote-link-icon inline-block ml-1.5 align-[-2px]"
+                          size={13}
+                          aria-hidden
+                        />
+                      )}
                     </div>
                   )}
-                  <p className="whitespace-pre-wrap"><MathText text={quote !== null ? rest : message.content} /></p>
+                  {/* break-words: eine getippte Zeichenkette ohne Leerzeichen
+                      ("hellooooosdfsf…") ist sonst ein einziges Wort und
+                      sprengt die Bubble. */}
+                  <p className="whitespace-pre-wrap break-words"><MathText text={quote !== null ? rest : message.content} /></p>
                 </div>
               </div>
             );
@@ -710,6 +960,28 @@ export function MessageBubble({
           bubble — same position and voice as the failover note — naming
           which minute limit bit and on which model. The tips card below
           stays untouched; the row disappears with the next token. */}
+      {/* Provider overloaded (503, mockup-truncated-answer §03): the same
+          quiet meta row as the rate-limit line — the user is waiting either
+          way, only the cause differs. Named separately because "rate limit"
+          would blame the user's quota for the provider's busy servers. */}
+      {message.overloaded && !isQueued && !isFailed && !message.content && (
+        <div
+          data-testid="overloaded-note"
+          className="mb-1 flex items-center gap-1.5 text-[12.5px] text-gray-400"
+        >
+          <Clock size={12} className="shrink-0" />
+          <OverloadCountdown
+            seconds={message.overloaded.retryInSeconds}
+            attempt={message.overloaded.attempt}
+            maxAttempts={message.overloaded.maxAttempts}
+            providerName={
+              message.overloaded.provider
+                ? providerLabels?.[message.overloaded.provider] ?? message.overloaded.provider
+                : ''
+            }
+          />
+        </div>
+      )}
       {message.rateLimit && !isQueued && !isFailed && !message.content && (
         <div
           data-testid="rate-limit-note"
@@ -728,7 +1000,16 @@ export function MessageBubble({
         onMouseUp={handleMouseUp}
         onClick={handleClick}
         className="max-w-none py-1 text-sm leading-relaxed select-text cursor-text prose prose-sm"
-        style={{ maxWidth: '46rem' }}
+        /* min(46rem, 100%) statt 46rem: 46rem ist das Lesemaß für breite
+           Spalten, aber als ABSOLUTE Grenze ließ es die Blase über die Spalte
+           hinauswachsen. Der Elternteil ist ein Column-Flex mit items-start,
+           das Kind bemisst sich also an seinem Inhalt — eine Markdown-Tabelle
+           wurde so 519 px breit in einer 253 px schmalen Spalte und schob die
+           GANZE Nachrichtenliste seitwärts (horizontale Scrollleiste,
+           Nutzerreport 2026-08-10). Tabellen, Code-Blöcke und Display-Formeln
+           haben je einen eigenen overflow-x-auto-Container; der greift aber
+           erst, wenn ein Vorfahre die Breite überhaupt begrenzt. */
+        style={{ maxWidth: 'min(46rem, 100%)' }}
       >
         {isInterrupted ? (
           // Stop-Button: die angefangene Antwort wird verworfen; an ihrer
@@ -917,20 +1198,27 @@ export function MessageBubble({
                       ? STR.chatArea.failNoVision(failModelLabel)
                       : reason === 'network'
                         ? STR.chatArea.failNetwork
-                        : reason === 'local_missing'
-                          ? STR.chatArea.failLocalMissing(message.failModel ?? '')
-                          : STR.chatArea.failLocalUnreachable;
+                        : reason === 'overloaded'
+                          ? STR.chatArea.failOverloaded(failProviderLabel)
+                          : reason === 'local_missing'
+                            ? STR.chatArea.failLocalMissing(message.failModel ?? '')
+                            : STR.chatArea.failLocalUnreachable;
               const plainBtn =
                 'inline-flex items-center gap-1 rounded-md border border-gray-200 px-2 py-0.5 text-[12px] font-medium text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-700';
               const primaryishBtn =
                 'inline-flex items-center gap-1 rounded-md border border-blue-100 bg-blue-50 px-2 py-0.5 text-[12px] font-semibold text-blue-700 transition-colors hover:bg-blue-100';
               const showRetry =
                 onRetryMessage &&
-                (reason === 'network' || reason === 'local_unreachable' || changedSinceFail);
+                (reason === 'network' || reason === 'local_unreachable' ||
+                  // Overload passes on its own — unlike a quota, the same
+                  // request can succeed on the very next try.
+                  reason === 'overloaded' || changedSinceFail);
               const showLocal =
                 hasLocalModel &&
                 onRetryLocalModel &&
-                (reason === 'no_key' || reason === 'bad_key' || reason === 'no_vision');
+                (reason === 'no_key' || reason === 'bad_key' || reason === 'no_vision' ||
+                  // A busy cloud is exactly when the private model earns its keep.
+                  reason === 'overloaded');
               const settingsLabel =
                 reason === 'no_key'
                   ? STR.chatArea.addApiKey
@@ -1124,6 +1412,43 @@ export function MessageBubble({
         {message.sources && message.sources.length > 0 && (
           <SourcesList sources={message.sources} />
         )}
+
+        {/* The provider ended this answer mid-thought
+            (design/mockup-truncated-answer.html §01). The card sits UNDER the
+            text and never replaces it — unlike '*Failed*', there is real
+            content here, and for a Video overview it is also the chapters
+            already parsed. Hidden while a continuation streams: the answer is
+            growing, the card would contradict it. */}
+        {/* Boolean(), not the raw column: `truncated` is a SQLite 0/1, and
+            JSX renders a leading 0 as text — a lone "0" sat under every
+            finished answer (user report with screenshot 2026-08-16). */}
+        {Boolean(message.truncated) && !isStreaming && !isFailed && !isInterrupted && (
+          <div
+            data-testid="truncated-note"
+            className="mt-2 flex flex-col items-start gap-2 text-[12.5px] text-gray-400"
+          >
+            <div className="flex items-center gap-2">
+              <AlertCircle size={13} className="shrink-0" />
+              <span className="italic">
+                {(() => {
+                  const mark = lastTimeMark(message.content);
+                  return mark ? STR.chatArea.truncatedAtMark(mark) : STR.chatArea.truncated;
+                })()}
+              </span>
+            </div>
+            {onContinueMessage && (
+              <button
+                type="button"
+                data-testid="continue-button"
+                onClick={() => onContinueMessage(message)}
+                className="inline-flex items-center gap-1 rounded-md border border-blue-100 bg-blue-50 px-2 py-0.5 text-[12px] font-semibold text-blue-700 transition-colors hover:bg-blue-100"
+              >
+                <ArrowRight size={11} className="shrink-0" />
+                {STR.chatArea.continueWriting}
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1158,6 +1483,30 @@ function RateLimitCountdown({ seconds, scope, modelName }: { seconds: number; sc
     );
   }
   return <>{scoped ? S.retryingOn(modelName) : S.retrying}</>;
+}
+
+// Live countdown of the overload line. Same shape as RateLimitCountdown, and
+// deliberately a second small component rather than a flag on the first: the
+// two waits share a look, not a sentence, and merging them would put an
+// if-cause branch inside every render of both.
+function OverloadCountdown({
+  seconds, attempt, maxAttempts, providerName,
+}: { seconds: number; attempt: number; maxAttempts: number; providerName: string }) {
+  const S = useStrings().chatArea;
+  const [left, setLeft] = useState(seconds);
+  useEffect(() => {
+    setLeft(seconds);
+    const t = window.setInterval(() => setLeft(v => Math.max(0, v - 1)), 1000);
+    return () => window.clearInterval(t);
+  }, [seconds]);
+  // At 0 the retry is in flight — say so instead of freezing at "0 s".
+  return (
+    <>
+      {left > 0
+        ? S.overloadedWaiting(providerName, left, attempt, maxAttempts)
+        : S.overloadedRetrying(providerName, attempt, maxAttempts)}
+    </>
+  );
 }
 
 // Compact citation strip rendered under an assistant answer that used

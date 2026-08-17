@@ -1,0 +1,768 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Syflo · /branch — a branch from a typed topic, not from a passage</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  /* ============================================================
+     THEME TOKENS — copied verbatim from frontend/src/index.css so this
+     mockup shows the real five themes. Nothing below is a literal
+     decoration colour; switch with the buttons at the top.
+     ============================================================ */
+  :root {
+    --t-white: #FFFFFF;
+    --t-gray-50: #F9FAFB; --t-gray-100: #F3F4F6; --t-gray-200: #E5E7EB; --t-gray-300: #D1D5DB;
+    --t-gray-400: #9CA3AF; --t-gray-500: #6B7280; --t-gray-600: #4B5563; --t-gray-700: #374151;
+    --t-gray-800: #1F2937; --t-gray-900: #111827;
+    --t-blue-50: #EFF6FF; --t-blue-100: #DBEAFE; --t-blue-500: #3B82F6; --t-blue-600: #2563EB; --t-blue-700: #1D4ED8;
+  }
+  :root[data-theme='mushroom-kingdom'] {
+    --t-white: #fffdf4;
+    --t-gray-50: #f7f4e4; --t-gray-100: #f0eddd; --t-gray-200: #e4decc; --t-gray-300: #cfc7ac;
+    --t-gray-400: #82829f; --t-gray-500: #6e6e8c; --t-gray-600: #565678; --t-gray-700: #3d3d63;
+    --t-gray-800: #2f2f55; --t-gray-900: #23234a;
+    --t-blue-50: #fbe6db; --t-blue-100: #f8d2c2; --t-blue-500: #dd4d44; --t-blue-600: #d8433b; --t-blue-700: #bc332c;
+  }
+  :root[data-theme='hyrule'] {
+    --t-white: #f8f5e8;
+    --t-gray-50: #f1eddc; --t-gray-100: #e8e3ce; --t-gray-200: #d9d3b9; --t-gray-300: #c6bfa0;
+    --t-gray-400: #8e9078; --t-gray-500: #767962; --t-gray-600: #5f624e; --t-gray-700: #4e5240;
+    --t-gray-800: #414534; --t-gray-900: #33372a;
+    --t-blue-50: #deede8; --t-blue-100: #cbe4dd; --t-blue-500: #2fa79d; --t-blue-600: #2aa198; --t-blue-700: #218880;
+  }
+  :root[data-theme='ink-blue'] {
+    --t-white: #ffffff;
+    --t-gray-50: #f3f8fd; --t-gray-100: #eef4fb; --t-gray-200: #dbe6f3; --t-gray-300: #becfe4;
+    --t-gray-400: #6e82a3; --t-gray-500: #5c7194; --t-gray-600: #46597b; --t-gray-700: #2c4059;
+    --t-gray-800: #1f3049; --t-gray-900: #14263f;
+  }
+  :root[data-theme='matrix'] {
+    --t-white: #060c07;
+    --t-gray-50: #08130a; --t-gray-100: #0c160d; --t-gray-200: #12301a; --t-gray-300: #1a4224;
+    --t-gray-400: #3e6a48; --t-gray-500: #4c7e58; --t-gray-600: #64a272; --t-gray-700: #7bc188;
+    --t-gray-800: #9ad6a4; --t-gray-900: #b7e8bc;
+    --t-blue-50: #07290f; --t-blue-100: #0a3414; --t-blue-500: #24c95c; --t-blue-600: #2be76b; --t-blue-700: #5ef391;
+  }
+
+  :root {
+    --brand-blue: var(--t-blue-500);
+    --bg-app: var(--t-gray-50);
+    --surface: var(--t-white);
+    --text-strong: var(--t-gray-900);
+    --text-default: var(--t-gray-700);
+    --text-muted: var(--t-gray-500);
+    --border: var(--t-gray-200);
+    --blue-50: var(--t-blue-50); --blue-100: var(--t-blue-100);
+    --blue-500: var(--t-blue-500); --blue-600: var(--t-blue-600); --blue-700: var(--t-blue-700);
+    --gray-50: var(--t-gray-50); --gray-100: var(--t-gray-100); --gray-200: var(--t-gray-200);
+    --gray-300: var(--t-gray-300); --gray-400: var(--t-gray-400); --gray-500: var(--t-gray-500);
+    --gray-600: var(--t-gray-600); --gray-700: var(--t-gray-700);
+    --stage-bg: var(--t-gray-200);
+    --on-brand: var(--t-white);
+    --shadow: 0 1px 3px rgba(0,0,0,0.07), 0 1px 2px rgba(0,0,0,0.05);
+    --shadow-lg: 0 12px 28px rgba(0,0,0,0.16);
+  }
+
+  .themes { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 26px; }
+  .themes button {
+    font-family: inherit; font-size: 11.5px; font-weight: 500; cursor: pointer;
+    height: 28px; padding: 0 11px; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--surface); color: var(--text-muted);
+  }
+  .themes button:hover { background: var(--gray-100); color: var(--text-default); }
+  .themes button[aria-pressed='true'] {
+    background: var(--blue-50); border-color: var(--blue-100); color: var(--blue-700); font-weight: 600;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Inter', -apple-system, sans-serif; background: var(--bg-app);
+    color: var(--text-default); -webkit-font-smoothing: antialiased;
+    min-height: 100vh; padding: 48px 32px 120px;
+  }
+  .wrap { max-width: 1240px; margin: 0 auto; }
+  code {
+    background: var(--gray-100); border-radius: 4px; padding: 1px 5px;
+    font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--gray-700);
+  }
+
+  .intro { margin-bottom: 40px; }
+  .intro h1 { font-size: 24px; font-weight: 700; color: var(--text-strong); letter-spacing: -0.015em; margin-bottom: 8px; }
+  .intro p { font-size: 14px; color: var(--text-muted); line-height: 1.65; max-width: 850px; }
+  .intro p + p { margin-top: 10px; }
+  .intro strong { color: var(--text-default); }
+
+  .decided {
+    margin-top: 16px; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: 14px 18px 15px; box-shadow: var(--shadow); max-width: 850px;
+  }
+  .decided h2 {
+    font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--gray-400); margin-bottom: 9px;
+  }
+  .decided ul { list-style: none; display: flex; flex-direction: column; gap: 7px; }
+  .decided li { font-size: 13px; line-height: 1.55; color: var(--text-muted); display: flex; gap: 8px; }
+  .decided li svg { color: var(--blue-600); flex: none; margin-top: 3px; }
+  .decided li strong { color: var(--text-default); }
+
+  .section { margin-bottom: 60px; }
+  .section-label {
+    font-size: 12px; font-weight: 600; color: var(--text-muted);
+    letter-spacing: 0.06em; text-transform: uppercase;
+    display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px;
+  }
+  .section-label .num { color: var(--brand-blue); font-weight: 700; }
+  .section-desc { font-size: 13px; color: var(--text-muted); line-height: 1.6; margin-bottom: 18px; max-width: 850px; }
+  .section-desc strong { color: var(--text-default); }
+
+  .stage {
+    background: var(--stage-bg); border-radius: 14px; padding: 34px 24px;
+    display: flex; justify-content: center; gap: 24px; align-items: flex-start; flex-wrap: wrap;
+  }
+  .stage.flow { gap: 10px; align-items: stretch; flex-wrap: nowrap; }
+  .col { display: flex; flex-direction: column; }
+  .state-label {
+    text-align: center; font-size: 10.5px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.06em; color: var(--text-muted); margin-bottom: 10px; line-height: 1.4;
+  }
+  .state-label .step { color: var(--brand-blue); }
+  .arrow { align-self: center; color: var(--gray-400); display: flex; align-items: center; }
+
+  /* ── Chat pane shell ── */
+  .chat-pane {
+    width: 300px; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; overflow: hidden; box-shadow: var(--shadow);
+    display: flex; flex-direction: column; flex: none;
+  }
+  .chat-pane.tall { min-height: 372px; }
+  .chat-header {
+    display: flex; align-items: center; gap: 8px;
+    padding: 11px 12px 11px 14px; border-bottom: 1px solid var(--gray-100);
+  }
+  .chat-header .grow { flex: 1; min-width: 0; }
+  .chat-title { font-size: 13px; font-weight: 600; color: var(--text-strong); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+  /* Branch header (design/mockup-branch-header.html): parent as a link, one line. */
+  .bf-line { display: flex; align-items: center; gap: 4px; min-width: 0; font-size: 11.5px; margin-top: 2px; }
+  .bf-line svg { color: var(--gray-400); flex: none; }
+  .bf-label { color: var(--gray-400); }
+  .bf-link { color: var(--blue-600); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  .chat-msgs { padding: 14px; display: flex; flex-direction: column; gap: 9px; flex: 1; overflow: hidden; }
+  .bubble-user {
+    align-self: flex-end; background: var(--brand-blue); color: var(--on-brand);
+    font-size: 11.5px; line-height: 1.5; padding: 8px 11px;
+    border-radius: 12px 12px 4px 12px; max-width: 88%;
+  }
+  .bubble-ai {
+    align-self: flex-start; background: var(--bg-app); color: var(--text-default);
+    font-size: 11.5px; line-height: 1.5; padding: 8px 11px;
+    border-radius: 12px 12px 12px 4px; max-width: 88%;
+  }
+  .bubble-new { box-shadow: 0 0 0 2px var(--blue-100); }
+  .empty-hint { font-size: 11.5px; color: var(--gray-400); line-height: 1.55; margin: auto 0; text-align: center; padding: 0 10px; }
+
+  /* ── Composer ── */
+  .composer { border-top: 1px solid var(--gray-100); padding: 10px 12px 12px; background: var(--surface); }
+  .composer-box {
+    border: 1px solid var(--border); border-radius: 12px; background: var(--surface);
+    padding: 8px 10px 8px 12px; display: flex; align-items: flex-end; gap: 8px;
+  }
+  .composer-box.focused { border-color: var(--blue-500); box-shadow: 0 0 0 3px var(--blue-50); }
+  .composer-box.with-chip { flex-direction: column; align-items: stretch; gap: 6px; }
+  .cb-row { display: flex; align-items: flex-end; gap: 8px; }
+  .composer-text { flex: 1; font-size: 12.5px; line-height: 1.5; color: var(--text-default); padding: 3px 0; min-height: 20px; }
+  .composer-text.ph { color: var(--gray-400); }
+  .caret { display: inline-block; width: 1.5px; height: 14px; background: var(--text-strong); vertical-align: -2px; margin-left: 1px; }
+  .composer-actions { display: flex; align-items: center; gap: 6px; }
+  .send-btn {
+    width: 28px; height: 28px; border-radius: 8px; border: none; background: var(--brand-blue);
+    color: var(--on-brand); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; flex: none;
+  }
+  .send-btn.idle { background: var(--gray-200); color: var(--gray-400); }
+  .composer-foot { display: flex; align-items: center; gap: 6px; margin-top: 7px; font-size: 11px; color: var(--gray-400); }
+  .composer-foot svg { flex: none; }
+
+  /* The command chip — same shape as the /btw chip, so both commands read
+     as one family. Its second half names the parent and is clickable. */
+  .cmd-chip {
+    display: inline-flex; align-items: center; height: 22px; border-radius: 6px;
+    background: var(--gray-100); border: 1px dashed var(--gray-300);
+    font-size: 11px; font-weight: 600; color: var(--gray-600);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; align-self: flex-start;
+    overflow: hidden; max-width: 100%;
+  }
+  .cmd-chip .name { padding: 0 7px; }
+  .cmd-chip .target {
+    display: inline-flex; align-items: center; gap: 4px; height: 100%; padding: 0 7px;
+    border-left: 1px dashed var(--gray-300); background: var(--surface);
+    font-family: 'Inter', sans-serif; font-weight: 500; color: var(--gray-500);
+    cursor: pointer; max-width: 190px;
+  }
+  .cmd-chip .target b { font-weight: 600; color: var(--text-default); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cmd-chip .target:hover { background: var(--gray-50); color: var(--text-default); }
+  .cmd-chip svg { flex: none; }
+
+  /* Target picker popover */
+  .picker {
+    width: 250px; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; box-shadow: var(--shadow-lg); padding: 6px; overflow: hidden;
+  }
+  .picker-head {
+    font-size: 10px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--gray-400); padding: 6px 8px 7px;
+  }
+  .pick-item {
+    display: flex; align-items: center; gap: 7px; padding: 7px 8px; border-radius: 7px;
+    font-size: 12px; color: var(--text-default); cursor: pointer; line-height: 1.3;
+  }
+  .pick-item svg { color: var(--gray-400); flex: none; }
+  .pick-item .txt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+  .pick-item .tick { color: var(--blue-600); }
+  .pick-item.indent { padding-left: 22px; }
+  .pick-item.on { background: var(--blue-50); color: var(--blue-700); font-weight: 600; }
+  .pick-item.on svg { color: var(--blue-700); }
+  .pick-item:hover { background: var(--gray-100); }
+  .pick-item.on:hover { background: var(--blue-50); }
+
+  /* ── Sidebar tree ── */
+  .sidebar {
+    width: 268px; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; box-shadow: var(--shadow); padding: 12px 0 14px; overflow: hidden; flex: none;
+  }
+  .sb-head {
+    font-size: 10px; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase;
+    color: var(--gray-400); padding: 0 14px 9px;
+  }
+  .sb-item {
+    display: flex; align-items: center; gap: 7px; padding: 6px 14px;
+    font-size: 12.5px; color: var(--text-default); min-height: 30px;
+  }
+  .sb-item svg { color: var(--gray-400); flex: none; }
+  .sb-item.root { font-weight: 600; color: var(--text-strong); }
+  .sb-item.child { padding-left: 30px; color: var(--text-muted); position: relative; }
+  .sb-item.child::before {
+    content: ''; position: absolute; left: 20px; top: 0; bottom: 0;
+    border-left: 1px solid var(--gray-200);
+  }
+  .sb-item.grandchild { padding-left: 46px; color: var(--text-muted); position: relative; }
+  .sb-item.grandchild::before {
+    content: ''; position: absolute; left: 20px; top: 0; bottom: 0;
+    border-left: 1px solid var(--gray-200);
+  }
+  .sb-item.grandchild::after {
+    content: ''; position: absolute; left: 36px; top: 0; bottom: 0;
+    border-left: 1px solid var(--gray-200);
+  }
+  .sb-item .txt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sb-item.fresh { background: var(--blue-50); color: var(--blue-700); font-weight: 600; }
+  .sb-item.fresh svg { color: var(--blue-700); }
+  .sb-item.fresh::before, .sb-item.fresh::after { border-color: var(--blue-100); }
+
+  /* ── Mind-map node ── */
+  .map {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    box-shadow: var(--shadow); padding: 18px; width: 100%; max-width: 560px;
+  }
+  .node {
+    border: 1px solid var(--border); border-radius: 9px; background: var(--surface);
+    padding: 9px 11px 9px 11px; width: 200px; position: relative; overflow: hidden;
+  }
+  .node .n-title { font-size: 12px; font-weight: 600; color: var(--text-strong); line-height: 1.35; }
+  .node .n-out { font-size: 11px; color: var(--text-muted); line-height: 1.4; margin-top: 3px; }
+  .node.has-kind::before {
+    content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--blue-500);
+  }
+  .node.has-kind { padding-left: 14px; }
+  .node.typed { border-style: dashed; }
+  .node-row { display: flex; gap: 18px; justify-content: center; }
+  .node-caption { font-size: 11px; color: var(--gray-400); text-align: center; margin-top: 8px; line-height: 1.45; }
+
+  /* ── Comparison table ── */
+  .cmp { width: 100%; border-collapse: collapse; font-size: 12.5px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; box-shadow: var(--shadow); }
+  .cmp th, .cmp td { text-align: left; padding: 11px 13px; border-bottom: 1px solid var(--gray-100); vertical-align: top; line-height: 1.55; }
+  .cmp th { background: var(--gray-50); font-weight: 600; color: var(--text-strong); font-size: 11.5px; letter-spacing: 0.02em; text-transform: uppercase; }
+  .cmp td:first-child { font-weight: 600; color: var(--text-strong); white-space: nowrap; }
+  .cmp tr:last-child td { border-bottom: none; }
+  .pill { display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 600; }
+  .pill.rec { background: var(--blue-50); color: var(--blue-700); }
+  .pill.no { background: var(--gray-100); color: var(--gray-500); }
+
+  .notes { margin-top: 16px; font-size: 13px; color: var(--text-muted); line-height: 1.65; max-width: 880px; }
+  .notes ul { padding-left: 18px; display: flex; flex-direction: column; gap: 6px; }
+  .notes strong { color: var(--text-default); }
+  kbd {
+    font-family: inherit; font-size: 10.5px; border: 1px solid var(--gray-200);
+    border-bottom-width: 2px; border-radius: 4px; padding: 1px 5px; color: var(--gray-500); background: var(--gray-50);
+  }
+
+  .qbox { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px 20px; box-shadow: var(--shadow); }
+  .qbox ol { padding-left: 20px; display: flex; flex-direction: column; gap: 12px; font-size: 13px; line-height: 1.6; color: var(--text-muted); }
+  .qbox li strong { color: var(--text-strong); display: block; margin-bottom: 2px; }
+  .qbox li code { font-size: 11.5px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="themes" id="themes">
+    <button data-t="" aria-pressed="true">Default</button>
+    <button data-t="ink-blue" aria-pressed="false">Ink blue</button>
+    <button data-t="mushroom-kingdom" aria-pressed="false">Mushroom Kingdom</button>
+    <button data-t="hyrule" aria-pressed="false">Hyrule</button>
+    <button data-t="matrix" aria-pressed="false">Matrix</button>
+  </div>
+
+  <div class="intro">
+    <h1>/branch — a branch from a typed topic</h1>
+    <p>
+      Today every branch is born from a <strong>selection</strong>: mark a passage, click “Open as new chat”.
+      <code>/branch &lt;topic&gt;</code> is the other door — you type what you want to go into, and the branch
+      appears in the tree with that topic as its first question. Nothing is selected, so the branch has
+      <strong>no parent quote and no highlight kind</strong>.
+    </p>
+    <p>
+      The open decision is the one you named: <strong>where does that branch hang?</strong> Under the chat you
+      are standing in, under the root of the tree, or wherever you point it. Section 02 shows all three next
+      to each other.
+    </p>
+    <div class="decided">
+      <h2>Carried over from /btw — same family, same rules</h2>
+      <ul>
+        <li>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+          <span>The command is <strong>recognised only at the start of the line</strong>, so “/branch” inside a quote or URL stays plain text.</span>
+        </li>
+        <li>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+          <span>The chip is <strong>named after the command</strong> — <code>/branch</code> in both app languages, not a translated noun.</span>
+        </li>
+        <li>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+          <span>A bare <code>/branch</code> with no topic <strong>does nothing on Enter</strong> — it is a half-typed command, not an empty branch.</span>
+        </li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ═══════════════ § 01  The gesture ═══════════════ -->
+  <div class="section">
+    <div class="section-label"><span class="num">01</span><span>The gesture — three beats</span></div>
+    <p class="section-desc">
+      Typing <code>/branch</code> swallows the command into a chip, exactly like <code>/btw</code>. The
+      difference is the chip’s right half: it <strong>names the parent the branch will hang under</strong>, so
+      the answer to “where does it land?” is on screen before you press Enter — never a surprise afterwards.
+    </p>
+    <div class="stage flow">
+
+      <div class="col">
+        <div class="state-label"><span class="step">1</span> · topic typed</div>
+        <div class="chat-pane tall">
+          <div class="chat-header"><div class="grow"><span class="chat-title">Attention Is All You Need</span></div></div>
+          <div class="chat-msgs">
+            <div class="bubble-user">Why divide by the square root of d_k?</div>
+            <div class="bubble-ai">Without the scaling the dot products grow with dimension, pushing softmax into regions with vanishing gradients…</div>
+          </div>
+          <div class="composer">
+            <div class="composer-box focused with-chip">
+              <span class="cmd-chip">
+                <span class="name">/branch</span>
+                <span class="target">
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4v7a4 4 0 0 0 4 4h12"/><path d="m15 10 5 5-5 5"/></svg>
+                  under <b>Attention Is All You Need</b>
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+                </span>
+              </span>
+              <div class="cb-row">
+                <div class="composer-text">positional encodings<span class="caret"></span></div>
+                <div class="composer-actions"><button class="send-btn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg></button></div>
+              </div>
+            </div>
+            <div class="composer-foot">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3v12"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
+              Opens as a new branch
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="arrow"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></div>
+
+      <div class="col">
+        <div class="state-label"><span class="step">2</span> · branch opens, answer streams</div>
+        <div class="chat-pane tall">
+          <div class="chat-header">
+            <div class="grow">
+              <span class="chat-title">Positional encodings</span>
+              <span class="bf-line">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4v7a4 4 0 0 0 4 4h12"/><path d="m15 10 5 5-5 5"/></svg>
+                <span class="bf-label">from</span>
+                <span class="bf-link">Attention Is All You Need</span>
+              </span>
+            </div>
+          </div>
+          <div class="chat-msgs">
+            <div class="bubble-user bubble-new">positional encodings</div>
+            <div class="bubble-ai">The model has no recurrence, so order has to enter through the input itself. The paper adds a fixed sinusoidal signal<span class="caret" style="height:12px"></span></div>
+          </div>
+          <div class="composer">
+            <div class="composer-box">
+              <div class="composer-text ph">Ask a question…</div>
+              <div class="composer-actions"><button class="send-btn idle"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg></button></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="arrow"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></div>
+
+      <div class="col">
+        <div class="state-label"><span class="step">3</span> · the tree grew a node</div>
+        <div class="sidebar">
+          <div class="sb-head">This week</div>
+          <div class="sb-item root">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v5h5"/></svg>
+            <span class="txt">Attention Is All You Need</span>
+          </div>
+          <div class="sb-item child"><span class="txt">curse of dimensionality</span></div>
+          <div class="sb-item child"><span class="txt">scaled dot-product</span></div>
+          <div class="sb-item child fresh">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3v12"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
+            <span class="txt">Positional encodings</span>
+          </div>
+        </div>
+        <p class="node-caption" style="width:268px">
+          The title comes from the same <code>passage-title</code> call the popup already uses — it tidies
+          “positional encodings” into a title, it does not invent one.
+        </p>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ═══════════════ § 02  Where does it hang ═══════════════ -->
+  <div class="section">
+    <div class="section-label"><span class="num">02</span><span>Where does the branch hang? — the decision</span></div>
+    <p class="section-desc">
+      All three trees below start from the same state: you are standing in the branch
+      <strong>“scaled dot-product”</strong> and type <code>/branch positional encodings</code>. Only the
+      attachment point differs — and with it, <strong>what the new branch inherits</strong> (ancestor context
+      is the path to the root, ADR-0003).
+    </p>
+    <div class="stage">
+
+      <div class="col">
+        <div class="state-label">A · under the current chat</div>
+        <div class="sidebar">
+          <div class="sb-head">Chat tree</div>
+          <div class="sb-item root">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v5h5"/></svg>
+            <span class="txt">Attention Is All You Need</span>
+          </div>
+          <div class="sb-item child"><span class="txt">curse of dimensionality</span></div>
+          <div class="sb-item child"><span class="txt">scaled dot-product</span></div>
+          <div class="sb-item grandchild fresh">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3v12"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
+            <span class="txt">Positional encodings</span>
+          </div>
+        </div>
+        <p class="node-caption" style="width:268px">
+          Inherits <strong>root + scaled dot-product</strong>. Same rule as every other branch: a branch is born
+          where you stand. Risk: deep chains of loosely related topics.
+        </p>
+      </div>
+
+      <div class="col">
+        <div class="state-label">B · always under the root</div>
+        <div class="sidebar">
+          <div class="sb-head">Chat tree</div>
+          <div class="sb-item root">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v5h5"/></svg>
+            <span class="txt">Attention Is All You Need</span>
+          </div>
+          <div class="sb-item child"><span class="txt">curse of dimensionality</span></div>
+          <div class="sb-item child"><span class="txt">scaled dot-product</span></div>
+          <div class="sb-item child fresh">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3v12"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
+            <span class="txt">Positional encodings</span>
+          </div>
+        </div>
+        <p class="node-caption" style="width:268px">
+          Inherits <strong>the root only</strong>. A typed topic is a new theme of the source, not a follow-up —
+          the map stays wide and flat. Risk: it ignores where you were, even when that mattered.
+        </p>
+      </div>
+
+      <div class="col">
+        <div class="state-label">C · you point it — default A</div>
+        <div class="sidebar">
+          <div class="sb-head">Chat tree</div>
+          <div class="sb-item root">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v5h5"/></svg>
+            <span class="txt">Attention Is All You Need</span>
+          </div>
+          <div class="sb-item child"><span class="txt">curse of dimensionality</span></div>
+          <div class="sb-item child fresh">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3v12"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
+            <span class="txt">Positional encodings</span>
+          </div>
+          <div class="sb-item child"><span class="txt">scaled dot-product</span></div>
+        </div>
+        <p class="node-caption" style="width:268px">
+          The chip’s right half opens the picker on the right. Default is A; one click moves it to the root or
+          to any chat in the tree.
+        </p>
+      </div>
+
+      <div class="col">
+        <div class="state-label">C · the picker</div>
+        <div class="picker">
+          <div class="picker-head">Create the branch under</div>
+          <div class="pick-item on">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4v7a4 4 0 0 0 4 4h12"/><path d="m15 10 5 5-5 5"/></svg>
+            <span class="txt">scaled dot-product</span>
+            <svg class="tick" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+          </div>
+          <div class="pick-item">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v5h5"/></svg>
+            <span class="txt">Attention Is All You Need</span>
+          </div>
+          <div class="pick-item indent"><span class="txt">curse of dimensionality</span></div>
+          <div class="pick-item indent"><span class="txt">word feature vectors</span></div>
+        </div>
+        <p class="node-caption" style="width:250px">
+          Current chat on top, then the tree in its own order. No search field — a tree that needs one is
+          bigger than this command is for.
+        </p>
+      </div>
+
+    </div>
+
+    <div class="notes">
+      <ul>
+        <li><strong>My recommendation: C with A as the default.</strong> The default keeps the one rule the app already has — a branch grows where you stand — and the chip makes the exception one click away, visible before you send. B as a fixed rule is the only variant that can surprise you.</li>
+        <li><strong>What is at stake is context, not tidiness.</strong> Under the current chat the new branch inherits that chat’s verbatim transcript; under the root it inherits only the source. If the topic came out of what you were just reading, A is the cheaper and better prompt.</li>
+        <li><strong>The mind map does not care.</strong> Both A and B produce a normal node — the layout (rows and lanes) already handles either depth.</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ═══════════════ § 03  Does the topic get asked ═══════════════ -->
+  <div class="section">
+    <div class="section-label"><span class="num">03</span><span>Is the topic already a question?</span></div>
+    <p class="section-desc">
+      Second decision, smaller but visible on the first screen: after the branch opens, does the topic go out
+      as the first message, or does the branch sit there empty with the topic only as its name?
+    </p>
+    <div class="stage">
+
+      <div class="col">
+        <div class="state-label">A · the topic is the first question</div>
+        <div class="chat-pane" style="min-height:300px">
+          <div class="chat-header">
+            <div class="grow">
+              <span class="chat-title">Positional encodings</span>
+              <span class="bf-line">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4v7a4 4 0 0 0 4 4h12"/><path d="m15 10 5 5-5 5"/></svg>
+                <span class="bf-label">from</span><span class="bf-link">scaled dot-product</span>
+              </span>
+            </div>
+          </div>
+          <div class="chat-msgs">
+            <div class="bubble-user bubble-new">positional encodings</div>
+            <div class="bubble-ai">The model has no recurrence, so order has to enter through the input itself. The paper adds a fixed sinusoidal signal to every token embedding…</div>
+          </div>
+          <div class="composer">
+            <div class="composer-box">
+              <div class="composer-text ph">Ask a question…</div>
+              <div class="composer-actions"><button class="send-btn idle"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg></button></div>
+            </div>
+          </div>
+        </div>
+        <p class="node-caption" style="width:300px">
+          You typed a topic because you want to know about it. One command, one answer — and the outcome line
+          for the map is written by the title call that already runs after that first answer.
+        </p>
+      </div>
+
+      <div class="col">
+        <div class="state-label">B · empty branch, topic as the name</div>
+        <div class="chat-pane" style="min-height:300px">
+          <div class="chat-header">
+            <div class="grow">
+              <span class="chat-title">Positional encodings</span>
+              <span class="bf-line">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4v7a4 4 0 0 0 4 4h12"/><path d="m15 10 5 5-5 5"/></svg>
+                <span class="bf-label">from</span><span class="bf-link">scaled dot-product</span>
+              </span>
+            </div>
+          </div>
+          <div class="chat-msgs">
+            <p class="empty-hint">Empty branch — ask your first question about <strong>positional encodings</strong>.</p>
+          </div>
+          <div class="composer">
+            <div class="composer-box focused">
+              <div class="composer-text ph">Ask a question…<span class="caret"></span></div>
+              <div class="composer-actions"><button class="send-btn idle"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg></button></div>
+            </div>
+          </div>
+        </div>
+        <p class="node-caption" style="width:300px">
+          Costs no tokens and lets you phrase the real question yourself. But the node stays without an
+          outcome line until you do — and an empty branch in the map is a node that says nothing.
+        </p>
+      </div>
+
+    </div>
+    <div class="notes">
+      <ul>
+        <li><strong>Recommendation: A.</strong> It is the same shape as the Video overview — an auto-sent visible message that gets the branch started. B leaves the map with a node whose second line is a placeholder until you return to it.</li>
+        <li><strong>A does not lock you out.</strong> The auto-sent message is an ordinary user message; you can keep asking in the same branch straight away.</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ═══════════════ § 04  What the branch does NOT have ═══════════════ -->
+  <div class="section">
+    <div class="section-label"><span class="num">04</span><span>What a typed branch does not have</span></div>
+    <p class="section-desc">
+      A selection branch carries two things a typed one cannot: the <strong>parent quote</strong> it was cut
+      from, and the <strong>highlight kind</strong> that colours its node. Neither is faked here — the node
+      simply has no colour bar, and the header shows only the parent link.
+    </p>
+    <div class="stage">
+      <div class="col">
+        <div class="state-label">side by side in the mind map</div>
+        <div class="map">
+          <div class="node-row">
+            <div class="node has-kind">
+              <div class="n-title">Scaled dot-product</div>
+              <div class="n-out">Scaling keeps softmax out of its flat region</div>
+            </div>
+            <div class="node">
+              <div class="n-title">Positional encodings</div>
+              <div class="n-out">Order enters through a fixed sinusoidal signal</div>
+            </div>
+          </div>
+          <p class="node-caption">
+            Left: opened from a blue highlight — the colour bar is its <strong>highlight kind</strong>.<br>
+            Right: typed with <code>/branch</code> — no kind, and that is not a sixth kind, it is none.
+          </p>
+        </div>
+      </div>
+
+      <div class="col">
+        <div class="state-label">the header, both kinds</div>
+        <div class="sidebar" style="padding:0">
+          <div style="padding:12px 14px;border-bottom:1px solid var(--gray-100)">
+            <span class="chat-title">Scaled dot-product</span>
+            <span class="bf-line">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4v7a4 4 0 0 0 4 4h12"/><path d="m15 10 5 5-5 5"/></svg>
+              <span class="bf-label">from</span><span class="bf-link">Attention Is All You Need</span>
+            </span>
+            <p style="font-size:11.5px;color:var(--gray-500);font-style:italic;margin-top:7px;line-height:1.5">
+              “we scale the dot products by 1/√d_k”
+            </p>
+          </div>
+          <div style="padding:12px 14px">
+            <span class="chat-title">Positional encodings</span>
+            <span class="bf-line">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4v7a4 4 0 0 0 4 4h12"/><path d="m15 10 5 5-5 5"/></svg>
+              <span class="bf-label">from</span><span class="bf-link">scaled dot-product</span>
+            </span>
+            <p style="font-size:11.5px;color:var(--gray-400);margin-top:7px;line-height:1.5">
+              No quote line at all — the row is absent, not empty.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════ § 05  The three variants at a glance ═══════════════ -->
+  <div class="section">
+    <div class="section-label"><span class="num">05</span><span>The attachment point, at a glance</span></div>
+    <table class="cmp">
+      <thead>
+        <tr><th>Variant</th><th>Parent</th><th>What the branch inherits</th><th>Cost / risk</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>A · current chat</td>
+          <td>the chat you are in</td>
+          <td>the full path to the root — parent verbatim, grandparents as summaries</td>
+          <td><span class="pill no">smallest</span> reuses the existing branch call unchanged; deep chains of unrelated topics are possible</td>
+        </tr>
+        <tr>
+          <td>B · root</td>
+          <td>the tree’s root</td>
+          <td>only the source and the root chat</td>
+          <td><span class="pill no">small</span> loses the context you were just in, with no way to say otherwise</td>
+        </tr>
+        <tr>
+          <td>C · you point it <span class="pill rec">recommended</span></td>
+          <td>A by default, changeable</td>
+          <td>whatever the chosen parent gives it</td>
+          <td><span class="pill no">medium</span> one picker popover + the chip’s second half</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ═══════════════ § 06  Open questions ═══════════════ -->
+  <div class="section">
+    <div class="section-label"><span class="num">06</span><span>What I need from you before building</span></div>
+    <div class="qbox">
+      <ol>
+        <li>
+          <strong>Attachment point — A, B or C?</strong>
+          If C: is the default really the current chat, or should the picker open with the root preselected
+          when you are deep in the tree?
+        </li>
+        <li>
+          <strong>Auto-send the topic (§03 A) or open empty (§03 B)?</strong>
+          A costs one LLM call per <code>/branch</code>; B leaves the map node without an outcome line.
+        </li>
+        <li>
+          <strong>What is the topic worth as a question?</strong>
+          Send it verbatim (“positional encodings”), or let the branch prompt turn it into a real question
+          (“Explain positional encodings in this paper”)? The second reads better but is the app putting
+          words in your mouth.
+        </li>
+        <li>
+          <strong>Does <code>/branch</code> work in the root chat too?</strong>
+          There it is simply a first-level branch — I would allow it, but then the chip’s target line says
+          the root’s own title, which reads slightly odd.
+        </li>
+        <li>
+          <strong>Anything for <kbd>Tab</kbd>?</strong>
+          <code>/btw</code> has no completion today. If <code>/branch</code> gets the target picker, Tab could
+          jump into it — or we keep both commands completion-free and consistent.
+        </li>
+      </ol>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  // Theme switcher — the same five themes the app ships.
+  const themeBar = document.getElementById('themes');
+  function applyTheme(t) {
+    if (t) document.documentElement.setAttribute('data-theme', t);
+    else document.documentElement.removeAttribute('data-theme');
+    themeBar.querySelectorAll('button').forEach((b) => {
+      b.setAttribute('aria-pressed', String(b.dataset.t === t));
+    });
+  }
+  themeBar.addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (b) applyTheme(b.dataset.t);
+  });
+  const fromHash = (location.hash.match(/theme=([\w-]+)/) || [])[1];
+  if (fromHash) applyTheme(fromHash === 'default' ? '' : fromHash);
+</script>
+</body>
+</html>
