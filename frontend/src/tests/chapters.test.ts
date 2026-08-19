@@ -9,7 +9,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { parseChapters, activeChapterIndex, pickOverviewContent, pickOverviewMessage } from '../markdown/chapters';
+import { parseChapters, activeChapterIndex, pickOverviewContent, pickOverviewMessage, overviewStopsShort } from '../markdown/chapters';
 import type { Message } from '../types';
 
 const overview = `## An LLM is two files [0:00 - 7:30]
@@ -196,5 +196,28 @@ describe('parseChapters – Offsets', () => {
     const [c] = parseChapters('## Nur ein Titel [0:03]\n\n- Direkt ein Punkt.\n');
     expect(c.keyPoint).toBeNull();
     expect(c.keyPointOffset).toBeNull();
+  });
+});
+
+/**
+ * Die zweite Frage an eine Übersicht (2026-08-18): Nicht „wurde sie
+ * abgeschnitten?", sondern „ist sie am Videoende angekommen?". Flash Lite
+ * meldete `finish=stop` nach 16:16 eines 1:06:31 langen Videos — sauber
+ * beendet und trotzdem ein Viertel.
+ */
+describe('overviewStopsShort', () => {
+  it('erkennt die Übersicht, die nach einem Viertel des Videos aufhört', () => {
+    const overview = '## Einführung [00:00 - 03:34]\n\n## Refaktorierung [12:56 - 16:16]';
+
+    expect(overviewStopsShort(overview, 3991)).toBe(true);
+  });
+
+  it('lässt vier Sekunden Abspann in Ruhe', () => {
+    expect(overviewStopsShort('## Ausblick [1:12:30 - 1:21:52]', 4916)).toBe(false);
+  });
+
+  it('hat ohne Videolänge und ohne Marke keine Meinung', () => {
+    expect(overviewStopsShort('## Einführung [00:00 - 03:34]', null)).toBe(false);
+    expect(overviewStopsShort('Hier ist die Gliederung:', 3991)).toBe(false);
   });
 });

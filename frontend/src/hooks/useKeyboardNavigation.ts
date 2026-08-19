@@ -158,9 +158,15 @@ function scrollIntoView(pieces: readonly HTMLElement[]): void {
   const first = ordered[0];
   const last = ordered[ordered.length - 1];
   if (!first) return;
-  // An item taller than the window — a PDF page — never fits, so show its top.
+  // An item taller than the window it is seen through — a PDF page, or a
+  // transcript block of 463 px in a 230 px list (measured 2026-08-17) — never
+  // fits, so show its top. The window is the SCROLLER where there is one: the
+  // viewport is far taller than the video pane's list, so measuring against it
+  // left a tall block scrolled to the middle and the ring drew a straight line
+  // through its text at both edges (user report with picture 2026-08-17).
   const union = last.getBoundingClientRect().bottom - first.getBoundingClientRect().top;
-  if (union > window.innerHeight * 0.9) {
+  const seenThrough = scrollClip(first)?.height ?? window.innerHeight;
+  if (union > seenThrough * 0.9) {
     first.scrollIntoView({ block: 'start' });
     return;
   }
@@ -190,12 +196,18 @@ function hideRing(): void {
  * Called from the frame loop, once the ring exists AND is visible: an animation
  * on a `display: none` element never runs. Clearing the attribute and reading a
  * layout property restarts the animation if it is somehow still going.
+ *
+ * The attribute is taken off again as soon as the pulse has run. Leaving it on
+ * — "the animation ends by itself" — was true only as long as the ring stayed
+ * on screen: a `display: none` and back RESTARTS a CSS animation, so every
+ * step through the transcript lit the ring up again (user report 2026-08-17).
  */
 function glowRing(): void {
   const el = document.getElementById(RING_ID);
   if (!el || !el.dataset.visible) return;
   delete el.dataset.glow;
   void el.offsetWidth;
+  el.addEventListener('animationend', () => { delete el.dataset.glow; }, { once: true });
   el.dataset.glow = 'true';
 }
 
@@ -426,8 +438,14 @@ export function useKeyboardNavigation(options: KeyboardNavigationOptions): Focus
     // rather than one (user report 2026-08-11). Drawn as a single overlay on
     // <body>, which also frees it from every `overflow: hidden` ancestor that
     // used to clip it.
-    drawRing(pieces);
+    // Scroll FIRST, measure after. Drawn the other way round, the ring was
+    // placed on the item's old position — outside the list it lives in, so
+    // `drawRing` hid it — and only came back on the next frame, once the scroll
+    // had happened. That flicker is what made the ring glow at every step
+    // through the transcript: display:none and back restarts the animation
+    // (user report 2026-08-17).
     scrollIntoView(pieces);
+    drawRing(pieces);
     // domVersion is read so a menu appearing re-runs this effect.
     void domVersion;
   });

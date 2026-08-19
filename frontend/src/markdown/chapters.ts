@@ -15,7 +15,7 @@
  * not a time (`[99:99]`) is rejected in both places by the same rule.
  */
 
-import { parseTimestamp } from './timeLinks';
+import { lastTimeMark, parseTimestamp } from './timeLinks';
 import type { Message } from '../types';
 
 export interface Chapter {
@@ -155,4 +155,35 @@ export function activeChapterIndex(chapters: Chapter[], seconds: number): number
   // Vor der ersten Marke bleibt es die 0: ein Vortrag, der laut Übersicht bei
   // 0:02 anfängt, ist in Sekunde 0 nicht „nirgendwo" (gemessen 2026-08-15).
   return active;
+}
+
+/**
+ * Everything past this much of the video counts as covered. A minute of outro
+ * is not worth a paid continuation round; a quarter of the video is. Kept in
+ * step with `backend/overview-progress.js`, which decides the same thing for
+ * the endpoint — change both together.
+ */
+const TAIL_TOLERANCE_RATIO = 0.05;
+const TAIL_TOLERANCE_MIN_SECONDS = 60;
+
+/**
+ * Does the overview stop well before the video does?
+ *
+ * The second signal that an overview is unfinished, next to the provider's
+ * `truncated` flag — and the one that caught the case the flag misses: on
+ * 2026-08-18 Flash Lite ended cleanly after covering 16:16 of a 1:06:31 video
+ * and reported itself finished. Nothing was cut, so nothing asked to be
+ * continued, and the reader got a quarter of the video with no sign of it.
+ * The overview writes its own time ranges, so it says where it got to.
+ *
+ * An unknown duration means "no opinion": this drives a paid call, so it is
+ * measured or it is not claimed.
+ */
+export function overviewStopsShort(content: string, durationSeconds?: number | null): boolean {
+  if (!durationSeconds) return false;
+  const mark = lastTimeMark(content);
+  const covered = mark ? parseTimestamp(mark) : null;
+  if (covered === null) return false;
+  const tolerance = Math.max(TAIL_TOLERANCE_MIN_SECONDS, durationSeconds * TAIL_TOLERANCE_RATIO);
+  return covered < durationSeconds - tolerance;
 }

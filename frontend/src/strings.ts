@@ -489,6 +489,10 @@ const en = {
     chaptersWriting: 'Writing the overview …',
     chaptersCut: 'The overview broke off',
     chaptersCutAtMark: (mark: string) => `The overview broke off at ${mark}`,
+    // Not cut — finished, and still short. A provider that ends cleanly after
+    // a quarter of the video (Flash Lite, 2026-08-18) leaves nothing to
+    // "break off", and saying so anyway would be a lie about what happened.
+    chaptersShortAtMark: (mark: string) => `The overview stops at ${mark}`,
     chaptersCutBody: (duration: string) =>
       `Only part of the ${duration} video has been structured so far.`,
     continueOverview: 'Continue',
@@ -1105,6 +1109,7 @@ const de: Strings = {
     chaptersWriting: 'Die Übersicht wird geschrieben …',
     chaptersCut: 'Die Übersicht brach ab',
     chaptersCutAtMark: (mark: string) => `Die Übersicht brach bei ${mark} ab`,
+    chaptersShortAtMark: (mark: string) => `Die Übersicht endet bei ${mark}`,
     chaptersCutBody: (duration: string) =>
       `Von ${duration} Minuten ist bisher nur ein Teil gegliedert.`,
     continueOverview: 'Weiterschreiben',

@@ -193,6 +193,11 @@ async function streamWithTools({ client, model, messages, onText, onToolEvent, o
   // guarantee we never get stuck in an infinite tool-calling loop if the
   // model goes haywire.
   const MAX_ROUNDS = 5;
+  // How often a round that ends abnormally WITHOUT writing a single character
+  // is simply asked again. Two, because that is a transport failure — the
+  // provider took a ~19 000-token prompt and returned nothing (measured
+  // 2026-08-18) — and a third identical failure is a state, not a hiccup.
+  const EMPTY_ROUND_RETRIES = 2;
 
   // Latency measurement across all rounds: time to first token
   // (= prefill/prompt processing, the expensive part with large papers) and
@@ -255,6 +260,8 @@ async function streamWithTools({ client, model, messages, onText, onToolEvent, o
   // token statistics are missing, never the response).
   let usageSupported = true;
   let extrasEnabled = Object.keys(extras).length > 0;
+  // How many dead lines in a row this answer forgives (see below).
+  let emptyRounds = 0;
 
   for (let round = 0; round < MAX_ROUNDS; round++) {
     const makeBody = () => ({
@@ -377,6 +384,26 @@ async function streamWithTools({ client, model, messages, onText, onToolEvent, o
         `[tools] Abnormal stream end: finish_reason=${roundFinishReason ?? 'MISSING'} ` +
         `round=${round} textLen=${roundText.length} tail=${JSON.stringify(roundText.slice(-40))}`
       );
+    }
+
+    // A round that ended abnormally AND wrote nothing at all is a dead line,
+    // not an answer: the prompt was paid for (~19 000 tokens on the day this
+    // was measured, 2026-08-18) and nothing came back. Ask again.
+    //
+    // Only while the round is still EMPTY — text or reasoning already at the
+    // reader cannot be unsaid, and a second attempt would write it twice. That
+    // case belongs to the continuation machinery, which appends instead of
+    // repeating.
+    if (
+      toolCalls.size === 0 &&
+      roundText.length === 0 &&
+      roundReasoningChars === 0 &&
+      isTruncatedFinish(roundFinishReason) &&
+      emptyRounds < EMPTY_ROUND_RETRIES
+    ) {
+      emptyRounds++;
+      console.warn(`[tools] Empty round, retrying (${emptyRounds}/${EMPTY_ROUND_RETRIES}).`);
+      continue;
     }
 
     // Plain answer — we're done. Deliberately NOT keyed on finish_reason:

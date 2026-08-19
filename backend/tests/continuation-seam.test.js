@@ -54,3 +54,58 @@ describe('joinContinuation', () => {
     );
   });
 });
+
+/**
+ * Die zweite Art von Fortsetzung (2026-08-18): die Antwort ist NICHT gekappt,
+ * sie hörte nur zu früh auf — Flash Lite gliederte 16:16 eines 1:06:31 langen
+ * Videos und meldete "fertig". Dort gibt es keine Naht zu finden; gebraucht
+ * wird die Leerzeile, ohne die der letzte Satz und die neue "##"-Überschrift
+ * zusammenkleben und die Überschrift keine mehr ist.
+ */
+describe('joinContinuation im Anhänge-Modus', () => {
+  it('setzt die Leerzeile zwischen fertigen Satz und neue Überschrift', () => {
+    const done = 'Technik wird als ephemere Software verstanden, die sich anpasst.';
+    const more = '## Werkzeuge und Grenzen [16:16 - 21:03]';
+
+    expect(joinContinuation(done, more, { mode: 'append' })).toBe(
+      'Technik wird als ephemere Software verstanden, die sich anpasst.\n\n## Werkzeuge und Grenzen [16:16 - 21:03]',
+    );
+  });
+
+  it('verdoppelt einen vorhandenen Absatz nicht', () => {
+    expect(joinContinuation('…anpasst.\n\n', '## Werkzeuge', { mode: 'append' })).toBe(
+      '…anpasst.\n\n## Werkzeuge',
+    );
+  });
+});
+
+/**
+ * Was das Modell beim Weiterschreiben zu hören bekommt.
+ *
+ * Der Anlass (Nutzer-Report mit Bild 2026-08-18): In den Einstellungen steht
+ * „Erkläre am Ende jeder Antwort das mentale Modell". Das Modell hielt sich
+ * daran — am Ende jeder RUNDE. Weil Runden in dieselbe Nachricht wachsen,
+ * stand „## Mentales Modell" zweimal mitten in einer Übersicht.
+ */
+describe('continuationInstruction', () => {
+  const { continuationInstruction } = require('../continuation');
+
+  it('verbietet die Schluss-Abschnitte, solange die Antwort weiterläuft', () => {
+    const text = continuationInstruction({ mode: 'seam', untilMark: '1:06:31' });
+
+    expect(text).toMatch(/NOT finished/);
+    expect(text).toMatch(/1:06:31/);
+  });
+
+  it('nennt beim Früh-Stopp die Stelle und das Videoende', () => {
+    const text = continuationInstruction({ mode: 'append', fromMark: '16:16', untilMark: '1:06:31' });
+
+    expect(text).toMatch(/stops at 16:16/);
+    expect(text).toMatch(/runs to 1:06:31/);
+    expect(text).not.toMatch(/cut off mid-sentence/);
+  });
+
+  it('bleibt bei der Naht-Anweisung, wenn wirklich abgeschnitten wurde', () => {
+    expect(continuationInstruction({ mode: 'seam' })).toMatch(/cut off mid-sentence/);
+  });
+});

@@ -2001,3 +2001,29 @@ button:focus-visible,
   text-decoration-color: color-mix(in srgb, currentColor 55%, transparent);
   text-underline-offset: 3px;
 }
+
+/*
+ * Ein Kapitel kommt an (design/mockup-video-overview-progress.html § 03,
+ * Variante A, Nutzerentscheidung 2026-08-18). Die Karten wurden bisher hart
+ * in die Liste gesetzt, so wie React sie rendert — während die Übersicht
+ * geschrieben wird, sprang alle paar Sekunden eine neue Zeile ins Bild.
+ *
+ * Die Bewegung läuft beim ANKOMMEN, nicht beim Blättern: sie hängt am
+ * Einhängen des DOM-Knotens, und Rollen hängt keinen neuen ein. Ein Wechsel
+ * zurück auf die Kapitel blendet die Liste einmal weich ein — dasselbe
+ * Ereignis, dieselbe Antwort.
+ *
+ * 7 px von unten: gerade genug, um die Wuchsrichtung der Liste zu zeigen,
+ * und zu wenig, um den Text beim Lesen zu verschieben.
+ */
+@keyframes syflo-chapter-in {
+  from { opacity: 0; transform: translateY(7px); }
+  to   { opacity: 1; transform: none; }
+}
+.syflo-chapter-in {
+  animation: syflo-chapter-in 0.42s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+/* Dieselbe Rücksicht wie beim Mitscrollen der Kapitelliste. */
+@media (prefers-reduced-motion: reduce) {
+  .syflo-chapter-in { animation: none; }
+}

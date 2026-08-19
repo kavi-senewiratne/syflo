@@ -91,6 +91,19 @@ interface Props {
   overviewStreaming?: boolean;
   /** The overview ended mid-thought — the chapters stop early for a reason. */
   overviewTruncated?: boolean;
+  /**
+   * A continuation round is running right now. While it is, the pane says
+   * "writing" and the card stays quiet: between two automatic rounds the card
+   * used to flash up and invite a click for something already under way (user
+   * report 2026-08-18).
+   */
+  overviewContinuing?: boolean;
+  /**
+   * The overview reads as finished and still stops well before the video ends
+   * (Flash Lite covered 16:16 of 1:06:31 and reported `finish=stop`,
+   * 2026-08-18). Same card, honest wording: nothing broke off here.
+   */
+  overviewStoppedEarly?: boolean;
   /** Continue the cut-off overview; same exit as the card in the chat. */
   onContinueOverview?: () => void;
   /**
@@ -246,7 +259,7 @@ function markOf(seconds: number): string {
 }
 
 export function VideoPane({
-  video, overview, onRequestTranscript, overviewStreaming, overviewTruncated, onContinueOverview,
+  video, overview, onRequestTranscript, overviewStreaming, overviewTruncated, overviewStoppedEarly, overviewContinuing, onContinueOverview,
   onTranscriptSelection, transcriptHighlights, onChapterSelection, onOpenHighlightChat, ref,
 }: Props) {
   const S = useStrings().videoPane;
@@ -270,6 +283,9 @@ export function VideoPane({
   // How far the cut-off overview got — the reader's first question when the
   // list stops early is "up to where?".
   const lastMark = useMemo(() => lastTimeMark(overview ?? ''), [overview]);
+  // Being written — the first draft or a continuation round. The reader cannot
+  // tell those apart and should not have to: both mean "not yet, wait".
+  const writing = Boolean(overviewStreaming || overviewContinuing);
   const blocks = useMemo(() => parseTranscriptBlocks(video.transcript ?? ''), [video.transcript]);
   const duration = formatDuration(video.duration_seconds);
 
@@ -620,6 +636,11 @@ export function VideoPane({
   return (
     <div
       data-testid="video-pane"
+      // The middle column's source, so the same keyboard region the PDF pane
+      // is (ADR-0011). Without it the ring walked from the sidebar straight
+      // into the chat and the whole video column was unreachable by keyboard
+      // (user report 2026-08-17).
+      data-focus-region="source"
       // @container: die Werkzeugleiste richtet sich nach der BREITE DER SPALTE,
       // nicht des Fensters. In einem 914-px-Fenster bleiben der Mittelspalte
       // gemessene 314 px (2026-08-15) — dort ist für den Titel kein Platz, und
@@ -702,6 +723,7 @@ export function VideoPane({
             <button
               type="button"
               data-testid="video-view-chapters"
+              data-focus-item="video-view-chapters"
               aria-pressed={view === 'chapters'}
               onClick={() => setView('chapters')}
               className={`inline-flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-colors ${
@@ -716,6 +738,7 @@ export function VideoPane({
             <button
               type="button"
               data-testid="video-view-transcript"
+              data-focus-item="video-view-transcript"
               aria-pressed={view === 'transcript'}
               onClick={() => {
                 setView('transcript');
@@ -741,9 +764,18 @@ export function VideoPane({
             des Scrollers, und der harte Schatten der markierten Karte ragt 4 px
             heraus — bei 3,7 px Abstand berührten sich beide (gemessen
             2026-08-16). Der Scroller reicht dafür näher an den Spaltenrand. */}
-        <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto py-2 pr-2 pl-0.5">
+        {/* Chapters and transcript blocks are a READING SEQUENCE, not a row of
+            side-by-side controls (ADR-0011, same mark as the PDF's marks): two
+            rows whose tops happen to fall within the row tolerance must still
+            answer to ↑ ↓, and ← must mean "leave the column". The switch above
+            stays outside this scroller and keeps its ← →. */}
+        <div
+          ref={listRef}
+          data-focus-axis="sequence"
+          className="min-h-0 flex-1 overflow-y-auto py-2 pr-2 pl-0.5"
+        >
         {view === 'chapters' ? (
-          chapters.length > 0 || overviewStreaming ? (
+          chapters.length > 0 || writing ? (
             <div data-testid="video-chapters" className="flex flex-col gap-1">
               {chapters.map((c, i) => (
                 <div
@@ -751,6 +783,9 @@ export function VideoPane({
                   tabIndex={0}
                   key={`${c.startSeconds}-${i}`}
                   data-testid="video-chapter"
+                  // One keyboard item per chapter; ↵ jumps the player there,
+                  // the same thing a click does.
+                  data-focus-item={`chapter-${i}`}
                   // Unterabschnitte tragen ihre Ebene sichtbar (Einzug) und
                   // maschinenlesbar: eine "###"-Zeile ist kein zweiter
                   // Hauptabschnitt, auch wenn sie dieselbe Marke trägt.
@@ -774,7 +809,11 @@ export function VideoPane({
                   // ein Ring statt Rahmen PLUS Ring — die Doppellinie war es, die
                   // am Rand des Fensters abgeschnitten aussah — und die Zeitmarke
                   // gefüllt statt blass.
-                  className={`flex cursor-pointer items-start gap-2.5 rounded-xl border px-3 py-2.5 text-left transition-colors select-text ${
+                  // syflo-chapter-in: die Karte blendet beim Ankommen ein und
+                  // steigt 7 px auf (§03, Variante A). Sie hängt am Einhängen
+                  // des Knotens — beim Rollen passiert nichts, beim Wachsen der
+                  // Übersicht jede neue Zeile für sich.
+                  className={`syflo-chapter-in flex cursor-pointer items-start gap-2.5 rounded-xl border px-3 py-2.5 text-left transition-colors select-text ${
                     i === activeChapter
                       ? 'border-transparent bg-white shadow-sm ring-1 ring-blue-600'
                       : 'border-transparent bg-transparent hover:bg-white'
@@ -812,7 +851,7 @@ export function VideoPane({
               {/* The overview is still arriving: chapters appear one heading
                   at a time, so the row goes UNDER what already landed —
                   the list grows downwards, exactly as the answer does. */}
-              {overviewStreaming && (
+              {writing && (
                 <div
                   data-testid="video-chapters-writing"
                   className="flex items-center gap-2 px-3 py-2.5 text-[11.5px] text-gray-500"
@@ -824,13 +863,17 @@ export function VideoPane({
               {/* It stopped early. This is where the reader NOTICES the gap,
                   so this is where the way out belongs — no scrolling back
                   into the chat to find the same button. */}
-              {overviewTruncated && !overviewStreaming && (
+              {(overviewTruncated || overviewStoppedEarly) && !writing && (
                 <div
                   data-testid="video-chapters-truncated"
                   className="mt-2 rounded-xl border border-dashed border-gray-300 bg-white px-4 py-3.5"
                 >
                   <h3 className="mb-1 text-[12.5px] font-semibold text-gray-900">
-                    {lastMark ? S.chaptersCutAtMark(lastMark) : S.chaptersCut}
+                    {lastMark
+                      ? overviewTruncated
+                        ? S.chaptersCutAtMark(lastMark)
+                        : S.chaptersShortAtMark(lastMark)
+                      : S.chaptersCut}
                   </h3>
                   <p className="text-[11.5px] leading-relaxed text-gray-500">
                     {S.chaptersCutBody(duration ?? '')}
@@ -839,6 +882,7 @@ export function VideoPane({
                     <button
                       type="button"
                       data-testid="video-continue-button"
+                      data-focus-item="video-continue"
                       onClick={onContinueOverview}
                       className="mt-2.5 inline-flex items-center gap-1 rounded-md border border-blue-100 bg-blue-50 px-2 py-1 text-[11.5px] font-semibold text-blue-700 transition-colors hover:bg-blue-100"
                     >
@@ -849,7 +893,7 @@ export function VideoPane({
                 </div>
               )}
             </div>
-          ) : overviewTruncated ? (
+          ) : overviewTruncated && !writing ? (
             <div
               data-testid="video-chapters-truncated"
               className="mt-2 rounded-xl border border-dashed border-gray-300 bg-white px-4 py-3.5"
@@ -860,6 +904,7 @@ export function VideoPane({
                 <button
                   type="button"
                   data-testid="video-continue-button"
+                  data-focus-item="video-continue"
                   onClick={onContinueOverview}
                   className="mt-2.5 inline-flex items-center gap-1 rounded-md border border-blue-100 bg-blue-50 px-2 py-1 text-[11.5px] font-semibold text-blue-700 transition-colors hover:bg-blue-100"
                 >
@@ -890,6 +935,7 @@ export function VideoPane({
                 tabIndex={0}
                 key={i}
                 data-testid="video-transcript-block"
+                data-focus-item={`transcript-${i}`}
                 aria-current={i === activeBlock ? 'true' : undefined}
                 onMouseUp={() => reportSelection(b)}
                 onClick={() => {

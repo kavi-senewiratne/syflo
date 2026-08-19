@@ -12,7 +12,7 @@
 
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import App from '../App';
+import App, { AUTO_CONTINUE_MAX } from '../App';
 import type { Chat, ChatDetail, Message, Video } from '../types';
 
 vi.mock('../pdf/pdfDocument', () => ({
@@ -123,7 +123,11 @@ const video: Video = {
   youtube_id: 'zjkBMFhNj_g',
   title: 'Intro to Large Language Models',
   channel: 'Andrej Karpathy',
-  duration_seconds: 3587,
+  // 14:20 — the OVERVIEW fixture below runs to 14:14, so the base tree is a
+  // COMPLETE overview. With a longer video every one of these fixtures would
+  // read as "stopped early" and the automat would fire in tests about
+  // something else entirely.
+  duration_seconds: 860,
   language: 'en',
   url: 'https://www.youtube.com/watch?v=zjkBMFhNj_g',
   transcript: '[00:00] Hi everyone.\n\n[08:58] A kind of zip file of the internet.',
@@ -204,30 +208,181 @@ describe('App — video pane in the middle column', () => {
 // design/mockup-truncated-answer.html §02: die Kapitelliste sagt, wenn die
 // Übersicht abbrach — und bietet dort den Ausweg an, wo die Lücke auffällt.
 
-describe('App — chapter list mirrors the state of the overview', () => {
-  it('shows the cut-off card and continues the overview from the pane', async () => {
-    const cutMessages: Message[] = [
-      messages[0],
-      { ...messages[1], content: '## An LLM is two files [0:00 - 7:30]\n\n**A model.**\n\n- **parameters.bin**: 140 GB, und dann', truncated: 1 },
-    ];
-    vi.mocked(api.getChat).mockResolvedValue({ ...rootDetail, messages: cutMessages });
-    vi.mocked(api.continueMessage).mockImplementation(() => new Promise(() => {}));
+const CUT = '## An LLM is two files [0:00 - 7:30]\n\n**A model.**\n\n- **parameters.bin**: 140 GB, und dann';
 
-    await openVideoChat();
-
-    const note = await screen.findByTestId('video-chapters-truncated');
-    expect(note).toHaveTextContent('7:30');
-
-    fireEvent.click(screen.getByTestId('video-continue-button'));
-    await waitFor(() =>
-      expect(api.continueMessage).toHaveBeenCalledWith('c1', 'm2', expect.any(Function), expect.anything()),
-    );
+/** A tree whose overview stopped mid-sentence. */
+function openCutOverview() {
+  vi.mocked(api.getChat).mockResolvedValue({
+    ...rootDetail,
+    messages: [messages[0], { ...messages[1], content: CUT, truncated: 1 }],
   });
+  return openVideoChat();
+}
 
+describe('App — chapter list mirrors the state of the overview', () => {
   it('keeps quiet when the overview is complete', async () => {
     await openVideoChat();
     await screen.findByTestId('video-chapters');
     expect(screen.queryByTestId('video-chapters-truncated')).not.toBeInTheDocument();
+  });
+});
+
+// ─── §01 Variante A: die App schreibt still weiter ──────────────────────────
+// design/mockup-video-overview-progress.html §01, Nutzerentscheidung
+// 2026-08-18. Ein Klick, der immer dieselbe Antwort ist, ist keine
+// Entscheidung — die App hängt selbst an. Die Karte bleibt für die Fälle, in
+// denen der Automat aufgibt.
+
+describe('App — a cut-off overview continues by itself', () => {
+  it('appends without a click and shows no card', async () => {
+    vi.mocked(api.continueMessage).mockResolvedValue({
+      userMessage: messages[0],
+      assistantMessage: { ...messages[1], content: OVERVIEW, truncated: 0 },
+    });
+
+    await openCutOverview();
+
+    await waitFor(() =>
+      expect(api.continueMessage).toHaveBeenCalledWith('c1', 'm2', expect.any(Function), expect.anything()),
+    );
+    expect(api.continueMessage).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(screen.getAllByTestId('video-chapter')).toHaveLength(2));
+    expect(screen.queryByTestId('video-chapters-truncated')).not.toBeInTheDocument();
+  });
+
+  it('keeps going round after round until the answer is whole', async () => {
+    // The provider that made this necessary cuts EVERY round short — measured
+    // on gemini-flash-latest, which ended one round after 68 tokens
+    // (2026-08-18). So the number of rounds is not the point; finishing is.
+    let round = 0;
+    let grown = CUT;
+    vi.mocked(api.continueMessage).mockImplementation(async () => {
+      round += 1;
+      grown += ' und weiter';
+      const done = round === 6;
+      return {
+        userMessage: messages[0],
+        assistantMessage: { ...messages[1], content: done ? OVERVIEW : grown, truncated: done ? 0 : 1 },
+      };
+    });
+
+    await openCutOverview();
+
+    await waitFor(() => expect(api.continueMessage).toHaveBeenCalledTimes(6));
+    await waitFor(() => expect(screen.getAllByTestId('video-chapter')).toHaveLength(2));
+    expect(screen.queryByTestId('video-chapters-truncated')).not.toBeInTheDocument();
+  });
+
+  it('stops at the runaway ceiling and hands the decision back', async () => {
+    // A provider that never finishes must not spend calls forever: every round
+    // carries the whole transcript again (~17k prompt tokens, measured).
+    let grown = CUT;
+    vi.mocked(api.continueMessage).mockImplementation(async () => {
+      grown += ' und weiter';
+      return { userMessage: messages[0], assistantMessage: { ...messages[1], content: grown, truncated: 1 } };
+    });
+
+    await openCutOverview();
+
+    await waitFor(() => expect(api.continueMessage).toHaveBeenCalledTimes(AUTO_CONTINUE_MAX));
+    expect(await screen.findByTestId('video-chapters-truncated')).toBeInTheDocument();
+    // The manual exit still works — and does not restart the automat.
+    fireEvent.click(screen.getByTestId('video-continue-button'));
+    await waitFor(() => expect(api.continueMessage).toHaveBeenCalledTimes(AUTO_CONTINUE_MAX + 1));
+  });
+
+  it('gives up as soon as a round appends nothing', async () => {
+    // A round that adds no text would repeat forever — four identical calls
+    // for nothing. One is enough to know.
+    vi.mocked(api.continueMessage).mockResolvedValue({
+      userMessage: messages[0],
+      assistantMessage: { ...messages[1], content: CUT, truncated: 1 },
+    });
+
+    await openCutOverview();
+
+    expect(await screen.findByTestId('video-chapters-truncated')).toBeInTheDocument();
+    expect(api.continueMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('continues even before the first time mark exists', async () => {
+    // The case from the user's screenshot (2026-08-18): the answer broke off
+    // after its very first heading, which carries no [0:00 - …] mark yet. No
+    // chapter parses, so the pane knows no "overview" — and the automat, hung
+    // on that overview, never ran. The tree's root chat is the anchor instead.
+    const noMarkYet = 'Hier ist die vollständige, chronologische Gliederung:\n\n### Einleitung und Bestandteile eines Large Language Models';
+    vi.mocked(api.getChat).mockResolvedValue({
+      ...rootDetail,
+      messages: [messages[0], { ...messages[1], content: noMarkYet, truncated: 1 }],
+    });
+    vi.mocked(api.continueMessage).mockResolvedValue({
+      userMessage: messages[0],
+      assistantMessage: { ...messages[1], content: OVERVIEW, truncated: 0 },
+    });
+
+    await openVideoChat();
+
+    await waitFor(() =>
+      expect(api.continueMessage).toHaveBeenCalledWith('c1', 'm2', expect.any(Function), expect.anything()),
+    );
+    expect(api.continueMessage).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(screen.getAllByTestId('video-chapter')).toHaveLength(2));
+  });
+
+  it('continues an overview that calls itself finished after a quarter of the video', async () => {
+    // The Flash Lite case (user report 2026-08-18): `finish=stop`, nothing
+    // truncated, and 16:16 of a 1:06:31 video covered. No flag says anything
+    // is missing — the overview's own time ranges do.
+    const short = '## Einführung [00:00 - 03:34]\n\n**Kernaussage.**\n\n## Refaktorierung [12:56 - 16:16]\n\n**Kernaussage.**';
+    vi.mocked(api.getTreeVideo).mockResolvedValue({ ...video, duration_seconds: 3991 });
+    vi.mocked(api.getChat).mockResolvedValue({
+      ...rootDetail,
+      messages: [messages[0], { ...messages[1], content: short, truncated: 0 }],
+    });
+    vi.mocked(api.continueMessage).mockResolvedValue({
+      userMessage: messages[0],
+      assistantMessage: { ...messages[1], content: `${short}\n\n## Schluss [16:16 - 1:06:20]\n\n**Kernaussage.**`, truncated: 0 },
+    });
+
+    await openVideoChat();
+
+    await waitFor(() =>
+      expect(api.continueMessage).toHaveBeenCalledWith('c1', 'm2', expect.any(Function), expect.anything()),
+    );
+    await waitFor(() => expect(screen.getAllByTestId('video-chapter')).toHaveLength(3));
+    expect(screen.queryByTestId('video-chapters-truncated')).not.toBeInTheDocument();
+  });
+
+  it('says the overview STOPS, not that it broke off, when nothing was cut', async () => {
+    // Two different events, two different sentences: a cut answer broke off,
+    // a short one simply ends. Claiming a break where there was none is a lie
+    // about what the provider did.
+    const short = '## Einführung [00:00 - 03:34]\n\n**Kernaussage.**\n\n## Refaktorierung [12:56 - 16:16]\n\n**Kernaussage.**';
+    vi.mocked(api.getTreeVideo).mockResolvedValue({ ...video, duration_seconds: 3991 });
+    vi.mocked(api.getChat).mockResolvedValue({
+      ...rootDetail,
+      messages: [messages[0], { ...messages[1], content: short, truncated: 0 }],
+    });
+    // Every round writes nothing — the automat gives up after the first.
+    vi.mocked(api.continueMessage).mockResolvedValue({
+      userMessage: messages[0],
+      assistantMessage: { ...messages[1], content: short, truncated: 0 },
+    });
+
+    await openVideoChat();
+
+    const card = await screen.findByTestId('video-chapters-truncated');
+    expect(card).toHaveTextContent('16:16');
+    expect(card.textContent).not.toContain('brach');
+  });
+
+  it('puts the card back when the continuation fails', async () => {
+    vi.mocked(api.continueMessage).mockRejectedValue(new Error('offline'));
+
+    await openCutOverview();
+
+    expect(await screen.findByTestId('video-chapters-truncated')).toBeInTheDocument();
+    expect(api.continueMessage).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -371,5 +526,136 @@ describe('App — the way back from a branch lets the mark glow', () => {
       expect({ marks: marks.length, flashing: flashing.length, view })
         .toEqual({ marks: 1, flashing: 1, view: 'transcript' });
     });
+  });
+});
+
+// ─── Die Videospalte ist eine Tastatur-Region ───────────────────────────────
+// ADR-0011: die Mittelspalte ist die Quelle, ob dort ein PDF oder ein Video
+// steht. Ohne diese Verdrahtung sprang der Ring von der Seitenleiste direkt in
+// den Chat und die ganze Videospalte war ohne Maus unerreichbar
+// (Nutzer-Report 2026-08-17).
+
+describe('App — keyboard navigation reaches the video column', () => {
+  it('walks the ring from the sidebar into the video pane', async () => {
+    await openVideoChat();
+    await screen.findByTestId('video-chapters');
+
+    // Das erste Escape landet dort, wo die App den Nutzer schon verortet: auf
+    // der blauen Pille des offenen Chats in der Seitenleiste.
+    fireEvent.keyDown(window, { key: 'Escape' });
+    fireEvent.keyDown(window, { key: 'ArrowRight' });
+
+    await waitFor(() =>
+      expect(screen.getByTestId('video-pane').querySelector('[data-focus-ring]')).not.toBeNull(),
+    );
+  });
+
+  it('jumps the player when ↵ presses a chapter', async () => {
+    await openVideoChat();
+    await screen.findByTestId('video-chapters');
+
+    const frame = screen.getByTestId('video-player-frame') as HTMLIFrameElement;
+    const post = vi.spyOn(frame.contentWindow!, 'postMessage');
+    // Ein Sprung setzt einen Player voraus, der schon gelaufen ist.
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        origin: 'https://www.youtube.com',
+        data: JSON.stringify({ event: 'infoDelivery', info: { playerState: 1, currentTime: 3 } }),
+      }),
+    );
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+    fireEvent.keyDown(window, { key: 'ArrowRight' });
+    // Umschalter, Transkript-Knopf, erstes Kapitel, zweites Kapitel.
+    fireEvent.keyDown(window, { key: 'ArrowDown' });
+    fireEvent.keyDown(window, { key: 'ArrowDown' });
+    fireEvent.keyDown(window, { key: 'ArrowDown' });
+    fireEvent.keyDown(window, { key: 'Enter' });
+
+    // Zweite Überschrift: [8:58 - 14:14] → 538 s, minus zwei Sekunden Vorlauf.
+    await waitFor(() => {
+      const sent = post.mock.calls.map((c) => JSON.parse(String(c[0])));
+      expect(sent).toContainEqual({ event: 'command', func: 'seekTo', args: [536, true] });
+    });
+  });
+
+  it('switches to the transcript when ↵ presses the view switch', async () => {
+    await openVideoChat();
+    await screen.findByTestId('video-chapters');
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+    fireEvent.keyDown(window, { key: 'ArrowRight' });
+    fireEvent.keyDown(window, { key: 'ArrowDown' });
+    fireEvent.keyDown(window, { key: 'Enter' });
+
+    expect(await screen.findByTestId('video-transcript')).toBeInTheDocument();
+  });
+});
+
+// ─── Eine laufende Runde ist sichtbar, und die Karte schweigt solange ──────
+// Nutzer-Report 2026-08-18: „das taucht jedes Mal auf, während du versuchst"
+// — die Karte „Weiterschreiben" blitzte zwischen zwei automatischen Runden
+// auf, und im Chat sah die Antwort fertig aus, während im Hintergrund noch
+// geschrieben wurde.
+
+describe('App — while a round is running', () => {
+  const CUT_SHORT = '## Einführung [00:00 - 03:34]\n\n**Kernaussage.**';
+
+  beforeEach(() => {
+    vi.mocked(api.getTreeVideo).mockResolvedValue({ ...video, duration_seconds: 3991 });
+    vi.mocked(api.getChat).mockResolvedValue({
+      ...rootDetail,
+      messages: [messages[0], { ...messages[1], content: CUT_SHORT, truncated: 1 }],
+    });
+  });
+
+  it('hides the card and shows that the overview is being written', async () => {
+    // Die Runde hängt — genau der Zustand, in dem der Nutzer die Karte sah.
+    vi.mocked(api.continueMessage).mockImplementation(() => new Promise(() => {}));
+
+    await openVideoChat();
+
+    await waitFor(() => expect(api.continueMessage).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getByTestId('video-chapters-writing')).toBeInTheDocument());
+    expect(screen.queryByTestId('video-chapters-truncated')).not.toBeInTheDocument();
+  });
+
+  it('marks the chat as still answering, so the bubble does not look finished', async () => {
+    vi.mocked(api.continueMessage).mockImplementation(() => new Promise(() => {}));
+
+    await openVideoChat();
+
+    await waitFor(() => expect(api.continueMessage).toHaveBeenCalled());
+    // Derselbe Zustand wie bei einer normalen Antwort im Fluss: der Composer
+    // ist gesperrt, solange dieser Chat beschrieben wird.
+    await waitFor(() => expect(screen.getByTestId('stop-button')).toBeInTheDocument());
+  });
+});
+
+/**
+ * Der Zustand, den der Nutzer fotografierte (2026-08-18): Die Antwort läuft
+ * noch, die Kapitelliste wächst — und mittendrin bot die Karte an, genau diese
+ * Antwort „weiterzuschreiben". Solange dieser Chat antwortet, schweigt sie.
+ */
+describe('App — the card while the FIRST answer is still streaming', () => {
+  it('stays quiet and lets the pane say "writing" instead', async () => {
+    const partial = '## Einführung [00:00 - 03:34]\n\n**Kernaussage.**';
+    vi.mocked(api.getTreeVideo).mockResolvedValue({ ...video, duration_seconds: 3991 });
+    vi.mocked(api.getChat).mockResolvedValue({
+      ...rootDetail,
+      messages: [messages[0], { ...messages[1], content: partial, truncated: 0 }],
+    });
+    // Die Antwort ist noch im Fluss — der Strom endet in diesem Test nie.
+    vi.mocked(api.sendMessageStream).mockImplementation(() => new Promise(() => {}));
+    vi.mocked(api.continueMessage).mockImplementation(() => new Promise(() => {}));
+
+    await openVideoChat();
+    // Eine Frage stellen: ab jetzt gilt der Chat als antwortend.
+    const box = screen.getByTestId('chat-textarea');
+    fireEvent.change(box, { target: { value: 'Und weiter?' } });
+    fireEvent.keyDown(box, { key: 'Enter' });
+
+    await waitFor(() => expect(screen.getByTestId('video-chapters-writing')).toBeInTheDocument());
+    expect(screen.queryByTestId('video-chapters-truncated')).not.toBeInTheDocument();
   });
 });

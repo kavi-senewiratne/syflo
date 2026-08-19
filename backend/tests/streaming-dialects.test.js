@@ -218,3 +218,38 @@ describe('finish_reason telemetry (truncated answer, live incident 2026-07-26)',
     expect(perf.finishReason).toBeNull();
   });
 });
+
+/**
+ * Ein Stream, der ohne Abbruchgrund und ohne ein einziges Zeichen endet, ist
+ * keine Antwort — das ist eine gestorbene Leitung. Gemessen am 2026-08-18:
+ * `gemini-flash-latest` beendete Runden mit `finish_reason=MISSING`, und der
+ * Prompt kostete dabei ~19 000 Tokens. Für nichts.
+ *
+ * Wiederholt wird nur der LEERE Fall: Sobald Text beim Leser angekommen ist,
+ * würde ein zweiter Versuch ihn doppelt schreiben.
+ */
+describe('leer abgerissener Stream', () => {
+  it('fragt noch einmal, wenn die Runde ohne Zeichen und ohne Grund endet', async () => {
+    const client = fakeClient([
+      [{ choices: [{ delta: {} }] }],            // nichts, kein finish_reason
+      [text('Die eigentliche Antwort.'), done()],
+    ]);
+
+    const r = await run(client);
+
+    expect(r.final).toBe('Die eigentliche Antwort.');
+    expect(client._create).toHaveBeenCalledTimes(2);
+  });
+
+  it('wiederholt NICHT, wenn schon Text beim Leser ist', async () => {
+    const client = fakeClient([
+      [text('Halber Sat'), { choices: [{ delta: {} }] }],
+      [text('DOPPELT'), done()],
+    ]);
+
+    const r = await run(client);
+
+    expect(r.final).toBe('Halber Sat');
+    expect(client._create).toHaveBeenCalledTimes(1);
+  });
+});

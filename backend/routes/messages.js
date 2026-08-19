@@ -18,7 +18,7 @@ const multer = require('multer');
 const { getLLMClient, getLLMClientFor, getSetting, noThinkExtras, extendOllamaKeepAlive } = require('../llm');
 const { getModelInfo, getRegistry } = require('../registry');
 const { streamWithTools, ALL_TOOLS, isTruncatedFinish } = require('../tools');
-const { joinContinuation } = require('../continuation');
+const { joinContinuation, continuationInstruction } = require('../continuation');
 const {
   MAX_PASSAGE_CHARS, capTitleWords, sanitizeTitle,
   branchTitleInstruction, chatTitleInstruction, parseBranchTitleReply,
@@ -26,6 +26,13 @@ const {
 } = require('../title');
 const { getTreePaperContext } = require('../pdf-text');
 const { getTreeVideoContext, transcriptTruncationNote } = require('../youtube');
+const {
+  trimTrailingClosing,
+  lastCoveredSeconds,
+  isShortOfEnd,
+  transcriptFrom,
+  formatMark,
+} = require('../overview-progress');
 const {
   ensureSourceChunks,
   retrieveChunks,
@@ -154,7 +161,12 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
   // message (dropLastMessage: the current user message is added
   // multimodally) AND by the prefix warm-up (complete state) — both must
   // produce the same prompt prefix, otherwise Ollama's KV cache misses.
-  async function buildSystemAndHistory(chat, { dropLastMessage, historyUntil = null, budgetFor = null }) {
+  async function buildSystemAndHistory(chat, {
+    dropLastMessage,
+    historyUntil = null,
+    budgetFor = null,
+    resumeFromSeconds = null,
+  }) {
     const contextMessages = [];
     // Deliberately NO brevity rule (removed 2026-07-26, user decision):
     // answers may be as detailed as the question warrants. The old
@@ -196,7 +208,23 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
     // YouTube transcript of the tree (ADR-0005) — second source type. A tree
     // has at most ONE source, so paper and video share the same budget slot
     // (paperText) in applyContextBudget.
-    const videoContext = getTreeVideoContext(db, chat.id);
+    let videoContext = getTreeVideoContext(db, chat.id);
+
+    // Continuing an overview: send only the transcript it has NOT worked
+    // through yet. Writing on from 16:16 does not need the first sixteen
+    // minutes, and re-sending them is what made a round cost ~19 000 prompt
+    // tokens for as little as 15 generated — 356 000 prompt tokens in one
+    // afternoon, and the day's quota gone (measured 2026-08-18). The block the
+    // answer stopped inside stays, so the continuation can see the sentence it
+    // has to finish.
+    let transcriptResumedFrom = null;
+    if (videoContext && resumeFromSeconds !== null) {
+      const rest = transcriptFrom(videoContext.text, resumeFromSeconds);
+      if (rest) {
+        transcriptResumedFrom = rest.fromSeconds;
+        videoContext = { ...videoContext, text: rest.text };
+      }
+    }
 
     // Inherited conversation context (design 2026-07-20): whole path up to
     // the root — parent verbatim, grandparents+ as cached summary, plus the
@@ -350,10 +378,21 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
         'not a summary: it must be far longer than a summary and must let someone who has not ' +
         'watched the video follow every argument. If the material is too long to finish in one ' +
         'answer, stop at a section boundary and say which minute you reached — never silently ' +
-        'shorten.\n' +
+        'shorten. In that case write NOTHING after that last section: no closing remarks and ' +
+        'none of the closing sections your other instructions ask for (a mental model, a ' +
+        'coaching block, a summary). They belong once, after the LAST section of the whole ' +
+        'video — put in earlier they end up in the middle of the finished overview.\n' +
         '--- VIDEO TRANSCRIPT START ---\n' +
         fitted.paperText +
         (note || '') +
+        // Without this line the model reads a transcript that opens at 16:00
+        // and takes that for the start of the video — and dutifully writes an
+        // introduction for it.
+        (transcriptResumedFrom !== null
+          ? `\n[Note: this transcript starts at ${formatMark(transcriptResumedFrom)}, not at the ` +
+            'beginning of the video. Everything before that point is already covered by your ' +
+            'previous answer, which is in the conversation above. Do not restate it.]'
+          : '') +
         '\n--- VIDEO TRANSCRIPT END ---';
     }
 
@@ -884,9 +923,25 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
     const target = db.prepare(
       'SELECT * FROM messages WHERE id = ? AND chat_id = ?'
     ).get(req.body?.messageId, chatId);
-    // Only a genuinely truncated answer can be continued: without the flag
-    // the model would append a second ending to a finished text.
-    if (!target || target.role !== 'assistant' || !target.truncated) {
+    // Two kinds of unfinished, one endpoint.
+    //
+    // The flag catches an answer the provider CUT. It used to be the only key,
+    // and on 2026-08-18 that turned out to be half the problem: Flash Lite
+    // ended cleanly after covering 16:16 of a 1:06:31 video, so nothing was
+    // truncated, nothing offered to continue, and the reader got a quarter of
+    // the video with no sign of it. The overview's own time marks say how far
+    // it got — measured against the video's length, that is a fact no model
+    // can talk its way out of.
+    const video = target ? getTreeVideoContext(db, chatId) : null;
+    // Writing on means the answer is not over — so the sections the model puts
+    // at the END of a round (a mental model, a coaching block, "the video is
+    // long, I stop here") must not stay where they are. They are cut here and
+    // the continuation grows from the last real chapter; the model writes them
+    // again when the overview is genuinely finished (user report 2026-08-18).
+    const existing = video ? trimTrailingClosing(target.content) : target?.content;
+    const covered = target ? lastCoveredSeconds(existing) : null;
+    const stoppedEarly = Boolean(video && isShortOfEnd(covered, video.durationSeconds));
+    if (!target || target.role !== 'assistant' || (!target.truncated && !stoppedEarly)) {
       return res.status(409).json({ error: 'nothing to continue' });
     }
     const question = db.prepare(
@@ -910,9 +965,18 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
       continueOf: {
         assistantMsgId: target.id,
         assistantCreatedAt: target.created_at,
-        existingContent: target.content,
+        existingContent: existing,
         userMsgId: question.id,
         userCreatedAt: question.created_at,
+        // A cut answer is picked up mid-word ('seam'); one that merely stopped
+        // early starts a new section ('append').
+        mode: target.truncated ? 'seam' : 'append',
+        // Where the answer got to. The transcript before this second is
+        // already worked through, and re-sending it is what made a round cost
+        // ~19 000 prompt tokens for as few as 15 generated (measured
+        // 2026-08-18) — enough to exhaust a day's quota in an afternoon.
+        resumeFromSeconds: covered,
+        videoDurationSeconds: video ? video.durationSeconds : null,
       },
     });
   });
@@ -1103,6 +1167,7 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
         dropLastMessage: job.continueOf ? false : !job.regenerate?.historyUntil,
         historyUntil: job.regenerate?.historyUntil ?? null,
         budgetFor,
+        resumeFromSeconds: job.continueOf?.resumeFromSeconds ?? null,
       });
       contextMessages = built.messages;
       meta = built.meta;
@@ -1156,23 +1221,19 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
           `"${String(chat.parent_word).trim().slice(0, MAX_PASSAGE_CHARS)}"]\n\n${content}`
         : content;
       if (job.continueOf) {
-        // Continue writing (mockup-truncated-answer §01). Deliberately a USER
-        // turn and the LAST message: the same lesson as the branch selection
-        // (2026-08-08) — an instruction the model must obey belongs next to
-        // where it answers, not in a system block above 20k tokens of source.
-        // It describes the SHAPE of the continuation ("your next characters
-        // are appended directly"), because a bare "continue" reliably
-        // produces a polite restart of the whole answer.
+        // One instruction, two shapes — and in both the model is told NOT to
+        // write the closing sections the user's custom instructions ask for:
+        // a round is not an answer, and a "## Mentales Modell" per round ended
+        // up in the middle of one overview (user report 2026-08-18).
+        const from = job.continueOf.resumeFromSeconds;
+        const total = job.continueOf.videoDurationSeconds;
         contextMessages.push({
           role: 'user',
-          content:
-            'Your previous answer was cut off mid-sentence. Continue it — but START by ' +
-            'repeating its LAST FEW WORDS verbatim (if it broke off inside a word, start ' +
-            'with that whole word), then carry straight on. Those repeated words are the ' +
-            'seam: they are removed automatically when your text is joined to the old one, ' +
-            'and without them the two halves collide. Beyond that repetition, repeat ' +
-            'nothing: no restart, no summary of what came before, no introduction. Keep the ' +
-            'same format and language, and carry on to the end.',
+          content: continuationInstruction({
+            mode: job.continueOf.mode,
+            fromMark: from !== null && from !== undefined ? formatMark(from) : null,
+            untilMark: total ? formatMark(total) : null,
+          }),
         });
       } else if (imageContents.length > 0) {
         contextMessages.push({
@@ -1575,7 +1636,9 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
         assistantNow = job.continueOf.assistantCreatedAt;
         storedContent = aborted
           ? job.continueOf.existingContent
-          : joinContinuation(job.continueOf.existingContent, assistantContent);
+          : joinContinuation(job.continueOf.existingContent, assistantContent, {
+              mode: job.continueOf.mode,
+            });
         db.prepare('UPDATE messages SET content = ?, truncated = ? WHERE id = ?')
           .run(storedContent, aborted ? 1 : truncated ? 1 : 0, assistantMsgId);
       } else {

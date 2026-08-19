@@ -165,6 +165,52 @@ A second round the same day, after the first was in use:
   indicator all over again. `button:focus{outline:none}`; text fields keep
   theirs.
 
+## Revised for the video source (2026-08-17)
+
+The middle column had been read as "the PDF pane" rather than "the source", so a
+tree whose source is a YouTube video had no `source` region at all: the ring
+walked from the sidebar straight into the chat and the player, its chapters and
+its transcript were unreachable without a mouse (user report).
+
+- **The region is the source, whatever the source is.** `VideoPane` carries
+  `data-focus-region="source"` exactly as `PdfView` does, and a tree has one
+  source (ADR-0005), so the two never compete.
+- **What an item is, in a video:** the view switch (Chapters / Transcript), every
+  chapter, every transcript block, and the "continue the overview" button — the
+  things a reader acts on. The marks inside a block are not items of their own;
+  the block they live in is, and `↵` on it does what a click does: jump the
+  player there. The switch and the list are one region, so `←` `→` walk the two
+  buttons and `↑` `↓` walk the list, which carries `data-focus-axis="sequence"`
+  for the same reason the PDF's marks do.
+- **`role="button"` is a control too.** `↵` pressed real `<button>`s only, and
+  the chapters and transcript blocks have to be divs — text inside a `<button>`
+  cannot be dragged over in Chrome, and those rows must be both selectable and
+  clickable. The whole column was dead under `↵` until the check followed the
+  role rather than the tag.
+- **"Taller than the window" means taller than the SCROLLER.** The rule that
+  shows a too-tall item's top measured the viewport, so a 463 px transcript block
+  in a 230 px list counted as small on a 900 px screen, was scrolled to the
+  middle, and the ring — clipped to the list at both ends — drew a straight line
+  through the text (user report with picture). Measured against the list, the top
+  edge is always real and only the far end is cut, which is what a PDF page has
+  always looked like.
+
+- **The glow announces the entry, and nothing else — so it has to be let go
+  of.** `data-glow` stayed on the overlay forever ("the animation ends by
+  itself"), which held only while the ring stayed on screen: a `display: none`
+  and back RESTARTS a CSS animation. And every arrow step did exactly that,
+  because the ring was drawn on the item's OLD position, found it outside the
+  list and hid, then reappeared a frame later once the scroll had happened. So
+  walking the transcript lit the ring up at every step (user report). Two fixes,
+  both needed: scroll first and measure after, and drop `data-glow` on
+  `animationend`. Measured before: `visible=true → REMOVED → true` per keypress;
+  after: one `visible=true` for the whole walk.
+
+One boundary stays and belongs to the browser, not to this design: while the
+YouTube player itself has the focus — after the reader clicks Play inside it —
+every key belongs to that cross-origin frame, Escape included. A click anywhere
+in the app hands the keyboard back.
+
 ## Considered options
 
 - **A modal navigation mode** (the original proposal) — arrow keys reinterpreted

@@ -38,7 +38,7 @@ import { structurePrompt } from './components/YouTubeSearch/autoPrompt';
 import { getAppLanguage } from './appLanguage';
 import { useStrings } from './strings';
 import { VideoPane, type VideoPaneHandle } from './components/VideoPane';
-import { pickOverviewMessage } from './markdown/chapters';
+import { pickOverviewMessage, overviewStopsShort } from './markdown/chapters';
 import { formatDuration } from './components/VideoBanner';
 import { FloatingPopup } from './components/FloatingPopup';
 import { HighlightsDrawer } from './components/HighlightsDrawer';
@@ -122,6 +122,25 @@ interface ActiveStream {
 function subtreeIds(chat: Chat): string[] {
   return [chat.id, ...(chat.children ?? []).flatMap(subtreeIds)];
 }
+
+/**
+ * The runaway guard on writing a cut-off Video overview to its end
+ * (mockup-video-overview-progress §01, variant A) — NOT a budget. The overview
+ * is finished when the provider stops cutting it, and that is the real stop;
+ * this number only exists so a provider that never finishes cannot spend calls
+ * forever.
+ *
+ * It had to be raised from 4 on the day it was built (user report 2026-08-18):
+ * gemini-flash-latest ends its stream with `finish_reason=MISSING` after as
+ * little as 68 tokens, so four rounds carried a 59:48 video only to 34:52 —
+ * the reader was back to clicking. Twenty rounds cover that, and the two
+ * cheaper stops below (nothing appended, round failed) end most runs long
+ * before it.
+ */
+export const AUTO_CONTINUE_MAX = 20;
+
+/** What a continuation round ended with — null when it failed outright. */
+type ContinueResult = { content: string; truncated: boolean } | null;
 
 export default function App() {
   // UI-Texte in der App language — re-rendert beim Sprachwechsel mit.
@@ -292,6 +311,21 @@ export default function App() {
   const [streamingChatIds, setStreamingChatIds] = useState<Set<string>>(new Set());
   const [queuedChatIds, setQueuedChatIds] = useState<Set<string>>(new Set());
   const [streamingMessageIds, setStreamingMessageIds] = useState<Set<string>>(new Set());
+  // Chats whose answer is being CONTINUED right now. Kept apart from
+  // streamingChatIds because that set is derived from the stream registry on
+  // every sync and would drop a flag written into it by hand — but it means
+  // the same thing to the reader, and is merged wherever the UI asks "is this
+  // chat still answering?" (user report 2026-08-18: the bubble looked finished
+  // while rounds were still running).
+  const [continuingChatIds, setContinuingChatIds] = useState<Set<string>>(new Set());
+  const markAnswering = (chatId: string, on: boolean) =>
+    setContinuingChatIds(prev => {
+      if (prev.has(chatId) === on) return prev;
+      const next = new Set(prev);
+      if (on) next.add(chatId);
+      else next.delete(chatId);
+      return next;
+    });
   // Live-Spiegel der aktiven Chat-ID für Stream-Callbacks (der State im
   // Closure wäre veraltet, sobald der Nutzer den Chat wechselt).
   const activeChatIdRef = useRef<string | null>(null);
@@ -351,6 +385,13 @@ export default function App() {
   // message "continue" means — and that message may live in the ROOT chat
   // while a branch is open, hence the chat id travels with it.
   const [videoOverview, setVideoOverview] = useState<{ chatId: string; message: Message } | null>(null);
+  // Per cut-off overview: how many rounds were spent, and the length the last
+  // one started from — a second attempt from the SAME point is either a stale
+  // copy of the state or a round that wrote nothing, and neither deserves a
+  // paid call. Refs, not state: they must never cause a render, because a
+  // render is what starts the next round.
+  const autoContinueRounds = useRef<Map<string, { rounds: number; from: number }>>(new Map());
+  const autoContinueBusy = useRef(false);
 
   // Width of the right chat column in the three-column PDF layout. The user
   // drags the divider between PDF and chat to resize; persisted so the
@@ -1780,10 +1821,15 @@ export default function App() {
   // assistant bubble, and the whole point here is that no second bubble
   // appears — the deltas are appended to the message that already exists, so
   // the chapter list keeps seeing ONE overview.
-  const handleContinueMessage = (cut: Message) => {
+  const handleContinueMessage = (cut: Message): Promise<ContinueResult> => {
     const chat = activeChat;
-    if (!chat) return;
+    if (!chat) return Promise.resolve(null);
     const chatId = chat.id;
+    // A continuation IS the answer being written — the app just never said so.
+    // Without this the bubble looked finished while rounds were still running
+    // in the background, and the composer invited a question that would have
+    // queued behind them (user report 2026-08-18).
+    markAnswering(chatId, true);
     const patch = (fields: Partial<Message>) =>
       setActiveChat(prev =>
         prev && prev.id === chatId
@@ -1796,7 +1842,7 @@ export default function App() {
     let grown = cut.content;
     patch({ truncated: 0 });
 
-    void api
+    return api
       .continueMessage(
         chatId,
         cut.id,
@@ -1810,40 +1856,132 @@ export default function App() {
         // The server's version wins: it knows whether THIS round finished or
         // was cut short again.
         patch({ content: assistantMessage.content, truncated: assistantMessage.truncated ?? 0 });
+        return { content: assistantMessage.content, truncated: Boolean(assistantMessage.truncated) };
       })
       .catch((err) => {
         // Nothing was appended — put the card back, the answer is still cut.
         patch({ content: cut.content, truncated: 1 });
         console.error('Failed to continue message:', err);
-      });
+        return null;
+      })
+      .finally(() => markAnswering(chatId, false));
   };
 
   // Continue from the chapter list. Usually the same click as the card in the
   // chat — but the overview can live in the ROOT chat while a branch is open,
   // and then there is no bubble on screen to patch: only the pane updates.
-  const handleContinueOverview = () => {
-    if (!videoOverview) return;
+  const handleContinueOverview = (): Promise<ContinueResult> => {
+    if (!videoOverview) return Promise.resolve(null);
     const { chatId, message } = videoOverview;
     if (chatId === activeChatId) {
-      handleContinueMessage(message);
-      return;
+      return handleContinueMessage(message);
     }
     let grown = message.content;
     const patchPane = (fields: Partial<Message>) =>
       setVideoOverview(v => (v && v.message.id === message.id ? { ...v, message: { ...v.message, ...fields } } : v));
     patchPane({ truncated: 0 });
-    void api
+    markAnswering(chatId, true);
+    return api
       .continueMessage(chatId, message.id, (delta) => {
         grown += delta;
         patchPane({ content: grown });
       }, {})
-      .then(({ assistantMessage }) =>
-        patchPane({ content: assistantMessage.content, truncated: assistantMessage.truncated ?? 0 }))
+      .then(({ assistantMessage }) => {
+        patchPane({ content: assistantMessage.content, truncated: assistantMessage.truncated ?? 0 });
+        return { content: assistantMessage.content, truncated: Boolean(assistantMessage.truncated) };
+      })
       .catch((err) => {
         patchPane({ content: message.content, truncated: 1 });
         console.error('Failed to continue the overview:', err);
-      });
+        return null;
+      })
+      .finally(() => markAnswering(chatId, false));
   };
+
+  /**
+   * The overview reads as finished and still stops well short of the video's
+   * end. The `truncated` flag cannot see this: the provider ended cleanly and
+   * believes it is done (Flash Lite, 16:16 of a 1:06:31 video, user report
+   * 2026-08-18). The overview's own time ranges say otherwise, and the same
+   * rule runs in `backend/overview-progress.js` for the endpoint.
+   */
+  const overviewStoppedEarly = Boolean(
+    videoOverview
+    && !videoOverview.message.truncated
+    && overviewStopsShort(videoOverview.message.content, treeVideo?.duration_seconds),
+  );
+
+  /**
+   * The Video overview writes itself to the end (mockup-video-overview-progress
+   * §01, variant A, user decision 2026-08-18). A provider that stops mid-
+   * sentence used to leave a card and wait for a click that is always the same
+   * answer — "yes, carry on". The app now appends by itself and the list simply
+   * keeps growing; the spinner row under it already says that writing is going
+   * on.
+   *
+   * It runs until the answer is WHOLE (user decision 2026-08-18: "es sollte
+   * das automatisch machen bis zum Ende") — the provider dropping the
+   * `truncated` flag is the stop. Three things end it early, because a
+   * continuation is a paid call carrying the whole text so far:
+   * - A round that appends NOTHING. Repeating it would buy the same nothing
+   *   over and over.
+   * - A failed round — the card comes back and the reader decides.
+   * - AUTO_CONTINUE_MAX as a runaway guard, never as a budget.
+   *
+   * Only the overview, deliberately: a cut answer in the chat is a different
+   * question ("is this enough for me?") and keeps its card.
+   */
+  useEffect(() => {
+    if (!treeVideo || autoContinueBusy.current) return;
+
+    // The overview the pane already knows — it has chapters, so it parsed.
+    // Unfinished means two things now: the provider CUT it, or it reads as
+    // finished and stops well before the video ends. The second is the case
+    // that has no flag at all (Flash Lite, 16:16 of 1:06:31, `finish=stop`,
+    // user report 2026-08-18) — the overview's own time marks are the witness.
+    const known = videoOverview && (videoOverview.message.truncated || overviewStoppedEarly)
+      ? videoOverview
+      : null;
+    // …or a cut answer in the tree's ROOT chat before a single time mark has
+    // been written. That answer IS the overview being born: hanging the
+    // automat on the parsed overview alone left exactly the case the user hit
+    // (2026-08-18) untouched — the answer broke off after its first heading,
+    // no chapter parsed, and the card sat there waiting for a click. Branch
+    // answers keep their card: only the root chat writes the overview.
+    const root = activeChatId ? findRoot(chats, activeChatId) : null;
+    const fresh = !known && root?.id === activeChatId
+      ? [...(activeChat?.messages ?? [])].reverse().find(m => m.role === 'assistant' && m.truncated)
+      : undefined;
+
+    const cut = known ?? (fresh && activeChatId ? { chatId: activeChatId, message: fresh } : null);
+    if (!cut) return;
+    // Never on top of a running stream — the answer is not finished being cut.
+    if (streamingChatIds.has(cut.chatId) || queuedChatIds.has(cut.chatId)) return;
+
+    const id = cut.message.id;
+    const before = cut.message.content.length;
+    const seen = autoContinueRounds.current.get(id);
+    // Already asked from exactly this point. Two things wear that disguise:
+    // a state copy that has not caught up with the round just finished (the
+    // pane and the chat learn of it one render apart), and a round that
+    // appended nothing at all. Both must not spend another call.
+    if (seen && before <= seen.from) return;
+    if ((seen?.rounds ?? 0) >= AUTO_CONTINUE_MAX) return;
+    autoContinueRounds.current.set(id, { rounds: (seen?.rounds ?? 0) + 1, from: before });
+    autoContinueBusy.current = true;
+    void (known ? handleContinueOverview() : handleContinueMessage(cut.message))
+      .then((result) => {
+        // Gave up, or wrote nothing: stop asking. Both leave the overview
+        // visibly unfinished, so the card appears and the exit is the reader's.
+        if (!result || result.content.length <= before) {
+          autoContinueRounds.current.set(id, { rounds: AUTO_CONTINUE_MAX, from: before });
+        }
+      })
+      .finally(() => {
+        autoContinueBusy.current = false;
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [treeVideo, videoOverview, overviewStoppedEarly, activeChat?.messages, chats, activeChatId, streamingChatIds, queuedChatIds]);
 
   // Named cloud exit of the local_missing card (mockup-model-flow §11):
   // switch the settings to the keyed cloud provider + its model (same write
@@ -2774,14 +2912,18 @@ export default function App() {
     // beside the highlight (user report 2026-08-11). The event is dispatched
     // from the element's own centre so every handler that reads coordinates
     // gets the truth.
+    // `role="button"` counts as a control too, not only a real <button>: the
+    // video pane's chapters and transcript blocks have to be divs — text
+    // inside a <button> cannot be dragged over in Chrome, and those rows must
+    // do both — so a tag check alone left the whole middle column dead under
+    // ↵ (user report 2026-08-17).
     const el = findItem(position.region, position.item);
-    if (el?.tagName === 'BUTTON') {
+    if (el?.tagName === 'BUTTON' || el?.getAttribute('role') === 'button') {
       const r = el.getBoundingClientRect();
       el.dispatchEvent(
         new MouseEvent('click', {
           bubbles: true,
           cancelable: true,
-          view: window,
           clientX: r.left + r.width / 2,
           clientY: r.top + r.height / 2,
         }),
@@ -2967,13 +3109,19 @@ export default function App() {
               video={treeVideo}
               overview={videoOverview?.message.content ?? null}
               overviewStreaming={
-                // Only while there is nothing to show yet: once headings are
-                // in, the list itself is the progress and a spinner under a
-                // growing list would just flicker.
-                !videoOverview &&
+                // The whole time the answer is being written — not only until
+                // the first heading lands. The old rule ("once headings are in,
+                // the list itself is the progress") let the CARD through while
+                // the first answer was still streaming: it offered to continue
+                // an overview that was being written at that very moment (user
+                // report with picture 2026-08-18). One state, one meaning:
+                // while this chat is answering, the pane says so and the card
+                // stays quiet.
                 Boolean(activeChatId && (streamingChatIds.has(activeChatId) || queuedChatIds.has(activeChatId)))
               }
               overviewTruncated={Boolean(videoOverview?.message.truncated)}
+              overviewStoppedEarly={overviewStoppedEarly}
+              overviewContinuing={Boolean(videoOverview && continuingChatIds.has(videoOverview.chatId))}
               onContinueOverview={handleContinueOverview}
               onTranscriptSelection={handleTranscriptSelection}
               transcriptHighlights={transcriptHighlights}
@@ -3046,7 +3194,7 @@ export default function App() {
               videoYoutubeId={treeVideo?.youtube_id}
               onTimeMarkClick={treeVideo ? (seconds) => videoPaneRef.current?.seekTo(seconds) : undefined}
               loading={loadingChat}
-              streaming={activeChatId ? streamingChatIds.has(activeChatId) || queuedChatIds.has(activeChatId) : false}
+              streaming={activeChatId ? streamingChatIds.has(activeChatId) || queuedChatIds.has(activeChatId) || continuingChatIds.has(activeChatId) : false}
               streamingMessageIds={streamingMessageIds}
               onSendMessage={handleSendMessage}
               onOpenFeedback={(initialText) => { setFeedbackInitialText(initialText); setFeedbackOpen(true); }}
