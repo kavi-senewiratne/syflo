@@ -166,6 +166,7 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
     historyUntil = null,
     budgetFor = null,
     resumeFromSeconds = null,
+    overview = false,
   }) {
     const contextMessages = [];
     // Deliberately NO brevity rule (removed 2026-07-26, user decision):
@@ -272,9 +273,26 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
     const budget = contextBudget(db, budgetFor);
     const sourceRoom = budget.maxSystemContextChars;
 
+    // The Video overview is the one question retrieval cannot serve (user
+    // decision 2026-08-20). Retrieval answers "where does he say X?" by
+    // fetching the chunks that match the question; the overview asks for the
+    // WHOLE video in order, and no handful of chunks matches that. Measured:
+    // makemore Part 4 (108 393 chars) was the first transcript ever to exceed
+    // the budget (97 184) — the skeleton branch has no overview rule at all,
+    // so the answer came back as 4 694 chars with no time marks, and the
+    // chapter list stayed empty. Everything shorter had passed through
+    // full text and produced chapters, which is why this never showed before.
+    //
+    // Instead the transcript stays full text and applyContextBudget trims it
+    // to what fits; transcriptTruncationNote tells the model where it was cut,
+    // and overviewStopsShort + the continue endpoint carry on from the last
+    // time mark. That machinery already exists for cut-off overviews — an
+    // overview over a long video simply takes more than one round.
+    const overviewOverLongVideo = overview && source && source.type === 'video';
+
     let retrieval = null;
     let sourceTextForPrompt = source ? source.text : null;
-    if (source && source.text.length > sourceRoom) {
+    if (source && source.text.length > sourceRoom && !overviewOverLongVideo) {
       try {
         await ensureSourceChunks(db, {
           sourceType: source.type,
@@ -875,6 +893,11 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
       req, res, content, aliases,
       files,
       think: String(req.body.think) === 'true',
+      // The client says whether this is the Video overview request; the
+      // backend must not guess it from the question text, or the same flag
+      // would depend on the app language and on the user rewording the
+      // prompt. It only turns retrieval off (see buildSystemAndHistory).
+      overview: String(req.body.overview) === 'true',
       persisted: { userMsgId },
     });
   });
@@ -1168,6 +1191,10 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
         historyUntil: job.regenerate?.historyUntil ?? null,
         budgetFor,
         resumeFromSeconds: job.continueOf?.resumeFromSeconds ?? null,
+        // Continuing an overview is an overview too: resumeFromSeconds is set
+        // only by the continue endpoint for a Video overview, and its second
+        // half must stay in the same full-text mode as its first.
+        overview: Boolean(job.overview) || job.continueOf?.resumeFromSeconds != null,
       });
       contextMessages = built.messages;
       meta = built.meta;

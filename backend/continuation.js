@@ -127,4 +127,8 @@ function continuationInstruction({ mode, fromMark = null, untilMark = null }) {
   );
 }
 
-module.exports = { joinContinuation, continuationInstruction };
+// MAX_OVERLAP travels with the joiner: a caller that streams a continuation
+// has to hold back exactly this many characters before it may pass anything
+// on — beyond them no repetition can be hiding any more, so everything after
+// is safe to forward live (routes/btw.js).
+module.exports = { joinContinuation, continuationInstruction, MAX_OVERLAP };

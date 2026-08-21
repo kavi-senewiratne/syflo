@@ -150,6 +150,32 @@ describe('Unterabschnitte (im laufenden Chat gefunden, 2026-08-15)', () => {
   });
 });
 
+describe('Überschrift eine Ebene zu hoch (Flash Lite, 2026-08-20)', () => {
+  // Die Regel verlangt "##". Ein Modell, das seine Abschnitte mit "#" öffnet,
+  // hat sie trotzdem geliefert — die Liste dafür ganz wegzuwerfen, kostet den
+  // Leser alles wegen eines Rautezeichens.
+  const eineRaute = `# Einleitung und Motivation [0:00 - 3:34]
+
+**Karpathy rechnet die Rückwärtsrechnung von Hand.**
+
+# Der erste Rückwärtsschritt [3:34 - 9:10]
+
+**Der Verlust wird nach den Logits abgeleitet.**
+`;
+
+  it('nimmt "#"-Abschnitte als Kapitel an', () => {
+    const chapters = parseChapters(eineRaute);
+
+    expect(chapters.map((c) => c.startSeconds)).toEqual([0, 214]);
+    expect(chapters.map((c) => c.level)).toEqual([1, 1]);
+    expect(chapters[0].keyPoint).toBe('Karpathy rechnet die Rückwärtsrechnung von Hand.');
+  });
+
+  it('verlangt weiter eine Zeitmarke — sie unterscheidet Kapitel von Prosa', () => {
+    expect(parseChapters('# Einleitung und Motivation\n\n**Ohne Marke.**\n')).toEqual([]);
+  });
+});
+
 // ─── Welche NACHRICHT die Übersicht ist ────────────────────────────────────
 // Für die drei Zustände der Pane (mockup-truncated-answer §02) reicht der
 // Text nicht: sie muss wissen, ob DIESE Nachricht abgebrochen ist und welche

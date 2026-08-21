@@ -208,7 +208,7 @@ describe('api.sendMessageStream', () => {
 
     expect(fetch).toHaveBeenCalledWith('/api/chats/chat99/messages', expect.objectContaining({
       method: 'POST',
-      body: JSON.stringify({ content: 'Test message', quoteHighlightId: null }),
+      body: JSON.stringify({ content: 'Test message', overview: false, quoteHighlightId: null }),
     }));
   });
 
@@ -236,7 +236,7 @@ describe('api.sendMessageStream', () => {
     });
 
     expect(fetch).toHaveBeenCalledWith('/api/chats/c1/messages', expect.objectContaining({
-      body: JSON.stringify({ content: 'Hard question', think: true, quoteHighlightId: null }),
+      body: JSON.stringify({ content: 'Hard question', think: true, overview: false, quoteHighlightId: null }),
     }));
     expect(onThinking).toHaveBeenCalledTimes(1);
   });
@@ -497,5 +497,29 @@ describe('api.askAside', () => {
 
     const result = await api.askAside('c1', 'q', () => {});
     expect(result.model).toBeNull();
+  });
+
+  // Ein Kandidat, der mitten in der Antwort stirbt, hat seine halbe Antwort
+  // schon auf dem Schirm. Das Backend nimmt sie mit `reset` zurück, bevor das
+  // nächste Modell seine eigene schreibt (Nutzer-Report 2026-08-19).
+  it('throws away what a dead candidate wrote when the server resets', async () => {
+    const seen: string[] = [];
+    let cleared = 0;
+    global.fetch = vi.fn(() =>
+      mockSSEResponse([
+        { delta: 'Ja, genau. Demut' },
+        { reset: true },
+        { delta: 'Demut heißt humility.' },
+        { done: true, provider: 'gemini', model: 'gemini-flash-latest' },
+      ]),
+    ) as unknown as typeof fetch;
+
+    const result = await api.askAside(
+      'c1', 'q', (d) => seen.push(d), undefined, () => { cleared++; seen.length = 0; },
+    );
+
+    expect(cleared).toBe(1);
+    expect(seen.join('')).toBe('Demut heißt humility.');
+    expect(result.answer).toBe('Demut heißt humility.');
   });
 });

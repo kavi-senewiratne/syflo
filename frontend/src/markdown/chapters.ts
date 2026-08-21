@@ -44,13 +44,19 @@ export interface Chapter {
 }
 
 /**
- * A heading line: two or more hashes, the topic, and the time range at the
+ * A heading line: one to four hashes, the topic, and the time range at the
  * end. The range may already have been linkified (`[0:00](t:0)`) if the text
  * passed through insertTimeLinks — accepted so a chapter list can also be
  * built from rendered content.
+ *
+ * `#` counts too (widened 2026-08-20): the rule asks for "##", but a model
+ * that opens its sections one level higher has still delivered the sections —
+ * dropping them costs the reader the whole list over a hash. Flash Lite did
+ * exactly that on 2026-08-20. The time mark stays mandatory; it is what
+ * separates a chapter from any other heading.
  */
 const HEADING_RE =
-  /^(#{2,4})\s+(.*?)\s*\[(\d{1,2}:\d{2}(?::\d{2})?)(?:\s*[–—−-]\s*(\d{1,2}:\d{2}(?::\d{2})?))?\](?:\([^)]*\))?\s*$/;
+  /^(#{1,4})\s+(.*?)\s*\[(\d{1,2}:\d{2}(?::\d{2})?)(?:\s*[–—−-]\s*(\d{1,2}:\d{2}(?::\d{2})?))?\](?:\([^)]*\))?\s*$/;
 
 /** The bold sentence right under a heading: `**…**` alone on its line. */
 const KEY_POINT_RE = /^\*\*(.+?)\*\*[.!?]?$/;

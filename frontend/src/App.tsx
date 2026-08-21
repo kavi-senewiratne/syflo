@@ -541,6 +541,14 @@ export default function App() {
   // PDF, the parent chat renders in the center pane as read-only context.
   const [parentContext, setParentContext] = useState<ChatDetail | null>(null);
 
+  // Whether that pane is actually ON SCREEN. The parent chat is loaded for
+  // every branch chat outside a PDF tree, but a VIDEO tree gives the center
+  // column to the video — the pane is then loaded and invisible. Every jump
+  // that lands "in the parent pane" has to ask this, not merely whether
+  // parentContext exists: aiming at the invisible pane looks to the user like
+  // a dead link (report 2026-08-19, the way back out of a transcript branch).
+  const parentPaneVisible = !treePaper && !treeVideo && parentContext !== null;
+
   // Message-anchored highlights, one hook instance per visible chat pane.
   const activeChatHl = useChatHighlights(activeChatId);
   const parentChatHl = useChatHighlights(parentContext?.id ?? null);
@@ -717,27 +725,54 @@ export default function App() {
     const chatId = activeChatId;
     if (!chatId) return;
     setAsides((prev) => ({ ...prev, [chatId]: { question, answer: '', streaming: true } }));
-    try {
-      const { answer, model } = await api.askAside(chatId, question, (delta) => {
-        setAsides((prev) => {
-          const current = prev[chatId];
-          // A newer aside (or a dismissal) has taken over — drop the delta
-          // instead of resurrecting a panel the user already left behind.
-          if (!current || current.question !== question) return prev;
-          return { ...prev, [chatId]: { ...current, answer: current.answer + delta } };
-        });
+    // Dieselbe Glättung wie im Chat (TextSmoother, 85 Zeichen/s): ein Modell
+    // liefert ganze Absätze in einem Paket, und ohne sie stand die Antwort
+    // schlagartig im Panel („es kommt alles auf einmal", Nutzerbericht
+    // 2026-08-20). Der Smoother besitzt den Text; das Panel zeigt immer nur
+    // den aufgedeckten Anfang.
+    const show = (visible: string) =>
+      setAsides((prev) => {
+        const current = prev[chatId];
+        // A newer aside (or a dismissal) has taken over — drop the text
+        // instead of resurrecting a panel the user already left behind.
+        if (!current || current.question !== question) return prev;
+        return { ...prev, [chatId]: { ...current, answer: visible } };
       });
+    const smoother = new TextSmoother({ onReveal: show });
+    try {
+      const { answer, model, truncated } = await api.askAside(
+        chatId,
+        question,
+        (delta) => smoother.push(delta),
+        undefined,
+        () => {
+          // Das Modell, das angefangen hatte, ist gestorben. Seine halbe
+          // Antwort verschwindet — auch die noch ungezeigte —, das Panel steht
+          // wieder auf "denkt nach"; sonst schriebe das nächste Modell unter
+          // einen abgerissenen Satz.
+          smoother.reset();
+          show('');
+        },
+      );
+      // Erst das Aufdecken zu Ende laufen lassen, dann den fertigen Zustand
+      // setzen — sonst überspränge das Ende genau die Glättung.
+      await smoother.finish();
       setAsides((prev) => {
         const current = prev[chatId];
         if (!current || current.question !== question) return prev;
-        return { ...prev, [chatId]: { question, answer, streaming: false, model } };
+        return { ...prev, [chatId]: { question, answer, streaming: false, model, truncated } };
       });
     } catch (err) {
+      smoother.reset();
       const message = err instanceof Error ? err.message : S.unknownError;
+      const reason = (err as { reason?: string } | null)?.reason === 'timeout' ? 'timeout' : null;
       setAsides((prev) => {
         const current = prev[chatId];
         if (!current || current.question !== question) return prev;
-        return { ...prev, [chatId]: { question, answer: '', streaming: false, error: message } };
+        return {
+          ...prev,
+          [chatId]: { question, answer: '', streaming: false, error: message, errorReason: reason },
+        };
       });
     }
   };
@@ -1147,7 +1182,7 @@ export default function App() {
       setYoutubeSearchOpen(false);
       setTreeVideo(video);
       await refreshTree(); // der Root-Knoten zeigt jetzt seinen YT-Tag
-      void handleSendMessage(structurePrompt(getAppLanguage()));
+      void handleSendMessage(structurePrompt(getAppLanguage()), [], undefined, null, { overview: true });
     } catch (err) {
       if (err instanceof TreeHasSourceError) {
         setYoutubeSearchOpen(false);
@@ -1174,6 +1209,14 @@ export default function App() {
       setVideoOverview(null);
       return;
     }
+    // Der offene Chat wird erst eine Runde später geladen (handleSelectChat
+    // setzt activeChatId sofort, activeChat nach der Antwort). Solange die
+    // beiden auseinanderlaufen, weiß niemand etwas Neues — und aus dem NOCH
+    // sichtbaren alten Chat zu schließen, hieße: beim Rückweg aus einem Zweig
+    // stand kurz "Noch keine Kapitel" in der Mittelspalte, weil der Zweig
+    // keine Übersicht hat (Nutzer-Report 2026-08-19). Die Kapitel bleiben
+    // stehen, bis der neue Chat da ist.
+    if (activeChat?.id !== activeChatId) return;
     const own = pickOverviewMessage(activeChat?.messages ?? []);
     if (own) {
       setVideoOverview({ chatId: activeChatId, message: own });
@@ -1238,7 +1281,7 @@ export default function App() {
       // Auto-Prompt in den frischen Baum — explizite Chat-ID, weil der
       // activeChatId-State in diesem Tick noch den alten Chat trägt.
       if (importedVideo) {
-        void handleSendMessage(structurePrompt(getAppLanguage()), [], chat.id);
+        void handleSendMessage(structurePrompt(getAppLanguage()), [], chat.id, null, { overview: true });
       }
     } catch (err) {
       console.error('Failed to start a new tree with the source:', err);
@@ -1323,6 +1366,11 @@ export default function App() {
     // gerade in den Text eingebaut hat — die persistierte Frage bleibt damit
     // anklickbar (mockup-quote-jump-to-source.html).
     quoteHighlightId?: string | null,
+    // overview: nur die beiden structurePrompt-Sends setzen das. Das Backend
+    // lässt das Transkript dann im Volltext, statt in den Retrieval-Modus zu
+    // kippen — sonst gliedert das Modell ein Video, von dem es nur Skelett
+    // und ein paar Ausschnitte gesehen hat (Nutzerentscheid 2026-08-20).
+    opts?: { overview?: boolean },
   ) => {
     // targetChatId: für programmatische Sends in einen gerade erst
     // gewechselten Chat (Auto-Prompt nach Video-Import in einen neuen Baum) —
@@ -1389,6 +1437,7 @@ export default function App() {
     void runMessageStream(stream, (h) =>
       api.sendMessageStream(chatId, content, h.onDelta, attachments, h.onToolEvent, {
         think: thinkByChat[chatId] || undefined,
+        overview: opts?.overview,
         quoteHighlightId: quoteHighlightId ?? null,
         ...h.opts,
       }),
@@ -2690,7 +2739,7 @@ export default function App() {
     // pointing into the parent chat scrolls the visible center pane instead
     // of switching chats — the drawer stays open, target and list remain
     // visible side by side (user correction 2026-07-29).
-    if (parentContext && item.chatId === parentContext.id) {
+    if (parentPaneVisible && parentContext && item.chatId === parentContext.id) {
       setParentScrollTarget({ chatId: item.chatId, messageId: item.messageId });
       return;
     }
@@ -2811,13 +2860,16 @@ export default function App() {
     try {
       const parentHighlights = await api.listMessageHighlights(parentId);
       const quote = chat.parent_word?.trim();
-      match = quote
-        ? parentHighlights.find((h) => h.text.trim() === quote)
-        : undefined;
+      // The link back is the anchor, the quote text only its fallback: a mark
+      // created on branching already names this chat, while its text can
+      // differ from parent_word once the model restores math in the quote.
+      match =
+        parentHighlights.find((h) => h.childChatId === chat.id) ??
+        (quote ? parentHighlights.find((h) => h.text.trim() === quote) : undefined);
     } catch {
       /* Backend unreachable — at least switch to the parent chat below */
     }
-    if (match && parentContext?.id === parentId) {
+    if (match && parentPaneVisible && parentContext?.id === parentId) {
       setParentScrollTarget({ chatId: parentId, messageId: match.messageId });
       return;
     }
@@ -3133,7 +3185,7 @@ export default function App() {
           {/* No-PDF branch layout (mockup-chat-highlights-ask-in-chat.html,
               section 03): the parent chat takes the center pane as read-only
               context while the branch lives in the right pane. */}
-          {!treePaper && !treeVideo && parentContext && activeChatId && (
+          {parentPaneVisible && parentContext && activeChatId && (
             <ParentContextPane
               chat={parentContext}
               highlights={parentChatHl.highlights}

@@ -10,7 +10,7 @@
  * The API client is mocked; App, ChatArea and VideoPane are real.
  */
 
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import App, { AUTO_CONTINUE_MAX } from '../App';
 import type { Chat, ChatDetail, Message, Video } from '../types';
@@ -526,6 +526,113 @@ describe('App — the way back from a branch lets the mark glow', () => {
       expect({ marks: marks.length, flashing: flashing.length, view })
         .toEqual({ marks: 1, flashing: 1, view: 'transcript' });
     });
+  });
+
+  it('switches to the parent chat when the source is a chat passage', async () => {
+    // User report 2026-08-19: in a video tree the "Branched from" link did
+    // nothing at all. The branch had been opened from a passage in the
+    // parent's ANSWER, not from the transcript — so the way back aimed at the
+    // parent context pane, which a video tree never renders (the center
+    // column belongs to the video). The click set an invisible scroll target
+    // and returned: no jump, no glow, no chat switch.
+    const branch: Chat = {
+      id: 'c2', title: 'Wie funktionieren Aktivierungen?', parent_id: 'c1',
+      parent_word: 'Pre-training compresses the internet',
+      created_at: '2026-08-19T00:00:10Z', children: [],
+    };
+    vi.mocked(api.getTree).mockResolvedValue([{ ...rootChat, children: [branch] }]);
+    // No transcript mark — the passage lives in a message of the parent chat.
+    vi.mocked(api.listTranscriptHighlights).mockResolvedValue([]);
+    vi.mocked(api.listMessageHighlights).mockImplementation(async (id: string) =>
+      id === 'c1'
+        ? [{
+            id: 'mh7', messageId: 'm2', chatId: 'c1', childChatId: 'c2',
+            startOffset: OVERVIEW.indexOf('Pre-training compresses the internet'),
+            endOffset: OVERVIEW.indexOf('Pre-training compresses the internet') + 36,
+            text: 'Pre-training compresses the internet', color: 'yellow',
+            createdAt: '2026-08-19T00:00:00Z', updatedAt: '2026-08-19T00:00:00Z',
+          }]
+        : [],
+    );
+    vi.mocked(api.getChat).mockImplementation(async (id: string) =>
+      id === 'c2'
+        ? { ...branch, messages: [], children: [] }
+        : { ...rootDetail, children: [branch] },
+    );
+
+    const original = window.HTMLElement.prototype.scrollIntoView;
+    const scrollIntoView = vi.fn();
+    window.HTMLElement.prototype.scrollIntoView = scrollIntoView;
+    try {
+      await openVideoChat();
+      fireEvent.click(await screen.findByText('Wie funktionieren Aktivierungen?'));
+      await waitFor(() => expect(api.getChat).toHaveBeenCalledWith('c2'));
+
+      const backLink = (await screen.findByTestId('branched-from-quote')).querySelector('[role="link"]')!;
+      fireEvent.click(backLink);
+
+      // The parent chat takes over the right column — its header is a title
+      // again, not a "Branched from" quote — and the source message scrolls
+      // into view.
+      await waitFor(() => expect(screen.queryByTestId('branched-from-quote')).not.toBeInTheDocument());
+      await waitFor(() => expect(scrollIntoView).toHaveBeenCalled());
+      const target = scrollIntoView.mock.instances.at(-1) as HTMLElement;
+      expect(screen.getByTestId('message-row-m2').contains(target)).toBe(true);
+    } finally {
+      window.HTMLElement.prototype.scrollIntoView = original;
+    }
+  });
+
+  it('keeps the chapters standing while the parent chat is still loading', async () => {
+    // User report 2026-08-19: on the way back "Noch keine Kapitel" flashes in
+    // the center column for about a second. activeChatId switches at once,
+    // but the chat DETAIL only arrives a round trip later — in that gap the
+    // chapter source was decided from the chat that was still on screen (the
+    // branch, which has no overview) and the list emptied itself.
+    const branch: Chat = {
+      id: 'c2', title: 'Wie funktionieren Aktivierungen?', parent_id: 'c1',
+      parent_word: 'Pre-training compresses the internet',
+      created_at: '2026-08-19T00:00:10Z', children: [],
+    };
+    vi.mocked(api.getTree).mockResolvedValue([{ ...rootChat, children: [branch] }]);
+    vi.mocked(api.listTranscriptHighlights).mockResolvedValue([]);
+
+    // The parent's load is held open from the moment the way back is clicked,
+    // so the gap the user sees becomes a state the test can look at.
+    let releaseParent: (() => void) | null = null;
+    vi.mocked(api.getChat).mockImplementation(async (id: string) => {
+      if (id === 'c2') return { ...branch, messages: [], children: [] };
+      if (releaseParent === null) return { ...rootDetail, children: [branch] };
+      await new Promise<void>((resolve) => { releaseParent = resolve; });
+      return { ...rootDetail, children: [branch] };
+    });
+
+    await openVideoChat();
+    await screen.findByTestId('video-chapters');
+    fireEvent.click(await screen.findByText('Wie funktionieren Aktivierungen?'));
+    await waitFor(() => expect(api.getChat).toHaveBeenCalledWith('c2'));
+    await screen.findByTestId('video-chapters');
+
+    releaseParent = () => {};
+    const backLink = (await screen.findByTestId('branched-from-quote')).querySelector('[role="link"]')!;
+    fireEvent.click(backLink);
+
+    // The gap itself: watch it for as long as the parent chat stays out —
+    // the empty card must not appear for a single frame of it.
+    let sawEmpty = false;
+    for (let i = 0; i < 20 && !sawEmpty; i++) {
+      await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
+      if (screen.queryByTestId('video-chapters-empty')) sawEmpty = true;
+    }
+    // Proof that we really watched the gap: the branch is still on screen,
+    // because its replacement has not arrived yet.
+    expect(screen.getByTestId('branched-from-quote')).toBeInTheDocument();
+    expect(sawEmpty).toBe(false);
+    expect(screen.getAllByTestId('video-chapter')).toHaveLength(2);
+
+    releaseParent!();
+    await waitFor(() => expect(screen.queryByTestId('branched-from-quote')).not.toBeInTheDocument());
+    expect(screen.getAllByTestId('video-chapter')).toHaveLength(2);
   });
 });
 

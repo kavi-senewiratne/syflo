@@ -2027,3 +2027,38 @@ button:focus-visible,
 @media (prefers-reduced-motion: reduce) {
   .syflo-chapter-in { animation: none; }
 }
+
+/*
+ * Das /btw-Panel klappt aus dem Composer aus
+ * (design/mockup-btw-composer-fold.html — die Bewegung, nach der die Datei
+ * benannt ist). Vorher stand es beim ersten Render sofort in voller Höhe da:
+ * der Chat darüber sprang um die ganze Panelhöhe nach oben, und die Antwort
+ * war schon da, bevor das Auge die Bewegung sah („taucht ein bisschen zu
+ * plötzlich auf", Nutzerbericht 2026-08-19).
+ *
+ * Gefaltet wird die HÖHE, nicht nur die Deckkraft: 0fr → 1fr auf einer
+ * Grid-Zeile animiert eine unbekannte Inhaltshöhe, die keine feste px-Zahl
+ * kennt. Das Kind braucht dafür overflow:hidden und min-height:0, sonst wächst
+ * es aus der schrumpfenden Zeile heraus.
+ *
+ * 0,26 s — kürzer als das Ankommen einer Kapitelkarte (0,42 s): das Panel
+ * erscheint als Antwort auf einen Tastendruck, und was auf eine Eingabe folgt,
+ * darf sich nicht Zeit lassen. Dieselbe Kurve wie überall sonst.
+ */
+@keyframes syflo-btw-in {
+  from { grid-template-rows: 0fr; opacity: 0; }
+  to   { grid-template-rows: 1fr; opacity: 1; }
+}
+.syflo-btw-in {
+  display: grid;
+  grid-template-rows: 1fr;
+  animation: syflo-btw-in 0.26s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.syflo-btw-in > * {
+  overflow: hidden;
+  min-height: 0;
+}
+/* Dieselbe Rücksicht wie bei den Kapitelkarten. */
+@media (prefers-reduced-motion: reduce) {
+  .syflo-btw-in { animation: none; }
+}

@@ -101,6 +101,24 @@ export class TextSmoother {
     });
   }
 
+  /**
+   * Throw the buffer away WITHOUT revealing it, and stop the timer.
+   *
+   * The counterpart to flush(): there, the text was written and only the
+   * pacing is in the way; here, the text was taken back. /btw uses it when a
+   * model dies mid-answer and the server retracts its fragment — revealing it
+   * anyway would leave the next model writing under a ruin.
+   */
+  reset(): void {
+    this.stopTimer();
+    this.buffer = '';
+    this.revealed = 0;
+    this.carry = 0;
+    this.rate = this.base;
+    this.onDrained?.();
+    this.onDrained = null;
+  }
+
   /** Reveal everything immediately and stop the timer (error/abort). */
   flush(): void {
     this.stopTimer();

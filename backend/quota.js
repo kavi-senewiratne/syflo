@@ -120,7 +120,7 @@ const isTransient = (err) => {
  * the UI and must surface hard errors. A side task is a nicety — it walks
  * every candidate and returns null when none delivers.
  *
- * @returns {Promise<{raw: string, provider: string, model: string}|null>}
+ * @returns {Promise<{raw: string, finishReason: string|null, provider: string, model: string}|null>}
  */
 async function callCloudLadder(db, {
   activeProvider,
@@ -136,10 +136,15 @@ async function callCloudLadder(db, {
   // asks for `stream: true` and forwards every chunk as it arrives, still
   // returning the assembled text as `raw`. Without it the behaviour is
   // unchanged — one request, one complete answer — so no existing caller is
-  // affected. Deltas are only forwarded once a candidate has actually started
-  // producing them, so a candidate that dies mid-ladder cannot leak a half
-  // sentence in front of the next candidate's answer.
+  // affected.
   onDelta = null,
+  // Called when a candidate that ALREADY streamed text then failed. Live
+  // streaming means its half sentence is on the reader's screen before anyone
+  // knows the call will die; the next candidate then writes a second answer
+  // under it. The caller uses this to take the fragment back — see the
+  // `reset` event in routes/btw.js (user report 2026-08-19: an aside that
+  // stood there cut off mid-word).
+  onDiscard = null,
 }) {
   const { getLLMClientFor, noThinkExtras } = require('./llm');
   const cooling = isCoolingDown || (() => false);
@@ -172,6 +177,9 @@ async function callCloudLadder(db, {
     let plain = false; // set when the model rejects the no-thinking flag
     for (let attempt = 0; attempt < 2; attempt++) {
       if (remaining() <= 0) break;
+      // What this attempt has already handed to the reader. Only a non-empty
+      // one has to be taken back when the attempt then fails.
+      let streamed = '';
       try {
         const completion = await client.chat.completions.create({
           model: cand.model,
@@ -181,22 +189,40 @@ async function callCloudLadder(db, {
           ...extraBody(cand),
         }, { signal: AbortSignal.timeout(Math.min(callMs, remaining())) });
         if (onDelta) {
-          let raw = '';
+          // The provider's own verdict on how the answer ended. 'stop' is
+          // clean; 'length'/'content_filter' (Gemini: MAX_TOKENS, RECITATION)
+          // and a MISSING final chunk mean the text broke off — the caller
+          // needs that to know whether it may present the answer as finished.
+          // Measured 2026-08-19: gemini-flash-latest sends "stop" on a clean
+          // end, so a missing reason really is a signal here.
+          let finishReason = null;
           for await (const chunk of completion) {
             const delta = chunk.choices?.[0]?.delta?.content;
             if (delta) {
-              raw += delta;
+              streamed += delta;
               onDelta(delta);
             }
+            const reason = chunk.choices?.[0]?.finish_reason;
+            if (reason) finishReason = reason;
           }
-          return { raw, provider: cand.provider, model: cand.model };
+          // A call that returns nothing at all is a dead line, not an answer
+          // (same rule as the chat rounds in tools.js): the next candidate
+          // gets the question instead of the reader getting an empty panel.
+          if (!streamed.trim()) {
+            console.error(`[quota] ${label} via ${cand.provider}/${cand.model}: empty answer`);
+            break; // next candidate
+          }
+          return { raw: streamed, finishReason, provider: cand.provider, model: cand.model };
         }
         return {
           raw: completion.choices[0]?.message?.content || '',
+          finishReason: completion.choices[0]?.finish_reason ?? null,
           provider: cand.provider,
           model: cand.model,
         };
       } catch (err) {
+        // Whatever comes next, what this candidate already wrote is void.
+        if (streamed) onDiscard?.();
         if (attempt === 0 && isTransient(err)) {
           await new Promise((resolve) => setTimeout(resolve, 400));
           continue;

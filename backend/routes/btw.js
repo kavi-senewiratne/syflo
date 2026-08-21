@@ -20,7 +20,9 @@
 const crypto = require('crypto');
 const express = require('express');
 const { getLLMClient, getSetting, noThinkExtras } = require('../llm');
-const { callCloudLadder, isRateLimit, isModelUnavailable } = require('../quota');
+const { callCloudLadder, isRateLimit, isModelUnavailable, isOverloaded } = require('../quota');
+const { isTruncatedFinish, isAbortError } = require('../tools');
+const { joinContinuation, continuationInstruction, MAX_OVERLAP } = require('../continuation');
 const { writeOutcomeInBackground } = require('../outcome');
 
 // Zeitbudget einer Nebenfrage: sie darf nie in die Warteschlange und nie
@@ -28,6 +30,14 @@ const { writeOutcomeInBackground } = require('../outcome');
 // Budget, jeder einzelne Aufruf ein kürzeres.
 const BTW_BUDGET_MS = 30000;
 const BTW_CALL_MS = 20000;
+// Wie oft eine abgebrochene Nebenfrage weitergeschrieben werden darf. Eine
+// Nebenfrage ist kurz; wer nach zwei Anläufen immer noch mitten im Satz steht,
+// gehört in einen richtigen Chat und nicht in dieses Panel.
+const BTW_CONTINUE_ROUNDS = 2;
+// Eigenes Budget fürs Weiterschreiben: das erste Budget ist beim Abbruch
+// schon angebrochen, und eine halbe Antwort stehen zu lassen wäre teurer als
+// die paar Sekunden, die das Zuendeschreiben kostet.
+const BTW_CONTINUE_MS = 20000;
 
 module.exports = (db, { buildSystemAndHistory, isQuotaCoolingDown, markQuotaCooldown } = {}) => {
   const router = express.Router();
@@ -73,23 +83,129 @@ module.exports = (db, { buildSystemAndHistory, isQuotaCoolingDown, markQuotaCool
     const messages = await buildMessages(chatId, question);
     const activeProvider = getSetting(db, 'llm_provider');
 
+    /**
+     * Writes the rest of an answer that broke off mid-sentence.
+     *
+     * A cut aside used to arrive looking finished: the panel dropped its
+     * spinner, offered "Keep in chat" and "Branch", and the text ended inside
+     * a word ("… oder int", user report with picture 2026-08-19). Nothing was
+     * wrong with the stream — nobody was reading the provider's finish_reason.
+     *
+     * The repair is the one the chat answers already use: ask the SAME model
+     * to carry on, let it repeat its last words as a seam, and cut the
+     * repetition away (continuation.js).
+     *
+     * The continuation STREAMS like the first round. Only the seam window is
+     * held back — MAX_OVERLAP characters, behind which no repetition can be
+     * hiding any more; everything after it goes out as it arrives. Collecting
+     * the whole continuation first was simpler and read terribly: nine seconds
+     * of silence, then 221 characters at once (measured 2026-08-20, "es kommt
+     * alles auf einmal").
+     *
+     * Who writes the rest is NOT pinned to the model that broke off: it was
+     * the model whose quota just ran out that got cut in the first place, and
+     * asking it again earned exactly one 429 (log 2026-08-20 14:13). The
+     * cloud path therefore hands the continuation to the shared ladder.
+     *
+     * @param {string} answer   what arrived so far
+     * @param {string|null} finishReason the provider's verdict on it
+     * @param {(msgs: object[], onDelta: (d: string) => void, onGiveUp: () => void) => Promise<{finishReason: string|null}>} runRound
+     * @returns {Promise<{text: string, truncated: boolean}>} the answer and whether it is still cut
+     */
+    async function completeAnswer(answer, finishReason, runRound) {
+      let whole = answer;
+      let reason = finishReason;
+      for (let round = 0; round < BTW_CONTINUE_ROUNDS; round++) {
+        if (!whole || !isTruncatedFinish(reason)) break;
+        console.warn(
+          `[btw] cut off (finish_reason=${reason ?? 'MISSING'}, len=${whole.length}) — writing on`,
+        );
+        // Held back until the seam is decided; empty again once it is.
+        let held = '';
+        let seamCut = false;
+        // Set when a candidate died AFTER its text was already forwarded. What
+        // it wrote cannot be taken back (it is part of the answer now), and a
+        // later candidate would continue from the OLD cut point and say the
+        // same thing twice — so this round writes nothing more.
+        let spoiled = false;
+        const cutSeam = () => {
+          if (seamCut) return;
+          seamCut = true;
+          const joined = joinContinuation(whole, held);
+          // Only what the join ADDED travels — the reader already has the rest.
+          if (joined.length > whole.length) send({ delta: joined.slice(whole.length) });
+          whole = joined;
+          held = '';
+        };
+        const forward = (delta) => {
+          if (spoiled) return;
+          if (seamCut) {
+            whole += delta;
+            send({ delta });
+            return;
+          }
+          held += delta;
+          if (held.length >= MAX_OVERLAP) cutSeam();
+        };
+        // A candidate that failed before the seam was decided wrote nothing
+        // the reader can see: drop what it held and let the next one start
+        // clean. Past the seam there is no way back.
+        const giveUpOnCandidate = () => {
+          if (seamCut) spoiled = true;
+          else held = '';
+        };
+        let next;
+        try {
+          next = await runRound([
+            ...messages,
+            { role: 'assistant', content: whole },
+            { role: 'user', content: continuationInstruction({ mode: 'seam' }) },
+          ], forward, giveUpOnCandidate);
+        } catch (err) {
+          console.error(`[btw] continuation failed: ${err.message}`);
+          giveUpOnCandidate();
+          break; // half an answer beats an error message on top of it
+        }
+        // A continuation shorter than the seam window never triggered the cut.
+        if (!spoiled) cutSeam();
+        if (spoiled) break;
+        reason = next?.finishReason ?? null;
+      }
+      // What the caller still has to say out loud: this answer is not whole.
+      return { text: whole, truncated: isTruncatedFinish(reason) };
+    }
+
     // ── Local path: no failover, in either direction. The privacy guard
     // (mockup-model-flow §11) means a local aside never silently becomes a
     // cloud one, and the ladder below is cloud-only by construction.
     if (activeProvider === 'ollama') {
       try {
         const { client, model, provider } = getLLMClient(db);
-        const stream = await client.chat.completions.create({
-          model,
-          ...noThinkExtras(provider),
-          messages,
-          stream: true,
-        });
-        for await (const chunk of stream) {
-          const delta = chunk.choices?.[0]?.delta?.content;
-          if (delta) send({ delta });
-        }
-        send({ done: true, provider, model });
+        // One round against the local model: streams what it writes and
+        // reports how it ended, so a cut answer can be continued below.
+        const round = async (msgs, onDelta) => {
+          const completion = await client.chat.completions.create({
+            model,
+            ...noThinkExtras(provider),
+            messages: msgs,
+            stream: true,
+          });
+          let text = '';
+          let finishReason = null;
+          for await (const chunk of completion) {
+            const delta = chunk.choices?.[0]?.delta?.content;
+            if (delta) {
+              text += delta;
+              onDelta(delta);
+            }
+            const reason = chunk.choices?.[0]?.finish_reason;
+            if (reason) finishReason = reason;
+          }
+          return { text, finishReason };
+        };
+        const first = await round(messages, (delta) => send({ delta }));
+        const whole = await completeAnswer(first.text, first.finishReason, round);
+        send({ done: true, provider, model, ...(whole.truncated ? { truncated: true } : {}) });
       } catch (err) {
         send({ error: err.message });
       }
@@ -117,13 +233,44 @@ module.exports = (db, { buildSystemAndHistory, isQuotaCoolingDown, markQuotaCool
         markCooldown: markQuotaCooldown,
         label: 'btw',
         onDelta: (delta) => send({ delta }),
+        // A candidate that died after streaming half a sentence: the panel
+        // takes its fragment back, so the next candidate's answer does not
+        // land underneath a torn-off one.
+        onDiscard: () => send({ reset: true }),
         onError: (err) => { if (!isRateLimit(err) && !isModelUnavailable(err)) lastErr = err; },
       });
       if (result) {
+        // Writing on is a ladder walk of its own: whoever can, finishes the
+        // sentence. Pinning it to the model that broke off meant asking the
+        // one provider whose quota had just run out — one 429, and the aside
+        // kept its 40 characters (log 2026-08-20 14:13). A continuation
+        // carries the whole answer so far, so another model can pick it up.
+        const whole = await completeAnswer(
+          result.raw,
+          result.finishReason,
+          async (msgs, onDelta, onGiveUp) => {
+            const cont = await callCloudLadder(db, {
+              activeProvider,
+              messages: msgs,
+              budgetMs: BTW_CONTINUE_MS,
+              callMs: BTW_CALL_MS,
+              isCoolingDown: isQuotaCoolingDown,
+              markCooldown: markQuotaCooldown,
+              label: 'btw-continue',
+              onDelta,
+              onDiscard: onGiveUp,
+            });
+            if (!cont) throw new Error('no model could write on');
+            return { finishReason: cont.finishReason };
+          },
+        );
         send({
           done: true,
           provider: result.provider,
           model: result.model,
+          // Sagt die Wahrheit über die Antwort im Panel: sie ist unfertig, und
+          // "Im Chat behalten" hieße, ein Bruchstück zu behalten.
+          ...(whole.truncated ? { truncated: true } : {}),
           // Die UI zeigt dieselbe Notiz wie über einer Chat-Antwort und
           // braucht dafür beide Seiten des Wechsels: gleicher Anbieter →
           // Modellnamen, anderer Anbieter → Anbieternamen + Modell.
@@ -135,7 +282,15 @@ module.exports = (db, { buildSystemAndHistory, isQuotaCoolingDown, markQuotaCool
         throw lastErr ?? new Error('No model could answer right now.');
       }
     } catch (err) {
-      send({ error: err.message });
+      // "Request was aborted." is the SDK talking to itself. What happened is
+      // that nobody answered inside the aside's 30-second budget — and that is
+      // a sentence the panel can say in the user's own language (user report
+      // with picture 2026-08-20). The raw message still travels as a fallback
+      // for everything that is not a timeout.
+      send({
+        error: err.message,
+        ...(isAbortError(err) ? { reason: 'timeout' } : {}),
+      });
     }
     res.end();
   });

@@ -19,7 +19,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
-import { ArrowLeftRight, GitBranch, MessageCircleQuestionMark, Pin, X } from 'lucide-react';
+import { AlertCircle, ArrowLeftRight, GitBranch, MessageCircleQuestionMark, Pin, X } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
@@ -149,6 +149,11 @@ export function BtwPanel({ aside, onDismiss, onKeep, onBranch, modelLabels, prov
     ? action('branch', onBranch, <GitBranch size={12} className="shrink-0 text-gray-500" />, S.btwBranch)
     : null;
   return (
+    /* Die Hülle klappt das Panel aus dem Composer heraus (syflo-btw-in in
+       index.css). Sie trägt KEINE eigene Optik — nur die Bewegung: das Panel
+       stand vorher in voller Höhe da, und alles darüber sprang mit
+       (Nutzerbericht 2026-08-19, "taucht zu plötzlich auf"). */
+    <div className="syflo-btw-in" data-testid="btw-fold">
     <div
       ref={panelRef}
       className="relative mb-2 mx-2 rounded-xl border border-gray-200 bg-gray-50 px-3 pt-2.5 pb-3"
@@ -221,7 +226,10 @@ export function BtwPanel({ aside, onDismiss, onKeep, onBranch, modelLabels, prov
           data-testid="btw-answer"
         >
           {aside.error ? (
-          aside.error
+          // Kennt das Backend die Lage beim Namen, spricht das Panel seine
+          // eigene Sprache; alles Unbenannte kommt weiter im Wortlaut durch,
+          // damit nichts verschluckt wird (Nutzer-Report 2026-08-20).
+          aside.errorReason === 'timeout' ? S.btwTimeout : aside.error
         ) : aside.streaming && !aside.answer ? (
           // Solange kein einziges Token da ist, steht im Antwortfeld dasselbe
           // Hüpf-Punkte-Signal wie in einer Chat-Antwort (Nutzerwunsch
@@ -290,6 +298,22 @@ export function BtwPanel({ aside, onDismiss, onKeep, onBranch, modelLabels, prov
         )}
       </div>
 
+      {/* Die Antwort blieb unfertig (Nutzer-Report mit Bild 2026-08-20): das
+          Modell brach ab, und niemand auf der Leiter konnte weiterschreiben.
+          Wortlaut, Symbol und Ton sind dieselben wie unter einer gekappten
+          Chat-Antwort (MessageBubble, truncated-note) — ein Abbruch liest sich
+          überall gleich. Ohne Knopf: eine Nebenfrage stellt man neu, statt sie
+          zu reparieren. Der Text bleibt stehen, es gibt ja echten Inhalt. */}
+      {aside.truncated && !aside.streaming && !aside.error && (
+        <div
+          data-testid="btw-truncated-note"
+          className="mt-2 flex items-center gap-2 text-[12px] text-gray-400"
+        >
+          <AlertCircle size={12} className="shrink-0" />
+          <span className="italic">{S.truncated}</span>
+        </div>
+      )}
+
       {/* Wechsel-Notiz — NUR wenn nicht das Modell des Chats geantwortet hat;
           im Normalfall steht hier gar nichts. Wortlaut, Icon und Ton sind
           dieselben wie über einer Chat-Antwort (MessageBubble, failover-note):
@@ -324,6 +348,7 @@ export function BtwPanel({ aside, onDismiss, onKeep, onBranch, modelLabels, prov
           {(branchFirst ? [branchButton, keepButton] : [keepButton, branchButton]).map((b) => b)}
         </div>
       )}
+    </div>
     </div>
   );
 }

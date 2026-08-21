@@ -24,13 +24,31 @@ let app;
 let db;
 let mockCreate;
 
-function makeStream(words) {
+/**
+ * A finished stream: text, then the provider's verdict that it ended cleanly.
+ * The final chunk carries finish_reason 'stop' because that is what the real
+ * providers send (gemini-flash-latest measured 2026-08-19) — and the route
+ * reads exactly that to decide whether an answer may be shown as complete.
+ */
+function makeStream(words, finishReason = 'stop') {
   return {
     [Symbol.asyncIterator]: async function* () {
       for (const word of words) {
         yield { choices: [{ delta: { content: word } }] };
       }
-      yield { choices: [{ delta: {} }] };
+      yield { choices: [{ delta: {}, finish_reason: finishReason }] };
+    },
+  };
+}
+
+/** A stream that hands out a few words and then dies mid-answer. */
+function makeDyingStream(words, err) {
+  return {
+    [Symbol.asyncIterator]: async function* () {
+      for (const word of words) {
+        yield { choices: [{ delta: { content: word } }] };
+      }
+      throw err;
     },
   };
 }
@@ -199,6 +217,192 @@ describe('POST /api/btw – exhausted models switch themselves', () => {
     expect(done.switchedFrom).toBe('gemini-pro-latest');
     expect(done.switchedFromProvider).toBe('gemini');
     expect(done.provider).toBe('gemini');
+  });
+
+  // Nutzer-Report 2026-08-19 (mit Bild): das Panel stand fertig da — mit
+  // beiden Knöpfen — und die Antwort endete mitten im Wort ("… oder int").
+  // Ein Panel, das "Im Chat behalten" auf einer halben Antwort anbietet,
+  // behauptet etwas Falsches.
+  it('writes the rest itself when the model broke off mid-sentence', async () => {
+    useGeminiAndGroq();
+    const chatId = 1;
+    db.prepare('INSERT INTO chats (id, title, created_at) VALUES (?, ?, ?)')
+      .run(chatId, 'Demut', new Date().toISOString());
+    mockCreate
+      // Der Abbruch: die Antwort hört mitten im Wort auf, und der Anbieter
+      // sagt es über finish_reason.
+      .mockResolvedValueOnce(makeStream(['Demut heißt humility. Im wissenschaftlichen oder int'], 'length'))
+      // Die Fortsetzung wiederholt die letzten Worte — das ist die Naht, an
+      // der die beiden Hälften zusammenfinden ("… oder int" + "oder inter…").
+      .mockResolvedValueOnce(makeStream(['oder internationalen Kontext ist humility üblich.']));
+
+    const res = await request(app).post('/api/btw').send({ chatId, question: 'Bedeutet Demut humbleness?' });
+
+    const events = parseSSE(res.text);
+    const answer = events.filter((e) => e.delta).map((e) => e.delta).join('');
+    expect(answer).toBe(
+      'Demut heißt humility. Im wissenschaftlichen oder internationalen Kontext ist humility üblich.',
+    );
+    expect(events.some((e) => e.done)).toBe(true);
+    expect(events.some((e) => e.error)).toBe(false);
+    // Die zweite Runde geht an dasselbe Modell und trägt die alte Antwort mit.
+    const second = mockCreate.mock.calls[1][0];
+    expect(second.model).toBe('gemini-pro-latest');
+    expect(second.messages.some((m) => m.role === 'assistant' && m.content.includes('oder int'))).toBe(true);
+  });
+
+  // Gemessen 2026-08-20: die Fortsetzung kam nach 9 Sekunden Stille als EIN
+  // Block von 221 Zeichen („es kommt alles auf einmal"). Sie muss strömen wie
+  // die erste Runde — zurückgehalten wird nur das Nahtfenster, hinter dem sich
+  // keine Wiederholung mehr verstecken kann.
+  it('streams the continuation instead of dropping it in as one block', async () => {
+    useGeminiAndGroq();
+    const chatId = 1;
+    db.prepare('INSERT INTO chats (id, title, created_at) VALUES (?, ?, ?)')
+      .run(chatId, 'Mech interp', new Date().toISOString());
+    // Die Fortsetzung ist deutlich länger als das Nahtfenster (240 Zeichen),
+    // also gibt es hinter der Naht echten Text, der live durchlaufen kann.
+    const tail = Array.from({ length: 12 }, (_, i) => `Satz Nummer ${i} über Schaltkreise im Netz. `);
+    mockCreate
+      .mockResolvedValueOnce(makeStream(['Mech interp untersucht, wie ein Netz'], null))
+      .mockResolvedValueOnce(makeStream(['wie ein Netz ', ...tail]));
+
+    const res = await request(app).post('/api/btw').send({ chatId, question: 'was bedeutet mech interp' });
+
+    const events = parseSSE(res.text);
+    const deltas = events.filter((e) => e.delta).map((e) => e.delta);
+    // Die erste Runde ist ein Delta; alles Weitere gehört der Fortsetzung.
+    expect(deltas.length).toBeGreaterThan(2);
+    const answer = deltas.join('');
+    expect(answer.startsWith('Mech interp untersucht, wie ein Netz ')).toBe(true);
+    // Die Naht ist geschnitten: „wie ein Netz" steht genau einmal.
+    expect(answer.match(/wie ein Netz/g)).toHaveLength(1);
+    expect(answer.endsWith('Satz Nummer 11 über Schaltkreise im Netz. ')).toBe(true);
+  });
+
+  // Nutzer-Report 2026-08-20 14:13 (mit Bild), dazu das Log:
+  //   [btw] cut off (finish_reason=MISSING, len=40) — writing on
+  //   [btw] continuation failed: 429 status code (no body)
+  // Die Fortsetzung fragte nur DASSELBE Modell — ausgerechnet das, dessen
+  // Kontingent gerade zu Ende ist. Genau dafür gibt es die Leiter.
+  it('lets another model finish the sentence when the first one is out of quota', async () => {
+    useGeminiAndGroq();
+    const chatId = 1;
+    db.prepare('INSERT INTO chats (id, title, created_at) VALUES (?, ?, ?)')
+      .run(chatId, 'Mech interp', new Date().toISOString());
+    mockCreate
+      .mockResolvedValueOnce(makeStream(['Mechanistic Interpretability (kurz: Mech'], null))
+      .mockRejectedValueOnce(quotaError())            // dasselbe Modell: erschöpft
+      .mockResolvedValueOnce(makeStream(['(kurz: Mech interp) zerlegt Netze.'])); // das nächste springt ein
+
+    const res = await request(app).post('/api/btw').send({ chatId, question: 'was ist mech interp' });
+
+    const events = parseSSE(res.text);
+    const answer = events.filter((e) => e.delta).map((e) => e.delta).join('');
+    expect(answer).toBe('Mechanistic Interpretability (kurz: Mech interp) zerlegt Netze.');
+    expect(events.find((e) => e.done).truncated).toBeFalsy();
+  });
+
+  // Und wenn wirklich niemand mehr kann: dann sagt das Panel es, statt eine
+  // halbe Antwort mit beiden Knöpfen als fertig auszugeben.
+  it('marks the answer as cut when no model could finish it', async () => {
+    useGeminiAndGroq();
+    const chatId = 1;
+    db.prepare('INSERT INTO chats (id, title, created_at) VALUES (?, ?, ?)')
+      .run(chatId, 'Mech interp', new Date().toISOString());
+    mockCreate
+      .mockResolvedValueOnce(makeStream(['Mechanistic Interpretability (kurz: Mech'], null))
+      .mockRejectedValue(quotaError());
+
+    const res = await request(app).post('/api/btw').send({ chatId, question: 'was ist mech interp' });
+
+    const events = parseSSE(res.text);
+    expect(events.filter((e) => e.delta).map((e) => e.delta).join(''))
+      .toBe('Mechanistic Interpretability (kurz: Mech');
+    expect(events.find((e) => e.done).truncated).toBe(true);
+  });
+
+  // Aus dem Log der laufenden App, 2026-08-20 10:12:
+  //   [btw] cut off (finish_reason=MISSING, len=221) — writing on
+  //   [btw] continuation failed: 503 status code (no body)
+  // Der Abbruch wurde erkannt, das Weiterschreiben scheiterte an einem 503 —
+  // und ein 503 ist Wetter, kein Zustand (siehe isOverloaded in quota.js).
+  it('retries the continuation when the provider is momentarily overloaded', async () => {
+    useGeminiAndGroq();
+    const chatId = 1;
+    db.prepare('INSERT INTO chats (id, title, created_at) VALUES (?, ?, ?)')
+      .run(chatId, 'Demut', new Date().toISOString());
+    const overloaded = () => Object.assign(new Error('503 status code (no body)'), { status: 503 });
+    mockCreate
+      .mockResolvedValueOnce(makeStream(['Mech interp untersucht, wie ein Netz'], null))
+      .mockRejectedValueOnce(overloaded())
+      .mockResolvedValueOnce(makeStream(['wie ein Netz intern rechnet.']));
+
+    const res = await request(app).post('/api/btw').send({ chatId, question: 'was bedeutet mech interp' });
+
+    const events = parseSSE(res.text);
+    expect(events.filter((e) => e.delta).map((e) => e.delta).join('')).toBe(
+      'Mech interp untersucht, wie ein Netz intern rechnet.',
+    );
+    expect(events.some((e) => e.error)).toBe(false);
+  });
+
+  // Nutzer-Report 2026-08-20 (mit Bild): im Panel stand "Request was aborted."
+  // Das ist der interne Satz des SDK, kein Satz für einen Menschen — und er
+  // sagt nicht, was zu tun ist.
+  it('names a timeout as a timeout instead of leaking the SDK sentence', async () => {
+    useGeminiAndGroq();
+    const chatId = 1;
+    db.prepare('INSERT INTO chats (id, title, created_at) VALUES (?, ?, ?)')
+      .run(chatId, 'Demut', new Date().toISOString());
+    mockCreate.mockRejectedValue(
+      Object.assign(new Error('Request was aborted.'), { name: 'APIUserAbortError' }),
+    );
+
+    const res = await request(app).post('/api/btw').send({ chatId, question: 'q' });
+
+    const failed = parseSSE(res.text).find((e) => e.error);
+    expect(failed.reason).toBe('timeout');
+  });
+
+  // Live gestreamt heißt: die halbe Antwort steht schon auf dem Schirm, bevor
+  // irgendwer weiß, dass der Aufruf stirbt. Das nächste Modell schriebe seine
+  // Antwort dann UNTER die Bruchstücke des vorigen.
+  it('takes back the fragment of a candidate that died mid-answer', async () => {
+    useGeminiAndGroq();
+    const chatId = 1;
+    db.prepare('INSERT INTO chats (id, title, created_at) VALUES (?, ?, ?)')
+      .run(chatId, 'Demut', new Date().toISOString());
+    mockCreate
+      .mockResolvedValueOnce(makeDyingStream(['Ja, genau. Demut'], quotaError()))
+      .mockResolvedValueOnce(makeStream(['Demut heißt humility.']));
+
+    const res = await request(app).post('/api/btw').send({ chatId, question: 'q' });
+
+    const events = parseSSE(res.text);
+    expect(events.some((e) => e.reset)).toBe(true);
+    // Alles VOR dem reset gehört dem toten Kandidaten, alles danach der
+    // Antwort, die wirklich kam.
+    const afterReset = events.slice(events.findIndex((e) => e.reset) + 1);
+    expect(afterReset.filter((e) => e.delta).map((e) => e.delta).join('')).toBe('Demut heißt humility.');
+  });
+
+  // Ein Modell, das erfolgreich nichts sagt, ist keine Antwort — der nächste
+  // Kandidat bekommt die Frage (dieselbe Regel wie bei den Chat-Runden).
+  it('does not accept an empty answer as the answer', async () => {
+    useGeminiAndGroq();
+    const chatId = 1;
+    db.prepare('INSERT INTO chats (id, title, created_at) VALUES (?, ?, ?)')
+      .run(chatId, 'Demut', new Date().toISOString());
+    mockCreate
+      .mockResolvedValueOnce(makeStream([]))
+      .mockResolvedValueOnce(makeStream(['Demut heißt humility.']));
+
+    const res = await request(app).post('/api/btw').send({ chatId, question: 'q' });
+
+    const events = parseSSE(res.text);
+    expect(events.filter((e) => e.delta).map((e) => e.delta).join('')).toBe('Demut heißt humility.');
+    expect(events.find((e) => e.done).model).toBe('gemini-flash-latest');
   });
 
   it('says nothing about models when the chat’s own model answered', async () => {

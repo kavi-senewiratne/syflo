@@ -279,7 +279,16 @@ export const api = {
     question: string,
     onDelta: (delta: string) => void,
     signal?: AbortSignal,
-  ): Promise<{ answer: string; model: { was: string; answered: string; fromProvider?: string; toProvider?: string } | null }> {
+    // Der Server nimmt zurück, was ein mitten in der Antwort gestorbenes
+    // Modell schon geschrieben hat — sonst schreibt das nächste seine Antwort
+    // unter eine abgerissene (Nutzer-Report 2026-08-19).
+    onReset?: () => void,
+  ): Promise<{
+    answer: string;
+    model: { was: string; answered: string; fromProvider?: string; toProvider?: string } | null;
+    // Niemand konnte die Antwort zu Ende schreiben — das Panel sagt es dann.
+    truncated: boolean;
+  }> {
     const res = await fetch(`${BASE}/btw`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -293,6 +302,7 @@ export const api = {
     let buffer = '';
     let answer = '';
     let model: { was: string; answered: string; fromProvider?: string; toProvider?: string } | null = null;
+    let truncated = false;
 
     while (true) {
       const { done, value } = await reader.read();
@@ -303,11 +313,20 @@ export const api = {
       for (const line of lines) {
         if (!line.startsWith('data: ')) continue;
         const data = JSON.parse(line.slice(6));
-        if (data.error) throw new Error(data.error);
+        if (data.error) {
+          // Die benannte Lage reist am Fehler mit — das Panel wählt danach
+          // seinen eigenen Satz (Nutzer-Report 2026-08-20).
+          throw Object.assign(new Error(data.error), { reason: data.reason });
+        }
+        if (data.reset) {
+          answer = '';
+          onReset?.();
+        }
         if (data.delta) {
           answer += data.delta;
           onDelta(data.delta);
         }
+        if (data.done && data.truncated) truncated = true;
         if (data.done && typeof data.switchedFrom === 'string') {
           model = {
             was: data.switchedFrom,
@@ -318,7 +337,7 @@ export const api = {
         }
       }
     }
-    return { answer, model };
+    return { answer, model, truncated };
   },
 
   // Macht eine Nebenfrage dauerhaft (mockup-btw-composer-fold.html §03).
@@ -358,7 +377,11 @@ export const api = {
     // quoteHighlightId: Anker eines "Ask in chat"-Zitats — die persistierte
     // Nachricht merkt sich damit, aus welchem Highlight das Zitat stammt, und
     // bleibt in der Bubble anklickbar (mockup-quote-jump-to-source.html).
-    opts?: { think?: boolean; quoteHighlightId?: string | null; onThinking?: () => void; onReasoning?: (delta: string) => void; onQueued?: (ahead: number, info?: { model?: string; current?: { chatId: string; question: string } }) => void; onStarted?: (userMessage: Message) => void; onRateLimit?: (info: { retryInSeconds: number; attempt: number }) => void; onOverloaded?: (info: { retryInSeconds: number; attempt: number; maxAttempts: number; provider?: string }) => void; onFailover?: (info: FailoverInfo) => void; signal?: AbortSignal },
+    // overview: diese Frage ist die Video overview (structurePrompt). Das
+    // Backend schaltet dafür den Retrieval-Modus ab — die Gliederung braucht
+    // das ganze Transkript der Reihe nach, nicht die zur Frage passenden
+    // Ausschnitte (Nutzerentscheid 2026-08-20).
+    opts?: { think?: boolean; overview?: boolean; quoteHighlightId?: string | null; onThinking?: () => void; onReasoning?: (delta: string) => void; onQueued?: (ahead: number, info?: { model?: string; current?: { chatId: string; question: string } }) => void; onStarted?: (userMessage: Message) => void; onRateLimit?: (info: { retryInSeconds: number; attempt: number }) => void; onOverloaded?: (info: { retryInSeconds: number; attempt: number; maxAttempts: number; provider?: string }) => void; onFailover?: (info: FailoverInfo) => void; signal?: AbortSignal },
   ): Promise<{ userMessage: Message; assistantMessage: Message }> {
     let res: Response;
     if (attachments.length > 0) {
@@ -366,6 +389,7 @@ export const api = {
       fd.append('content', content);
       fd.append('aliases', JSON.stringify(attachments.map(a => a.alias)));
       if (opts?.think !== undefined) fd.append('think', String(opts.think));
+      if (opts?.overview) fd.append('overview', 'true');
       if (opts?.quoteHighlightId) fd.append('quoteHighlightId', opts.quoteHighlightId);
       attachments.forEach(a => fd.append('files', a.file, a.file.name));
       res = await fetch(`${BASE}/chats/${chatId}/messages`, {
@@ -377,7 +401,7 @@ export const api = {
       res = await fetch(`${BASE}/chats/${chatId}/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content, think: opts?.think, quoteHighlightId: opts?.quoteHighlightId ?? null }),
+        body: JSON.stringify({ content, think: opts?.think, overview: opts?.overview ?? false, quoteHighlightId: opts?.quoteHighlightId ?? null }),
         signal: opts?.signal,
       });
     }

@@ -593,6 +593,15 @@ export interface Aside {
   streaming: boolean;
   model?: { was: string; answered: string; fromProvider?: string; toProvider?: string } | null;
   error?: string | null;
+  // Benannte Fehlerlage, wenn das Backend eine kennt. 'timeout' = niemand hat
+  // im Zeitbudget geantwortet; das Panel sagt dann seinen eigenen Satz statt
+  // der SDK-Meldung (Nutzer-Report 2026-08-20).
+  errorReason?: 'timeout' | null;
+  // Die Antwort blieb unfertig: das Modell brach ab, und auch die Leiter
+  // konnte sie nicht zu Ende schreiben (Nutzer-Report 2026-08-20). Das Panel
+  // sagt es mit demselben Satz wie der Chat, statt ein Bruchstück als fertige
+  // Antwort auszugeben.
+  truncated?: boolean;
 }
 
 // Ein Treffer der Paper-Suche (GET /api/papers/search) — gemergte Form aus

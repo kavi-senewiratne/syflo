@@ -197,6 +197,11 @@ const en = {
     // translates it.
     btwKeep: 'Keep in chat',
     btwBranch: 'Make a branch',
+    // Nobody answered inside the aside's 30-second budget. Said plainly,
+    // because the SDK's own "Request was aborted." explains nothing and names
+    // no way out (user report with picture 2026-08-20). An aside is cheap to
+    // repeat, so the sentence says so.
+    btwTimeout: 'No model answered in time. Ask again.',
     // Branch trace (design/mockup-branch-trace.html): the line a passage-less
     // branch leaves at the point in the transcript where it was opened. The
     // pill carries the raw command name — "/btw" and "/branch" are the same
@@ -893,6 +898,7 @@ const de: Strings = {
     removeQuote: 'Zitat entfernen',
     btwKeep: 'Im Chat behalten',
     btwBranch: 'Verzweigen',
+    btwTimeout: 'Kein Modell hat rechtzeitig geantwortet. Frag noch einmal.',
     traceOpenBranch: 'Branch öffnen',
     traceMore: (n: number) => (n === 1 ? '1 weiteren Branch anzeigen' : `${n} weitere Branches anzeigen`),
     traceLess: 'Weniger anzeigen',

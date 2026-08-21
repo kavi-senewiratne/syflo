@@ -478,4 +478,4 @@ function isTruncatedFinish(finishReason) {
   return finishReason !== 'stop' && finishReason !== 'tool_calls';
 }
 
-module.exports = { ALL_TOOLS, streamWithTools, isTruncatedFinish };
+module.exports = { ALL_TOOLS, streamWithTools, isTruncatedFinish, isAbortError };

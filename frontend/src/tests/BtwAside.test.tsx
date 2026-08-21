@@ -64,6 +64,67 @@ describe('/btw side question', () => {
     expect(screen.getAllByText(/what does logit mean again\?/)).toHaveLength(1);
   });
 
+  // Nutzer-Report 2026-08-20 14:13 (mit Bild): 40 Zeichen im Panel, darunter
+  // beide Knöpfe — als wäre das die ganze Antwort. Konnte niemand zu Ende
+  // schreiben, muss das Panel es sagen, mit demselben Satz wie der Chat.
+  it('says so when the answer stayed cut', () => {
+    render(
+      <ChatArea
+        chat={mockChat}
+        loading={false}
+        {...defaultProps}
+        aside={{
+          question: 'was ist mech interp',
+          answer: 'Mechanistic Interpretability (kurz: Mech',
+          streaming: false,
+          truncated: true,
+        }}
+      />
+    );
+    expect(screen.getByTestId('btw-truncated-note')).toHaveTextContent(/brach mitten im Satz ab|broke off mid-sentence/i);
+    // Der Text bleibt stehen — es gibt echten Inhalt, nur eben nicht alles.
+    expect(screen.getByTestId('btw-answer')).toHaveTextContent('Mechanistic Interpretability');
+  });
+
+  // Nutzer-Report 2026-08-20 (mit Bild): im Panel stand "Request was
+  // aborted." — der interne Satz des SDK. Er sagt nicht, was passiert ist,
+  // und nicht, was man tun kann.
+  it('says a timeout in its own words instead of showing the SDK sentence', () => {
+    render(
+      <ChatArea
+        chat={mockChat}
+        loading={false}
+        {...defaultProps}
+        aside={{
+          question: 'was bedeutet mech interp',
+          answer: '',
+          streaming: false,
+          error: 'Request was aborted.',
+          errorReason: 'timeout',
+        }}
+      />
+    );
+    expect(screen.getByTestId('btw-answer')).toHaveTextContent(/No model answered in time/i);
+    expect(screen.queryByText(/Request was aborted/)).not.toBeInTheDocument();
+  });
+
+  // Nutzerbericht 2026-08-19: „sie taucht ein bisschen zu plötzlich auf".
+  // Das Panel sprang in voller Höhe ins Layout. Es klappt jetzt aus dem
+  // Composer aus — dieselbe Bewegung, nach der der Mockup benannt ist.
+  it('folds out of the composer instead of appearing at full height', () => {
+    render(
+      <ChatArea
+        chat={mockChat}
+        loading={false}
+        {...defaultProps}
+        aside={{ question: 'q', answer: 'a', streaming: false }}
+      />
+    );
+    const fold = screen.getByTestId('btw-fold');
+    expect(fold).toHaveClass('syflo-btw-in');
+    expect(fold).toContainElement(screen.getByTestId('btw-panel'));
+  });
+
   // Section 02 of the mockup: three ways out, none of them explained in the
   // UI. All three do exactly the same thing, so there is one disappearance
   // to learn rather than three behaviours.

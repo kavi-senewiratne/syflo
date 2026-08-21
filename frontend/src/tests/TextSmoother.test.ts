@@ -85,6 +85,27 @@ describe('TextSmoother', () => {
     expect(visible).toBe('X'.repeat(600) + 'Y'.repeat(600));
   });
 
+  // Für /btw: stirbt ein Modell mitten in der Antwort, nimmt das Backend
+  // seine Zeichen zurück (reset). Der Smoother darf das Zurückgenommene dann
+  // nicht weiter aufdecken — sonst schriebe das nächste Modell unter eine
+  // Ruine (Nutzer-Report 2026-08-19).
+  it('reset() drops the buffered text without revealing it', () => {
+    smoother.push('A'.repeat(600));
+    vi.advanceTimersByTime(90);
+    const seenBefore = visible;
+    expect(seenBefore.length).toBeGreaterThan(0);
+
+    smoother.reset();
+    vi.advanceTimersByTime(500);
+    // Kein weiteres Aufdecken nach dem Zurücknehmen.
+    expect(visible).toBe(seenBefore);
+
+    // Und die nächste Antwort beginnt bei null, nicht hinter der alten.
+    smoother.push('B'.repeat(60));
+    vi.advanceTimersByTime(1000);
+    expect(visible).toBe('B'.repeat(60));
+  });
+
   it('flush() reveals everything immediately and stops the timer', () => {
     smoother.push('C'.repeat(3000));
     vi.advanceTimersByTime(2 * TICK_MS);
