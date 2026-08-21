@@ -11,12 +11,16 @@ const request = require('supertest');
 const { createApp } = require('../server');
 const { createDb } = require('../database');
 const path = require('path');
+const os = require('os');
 const fs = require('fs');
 
 const TEST_DB_PATH = path.join(__dirname, 'papers-test.db');
 
 // Minimal but valid-enough PDF bytes (header + EOF marker).
 const PDF_BYTES = Buffer.from('%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF\n');
+
+// Throwaway uploads folder — see server.js's options.uploadsDir.
+const TEST_UPLOADS_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'syflo-papers-uploads-'));
 
 let app;
 let db;
@@ -28,7 +32,7 @@ beforeEach(() => {
   // links). Both reach for pdf.js, and an ESM import landing after this suite
   // tears down breaks the loader for every other suite in the process — so
   // this suite stubs them out, as it already does for the text extraction.
-  app = createApp(db, { papers: { extractCitationsFn: async () => ({ citations: [], references: [] }) } });
+  app = createApp(db, { uploadsDir: TEST_UPLOADS_DIR, papers: { extractCitationsFn: async () => ({ citations: [], references: [] }) } });
 });
 
 afterEach(() => {
@@ -138,7 +142,7 @@ describe('POST /api/papers — background retrieval preparation (ADR-0006)', () 
   ).join('\n\n');
 
   function appWith(extractedText, embedFn) {
-    return createApp(db, {
+    return createApp(db, { uploadsDir: TEST_UPLOADS_DIR,
       papers: {
         extractPdfTextFn: jest.fn().mockResolvedValue(extractedText),
         embedTextsFn: embedFn,
@@ -191,7 +195,7 @@ describe('POST /api/papers — background retrieval preparation (ADR-0006)', () 
   });
 
   it('never fails the upload when background preparation dies', async () => {
-    const app2 = createApp(db, {
+    const app2 = createApp(db, { uploadsDir: TEST_UPLOADS_DIR,
       papers: {
         extractPdfTextFn: jest.fn().mockRejectedValue(new Error('corrupt')),
         embedTextsFn: jest.fn(),

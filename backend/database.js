@@ -2,15 +2,16 @@ const Database = require('better-sqlite3');
 const path = require('path');
 const fs = require('fs');
 
-// In production (Electron-bundled app), the backend folder is read-only inside
-// the .app bundle. The Electron main process sets SYFLO_DATA_DIR to a
-// per-user writable location (e.g. ~/Library/Application Support/Syflo).
-// In normal development (running `npm start` from backend/), no env var is
-// set and we fall back to the backend folder for backwards compatibility.
-const DATA_DIR = process.env.SYFLO_DATA_DIR || __dirname;
+// Where the data lives is decided in one place (paths.js) — the Electron
+// bundle still points here via SYFLO_DATA_DIR, everything else uses ~/.syflo.
+// It used to be `__dirname`, which under `npm install -g syflo` means
+// node_modules: the next update would have deleted every chat.
+const { resolveDataDir, DB_FILENAME } = require('./paths');
+
+const DATA_DIR = resolveDataDir();
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
-const DB_PATH = path.join(DATA_DIR, 'syflo.db');
+const DB_PATH = path.join(DATA_DIR, DB_FILENAME);
 
 function createDb(dbPath = DB_PATH) {
   const db = new Database(dbPath);

@@ -22,7 +22,9 @@ const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
-const DATA_DIR = process.env.SYFLO_DATA_DIR || path.join(__dirname, '..');
+const { resolveDataDir } = require('./paths');
+
+const DATA_DIR = resolveDataDir();
 
 const DEFAULT_MODEL = process.env.WHISPER_MODEL
   || path.join(DATA_DIR, 'models', 'ggml-small.bin');

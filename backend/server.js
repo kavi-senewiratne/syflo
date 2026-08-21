@@ -4,14 +4,21 @@ const path = require('path');
 const fs = require('fs');
 const { createDb } = require('./database');
 
-// Same SYFLO_DATA_DIR convention as database.js: in the Electron bundle this
-// points to a writable per-user location; in dev (no env var) we fall back to
-// the project's uploads/ folder so existing data keeps working.
-const DATA_DIR = process.env.SYFLO_DATA_DIR || path.join(__dirname, '..');
-const UPLOADS_DIR = path.join(DATA_DIR, 'uploads');
-fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+// One folder for database AND uploads (paths.js). Before 2026-08-21 these two
+// disagreed — the database went to backend/, the uploads to the repo root —
+// so a copied installation arrived with dangling attachment links.
+const { resolveDataDir, migrateLegacyData } = require('./paths');
 
+const DATA_DIR = resolveDataDir();
+const DEFAULT_UPLOADS_DIR = path.join(DATA_DIR, 'uploads');
+
+// options.uploadsDir lets a test hand in a throwaway folder. Without it a test
+// would have to guess the real one and write probe files into the user's own
+// attachments — the same class of mistake that moved a real database into a
+// temp folder on 2026-08-21.
 function createApp(db, options = {}) {
+  const UPLOADS_DIR = options.uploadsDir || DEFAULT_UPLOADS_DIR;
+  fs.mkdirSync(UPLOADS_DIR, { recursive: true });
   const app = express();
   // No CORS layer on purpose: every legitimate client is same-origin (Vite
   // proxies /api in dev, Electron loads the backend origin directly), so
@@ -129,6 +136,20 @@ function createApp(db, options = {}) {
 }
 
 if (require.main === module) {
+  // One-time move of a pre-npm installation. Runs only from the real entry
+  // point — never from a require, and never from a test: migrateLegacyData
+  // throws unless both paths are handed in, so no default can reach a real
+  // install (that mistake cost an 11 MB database once, on 2026-08-21).
+  const legacyDir = __dirname;
+  const { moved } = migrateLegacyData({
+    legacyDir,
+    legacyUploadsDir: path.join(legacyDir, '..', 'uploads'),
+    dataDir: DATA_DIR,
+  });
+  if (moved.length > 0) {
+    console.log(`Moved existing data to ${DATA_DIR}: ${moved.join(', ')}`);
+  }
+
   const db = createDb();
   const app = createApp(db);
   const PORT = process.env.PORT || 3001;

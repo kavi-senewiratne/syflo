@@ -214,6 +214,19 @@ describe('ModelPicker (grouped)', () => {
     expect(screen.getByTestId('model-menu')).toBeInTheDocument();
   });
 
+  // The chat pane carries overflow-hidden (ChatArea/index.tsx): as an
+  // `absolute` child of the composer the 288 px menu lost everything left of
+  // the column edge. Since the portal it hangs on the body instead.
+  it('hangs the menu on the body so the chat column cannot clip it', () => {
+    render(<ModelPicker {...defaultProps} />);
+    openMenu();
+    const menu = screen.getByTestId('model-menu');
+    expect(screen.getByTestId('model-picker-root')).not.toContainElement(menu);
+    expect(menu.parentElement).toBe(document.body);
+    expect(menu.className).not.toContain('absolute');
+    expect(menu.style.position).toBe('fixed');
+  });
+
   it('offers the Thinking row only when the active model can think', () => {
     const { rerender } = render(<ModelPicker {...defaultProps} />);
     openMenu();

@@ -3,6 +3,7 @@ const request = require('supertest');
 const { createApp } = require('../server');
 const { createDb } = require('../database');
 const path = require('path');
+const os = require('os');
 const fs = require('fs');
 
 const TEST_DB_PATH = path.join(__dirname, 'test-security.db');
@@ -45,11 +46,13 @@ describe('cross-origin isolation', () => {
 });
 
 describe('uploaded files', () => {
-  const UPLOADS_DIR = path.join(__dirname, '..', '..', 'uploads');
+  // A throwaway folder handed to createApp — the real uploads folder holds the
+  // user's own attachments and must never be a test's scratch space.
+  const UPLOADS_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'syflo-uploads-'));
   const PROBE = path.join(UPLOADS_DIR, 'security-probe.html');
 
   beforeEach(() => {
-    fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+    app = createApp(db, { uploadsDir: UPLOADS_DIR });
     fs.writeFileSync(PROBE, '<script>alert(1)</script>');
   });
 
