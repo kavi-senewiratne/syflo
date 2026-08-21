@@ -11,7 +11,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Check, ChevronDown, ChevronRight, Clock, CreditCard, Info, Lightbulb, Lock } from 'lucide-react';
+import { Check, ChevronDown, ChevronRight, Clock, CreditCard, Info, Lightbulb, Lock, Plus, Zap } from 'lucide-react';
 import { api } from '../../api';
 import { useStrings } from '../../strings';
 import type { LLMProvider } from '../../types';
@@ -35,13 +35,19 @@ export interface PickerModel {
   // Free quota for the meter chip — absent for token-limited models (Groq),
   // whose request counter would suggest a safety that doesn't exist.
   requestsPerDay?: number;
+  // Token-shaped daily allowance (Groq). Only the setup group shows it: as a
+  // plain number in the subline, never as a meter — nothing counts tokens
+  // for a provider that has no key yet.
+  tokensPerDay?: number;
 }
 
 // One group in the drop-up: a cost tier (free / requires billing) or the
 // local group. Cost is the grouping axis (W2b, chosen 2026-07-30) because
 // several providers mix free and paid models.
 export interface PickerGroup {
-  tier?: 'free' | 'paid' | 'local';
+  // 'setup' (G3, mockup-onboarding-flow §07) is the one group whose rows are
+  // NOT selectable: they name free providers that still need a key.
+  tier?: 'free' | 'paid' | 'local' | 'setup';
   // Group-level provider: only the local group has one; cloud rows carry
   // their provider per model.
   provider?: LLMProvider;
@@ -71,6 +77,10 @@ export interface ModelPickerProps {
   onToggleThink: () => void;
   // "Manage models" / local hint rows → Settings, model tab.
   onOpenSettings: () => void;
+  // G3 (mockup-onboarding-flow §07): a row of the "to set up" group leads to
+  // the key form of THAT provider. Without the handler the row falls back to
+  // the generic Settings path, so the door is never a dead end.
+  onSetupProvider?: (provider: LLMProvider) => void;
   disabled?: boolean;
   // External open request (quota card v3, "Modell wechseln"): every
   // increment opens the drop-up — a counter instead of a boolean so
@@ -87,7 +97,7 @@ export interface ModelPickerProps {
   onMenuOpenChange?: (open: boolean) => void;
 }
 
-export function ModelPicker({ activeProvider, activeModel, groups, ollamaReachable, cloudCount, onSelectModel, think, onToggleThink, onOpenSettings, disabled, openSignal, refreshSignal, onMenuOpenChange }: ModelPickerProps) {
+export function ModelPicker({ activeProvider, activeModel, groups, ollamaReachable, cloudCount, onSelectModel, think, onToggleThink, onOpenSettings, onSetupProvider, disabled, openSignal, refreshSignal, onMenuOpenChange }: ModelPickerProps) {
   // UI copy in the app language — re-renders on language switch.
   const S = useStrings().modelPicker;
   const [open, setOpen] = useState(false);
@@ -127,6 +137,21 @@ export function ModelPicker({ activeProvider, activeModel, groups, ollamaReachab
     .find(({ g, m }) => rowProvider(g, m) === activeProvider && m.name === activeModel)?.m;
   const canThink = Boolean(active?.canThink);
   const localGroupModels = groups.find(g => g.local)?.models ?? [];
+
+  // G3 footer (§07): "1 of 2 free providers set up" makes the gap visible
+  // without advertising. Both numbers come from the groups themselves — a
+  // provider with a key and a free model sits in the free tier, one without
+  // a key sits in the setup group, and a keyed provider whose models are all
+  // paid belongs to neither.
+  const distinctProviders = (tier: PickerGroup['tier']) =>
+    new Set(
+      (groups.find(g => g.tier === tier)?.models ?? [])
+        .filter(m => m.free !== false)
+        .map(m => m.provider)
+        .filter(Boolean),
+    ).size;
+  const freeProvidersReady = distinctProviders('free');
+  const freeProvidersTotal = freeProvidersReady + distinctProviders('setup');
 
   const hintFor = (m: PickerModel): string =>
     m.parameter_size ? S.installedWithSize(m.parameter_size) : S.installed;
@@ -238,14 +263,54 @@ export function ModelPicker({ activeProvider, activeModel, groups, ollamaReachab
                     use in every theme. */}
                 <div
                   className={`px-2.5 pt-1.5 pb-0.5 text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 ${
-                    g.tier === 'free' ? 'text-green-700' : g.tier === 'paid' ? 'text-amber-700' : 'text-gray-400'
+                    g.tier === 'free' ? 'text-green-700' : g.tier === 'paid' ? 'text-amber-700' : g.tier === 'setup' ? 'text-blue-700' : 'text-gray-400'
                   }`}
                 >
                   {g.tier === 'free' && <Check size={10} className="shrink-0" />}
                   {g.tier === 'paid' && <CreditCard size={10} className="shrink-0" />}
+                  {g.tier === 'setup' && <Plus size={10} className="shrink-0" />}
                   {g.label}
                 </div>
-                {g.models.map(m => {
+                {/* G3 (§07): the setup group states the free allowance in the
+                    unit the provider itself uses and what it buys — nothing
+                    is picked here, so no meter and no radio semantics. */}
+                {g.tier === 'setup' && g.models.map(m => {
+                  const provider = rowProvider(g, m);
+                  const quota =
+                    typeof m.requestsPerDay === 'number'
+                      ? S.freeQuotaRequestsPerDay(m.requestsPerDay)
+                      : typeof m.tokensPerDay === 'number'
+                        ? S.freeQuotaTokensPerDay(m.tokensPerDay)
+                        : null;
+                  const subtitle = [quota, S.reserveHint, m.vision === false ? S.noImages : null]
+                    .filter(Boolean)
+                    .join(' · ');
+                  return (
+                    <button
+                      key={`setup/${provider}`}
+                      role="menuitem"
+                      onClick={() => {
+                        setOpen(false);
+                        if (onSetupProvider) onSetupProvider(provider);
+                        else onOpenSettings();
+                      }}
+                      data-testid={`setup-item-${provider}`}
+                      className="w-full flex items-start gap-2 px-2.5 py-2 rounded-lg text-left transition-colors hover:bg-gray-50"
+                    >
+                      <Zap size={12} className="shrink-0 mt-1 text-blue-700" />
+                      <span className="flex-1 min-w-0">
+                        <span className="block font-semibold text-[13px] text-gray-900 truncate">
+                          {m.label ?? m.name}
+                        </span>
+                        <span className="block text-[11.5px] text-gray-500">{subtitle}</span>
+                      </span>
+                      <span className="shrink-0 mt-0.5 inline-flex items-center gap-1 rounded-full border border-blue-100 bg-blue-50 px-1.5 py-px text-[10px] font-semibold text-blue-700 whitespace-nowrap">
+                        {S.setupBadge}
+                      </span>
+                    </button>
+                  );
+                })}
+                {g.tier !== 'setup' && g.models.map(m => {
                   const provider = rowProvider(g, m);
                   const isActive = provider === activeProvider && m.name === activeModel;
                   const entry = cooldowns[`${provider}/${m.name}`];
@@ -373,6 +438,7 @@ export function ModelPicker({ activeProvider, activeModel, groups, ollamaReachab
                   : S.ollamaRunningShort}
               {' · '}
               {S.cloudProvidersCount(cloudCount)}
+              {freeProvidersTotal > 0 && ` · ${S.freeProvidersCount(freeProvidersReady, freeProvidersTotal)}`}
             </span>
           </div>
         </div>

@@ -787,3 +787,53 @@ export interface SettingsUpdate {
   custom_instructions?: string;
   custom_instructions_enabled?: boolean;
 }
+
+// ─── Vision gate at attach time (mockup-onboarding-flow §04, V1+V2) ─────────
+//
+// The image check moved from send time to ATTACH time (decision 2026-08-15):
+// the user learns before typing that the active model cannot read the image,
+// so nothing is lost. App.tsx computes this from the registry and hands it to
+// the composer; the composer only renders.
+
+export interface VisionSwitchTarget {
+  provider: LLMProvider;
+  model: string;
+  label: string;
+}
+
+// One row of "these could read images" — V2, when nothing configured can.
+export interface VisionSetupOption {
+  kind: 'cloud' | 'local';
+  provider: LLMProvider;
+  model: string;
+  label: string;
+  // Cloud rows carry their free daily quota, local rows their download size.
+  requestsPerDay?: number;
+  size?: string;
+}
+
+export interface VisionGate {
+  // false → the ACTIVE model is text-only and an image is attached.
+  activeReadsImages: boolean;
+  // Label of the ACTIVE model, for the warning chip. Lives here rather than
+  // as a separate prop so it can never disagree with activeReadsImages.
+  activeLabel: string;
+  // V1: a configured model that reads images. null → V2 applies.
+  switchTarget: VisionSwitchTarget | null;
+  // V2: vision models the user could set up (empty when switchTarget exists).
+  setupOptions: VisionSetupOption[];
+}
+
+// ─── Free provider still to set up (mockup-onboarding-flow §07, G2+G3) ──────
+//
+// A cloud provider with a free tier and NO key yet. G3 lists these in the
+// picker's "to set up" group; G2 offers the first one on the daily-limit card.
+
+export interface FreeProviderOffer {
+  provider: LLMProvider;
+  label: string;
+  // Pre-formatted quota line in the app language, e.g. "300.000 Token am Tag".
+  quota: string;
+  // Groq's free models are text-only — the offer must say so.
+  readsImages: boolean;
+}

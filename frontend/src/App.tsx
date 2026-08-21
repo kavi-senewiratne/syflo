@@ -46,6 +46,7 @@ import { api, StreamFailedError, TreeHasSourceError } from './api';
 import { TextSmoother } from './streaming/TextSmoother';
 import { orderMessages } from './chat/messageOrder';
 import { buildPickerGroups } from './chat/pickerGroups';
+import { buildFreeProviderOffer, buildVisionGate } from './chat/modelOffers';
 import { awaitTitle, startPassageTitle, type PendingTitle } from './chat/passageTitle';
 import { branchTargetsFor } from './chat/branchTargets';
 import { useHighlights } from './hooks/useHighlights';
@@ -3274,6 +3275,30 @@ export default function App() {
               cloudFallback={cloudFallback}
               onRetryCloudModel={(m) => void handleRetryCloudModel(m)}
               freeFallback={freeFallback}
+              // §04 V1+V2: the image gate is computed once, from the same
+              // registry the picker reads, and handed to the composer.
+              visionGate={
+                settings
+                  ? buildVisionGate({ settings, registry, ollamaModels, ollamaReachable })
+                  : undefined
+              }
+              onSwitchVisionModel={(target) => void handleSelectModel(target.provider, target.model)}
+              onOpenSettingsForProvider={(provider) => openSettings('model', provider)}
+              // §07 G2: the free provider still missing a key. Never the one
+              // whose limit just hit — offering it back would be absurd.
+              freeProviderOffer={
+                settings
+                  ? buildFreeProviderOffer({
+                      settings,
+                      registry,
+                      labels: {
+                        requestsPerDay: STR.modelPicker.freeQuotaRequestsPerDay,
+                        tokensPerDay: STR.modelPicker.freeQuotaTokensPerDay,
+                      },
+                    })
+                  : null
+              }
+              onAddFreeProvider={(provider) => openSettings('model', provider)}
               onRetryFreeModel={(m) => void handleRetryFreeModel(m)}
               onResendUnanswered={handleResendUnanswered}
               modelLabels={modelLabels}
@@ -3316,6 +3341,7 @@ export default function App() {
                       free: STR.modelPicker.freeGroup,
                       paid: STR.modelPicker.paidGroup,
                       local: STR.modelPicker.localGroup,
+                      setup: STR.modelPicker.setupGroup,
                     })}
                     ollamaReachable={ollamaReachable}
                     cloudCount={CLOUD_PROVIDERS.filter(p => settings[`${p}_api_key_set`]).length}
@@ -3325,6 +3351,9 @@ export default function App() {
                       setThinkByChat(prev => ({ ...prev, [activeChatId]: !prev[activeChatId] }))
                     }
                     onOpenSettings={() => openSettings('model')}
+                    // G3 (§07): a "to set up" row is not a model choice — it
+                    // opens that provider's key form.
+                    onSetupProvider={(provider) => openSettings('model', provider)}
                     disabled={streamingChatIds.has(activeChatId)}
                     openSignal={pickerOpenSignal}
                     refreshSignal={modelSystemSignal}

@@ -333,6 +333,30 @@ const en = {
     localVisionTip: (localModel: string) => `${localModel} understands images.`,
     switchModelVisionTip: 'Models without image understanding are labeled "no images" in the menu. Picking one retries this answer right away.',
     removeImageFootnote: 'Or remove the image from the question and send it again.',
+    // Vision gate BEFORE sending (mockup-onboarding-flow §04 V1+V2, chosen
+    // 2026-08-15): the check moved from send time to attach time, so nothing
+    // is lost when the active model cannot read the image.
+    visionChipWarning: (model: string) => `${model} can't read images`,
+    visionSwitchTitle: 'Reading this image needs a different model.',
+    visionSwitchAction: (model: string) => `Switch to ${model}`,
+    visionRemoveImage: 'Remove image',
+    // V2 — nothing configured can read images at all.
+    visionNoneTitle: 'No model yet that reads images',
+    visionNoneBody: 'Your configured models only understand text. These can read images:',
+    visionSetupBadge: 'Set up',
+    visionLoadBadge: 'Download',
+    visionAskAnyway: 'Remove image and ask anyway',
+    visionCloudRow: (requestsPerDay: number) =>
+      `free · ${requestsPerDay} questions a day · get a key`,
+    visionLocalRow: (size: string) => `local · private · ${size} download`,
+    // G2 (mockup-onboarding-flow §07, chosen 2026-08-15): the daily-limit card
+    // offers the OTHER free provider — with its quota and its limits, never a
+    // recommendation.
+    freeProviderOffer: (label: string, quota: string) =>
+      `With a ${label} key you could keep working right away — ${quota}, free of charge.`,
+    freeProviderNoImagesNote: (label: string) => `${label} does not read images, though.`,
+    freeProviderAddAction: (label: string) => `Add ${label}`,
+    freeProviderWait: 'Wait until tomorrow',
     failNetwork: 'No connection to the Syflo backend.',
     networkFootnote: 'Is Syflo still running? If in doubt, restart the app.',
     failLocalMissing: (modelName: string) => `The local model ${modelName} is not installed.`,
@@ -592,6 +616,15 @@ const en = {
     coolingInSeconds: (seconds: number) => `back in ${seconds} s`,
     // Grouped picker (mockup-model-flow §02–§04).
     localGroup: 'Local · Ollama',
+    // G3 (mockup-onboarding-flow §07, chosen 2026-08-15): free providers
+    // WITHOUT a key get their own group so the gap is visible without a nag.
+    setupGroup: 'To set up',
+    setupBadge: 'Set up',
+    freeQuotaRequestsPerDay: (n: number) => `free · ${n} questions a day`,
+    freeQuotaTokensPerDay: (n: number) => `free · ${n.toLocaleString('en-US')} tokens a day`,
+    reserveHint: 'reserve once the daily limit is reached',
+    freeProvidersCount: (have: number, total: number) =>
+      `${have} of ${total} free providers set up`,
     noImages: "can't read images",
     noLongerAvailable: 'no longer available',
     ollamaRunningShort: 'Ollama running',
@@ -981,6 +1014,23 @@ const de: Strings = {
     localVisionTip: (localModel: string) => `${localModel} versteht Bilder.`,
     switchModelVisionTip: 'Im Menü steht bei Modellen ohne Bildverständnis „liest keine Bilder". Nach der Wahl wird diese Antwort sofort neu versucht.',
     removeImageFootnote: 'Oder entferne das Bild aus der Frage und sende sie erneut.',
+    visionChipWarning: (model: string) => `${model} liest keine Bilder`,
+    visionSwitchTitle: 'Zum Lesen des Bildes braucht Syflo ein anderes Modell.',
+    visionSwitchAction: (model: string) => `Auf ${model} wechseln`,
+    visionRemoveImage: 'Bild entfernen',
+    visionNoneTitle: 'Noch kein Modell, das Bilder liest',
+    visionNoneBody: 'Deine eingerichteten Modelle verstehen nur Text. Bilder lesen können:',
+    visionSetupBadge: 'Einrichten',
+    visionLoadBadge: 'Laden',
+    visionAskAnyway: 'Bild entfernen und trotzdem fragen',
+    visionCloudRow: (requestsPerDay: number) =>
+      `kostenlos · ${requestsPerDay} Fragen am Tag · Schlüssel holen`,
+    visionLocalRow: (size: string) => `lokal · privat · ${size} laden`,
+    freeProviderOffer: (label: string, quota: string) =>
+      `Mit einem ${label}-Schlüssel könntest du sofort weiterarbeiten — ${quota}, kostenlos.`,
+    freeProviderNoImagesNote: (label: string) => `${label} liest allerdings keine Bilder.`,
+    freeProviderAddAction: (label: string) => `${label} hinzufügen`,
+    freeProviderWait: 'Bis morgen warten',
     failNetwork: 'Keine Verbindung zum Syflo-Backend.',
     networkFootnote: 'Läuft Syflo noch? Im Zweifel die App neu starten.',
     failLocalMissing: (modelName: string) => `Das lokale Modell ${modelName} ist nicht installiert.`,
@@ -1192,6 +1242,13 @@ const de: Strings = {
     coolingUntilTime: (time: string) => `ab ca. ${time}`,
     coolingInSeconds: (seconds: number) => `in ${seconds} s`,
     localGroup: 'Lokal · Ollama',
+    setupGroup: 'Noch einzurichten',
+    setupBadge: 'Einrichten',
+    freeQuotaRequestsPerDay: (n: number) => `kostenlos · ${n} Fragen am Tag`,
+    freeQuotaTokensPerDay: (n: number) => `kostenlos · ${n.toLocaleString('de-DE')} Token am Tag`,
+    reserveHint: 'Reserve, wenn das Tageslimit erreicht ist',
+    freeProvidersCount: (have: number, total: number) =>
+      `${have} von ${total} Gratis-Anbietern eingerichtet`,
     noImages: 'liest keine Bilder',
     noLongerAvailable: 'nicht mehr verfügbar',
     ollamaRunningShort: 'Ollama läuft',

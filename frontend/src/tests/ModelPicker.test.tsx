@@ -232,3 +232,110 @@ describe('ModelPicker (grouped)', () => {
     expect(defaultProps.onOpenSettings).toHaveBeenCalled();
   });
 });
+
+// G3 (mockup-onboarding-flow §07, chosen 2026-08-15): a free provider without
+// a key gets a permanent row of its own — numbers and limits, no nagging and
+// no "recommended". The row is a door to Settings, never a model to pick.
+const SETUP_GROUPS: PickerGroup[] = [
+  {
+    tier: 'free',
+    label: 'Free',
+    models: [
+      { name: 'gemini-flash-lite-latest', label: 'Gemini Flash Lite', canThink: true, vision: true, provider: 'gemini', providerLabel: 'Gemini', free: true, requestsPerDay: 500 },
+    ],
+  },
+  {
+    tier: 'setup',
+    label: 'To set up',
+    models: [
+      { name: 'openai/gpt-oss-120b', label: 'Groq', vision: false, provider: 'groq', providerLabel: 'Groq', free: true, tokensPerDay: 200000 },
+    ],
+  },
+  {
+    tier: 'local',
+    provider: 'ollama',
+    label: 'Local · Ollama',
+    local: true,
+    models: [{ name: 'qwen3.5:9b', parameter_size: '9.7B', canThink: true }],
+  },
+];
+
+describe('ModelPicker (setup group)', () => {
+  beforeEach(() => {
+    defaultProps.onSelectModel.mockClear();
+    defaultProps.onOpenSettings.mockClear();
+    cooldownsSpy = vi.spyOn(api, 'getQuotaCooldowns').mockResolvedValue([]);
+    usageSpy = vi.spyOn(api, 'getUsageSummary').mockResolvedValue({
+      month: '2026-07', pricesAsOf: '2026-07-30', providers: {}, modelsToday: {},
+    });
+  });
+  afterEach(() => {
+    cooldownsSpy.mockRestore();
+    usageSpy.mockRestore();
+  });
+
+  it('names the provider with its free quota and what the quota is good for', () => {
+    render(<ModelPicker {...defaultProps} groups={SETUP_GROUPS} />);
+    openMenu();
+    expect(screen.getByText('To set up')).toBeInTheDocument();
+    const row = screen.getByTestId('setup-item-groq');
+    expect(row).toHaveTextContent('Groq');
+    expect(row).toHaveTextContent('free · 200,000 tokens a day');
+    expect(row).toHaveTextContent('reserve once the daily limit is reached');
+    expect(row).toHaveTextContent('Set up');
+  });
+
+  it('a click asks for that provider’s key instead of selecting a model', () => {
+    const onSetupProvider = vi.fn();
+    render(<ModelPicker {...defaultProps} groups={SETUP_GROUPS} onSetupProvider={onSetupProvider} />);
+    openMenu();
+    const row = screen.getByTestId('setup-item-groq');
+    // Not a radio: nothing here is a choice between models.
+    expect(row).toHaveAttribute('role', 'menuitem');
+    fireEvent.click(row);
+    expect(onSetupProvider).toHaveBeenCalledWith('groq');
+    expect(defaultProps.onSelectModel).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('model-menu')).not.toBeInTheDocument();
+  });
+
+  it('falls back to the generic Settings path when no setup handler is wired', () => {
+    render(<ModelPicker {...defaultProps} groups={SETUP_GROUPS} />);
+    openMenu();
+    fireEvent.click(screen.getByTestId('setup-item-groq'));
+    expect(defaultProps.onOpenSettings).toHaveBeenCalled();
+  });
+
+  it('footer counts the free providers that are set up against those that exist', () => {
+    render(<ModelPicker {...defaultProps} groups={SETUP_GROUPS} />);
+    openMenu();
+    expect(screen.getByTestId('picker-provider-status')).toHaveTextContent('1 of 2 free providers set up');
+  });
+
+  it('shows no usage meter on a setup row — nothing has been spent there yet', async () => {
+    usageSpy.mockResolvedValue({
+      month: '2026-07', pricesAsOf: '2026-07-30', providers: {},
+      modelsToday: { 'groq/openai/gpt-oss-120b': 4 },
+    });
+    render(<ModelPicker {...defaultProps} groups={SETUP_GROUPS} />);
+    openMenu();
+    await act(async () => { await Promise.resolve(); });
+    expect(screen.queryByTestId('model-quota-openai/gpt-oss-120b')).not.toBeInTheDocument();
+  });
+
+  it('leaves out the image caveat for a setup provider that does read images', () => {
+    const geminiToSet: PickerGroup[] = [
+      {
+        tier: 'setup',
+        label: 'To set up',
+        models: [
+          { name: 'gemini-flash-lite-latest', label: 'Gemini', vision: true, provider: 'gemini', providerLabel: 'Gemini', free: true, requestsPerDay: 500 },
+        ],
+      },
+    ];
+    render(<ModelPicker {...defaultProps} groups={geminiToSet} />);
+    openMenu();
+    const row = screen.getByTestId('setup-item-gemini');
+    expect(row).toHaveTextContent('free · 500 questions a day');
+    expect(row).not.toHaveTextContent("can't read images");
+  });
+});

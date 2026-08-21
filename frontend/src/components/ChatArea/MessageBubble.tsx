@@ -44,7 +44,7 @@ import { useStrings } from '../../strings';
 import { gfmTableComponents } from './markdownTables';
 import { CodeBlock } from './CodeBlock';
 import { FAILED_MARKER, INTERRUPTED_MARKER } from '../../types';
-import type { ChatSelection, HighlightColor, Message, MessageHighlight } from '../../types';
+import type { ChatSelection, FreeProviderOffer, HighlightColor, LLMProvider, Message, MessageHighlight } from '../../types';
 
 // ReactMarkdown's defaultUrlTransform strips URLs with unknown schemes (anything
 // besides http, https, mailto, tel) for safety. Our internal schemes would be
@@ -153,6 +153,13 @@ interface Props {
   // the first FREE model — switching + auto-retry in one click.
   freeFallback?: { providerLabel: string; modelLabel: string } | null;
   onRetryFreeModel?: (message: Message) => void;
+  // G2 (mockup-onboarding-flow §07, chosen 2026-08-15): the OTHER free
+  // provider, offered on the daily-limit card because that is where its
+  // allowance stops being advertising and becomes a way out. Absent means the
+  // card looks exactly as it did before — every free provider already has a
+  // key, or the failure was not a daily limit.
+  freeProviderOffer?: FreeProviderOffer;
+  onAddFreeProvider?: (provider: LLMProvider) => void;
   // Queue transparency (mockup-model-flow §07): when the queued event names
   // the chat being answered RIGHT NOW and it is a different chat, the
   // waiting text becomes a link that jumps there.
@@ -279,6 +286,8 @@ export function MessageBubble({
   onRetryFreeModel,
   onOpenChat,
   onQuoteClick,
+  freeProviderOffer,
+  onAddFreeProvider,
 }: Props) {
   // UI-Texte in der App language — re-rendert beim Sprachwechsel mit.
   const STR = useStrings();
@@ -1078,7 +1087,40 @@ export function MessageBubble({
                   {STR.chatArea.quotaMinuteNote}
                 </p>
               )}
+              {/* G2 (§07): the second free provider, named with its allowance
+                  AND its limits — numbers only, never "recommended". */}
+              {message.quotaReason === 'daily' && freeProviderOffer && (
+                <p data-testid="free-provider-offer" className="text-[11.5px] text-gray-500">
+                  {STR.chatArea.freeProviderOffer(freeProviderOffer.label, freeProviderOffer.quota)}
+                  {freeProviderOffer.readsImages === false && (
+                    <>{' '}{STR.chatArea.freeProviderNoImagesNote(freeProviderOffer.label)}</>
+                  )}
+                </p>
+              )}
               <div className="flex flex-wrap items-center gap-2">
+                {message.quotaReason === 'daily' && freeProviderOffer && onAddFreeProvider && (
+                  // G2 (§07) exits: setting up the provider takes the user out
+                  // of the wall today; waiting is the equally valid other
+                  // answer, so it gets a plain button — not a dismissed link.
+                  <>
+                    <button
+                      type="button"
+                      data-testid="add-free-provider-button"
+                      onClick={() => onAddFreeProvider(freeProviderOffer.provider)}
+                      className="inline-flex items-center gap-1 rounded-md border border-blue-100 bg-blue-50 px-2 py-0.5 text-[12px] font-semibold text-blue-700 transition-colors hover:bg-blue-100"
+                    >
+                      <Key size={11} className="shrink-0" />
+                      {STR.chatArea.freeProviderAddAction(freeProviderOffer.label)}
+                    </button>
+                    <button
+                      type="button"
+                      data-testid="free-provider-wait-button"
+                      className="inline-flex items-center gap-1 rounded-md border border-gray-200 px-2 py-0.5 text-[12px] font-medium text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-700"
+                    >
+                      {STR.chatArea.freeProviderWait}
+                    </button>
+                  </>
+                )}
                 {message.quotaReason === 'billing' && freeFallback && onRetryFreeModel && (
                   // W4 primary exit: answer with the first FREE model —
                   // switch + auto-retry in one click; the deliberate paid

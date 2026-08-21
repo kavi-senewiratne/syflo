@@ -6,7 +6,7 @@
  */
 
 import { Fragment, useState, useRef, useEffect, useImperativeHandle, useMemo } from 'react';
-import { AlertCircle, Loader2, Mic, MicOff, MessageCircleQuestionMark, Plus, ArrowUp, Check, ChevronDown, CornerDownRight, GitBranch, Highlighter, Image as ImageIcon, ImagePlus, FileText, BookOpen, MessageSquareQuote, MessageSquarePlus, RotateCcw, Square, TvMinimalPlay, X } from 'lucide-react';
+import { AlertCircle, Cpu, Eye, EyeOff, Loader2, Mic, MicOff, MessageCircleQuestionMark, Plus, ArrowUp, Check, ChevronDown, CornerDownRight, GitBranch, Highlighter, Image as ImageIcon, ImagePlus, FileText, BookOpen, MessageSquareQuote, MessageSquarePlus, RotateCcw, Square, TvMinimalPlay, X, Zap } from 'lucide-react';
 import { MessageBubble } from './MessageBubble';
 import { BranchTrace } from './BranchTrace';
 import { InlineMarkdown } from './InlineMarkdown';
@@ -18,7 +18,7 @@ import { VoiceWaveform } from './VoiceWaveform';
 import { useVoiceInput } from '../../hooks/useVoiceInput';
 import { useStrings } from '../../strings';
 import { HIGHLIGHT_HEX } from '../../types';
-import type { Aside, BranchTarget, ChatDetail, ChatSelection, ComposerQuote, HighlightColor, LocalAttachment, Message, MessageHighlight, WordPopup } from '../../types';
+import type { Aside, BranchTarget, ChatDetail, ChatSelection, ComposerQuote, FreeProviderOffer, HighlightColor, LLMProvider, LocalAttachment, Message, MessageHighlight, VisionGate, VisionSwitchTarget, WordPopup } from '../../types';
 import { isOverlayOpen } from '../../overlay';
 import { rangeFromOffsets } from '../../chat/highlightAnchors';
 import { deriveQuestions, currentQuestionIndex } from '../../chat/questionNav';
@@ -174,11 +174,26 @@ interface Props {
   // W4 billing card (cost tiers 2026-07-30): primary exit to the first
   // FREE model — switch + auto-retry.
   freeFallback?: { providerLabel: string; modelLabel: string } | null;
+  // G2 (§07): the daily-limit card names the free provider that has no key
+  // yet. ChatArea only forwards it — the rule lives in chat/modelOffers.ts.
+  freeProviderOffer?: FreeProviderOffer | null;
+  onAddFreeProvider?: (provider: LLMProvider) => void;
   onRetryFreeModel?: (message: Message) => void;
   // "Erneut senden" of the unanswered row (mockup-model-flow §10): a
   // trailing user message without an answer and without a live stream —
   // the handler runs the non-anchored regenerate that claims the question.
   onResendUnanswered?: (message: Message) => void;
+  // Vision gate (mockup-onboarding-flow §04, V1+V2): the image check sits at
+  // ATTACH time, not at send time — the user learns that the active model is
+  // text-only while the question is still unwritten, so nothing is lost.
+  // App computes the gate from the registry; the composer only renders it.
+  visionGate?: VisionGate;
+  // Display label of the ACTIVE model — the warning chip names the model that
+  // V1 exit: switch to the configured model that reads images (the attachment
+  // and the typed text survive the switch).
+  onSwitchVisionModel?: (target: VisionSwitchTarget) => void;
+  // V2 exit: open Settings · Models at the provider whose row was clicked.
+  onOpenSettingsForProvider?: (provider: LLMProvider) => void;
   // Nur für Tests: ersetzt den AudioWorklet-Recorder des Diktats durch einen
   // Fake (durchgereicht an useVoiceInput, gleiches Muster wie dort).
   voiceRecorderFactory?: Parameters<typeof useVoiceInput>[0]['recorderFactory'];
@@ -263,7 +278,7 @@ function renderComposerHighlight(text: string): React.ReactNode {
   );
 }
 
-export function ChatArea({ chat, videoYoutubeId, onTimeMarkClick, loading, streaming, onSendMessage, onWordRightClick, onSelectChat, onUploadPdf, onOpenPaperSearch, onOpenYouTubeSearch, videoBanner, transcriptDrawer, chatHighlights, onChatSelection, onHighlightContextMenu, pendingSelection, onBranchedFromClick, parentTitle, onQuoteClick, composerQuote, onClearComposerQuote, onOpenFeedback, onAskAside, onOpenTopicBranch, branchTargets, aside, onDismissAside, onKeepAside, onBranchAside, onToggleHighlights, highlightsOpen, highlightsDrawer, modelPicker, onStopStreaming, streamingMessageIds, onRetryMessage, onContinueMessage, setupNotice, modelLabels, onRetryLocalModel, hasLocalModel, billingUrl, billingUrls, onOpenModelPicker, settingsChangedAt, onOpenSettings, providerLabels, localModelName, cloudFallback, onRetryCloudModel, freeFallback, onRetryFreeModel, onResendUnanswered, voiceRecorderFactory, ref }: Props) {
+export function ChatArea({ chat, videoYoutubeId, onTimeMarkClick, loading, streaming, onSendMessage, onWordRightClick, onSelectChat, onUploadPdf, onOpenPaperSearch, onOpenYouTubeSearch, videoBanner, transcriptDrawer, chatHighlights, onChatSelection, onHighlightContextMenu, pendingSelection, onBranchedFromClick, parentTitle, onQuoteClick, composerQuote, onClearComposerQuote, onOpenFeedback, onAskAside, onOpenTopicBranch, branchTargets, aside, onDismissAside, onKeepAside, onBranchAside, onToggleHighlights, highlightsOpen, highlightsDrawer, modelPicker, onStopStreaming, streamingMessageIds, onRetryMessage, onContinueMessage, setupNotice, modelLabels, onRetryLocalModel, hasLocalModel, billingUrl, billingUrls, onOpenModelPicker, settingsChangedAt, onOpenSettings, providerLabels, localModelName, cloudFallback, onRetryCloudModel, freeFallback, onRetryFreeModel, onResendUnanswered, freeProviderOffer, onAddFreeProvider, visionGate, onSwitchVisionModel, onOpenSettingsForProvider, voiceRecorderFactory, ref }: Props) {
   // UI-Texte in der App language — re-rendert beim Sprachwechsel mit.
   const S = useStrings().chatArea;
   const [input, setInput] = useState('');
@@ -975,6 +990,28 @@ export function ChatArea({ chat, videoYoutubeId, onTimeMarkClick, loading, strea
     });
   };
 
+  // Vision gate (mockup-onboarding-flow §04, V1+V2). The check runs over the
+  // ATTACHED files instead of at send time: the user sees the warning while the
+  // question is still unwritten, so no typed question is ever lost to it. Only
+  // images can trip the gate — PDFs and text files reach the model as text.
+  const hasImageAttachment = attachments.some(a => a.file.type.startsWith('image/'));
+  const visionBlocked = Boolean(visionGate && !visionGate.activeReadsImages && hasImageAttachment);
+  const visionSwitchTarget = visionBlocked ? visionGate?.switchTarget ?? null : null;
+  // V2 applies exactly when nothing configured reads images, i.e. no switch
+  // target exists — then the card offers the models that could be set up.
+  const visionSetupOptions = visionBlocked && !visionSwitchTarget ? visionGate?.setupOptions ?? [] : [];
+
+  // Both exits of the gate drop the images and keep everything else: the typed
+  // question survives, only the part the model cannot read goes away.
+  const removeImageAttachments = () => {
+    setAttachments(prev => {
+      for (const att of prev) {
+        if (att.file.type.startsWith('image/') && att.previewUrl) URL.revokeObjectURL(att.previewUrl);
+      }
+      return prev.filter(a => !a.file.type.startsWith('image/'));
+    });
+  };
+
   // Bringt einen rohen User-Eingabe-String in eine gültige Alias-Form:
   // - sicheres "@" am Anfang
   // - Whitespace → Underscore (damit der Alias als ein Token im Text steht)
@@ -1645,6 +1682,8 @@ export function ChatArea({ chat, videoYoutubeId, onTimeMarkClick, loading, strea
                     cloudFallback={cloudFallback}
                     onRetryCloudModel={onRetryCloudModel}
                     freeFallback={freeFallback}
+                    freeProviderOffer={freeProviderOffer ?? undefined}
+                    onAddFreeProvider={onAddFreeProvider}
                     onRetryFreeModel={onRetryFreeModel}
                     onWordRightClick={(word, context, x, y) =>
                       onWordRightClick({ word, context, x, y })
@@ -1804,6 +1843,110 @@ export function ChatArea({ chat, videoYoutubeId, onTimeMarkClick, loading, strea
                     onRename={(newAlias) => handleRenameAttachment(i, newAlias)}
                   />
                 ))}
+                {/* Warning chip right next to the attachment chips (§04 V1):
+                    the gate names the model that cannot read the image. Without
+                    a label there is nothing to name, so the chip stays away —
+                    the card below still carries the exit. */}
+                {visionBlocked && visionGate?.activeLabel && (
+                  <span
+                    data-testid="vision-warning-chip"
+                    className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700"
+                  >
+                    <EyeOff size={12} className="shrink-0" />
+                    {S.visionChipWarning(visionGate.activeLabel)}
+                  </span>
+                )}
+              </div>
+            )}
+
+            {/* §04 V1 — a configured model reads images: name it. Switching
+                keeps the attachment and the typed text; only the model moves. */}
+            {visionSwitchTarget && (
+              <div
+                data-testid="vision-switch-card"
+                className="mb-2 mx-2 rounded-xl border border-blue-100 bg-blue-50/60 px-3 py-2.5"
+              >
+                <p className="text-[13px] font-semibold text-gray-900">{S.visionSwitchTitle}</p>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    // Only the model moves: attachment and typed text stay, so
+                    // the question can be finished after the switch.
+                    onClick={() => onSwitchVisionModel?.(visionSwitchTarget)}
+                    data-testid="vision-switch-button"
+                    className="inline-flex items-center gap-1 rounded-md border border-blue-100 bg-blue-50 px-2 py-0.5 text-[12px] font-semibold text-blue-700 transition-colors hover:bg-blue-100"
+                  >
+                    <Eye size={11} className="shrink-0" />
+                    {S.visionSwitchAction(visionSwitchTarget.label)}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={removeImageAttachments}
+                    data-testid="vision-remove-image"
+                    className="inline-flex items-center gap-1 rounded-md border border-gray-200 px-2 py-0.5 text-[12px] font-medium text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-700"
+                  >
+                    {S.visionRemoveImage}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* §04 V2 — nothing configured reads images. The state the user
+                strands in today gets an exit, with price and size attached. */}
+            {visionSetupOptions.length > 0 && (
+              <div
+                data-testid="vision-none-card"
+                className="mb-2 mx-2 rounded-xl border border-blue-100 bg-blue-50/60 px-3 py-2.5"
+              >
+                <p className="flex items-center gap-1.5 text-[13px] font-semibold text-gray-900">
+                  <EyeOff size={13} className="shrink-0 text-blue-600" />
+                  {S.visionNoneTitle}
+                </p>
+                <p className="mt-1 text-[11.5px] text-gray-600">{S.visionNoneBody}</p>
+                <div className="mt-2 overflow-hidden rounded-lg border border-gray-200 bg-white">
+                  {visionSetupOptions.map((opt, i) => (
+                    <button
+                      key={`${opt.provider}-${opt.model}`}
+                      type="button"
+                      // Both kinds lead to Settings · Models: that is where the
+                      // key is pasted AND where a local model is downloaded.
+                      onClick={() => onOpenSettingsForProvider?.(opt.provider)}
+                      data-testid={`vision-setup-row-${opt.model}`}
+                      className={`flex w-full items-center gap-2 px-2.5 py-2 text-left transition-colors hover:bg-gray-50 ${
+                        i > 0 ? 'border-t border-gray-200' : ''
+                      }`}
+                    >
+                      {opt.kind === 'cloud'
+                        ? <Zap size={13} className="shrink-0 text-blue-600" />
+                        : <Cpu size={13} className="shrink-0 text-gray-400" />}
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[13px] font-semibold text-gray-900">{opt.label}</span>
+                        <span className={`block truncate text-[11.5px] ${opt.kind === 'cloud' ? 'text-blue-700' : 'text-gray-500'}`}>
+                          {opt.kind === 'cloud'
+                            ? S.visionCloudRow(opt.requestsPerDay ?? 0)
+                            : S.visionLocalRow(opt.size ?? '')}
+                        </span>
+                      </span>
+                      <span className={`shrink-0 rounded-full border px-1.5 py-px text-[10px] font-semibold ${
+                        opt.kind === 'cloud'
+                          ? 'border-blue-100 bg-blue-50 text-blue-700'
+                          : 'border-gray-200 bg-gray-50 text-gray-500'
+                      }`}>
+                        {opt.kind === 'cloud' ? S.visionSetupBadge : S.visionLoadBadge}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+                <div className="mt-2">
+                  <button
+                    type="button"
+                    onClick={removeImageAttachments}
+                    data-testid="vision-ask-anyway"
+                    className="inline-flex items-center gap-1 rounded-md border border-gray-200 px-2 py-0.5 text-[12px] font-medium text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-700"
+                  >
+                    {S.visionAskAnyway}
+                  </button>
+                </div>
               </div>
             )}
 
@@ -1975,6 +2118,7 @@ export function ChatArea({ chat, videoYoutubeId, onTimeMarkClick, loading, strea
                 onChange={handleFilesSelected}
                 className="hidden"
                 accept="image/*,text/*,.pdf,.md,.txt,.csv,.json"
+                data-testid="media-file-input"
               />
               {/* Verstecktes PDF-Input für "Upload file" (Paper an den Tree binden) */}
               <input
