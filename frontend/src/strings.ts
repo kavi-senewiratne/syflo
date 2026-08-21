@@ -357,6 +357,15 @@ const en = {
     freeProviderNoImagesNote: (label: string) => `${label} does not read images, though.`,
     freeProviderAddAction: (label: string) => `Add ${label}`,
     freeProviderWait: 'Wait until tomorrow',
+    // First run, variant O2 (mockup-onboarding-flow §03, chosen 2026-08-15):
+    // the composer stays usable — typing, attaching, dictating all work — and
+    // only sending is locked. The setup card used to replace the whole row, so
+    // the app was sealed before the user could see what it was for.
+    firstRunBanner: 'No model yet',
+    firstRunBannerAction: 'set up in 1 minute',
+    firstRunPillLabel: 'Set up model',
+    firstRunSendTip: 'Answering needs a model — pick a path first',
+    firstRunAnswerNote: 'Answering needs a model.',
     failNetwork: 'No connection to the Syflo backend.',
     networkFootnote: 'Is Syflo still running? If in doubt, restart the app.',
     failLocalMissing: (modelName: string) => `The local model ${modelName} is not installed.`,
@@ -625,6 +634,17 @@ const en = {
     reserveHint: 'reserve once the daily limit is reached',
     freeProvidersCount: (have: number, total: number) =>
       `${have} of ${total} free providers set up`,
+    // Six states, six words (mockup-onboarding-flow §02, 2026-08-15). The
+    // group used to be one bucket called "not usable right now", which on a
+    // fresh install read as "everything is broken" — nothing is broken there,
+    // nothing is set up. Hence two groups, and a state for "we did not check".
+    usableGroup: 'Usable now',
+    unavailableGroup: 'Not usable right now',
+    // The state an expired cooldown falls into. It must NOT turn green: the
+    // wait is over, but nothing was measured. Only a successful call proves it.
+    statusUnknown: 'Status unknown',
+    statusUnknownTip: 'The wait is over, but nothing has been checked. The next question settles it.',
+    dailyLimitLabel: (resetTime: string) => `daily limit · back at ${resetTime}`,
     noImages: "can't read images",
     noLongerAvailable: 'no longer available',
     ollamaRunningShort: 'Ollama running',
@@ -1031,6 +1051,11 @@ const de: Strings = {
     freeProviderNoImagesNote: (label: string) => `${label} liest allerdings keine Bilder.`,
     freeProviderAddAction: (label: string) => `${label} hinzufügen`,
     freeProviderWait: 'Bis morgen warten',
+    firstRunBanner: 'Noch kein Modell',
+    firstRunBannerAction: 'in 1 Minute einrichten',
+    firstRunPillLabel: 'Modell einrichten',
+    firstRunSendTip: 'Zum Antworten fehlt noch ein Modell — wähle zuerst einen Weg',
+    firstRunAnswerNote: 'Zum Antworten fehlt noch ein Modell.',
     failNetwork: 'Keine Verbindung zum Syflo-Backend.',
     networkFootnote: 'Läuft Syflo noch? Im Zweifel die App neu starten.',
     failLocalMissing: (modelName: string) => `Das lokale Modell ${modelName} ist nicht installiert.`,
@@ -1249,6 +1274,11 @@ const de: Strings = {
     reserveHint: 'Reserve, wenn das Tageslimit erreicht ist',
     freeProvidersCount: (have: number, total: number) =>
       `${have} von ${total} Gratis-Anbietern eingerichtet`,
+    usableGroup: 'Jetzt nutzbar',
+    unavailableGroup: 'Gerade nicht nutzbar',
+    statusUnknown: 'Status unbekannt',
+    statusUnknownTip: 'Die Wartezeit ist vorbei, geprüft wurde nichts. Die nächste Frage klärt es.',
+    dailyLimitLabel: (resetTime: string) => `Tageslimit · zurück um ${resetTime}`,
     noImages: 'liest keine Bilder',
     noLongerAvailable: 'nicht mehr verfügbar',
     ollamaRunningShort: 'Ollama läuft',

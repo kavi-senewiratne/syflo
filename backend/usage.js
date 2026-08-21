@@ -21,7 +21,11 @@
 const crypto = require('crypto');
 
 /** Where a call came from. The set the `kind` column may hold. */
-const USAGE_KINDS = ['chat', 'title', 'btw', 'explain', 'passage_title'];
+// 'summary' is the branch/ancestor summary (ancestor-context.js). It gets its
+// own kind rather than hiding inside 'chat', because it fires EAGERLY on branch
+// warm-up — a request spent before the user asked anything — and that is
+// exactly what the breakdown on the quota card is there to reveal.
+const USAGE_KINDS = ['chat', 'title', 'btw', 'explain', 'passage_title', 'summary'];
 
 /**
  * How a call ended:

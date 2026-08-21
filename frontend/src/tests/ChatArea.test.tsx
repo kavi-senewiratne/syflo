@@ -755,7 +755,7 @@ describe('ChatArea', () => {
 
 // ─── Geführter Leerzustand (ADR-0008, Grill 12b) ─────────────────────────────
 
-describe('ChatArea – setupNotice ersetzt den Composer', () => {
+describe('ChatArea – setupNotice steht über dem Composer', () => {
   it('rendert die Notiz statt der Composer-Zeile', () => {
     render(
       <ChatArea
@@ -766,7 +766,10 @@ describe('ChatArea – setupNotice ersetzt den Composer', () => {
       />,
     );
     expect(screen.getByTestId('setup-notice-slot')).toBeInTheDocument();
-    expect(screen.queryByTestId('chat-textarea')).not.toBeInTheDocument();
+    // Since O2 (2026-08-15) the card sits ABOVE the composer instead of
+    // replacing it: the user can type, attach and dictate before setting up
+    // anything, and only sending is locked.
+    expect(screen.getByTestId('chat-textarea')).toBeInTheDocument();
   });
 
   it('rendert ohne setupNotice die normale Composer-Zeile', () => {

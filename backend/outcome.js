@@ -17,7 +17,8 @@
  */
 
 const { getLLMClient, noThinkExtras } = require('./llm');
-const { callCloudLadder } = require('./quota');
+const { callCloudLadder, isRateLimit } = require('./quota');
+const { recordUsage } = require('./usage');
 const { MAX_PASSAGE_CHARS, outcomeInstruction, parseOutcomeReply } = require('./title');
 
 // One short line is never worth a long wait: the whole ladder gets a budget,
@@ -72,7 +73,27 @@ async function writeOutcome(db, chatId, answer, { isQuotaCoolingDown, markQuotaC
       isCoolingDown: isQuotaCoolingDown,
       markCooldown: markQuotaCooldown,
       label: 'outcome line',
+      // A refused candidate still spent its call: the provider counted the
+      // request, the branch just has nothing to show for it. Silent failure
+      // (see writeOutcomeInBackground) must not mean an invisible cost.
+      onError: (err, cand) => recordUsage(db, {
+        provider: cand.provider, model: cand.model, kind: 'title',
+        outcome: isRateLimit(err) ? 'quota' : 'failed',
+      }),
     });
+    // Logged as `kind: 'title'`, not as a kind of its own: this is the SAME
+    // call the post-answer path in routes/messages.js makes when it asks for
+    // the missing outcome alone (label 'outcome line' there too) — and that
+    // one has always counted as 'title'. A separate kind would split one
+    // ladder's calls across two buckets depending on which route happened to
+    // trigger it, which is exactly the kind of disagreement `kind` exists to
+    // remove. Both are the short "name what this branch settled" call that
+    // runs once after an answer.
+    if (ladder) {
+      recordUsage(db, {
+        provider: ladder.provider, model: ladder.model, kind: 'title', outcome: 'ok',
+      });
+    }
     raw = ladder?.raw || '';
   }
 

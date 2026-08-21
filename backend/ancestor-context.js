@@ -12,6 +12,7 @@
  */
 
 const { getLLMClient, noThinkExtras } = require('./llm');
+const { recordUsage } = require('./usage');
 
 // Target length of a node summary (prompt instruction, not a hard cap).
 const SUMMARY_WORD_TARGET = 120;
@@ -88,7 +89,7 @@ function refreshChatSummaryInBackground(db, chatId) {
  * no blocking LLM call before the actual response, and the prompt prefix
  * stays identical to the last warm-up (KV cache kicks in).
  */
-async function ensureChatSummary(db, chatId, { allowStale = false } = {}) {
+async function ensureChatSummary(db, chatId, { allowStale = false, getClient = getLLMClient } = {}) {
   const chat = db.prepare('SELECT * FROM chats WHERE id = ?').get(chatId);
   if (!chat) return null;
 
@@ -102,8 +103,14 @@ async function ensureChatSummary(db, chatId, { allowStale = false } = {}) {
   }
 
   const transcript = renderTranscript(getTranscript(db, chatId));
-  const { client, model, provider } = getLLMClient(db);
-  const completion = await client.chat.completions.create({
+  const { client, model, provider } = getClient(db);
+  // This call is logged like every other cloud call (2026-08-21). It is the
+  // one that matters most: branch warm-up fires it eagerly, so it spends a
+  // request before the user has asked anything — invisible consumption was
+  // how "0/20" stayed on screen while the allowance was gone.
+  let completion;
+  try {
+    completion = await client.chat.completions.create({
     model,
     ...noThinkExtras(provider),
     messages: [
@@ -121,7 +128,25 @@ async function ensureChatSummary(db, chatId, { allowStale = false } = {}) {
           'conversation you are summarizing (a German conversation gets a German summary).',
       },
       { role: 'user', content: transcript },
-    ],
+      ],
+    });
+  } catch (err) {
+    // A refused call spends the allowance just like a served one.
+    recordUsage(db, {
+      provider,
+      model,
+      kind: 'summary',
+      outcome: err?.status === 429 ? 'quota' : 'failed',
+    });
+    throw err;
+  }
+  recordUsage(db, {
+    provider,
+    model,
+    kind: 'summary',
+    outcome: 'ok',
+    promptTokens: completion.usage?.prompt_tokens ?? null,
+    completionTokens: completion.usage?.completion_tokens ?? null,
   });
 
   const raw = (completion.choices[0]?.message?.content || '').trim();

@@ -6,7 +6,7 @@
  */
 
 import { Fragment, useState, useRef, useEffect, useImperativeHandle, useMemo } from 'react';
-import { AlertCircle, Cpu, Eye, EyeOff, Loader2, Mic, MicOff, MessageCircleQuestionMark, Plus, ArrowUp, Check, ChevronDown, CornerDownRight, GitBranch, Highlighter, Image as ImageIcon, ImagePlus, FileText, BookOpen, MessageSquareQuote, MessageSquarePlus, RotateCcw, Square, TvMinimalPlay, X, Zap } from 'lucide-react';
+import { AlertCircle, Cpu, Eye, EyeOff, Loader2, Mic, MicOff, MessageCircleQuestionMark, Plus, ArrowUp, Check, ChevronDown, ChevronRight, CornerDownRight, KeyRound, GitBranch, Highlighter, Image as ImageIcon, ImagePlus, FileText, BookOpen, MessageSquareQuote, MessageSquarePlus, RotateCcw, Square, TvMinimalPlay, X, Zap } from 'lucide-react';
 import { MessageBubble } from './MessageBubble';
 import { BranchTrace } from './BranchTrace';
 import { InlineMarkdown } from './InlineMarkdown';
@@ -142,8 +142,14 @@ interface Props {
   onContinueMessage?: (message: Message) => void;
   // Guided empty state (ADR-0008, grill 12b): active cloud provider without
   // an API key. Arrives fully composed from the owner (App, CloudSetupNotice)
-  // and renders INSTEAD of the composer row — never a silent block.
+  // and renders ABOVE the composer row (first run variant O2) — never a silent
+  // block, and never a replacement of the row either.
   setupNotice?: React.ReactNode;
+  // First run, variant O2 (mockup-onboarding-flow §03, chosen 2026-08-15):
+  // opens the path choice. It is the single exit of every locked affordance in
+  // the composer — the notice strip, the model pill's stand-in, and the send
+  // attempt itself. Without a handler the composer just stays unlocked.
+  onOpenSetup?: () => void;
   // Registry display labels per model name — resolves model names in the
   // failover note (MessageBubble).
   modelLabels?: Record<string, string>;
@@ -278,9 +284,14 @@ function renderComposerHighlight(text: string): React.ReactNode {
   );
 }
 
-export function ChatArea({ chat, videoYoutubeId, onTimeMarkClick, loading, streaming, onSendMessage, onWordRightClick, onSelectChat, onUploadPdf, onOpenPaperSearch, onOpenYouTubeSearch, videoBanner, transcriptDrawer, chatHighlights, onChatSelection, onHighlightContextMenu, pendingSelection, onBranchedFromClick, parentTitle, onQuoteClick, composerQuote, onClearComposerQuote, onOpenFeedback, onAskAside, onOpenTopicBranch, branchTargets, aside, onDismissAside, onKeepAside, onBranchAside, onToggleHighlights, highlightsOpen, highlightsDrawer, modelPicker, onStopStreaming, streamingMessageIds, onRetryMessage, onContinueMessage, setupNotice, modelLabels, onRetryLocalModel, hasLocalModel, billingUrl, billingUrls, onOpenModelPicker, settingsChangedAt, onOpenSettings, providerLabels, localModelName, cloudFallback, onRetryCloudModel, freeFallback, onRetryFreeModel, onResendUnanswered, freeProviderOffer, onAddFreeProvider, visionGate, onSwitchVisionModel, onOpenSettingsForProvider, voiceRecorderFactory, ref }: Props) {
+export function ChatArea({ chat, videoYoutubeId, onTimeMarkClick, loading, streaming, onSendMessage, onWordRightClick, onSelectChat, onUploadPdf, onOpenPaperSearch, onOpenYouTubeSearch, videoBanner, transcriptDrawer, chatHighlights, onChatSelection, onHighlightContextMenu, pendingSelection, onBranchedFromClick, parentTitle, onQuoteClick, composerQuote, onClearComposerQuote, onOpenFeedback, onAskAside, onOpenTopicBranch, branchTargets, aside, onDismissAside, onKeepAside, onBranchAside, onToggleHighlights, highlightsOpen, highlightsDrawer, modelPicker, onStopStreaming, streamingMessageIds, onRetryMessage, onContinueMessage, setupNotice, onOpenSetup, modelLabels, onRetryLocalModel, hasLocalModel, billingUrl, billingUrls, onOpenModelPicker, settingsChangedAt, onOpenSettings, providerLabels, localModelName, cloudFallback, onRetryCloudModel, freeFallback, onRetryFreeModel, onResendUnanswered, freeProviderOffer, onAddFreeProvider, visionGate, onSwitchVisionModel, onOpenSettingsForProvider, voiceRecorderFactory, ref }: Props) {
   // UI-Texte in der App language — re-rendert beim Sprachwechsel mit.
   const S = useStrings().chatArea;
+  // First run (O2): a setup card on screen means no model can answer yet. The
+  // card is the owner's signal, so ChatArea needs no second source of truth —
+  // it only decides which affordances lock. Exactly one does: sending.
+  // Declared here, above handleSend, because that is where it is read first.
+  const firstRun = Boolean(setupNotice);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [attachments, setAttachments] = useState<LocalAttachment[]>([]);
@@ -632,6 +643,15 @@ export function ChatArea({ chat, videoYoutubeId, onTimeMarkClick, loading, strea
   }, [composerQuote]);
 
   const handleSend = async () => {
+    // First run (O2): every send attempt — Enter in the field, the global
+    // Enter handler, a queued transcript — turns into the path choice instead.
+    // The input is deliberately NOT cleared: the question the user just typed
+    // is the reason they are setting a model up at all, and it has to be there
+    // when they come back.
+    if (firstRun) {
+      onOpenSetup?.();
+      return;
+    }
     // Während der Aufnahme nicht senden — User muss erst stoppen, damit das
     // Transkript fertig ans Eingabefeld angehängt wird.
     if (isListening) return;
@@ -1824,11 +1844,36 @@ export function ChatArea({ chat, videoYoutubeId, onTimeMarkClick, loading, strea
         )}
         <div className="flex justify-center">
           <div className={`${chatColumnClass} @container`} style={chatColumnStyle} data-testid="chat-input-shell">
-            {/* Guided empty state (ADR-0008): the setup card replaces the
-                whole composer row while the active cloud provider is missing
-                its API key. */}
-            {setupNotice ? setupNotice : (
-            <>
+            {/* Guided empty state (ADR-0008), first run variant O2
+                (mockup-onboarding-flow §03, chosen 2026-08-15): the setup card
+                sits ABOVE the composer instead of replacing it. Replacing it
+                sealed the app on the very first start — no text field, no
+                attach button, no dictation — so the user had to buy a key
+                before ever seeing what it was for. Everything except SENDING
+                stays usable now. */}
+            {setupNotice}
+
+            {/* The notice strip of O2 — one thin line between the card and the
+                composer, and the reason a locked send button never reads as a
+                dead end: the way out is already on screen before it is tried.
+                The whole row leads on (chevron), as in the mockup. */}
+            {firstRun && (
+              <button
+                type="button"
+                onClick={onOpenSetup}
+                data-testid="first-run-strip"
+                className="mb-2 mx-2 flex w-[calc(100%-1rem)] items-center gap-2 rounded-xl border border-blue-100 bg-blue-50/60 px-3 py-2.5 text-left transition-colors hover:bg-blue-50"
+              >
+                <KeyRound size={13} className="shrink-0 text-blue-600" />
+                <span className="min-w-0 flex-1 truncate text-[13px] text-gray-700">
+                  {S.firstRunBanner}
+                  {' — '}
+                  <span className="font-semibold text-blue-700">{S.firstRunBannerAction}</span>
+                </span>
+                <ChevronRight size={13} className="shrink-0 text-blue-600" />
+              </button>
+            )}
+
             {/* Anhang-Chips über dem Eingabefeld */}
             {attachments.length > 0 && (
               <div className="flex flex-wrap gap-2 mb-2 px-2">
@@ -2309,7 +2354,23 @@ export function ChatArea({ chat, videoYoutubeId, onTimeMarkClick, loading, strea
                 </button>
               )}
 
-              {modelPicker}
+              {/* First run (O2): the pill's slot is where a user goes looking
+                  for the model, so it must not go blank — it stands in for the
+                  picker and leads to the path choice. Same pill geometry as
+                  ModelPicker (including its narrow-column hide) so nothing in
+                  the row shifts once a real model exists. */}
+              {firstRun ? (
+                <button
+                  type="button"
+                  onClick={onOpenSetup}
+                  data-testid="first-run-model-pill"
+                  data-focus-item="composer-model"
+                  className="@max-[19rem]:hidden shrink-0 h-9 max-w-[11rem] @max-[23rem]:max-w-[8rem] px-3 inline-flex items-center gap-1.5 rounded-full border border-blue-100 bg-blue-50 text-[12.5px] font-semibold text-blue-700 transition-colors hover:bg-blue-100"
+                >
+                  <KeyRound size={11} className="shrink-0" />
+                  <span className="truncate">{S.firstRunPillLabel}</span>
+                </button>
+              ) : modelPicker}
 
               {(sending || streaming) && onStopStreaming && !input.trim() && attachments.length === 0 ? (
                 // Bewusst dieselben Klassen wie der Senden-Knopf (bg-blue-600
@@ -2331,18 +2392,22 @@ export function ChatArea({ chat, videoYoutubeId, onTimeMarkClick, loading, strea
               ) : (
                 <button
                   onClick={handleSend}
-                  disabled={isBusy || isListening || isTranscribing || (!input.trim() && attachments.length === 0)}
-                  data-tip={S.send} data-tip-end=""
-                  aria-label={S.send}
+                  // First run (O2): sending is the ONE thing a missing model
+                  // really blocks, so it is the one thing that locks. The
+                  // tooltip has to name the way out — a disabled arrow with
+                  // nothing to read is the dead end the mockup warns about
+                  // (data-tip survives `disabled`, see index.css).
+                  disabled={firstRun || isBusy || isListening || isTranscribing || (!input.trim() && attachments.length === 0)}
+                  data-tip={firstRun ? S.firstRunSendTip : S.send} data-tip-end=""
+                  aria-label={firstRun ? S.firstRunSendTip : S.send}
                   data-focus-item="composer-send"
+                  data-testid="send-button"
                   className="shrink-0 w-9 h-9 @max-[30rem]:ml-auto flex items-center justify-center rounded-full bg-blue-600 text-white transition-all hover:bg-blue-700 disabled:opacity-30 disabled:cursor-not-allowed"
                 >
                   <ArrowUp size={20} strokeWidth={2.25} />
                 </button>
               )}
             </div>
-            </>
-            )}
           </div>
         </div>
       </div>

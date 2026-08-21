@@ -5,7 +5,8 @@ const { getSetting } = require('../llm');
 const {
   MAX_PASSAGE_CHARS, sanitizeTitle, branchTitleInstruction, parseBranchTitleReply,
 } = require('../title');
-const { callCloudLadder } = require('../quota');
+const { callCloudLadder, isRateLimit } = require('../quota');
+const { recordUsage } = require('../usage');
 
 // options.isQuotaCoolingDown / markQuotaCooldown: the chat's quota memory
 // (server.js injects it) — the passage-title endpoint shares that ladder.
@@ -251,7 +252,23 @@ module.exports = (db, { isQuotaCoolingDown, markQuotaCooldown } = {}) => {
       isCoolingDown: isQuotaCoolingDown,
       markCooldown: markQuotaCooldown,
       label: 'passage title',
+      // Every candidate the ladder burns is a spent call: a title costs the
+      // same daily quota as an answer, and a 429 is a call the provider
+      // counted even though nothing came back. Logging only the winner is how
+      // the meter came to say "0/20" for an exhausted model (2026-08-11).
+      onError: (err, cand) => recordUsage(db, {
+        provider: cand.provider, model: cand.model, kind: 'passage_title',
+        outcome: isRateLimit(err) ? 'quota' : 'failed',
+      }),
     });
+
+    // The ladder reports WHO answered, so the row names the model whose quota
+    // the title actually cost — not the one that was tried first.
+    if (result) {
+      recordUsage(db, {
+        provider: result.provider, model: result.model, kind: 'passage_title', outcome: 'ok',
+      });
+    }
 
     // Every candidate was rate-limited, retired or gated — the caller tidies
     // the passage instead.

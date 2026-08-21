@@ -3319,10 +3319,15 @@ export default function App() {
               onToggleHighlights={() => setHighlightsOpen((o) => !o)}
               highlightsOpen={highlightsOpen}
               onStopStreaming={handleStopStreaming}
+              // O2 (mockup-onboarding-flow §03, chosen 2026-08-15): the three
+              // locked affordances — send button, Enter, model pill — all lead
+              // here, to the path choice, with the typed question left standing.
+              onOpenSetup={() => openSettings('model')}
               setupNotice={
                 // Guided empty state (ADR-0008, grill decision 12b): active
-                // cloud provider without a key — the card replaces the
-                // composer instead of blocking silently.
+                // cloud provider without a key. Since O2 the card sits ABOVE
+                // the composer rather than replacing it — the app is usable
+                // before the user has paid for anything.
                 settings && settings.llm_provider !== 'ollama' &&
                 !settings[`${settings.llm_provider}_api_key_set`] ? (
                   <CloudSetupNotice onOpenSettings={(p) => openSettings('model', p)} />

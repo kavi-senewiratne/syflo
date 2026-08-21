@@ -483,13 +483,14 @@ describe('App — cloud setup notice (ADR-0008)', () => {
     custom_instructions_enabled: true,
   };
 
-  it('renders the setup notice instead of the composer when gemini has no key', async () => {
+  it('renders the setup notice above a still-usable composer when gemini has no key', async () => {
     vi.mocked(api.getSettings).mockResolvedValue(geminiNoKey);
     await openRootChat();
 
     expect(await screen.findByTestId('cloud-setup-notice')).toBeInTheDocument();
     expect(screen.getByTestId('cloud-setup-notice')).toHaveTextContent('Gemini');
-    expect(screen.queryByTestId('chat-textarea')).not.toBeInTheDocument();
+    // O2 (2026-08-15): the composer stays usable, only sending is locked.
+    expect(screen.getByTestId('chat-textarea')).toBeInTheDocument();
   });
 
   it('keeps the composer once the gemini key is set', async () => {
