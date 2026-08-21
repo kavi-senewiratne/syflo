@@ -2,12 +2,18 @@
  * components/ChatArea/ModelPicker.tsx
  *
  * The model pill at the bottom right of the composer + its grouped drop-up
- * menu (design/mockup-model-flow.html §02–§04). One group per provider WITH
- * a key set plus the local group — selecting any row switches provider AND
- * model in one click. Cooldown badges span all providers (unfiltered
- * /api/quota-cooldowns); the footer is honest about Ollama's state; the
- * menu renders independently of the pill's visibility so the quota cards'
- * "Modell wechseln" works in narrow columns too.
+ * menu (design/mockup-model-flow.html §02–§04). Groups say what is usable
+ * NOW, what is not, what is still to set up and what runs locally
+ * (mockup-onboarding-flow §02, chosen 2026-08-15) — selecting any row
+ * switches provider AND model in one click. State badges span all providers
+ * (unfiltered /api/quota-cooldowns); the footer is honest about Ollama's
+ * state; the menu renders independently of the pill's visibility so the
+ * quota cards' "Modell wechseln" works in narrow columns too.
+ *
+ * The one rule the whole file hangs on: nothing here ever declares a model
+ * usable because time passed. Only a delivered answer does that, and only
+ * the backend can see it — so an expired wait shows as "status unknown"
+ * (user complaint 2026-08-15: "Countdown vorbei, Limit trotzdem erschöpft").
  *
  * The menu itself goes through <Popover> (design/mockup-model-picker-truth
  * §01, variant A): as an `absolute` child of the composer the 288 px panel
@@ -17,9 +23,10 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Check, ChevronDown, ChevronRight, Clock, CreditCard, Info, Lightbulb, Lock, Plus, Zap } from 'lucide-react';
+import { Check, ChevronDown, ChevronRight, CircleHelp, Clock, Info, Lightbulb, Lock, Plus, Zap } from 'lucide-react';
 import { api } from '../../api';
 import { Popover } from '../Popover';
+import { splitByAvailability } from '../../chat/pickerGroups';
 import { useStrings } from '../../strings';
 import type { LLMProvider } from '../../types';
 
@@ -34,8 +41,8 @@ export interface PickerModel {
   // Cloud registry flag — text-only rows are labeled so the vision trap is
   // visible BEFORE the click (§05 no_vision card's "Modell wechseln" exit).
   vision?: boolean;
-  // Tier groups mix providers (mockup-model-cost-tiers W2b): cloud rows
-  // carry their own provider; the subline names it.
+  // Groups mix providers: cloud rows carry their own provider, and the
+  // subline names it (provider · cost · image ability, §02).
   provider?: LLMProvider;
   providerLabel?: string;
   free?: boolean;
@@ -48,25 +55,42 @@ export interface PickerModel {
   tokensPerDay?: number;
 }
 
-// One group in the drop-up: a cost tier (free / requires billing) or the
-// local group. Cost is the grouping axis (W2b, chosen 2026-07-30) because
-// several providers mix free and paid models.
+// One group in the drop-up. AVAILABILITY is the grouping axis since §02
+// (chosen 2026-08-15) — cost moved onto the row, because "free" and "paid"
+// said nothing about whether a model would answer right now:
+//   'usable'      — nothing known to be in the way
+//   'unavailable' — a wait, an unknown state or a retired model
+//   'setup'       — never set up; the one group whose rows are not selectable
+//                   (G3, mockup-onboarding-flow §07)
+//   'local'       — always last, always present (the private option)
+// 'usable' rows arrive in one bundle from buildPickerGroups and are split off
+// into 'unavailable' by splitByAvailability, which needs the live cooldowns.
 export interface PickerGroup {
-  // 'setup' (G3, mockup-onboarding-flow §07) is the one group whose rows are
-  // NOT selectable: they name free providers that still need a key.
-  tier?: 'free' | 'paid' | 'local' | 'setup';
+  tier?: 'usable' | 'unavailable' | 'local' | 'setup';
   // Group-level provider: only the local group has one; cloud rows carry
   // their provider per model.
   provider?: LLMProvider;
-  label: string;
+  // The two availability groups are named by the picker itself (it owns the
+  // split), so only 'setup' and 'local' carry a label from the caller.
+  label?: string;
   local?: boolean;
   models: PickerModel[];
 }
 
 interface CooldownEntry {
   until: string;
+  // 'daily' | 'minute' | 'retired' | 'unknown' (backend routes/messages.js).
+  // 'unknown' is what an expired wait decays into: the clock ran out, but no
+  // call was made since, so nothing is actually known about the model.
   kind?: string;
 }
+
+// The moment a daily limit is back, as a clock time in the READER's timezone.
+// Gemini resets at Pacific midnight, which lands somewhere in the European
+// evening — a raw remaining time ("6h 12m") was a number nobody could plan
+// around, so §02 asks for the local wall-clock time instead.
+const localResetTime = (until: string): string =>
+  new Date(until).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
 
 export interface ModelPickerProps {
   activeProvider: LLMProvider;
@@ -129,8 +153,8 @@ export function ModelPicker({ activeProvider, activeModel, groups, ollamaReachab
   // child of this component's subtree, so only the popover knows where it is.
   const closeMenu = useCallback(() => setOpen(false), []);
 
-  // Tier groups mix providers — the active model is found by its row
-  // provider (m.provider for cloud rows, the group's for the local one).
+  // Groups mix providers — the active model is found by its row provider
+  // (m.provider for cloud rows, the group's for the local one).
   const rowProvider = (g: PickerGroup, m: PickerModel): LLMProvider =>
     (m.provider ?? g.provider) as LLMProvider;
   const active = groups
@@ -144,14 +168,19 @@ export function ModelPicker({ activeProvider, activeModel, groups, ollamaReachab
   // provider with a key and a free model sits in the free tier, one without
   // a key sits in the setup group, and a keyed provider whose models are all
   // paid belongs to neither.
-  const distinctProviders = (tier: PickerGroup['tier']) =>
+  const distinctProviders = (...tiers: PickerGroup['tier'][]) =>
     new Set(
-      (groups.find(g => g.tier === tier)?.models ?? [])
+      groups
+        .filter(g => tiers.includes(g.tier))
+        .flatMap(g => g.models)
         .filter(m => m.free !== false)
         .map(m => m.provider)
         .filter(Boolean),
     ).size;
-  const freeProvidersReady = distinctProviders('free');
+  // "Set up" is about the KEY, not about today's quota: a provider whose
+  // free model is cooling down is still set up, so the count reads the
+  // groups before the availability split (§02).
+  const freeProvidersReady = distinctProviders('usable', 'unavailable');
   const freeProvidersTotal = freeProvidersReady + distinctProviders('setup');
 
   const hintFor = (m: PickerModel): string =>
@@ -191,34 +220,68 @@ export function ModelPicker({ activeProvider, activeModel, groups, ollamaReachab
   // while anything time-based is visible so "in 57 s" counts down and
   // badges/pill dot disappear the moment their cooldown expires.
   const [nowMs, setNowMs] = useState(() => Date.now());
-  const anyCooldown = Object.keys(cooldowns).length > 0;
+  // Only a running clock needs the ticking. Since §02 an expired entry STAYS
+  // in the memory as 'unknown' (that is the whole point), and a retired one
+  // has no clock either — without this filter the picker would re-render once
+  // a second forever after the first exhausted quota of the session.
+  const anyTicking = Object.values(cooldowns).some(
+    e => e.kind !== 'unknown' && e.kind !== 'retired' && new Date(e.until).getTime() > nowMs,
+  );
   useEffect(() => {
-    if (!anyCooldown) return;
+    if (!anyTicking) return;
     setNowMs(Date.now()); // fresh baseline, not 1 s stale
     const t = window.setInterval(() => setNowMs(Date.now()), 1000);
     return () => window.clearInterval(t);
-  }, [anyCooldown, open]);
+  }, [anyTicking, open]);
 
-  // Countdown for long cooldowns (daily limits, user decision 2026-07-30 —
-  // "wie lange noch?" instead of a clock time), seconds for short ones;
-  // retired models never come back — no time, just the label.
-  const formatResetCountdown = (remainingMs: number): string => {
-    const h = Math.floor(remainingMs / 3_600_000);
-    const m = Math.ceil((remainingMs % 3_600_000) / 60_000);
-    return h > 0 ? `${h}h ${m}m` : `${m}m`;
+  // One word per state (mockup-onboarding-flow §02, chosen 2026-08-15). Every
+  // entry in the quota memory means "not usable right now" — the four states
+  // differ only in WHY, and 'unknown' is the one that was missing.
+  //
+  // A wait whose clock has run out decays into 'unknown' HERE as well, by the
+  // same rule the backend applies to its own memory: the row must not turn
+  // green just because a timer reached zero (user complaint "Countdown vorbei,
+  // Limit trotzdem erschöpft"). Only a real answer clears the entry, and that
+  // happens on the server.
+  type ModelState = 'cooling' | 'daily' | 'retired' | 'unknown';
+  const stateOf = (entry: CooldownEntry): ModelState => {
+    if (entry.kind === 'retired') return 'retired';
+    if (entry.kind === 'unknown') return 'unknown';
+    if (new Date(entry.until).getTime() - nowMs <= 0) return 'unknown';
+    return entry.kind === 'daily' ? 'daily' : 'cooling';
   };
-  const coolBadge = (entry: CooldownEntry): string | null => {
-    if (entry.kind === 'retired') return S.noLongerAvailable;
-    const remainingMs = new Date(entry.until).getTime() - nowMs;
-    if (remainingMs <= 0) return null;
-    if (remainingMs > 5 * 60 * 1000) return formatResetCountdown(remainingMs);
-    return S.coolingInSeconds(Math.ceil(remainingMs / 1000));
+  const stateLabel = (entry: CooldownEntry): string => {
+    switch (stateOf(entry)) {
+      case 'retired': return S.noLongerAvailable;
+      case 'unknown': return S.statusUnknown;
+      // A daily limit names the clock time it is back, in the reader's own
+      // timezone — a bare "6h 12m" was a countdown to nothing the user could
+      // plan around (user decision 2026-08-15, replacing the 2026-07-30 shape).
+      case 'daily': return S.dailyLimitLabel(localResetTime(entry.until));
+      default: return S.coolingInSeconds(Math.ceil((new Date(entry.until).getTime() - nowMs) / 1000));
+    }
   };
+  // The badge's color family follows the state: gray means "we do not know",
+  // amber means "there is a wait to sit out" (design/ui-vocabulary.md badges).
+  const badgeClasses = (entry: CooldownEntry): string =>
+    stateOf(entry) === 'unknown'
+      ? 'border-gray-200 bg-gray-50 text-gray-500'
+      : 'border-amber-200 bg-amber-50 text-amber-700';
 
-  // Amber pill dot (§03): only when the ACTIVE pair cools — the full story
-  // (which models, until when) stays one click away in the menu.
+  // The availability split (§02) happens here and not in buildPickerGroups,
+  // because only this component knows the live quota memory. Membership and
+  // badge come from the SAME source — a row that carries a state word is a
+  // row that cannot be used right now, so group and badge cannot disagree.
+  const shownGroups = splitByAvailability(groups, (provider, model) =>
+    Boolean(cooldowns[`${provider}/${model}`]),
+  );
+
+  // Amber pill dot (§03): only when the ACTIVE pair really has a limit or is
+  // gone. An unknown state gets no warning — there is nothing to wait out and
+  // nothing to fail over from; the next question settles it.
   const activeCoolEntry = cooldowns[`${activeProvider}/${activeModel}`];
-  const activeCoolText = activeCoolEntry ? coolBadge(activeCoolEntry) : null;
+  const activeCoolText =
+    activeCoolEntry && stateOf(activeCoolEntry) !== 'unknown' ? stateLabel(activeCoolEntry) : null;
 
   return (
     <div ref={rootRef} className="relative shrink-0" data-testid="model-picker-root">
@@ -254,23 +317,24 @@ export function ModelPicker({ activeProvider, activeModel, groups, ollamaReachab
         testId="model-menu"
         className="w-72 rounded-xl border border-gray-200 bg-white shadow-lg p-1.5 text-sm"
       >
-        {groups.map((g, gi) => {
+        {shownGroups.map((g, gi) => {
           const localDown = Boolean(g.local) && !ollamaReachable;
           return (
-            <div key={g.tier ?? g.provider ?? g.label}>
+            <div key={g.tier ?? g.provider ?? g.label} data-testid={`picker-group-${g.tier ?? 'other'}`}>
               {gi > 0 && <div className="h-px bg-gray-100 my-1 mx-1" />}
-              {/* Tier headers (W2b): green for free, amber for paid — the
-                  same families the cooldown badges and footer dot already
-                  use in every theme. */}
+              {/* Group headers (§02): green for what works, neutral gray for
+                  what does not — the members of the unusable group carry
+                  their own colour (amber for a wait, gray for unknown), so a
+                  coloured headline would double the alarm. */}
               <div
                 className={`px-2.5 pt-1.5 pb-0.5 text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 ${
-                  g.tier === 'free' ? 'text-green-700' : g.tier === 'paid' ? 'text-amber-700' : g.tier === 'setup' ? 'text-blue-700' : 'text-gray-400'
+                  g.tier === 'usable' ? 'text-green-700' : g.tier === 'setup' ? 'text-blue-700' : 'text-gray-400'
                 }`}
               >
-                {g.tier === 'free' && <Check size={10} className="shrink-0" />}
-                {g.tier === 'paid' && <CreditCard size={10} className="shrink-0" />}
+                {g.tier === 'usable' && <Check size={10} className="shrink-0" />}
+                {g.tier === 'unavailable' && <Clock size={10} className="shrink-0" />}
                 {g.tier === 'setup' && <Plus size={10} className="shrink-0" />}
-                {g.label}
+                {g.tier === 'usable' ? S.usableGroup : g.tier === 'unavailable' ? S.unavailableGroup : g.label}
               </div>
               {/* G3 (§07): the setup group states the free allowance in the
                   unit the provider itself uses and what it buys — nothing
@@ -315,17 +379,21 @@ export function ModelPicker({ activeProvider, activeModel, groups, ollamaReachab
                 const provider = rowProvider(g, m);
                 const isActive = provider === activeProvider && m.name === activeModel;
                 const entry = cooldowns[`${provider}/${m.name}`];
-                // Meter chip only where a request quota exists (W8 rule:
-                // token-limited models get no counter). A daily cooldown
-                // turns the chip into a countdown; other cooldown kinds
-                // keep the amber badge.
-                const hasQuota = !g.local && typeof m.requestsPerDay === 'number';
-                const dailyChip = hasQuota && entry?.kind === 'daily' && coolBadge(entry) !== null;
-                const badge = !g.local && entry && !dailyChip ? coolBadge(entry) : null;
+                // Meter and state badge are exclusive (§02): a row shows
+                // either a live allowance or the reason it cannot be used.
+                // The meter itself needs a request-shaped quota (W8 rule:
+                // token-limited models get no counter, since nothing here
+                // counts tokens).
+                const badge = !g.local && entry ? stateLabel(entry) : null;
+                const hasQuota = !g.local && !badge && typeof m.requestsPerDay === 'number';
                 const paid = m.free === false;
+                // Provider · cost · image ability (§02 row copy). The cost
+                // tier lost its group and became a word here: "free" and
+                // "paid" never answered the question the reader has, which is
+                // whether this model will answer right now.
                 const subtitle = g.local
                   ? (localDown ? S.ollamaNotReachable : hintFor(m))
-                  : [m.providerLabel, paid ? S.billingNeeded : null, m.vision === false ? S.noImages : null]
+                  : [m.providerLabel, paid ? S.paidCostWord : S.freeCostWord, m.vision === false ? S.noImages : null]
                       .filter(Boolean)
                       .join(' · ') || null;
                 const usedToday = modelsToday[`${provider}/${m.name}`] ?? 0;
@@ -335,6 +403,10 @@ export function ModelPicker({ activeProvider, activeModel, groups, ollamaReachab
                     role="menuitemradio"
                     aria-checked={isActive}
                     disabled={localDown}
+                    // The one state that needs a sentence: "status unknown"
+                    // would otherwise read as a fault. It is not — it says the
+                    // app has not looked, and that sending is what looks.
+                    title={entry && stateOf(entry) === 'unknown' ? S.statusUnknownTip : undefined}
                     onClick={() => { onSelectModel(provider, m.name); setOpen(false); }}
                     data-testid={`model-item-${m.name}`}
                     className={`w-full flex items-start gap-2 px-2.5 py-2 rounded-lg text-left transition-colors disabled:cursor-default ${
@@ -348,28 +420,29 @@ export function ModelPicker({ activeProvider, activeModel, groups, ollamaReachab
                       </span>
                       {subtitle && <span className="block text-[11.5px] text-gray-500">{subtitle}</span>}
                     </span>
-                    {hasQuota && !badge && (
+                    {hasQuota && (
                       <span
                         data-testid={`model-quota-${m.name}`}
-                        className={`shrink-0 mt-1 inline-flex items-center gap-1.5 font-mono text-[10px] whitespace-nowrap ${
-                          dailyChip ? 'text-red-600' : 'text-gray-400'
-                        }`}
+                        className="shrink-0 mt-1 inline-flex items-center gap-1.5 font-mono text-[10px] whitespace-nowrap text-gray-400"
                       >
                         <span className="w-8 h-1 rounded-full bg-gray-200 overflow-hidden">
                           <span
-                            className={`block h-full rounded-full ${dailyChip ? 'bg-red-500' : 'bg-green-600'}`}
-                            style={{ width: `${dailyChip ? 100 : Math.min(100, Math.round((usedToday / (m.requestsPerDay as number)) * 100))}%` }}
+                            className="block h-full rounded-full bg-green-600"
+                            style={{ width: `${Math.min(100, Math.round((usedToday / (m.requestsPerDay as number)) * 100))}%` }}
                           />
                         </span>
-                        {dailyChip ? coolBadge(entry) : `${usedToday}/${m.requestsPerDay}`}
+                        {`${usedToday}/${m.requestsPerDay}`}
                       </span>
                     )}
                     {badge && (
                       <span
                         data-testid={`model-cooldown-${m.name}`}
-                        className="shrink-0 mt-0.5 inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-1.5 py-px text-[10px] font-semibold text-amber-700 whitespace-nowrap"
+                        data-state={stateOf(entry as CooldownEntry)}
+                        className={`shrink-0 mt-0.5 inline-flex items-center gap-1 rounded-full border px-1.5 py-px text-[10px] font-semibold whitespace-nowrap ${badgeClasses(entry as CooldownEntry)}`}
                       >
-                        <Clock size={9} className="shrink-0" />
+                        {stateOf(entry as CooldownEntry) === 'unknown'
+                          ? <CircleHelp size={9} className="shrink-0" />
+                          : <Clock size={9} className="shrink-0" />}
                         {badge}
                       </span>
                     )}
@@ -438,8 +511,14 @@ export function ModelPicker({ activeProvider, activeModel, groups, ollamaReachab
                 ? S.ollamaNoVisionModel
                 : S.ollamaRunningShort}
             {' · '}
-            {S.cloudProvidersCount(cloudCount)}
-            {freeProvidersTotal > 0 && ` · ${S.freeProvidersCount(freeProvidersReady, freeProvidersTotal)}`}
+            {/* One cloud sentence, not two. Measured in the running app: local
+                state + cloud count + free count did not fit the 288 px menu and
+                truncated mid-word ("2 von…"). The free count is the more useful
+                of the two — it names a gap the user can close — so it wins, and
+                the generic count only speaks when no free provider exists. */}
+            {freeProvidersTotal > 0
+              ? S.freeProvidersCount(freeProvidersReady, freeProvidersTotal)
+              : S.cloudProvidersCount(cloudCount)}
           </span>
         </div>
       </Popover>

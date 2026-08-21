@@ -125,6 +125,30 @@ it — nothing keeps running in the background.
 Distribution is npm-only on purpose, on all three platforms: see
 [ADR-0009](docs/adr/0009-npm-first-distribution.md).
 
+### The embedding model comes with the install
+
+Installing also downloads one model file — `bge-m3-q8_0.gguf`, **605 MB**
+— into `~/.syflo/models/`. It is what makes long papers searchable:
+above roughly 97k tokens Syflo switches to retrieval mode and picks the
+relevant passages itself, and those embeddings always run on your own
+machine ([ADR-0008](docs/adr/0008-cloud-providers-user-owned-keys.md)),
+even if every
+answer comes from a cloud model. Progress is printed while it downloads;
+`npm update` does not fetch it again.
+
+```bash
+# Don't download it (CI, a metered connection, or you just don't want it):
+SYFLO_SKIP_MODEL=1 npm install -g syflo
+```
+
+The download is skipped automatically when `CI` is set, and it never
+fails the installation. If it does not finish — no network, a proxy, a
+read-only home directory — the install still succeeds and prints where
+to put the file if you want it later; re-running `npm install -g syflo`
+retries. Without it, retrieval mode stays off and everything else works
+as normal: a source too long for the context window is then sent with
+its middle cut out instead of searched.
+
 ---
 
 ## Prerequisites
@@ -228,6 +252,9 @@ vitest — both must be green before a change counts as done.
 ## Configuration
 
 - **Backend port**: set `PORT` in `backend/.env` (default 3001).
+- **Embedding model**: `~/.syflo/models/bge-m3-q8_0.gguf`, fetched during
+  installation. `SYFLO_SKIP_MODEL=1` skips that download,
+  `SYFLO_EMBEDDING_MODEL_DIR` puts the file somewhere else.
 - **Providers & models**: curated per-provider model lists (context
   windows, budget caps, vision/thinking flags, prices with an as-of
   date) live in `backend/registry.json`; the app periodically refreshes

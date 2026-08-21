@@ -677,6 +677,11 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
   // sibling's 90 s cooldown must not become the daily card's clock.
   const markQuotaCooldown = (p, m, ms, kind) =>
     quotaCooldowns.set(`${p}/${m}`, { until: Date.now() + ms, kind });
+  // The only way OUT of the memory (mockup-onboarding-flow §02, 2026-08-15):
+  // one answer that actually arrived. An expired wait alone proves nothing —
+  // it only means the clock ran out, which is why an expired entry survives
+  // as 'unknown' (see getQuotaCooldowns) instead of vanishing.
+  const clearQuotaCooldown = (p, m) => quotaCooldowns.delete(`${p}/${m}`);
   // Earliest moment a cooling model becomes available again — sent as
   // retryAt with the quotaExhausted error so the UI can gate its retry
   // button honestly (mockup-quota-states.html §04/§05). With a kind filter
@@ -1522,6 +1527,11 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
       for (let attempt = 1; ; attempt++) {
         try {
           fullContent = await runStream();
+          // Proof of life for the model that answered (provider/model may
+          // have moved down the failover ladder above): its quota memory is
+          // dropped here and nowhere else. Anything short of a real answer —
+          // above all a wait that merely ran out — leaves the entry standing.
+          clearQuotaCooldown(provider, model);
           break;
         } catch (err) {
           // A refused call is a SPENT call. The provider counted it, the meter
@@ -1998,23 +2008,35 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
   // badges (GET /api/quota-cooldowns) see definitions' quota hits as well.
   router.isQuotaCoolingDown = isQuotaCoolingDown;
   router.markQuotaCooldown = markQuotaCooldown;
+  // Exported for the same reason markQuotaCooldown is: /explain, /btw and the
+  // passage title share this memory, so a model that answers THERE should be
+  // able to clear its own entry too (server.js wiring).
+  router.clearQuotaCooldown = clearQuotaCooldown;
   // Cooldown snapshot for the model picker badges (mockup-quota-states.html
   // §06) — server.js exposes this as GET /api/quota-cooldowns. Only future
   // expiries are reported; model names may themselves contain '/'.
   // Settings PUT calls this (server.js wiring): waiting local jobs whose
   // provider is now cloud leave the FIFO immediately.
   router.reevaluateQueue = reevaluateQueue;
-  router.getQuotaCooldowns = () => {
-    const now = Date.now();
+  // `nowMs` is injectable so tests can drive the clock past a wait instead of
+  // sleeping through it; production callers pass nothing.
+  router.getQuotaCooldowns = (nowMs = Date.now()) => {
     const cooldowns = [];
     for (const [key, entry] of quotaCooldowns) {
-      if (entry.until <= now) continue;
       const [providerName, ...modelParts] = key.split('/');
       cooldowns.push({
         provider: providerName,
         model: modelParts.join('/'),
         until: new Date(entry.until).toISOString(),
-        kind: entry.kind,
+        // Six states, six words (mockup-onboarding-flow §02, 2026-08-15): an
+        // expired wait is NOT "usable again". The old code dropped the entry
+        // here, so the picker row went green the second the countdown hit
+        // zero — user complaint: "Countdown vorbei, Limit trotzdem
+        // erschöpft". Nothing was measured; the clock merely ran out. The
+        // entry therefore stays as 'unknown' until a real call settles it.
+        // A retired model is the exception: it is switched off, not waiting,
+        // so its word never softens into a question mark.
+        kind: entry.until <= nowMs && entry.kind !== 'retired' ? 'unknown' : entry.kind,
       });
     }
     return cooldowns;

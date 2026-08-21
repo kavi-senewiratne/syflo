@@ -13,21 +13,15 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ModelPicker, type PickerGroup } from '../components/ChatArea/ModelPicker';
 import { api } from '../api';
 
-// Tier groups (mockup-model-cost-tiers W2b, chosen 2026-07-30): cost tier
-// is the grouping axis, the provider moves to the subline.
+// Availability groups (mockup-onboarding-flow §02, chosen 2026-08-15): one
+// cloud bundle, cost and provider on the row. The picker splits off what is
+// not usable right now — see ModelStates.test.tsx for that half.
 const GROUPS: PickerGroup[] = [
   {
-    tier: 'free',
-    label: 'Free',
+    tier: 'usable',
     models: [
       { name: 'gemini-flash-latest', label: 'Gemini Flash', canThink: true, vision: true, provider: 'gemini', providerLabel: 'Gemini', free: true, requestsPerDay: 20 },
       { name: 'openai/gpt-oss-120b', label: 'gpt-oss 120B', canThink: false, vision: false, provider: 'groq', providerLabel: 'Groq', free: true },
-    ],
-  },
-  {
-    tier: 'paid',
-    label: 'Requires billing',
-    models: [
       { name: 'gemini-pro-latest', label: 'Gemini Pro', canThink: true, vision: true, provider: 'gemini', providerLabel: 'Gemini', free: false },
     ],
   },
@@ -74,11 +68,10 @@ describe('ModelPicker (grouped)', () => {
     usageSpy.mockRestore();
   });
 
-  it('groups models by cost tier with the provider on the subline', () => {
+  it('groups models by availability with the provider on the subline', () => {
     render(<ModelPicker {...defaultProps} />);
     openMenu();
-    expect(screen.getByText('Free')).toBeInTheDocument();
-    expect(screen.getByText('Requires billing')).toBeInTheDocument();
+    expect(screen.getByText('Usable now')).toBeInTheDocument();
     expect(screen.getByText('Local · Ollama')).toBeInTheDocument();
     // The provider is no longer a group header — it lives on the row.
     expect(screen.getByTestId('model-item-gemini-flash-latest')).toHaveTextContent('Gemini');
@@ -97,7 +90,9 @@ describe('ModelPicker (grouped)', () => {
     render(<ModelPicker {...defaultProps} />);
     openMenu();
     const pro = screen.getByTestId('model-item-gemini-pro-latest');
-    expect(pro).toHaveTextContent('Billing required');
+    // Mid-line the cost word is lower case (2026-08-21) — the group heading
+    // keeps its capital, and this row's subline is mid-line.
+    expect(pro).toHaveTextContent('needs billing');
     fireEvent.click(pro);
     expect(defaultProps.onSelectModel).toHaveBeenCalledWith('gemini', 'gemini-pro-latest');
   });
@@ -114,13 +109,14 @@ describe('ModelPicker (grouped)', () => {
     expect(screen.queryByTestId('model-quota-openai/gpt-oss-120b')).not.toBeInTheDocument();
   });
 
-  it('a daily-cooling free row swaps the fraction for a countdown to the reset', async () => {
+  it('a daily-limited row drops its meter for the reset time (see ModelStates)', async () => {
     cooldownsSpy.mockResolvedValue([
       { provider: 'gemini', model: 'gemini-flash-latest', until: new Date(Date.now() + (6 * 60 + 12) * 60_000).toISOString(), kind: 'daily' },
     ]);
     render(<ModelPicker {...defaultProps} />);
     openMenu();
-    expect(await screen.findByTestId('model-quota-gemini-flash-latest')).toHaveTextContent(/\d+h \d+m/);
+    expect(await screen.findByTestId('model-cooldown-gemini-flash-latest')).toHaveTextContent('daily limit');
+    expect(screen.queryByTestId('model-quota-gemini-flash-latest')).not.toBeInTheDocument();
   });
 
   it('marks only the active (provider, model) pair as checked', () => {
@@ -150,12 +146,16 @@ describe('ModelPicker (grouped)', () => {
     expect(screen.getByTestId('model-cooldown-gemini-pro-latest')).toHaveTextContent('no longer available');
   });
 
-  it('footer: green dot + honest cloud count while Ollama runs with models', () => {
+  it('footer: green dot + the free-provider gap while Ollama runs with models', () => {
     render(<ModelPicker {...defaultProps} />);
     openMenu();
     const footer = screen.getByTestId('picker-provider-status');
     expect(footer).toHaveTextContent('Ollama running');
-    expect(footer).toHaveTextContent('2 cloud providers set up');
+    // Measured in the running app: local state + cloud count + free count did
+    // not fit the 288 px menu and truncated mid-word. The free count names a
+    // gap the user can close, so it replaces the generic cloud count.
+    expect(footer).toHaveTextContent('of 2 free providers set up');
+    expect(footer).not.toHaveTextContent('cloud providers set up');
   });
 
   it('Ollama not reachable: dimmed local rows and a start hint that opens Settings', () => {
@@ -251,8 +251,7 @@ describe('ModelPicker (grouped)', () => {
 // no "recommended". The row is a door to Settings, never a model to pick.
 const SETUP_GROUPS: PickerGroup[] = [
   {
-    tier: 'free',
-    label: 'Free',
+    tier: 'usable',
     models: [
       { name: 'gemini-flash-lite-latest', label: 'Gemini Flash Lite', canThink: true, vision: true, provider: 'gemini', providerLabel: 'Gemini', free: true, requestsPerDay: 500 },
     ],

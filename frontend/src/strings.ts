@@ -638,6 +638,10 @@ const en = {
     // group used to be one bucket called "not usable right now", which on a
     // fresh install read as "everything is broken" — nothing is broken there,
     // nothing is set up. Hence two groups, and a state for "we did not check".
+    // Mid-line in a row's subline, so lower case — the group HEADING keeps its
+    // capital (freeGroup). Same word, two positions, two spellings.
+    freeCostWord: 'free',
+    paidCostWord: 'needs billing',
     usableGroup: 'Usable now',
     unavailableGroup: 'Not usable right now',
     // The state an expired cooldown falls into. It must NOT turn green: the
@@ -1274,6 +1278,8 @@ const de: Strings = {
     reserveHint: 'Reserve, wenn das Tageslimit erreicht ist',
     freeProvidersCount: (have: number, total: number) =>
       `${have} von ${total} Gratis-Anbietern eingerichtet`,
+    freeCostWord: 'kostenlos',
+    paidCostWord: 'Abrechnung nötig',
     usableGroup: 'Jetzt nutzbar',
     unavailableGroup: 'Gerade nicht nutzbar',
     statusUnknown: 'Status unbekannt',

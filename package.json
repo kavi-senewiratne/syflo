@@ -36,7 +36,8 @@
     "electron/main.js",
     "electron/preload.js",
     "electron/assets/",
-    "docs/adr/"
+    "docs/adr/",
+    "scripts/download-embedding-model.js"
   ],
   "dependencies": {
     "better-sqlite3": "^12.8.0",
@@ -55,6 +56,7 @@
     "jest": "^30.3.0"
   },
   "scripts": {
+    "postinstall": "node scripts/download-embedding-model.js",
     "test": "jest"
   },
   "jest": {

@@ -55,6 +55,10 @@ function createApp(db, options = {}) {
   app.use('/api/chats', require('./routes/chats')(db, {
     isQuotaCoolingDown: messagesRouter.isQuotaCoolingDown,
     markQuotaCooldown: messagesRouter.markQuotaCooldown,
+    // A successful side-task call proves the model answers again, so it must
+    // clear the entry too — otherwise a model stays "Status unbekannt" in the
+    // picker until a full chat answer happens to hit it (2026-08-21).
+    clearQuotaCooldown: messagesRouter.clearQuotaCooldown,
   }));
   app.use('/api/chats/:chatId/messages', messagesRouter);
   // Sidebar categories — user-made containers for root chats, one nesting
@@ -79,11 +83,19 @@ function createApp(db, options = {}) {
     buildSystemAndHistory: messagesRouter.buildSystemAndHistory,
     isQuotaCoolingDown: messagesRouter.isQuotaCoolingDown,
     markQuotaCooldown: messagesRouter.markQuotaCooldown,
+    // A successful side-task call proves the model answers again, so it must
+    // clear the entry too — otherwise a model stays "Status unbekannt" in the
+    // picker until a full chat answer happens to hit it (2026-08-21).
+    clearQuotaCooldown: messagesRouter.clearQuotaCooldown,
   }));
   app.use('/api/explain', require('./routes/explain')(db, {
     buildSystemAndHistory: messagesRouter.buildSystemAndHistory,
     isQuotaCoolingDown: messagesRouter.isQuotaCoolingDown,
     markQuotaCooldown: messagesRouter.markQuotaCooldown,
+    // A successful side-task call proves the model answers again, so it must
+    // clear the entry too — otherwise a model stays "Status unbekannt" in the
+    // picker until a full chat answer happens to hit it (2026-08-21).
+    clearQuotaCooldown: messagesRouter.clearQuotaCooldown,
   }));
   // options.papers: e.g. { extractPdfTextFn, embedTextsFn } — injectable for tests.
   app.use('/api/papers', require('./routes/papers')(db, UPLOADS_DIR, options.papers));

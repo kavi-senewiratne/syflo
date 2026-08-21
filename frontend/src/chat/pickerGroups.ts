@@ -1,32 +1,37 @@
 /**
  * chat/pickerGroups.ts
  *
- * Builds the grouped model-picker data (mockup-model-cost-tiers W2b, chosen
- * 2026-07-30): COST TIER is the grouping axis — "free" collects the
- * free-tier models of every cloud provider WITH a key set, "paid" the
- * paid-only ones (omitted when empty), the local group is always last and
- * always present so the private option never silently disappears. The
- * provider moves onto each row (name + label); keyless providers are
- * hidden — the picker's "Manage models" row is the path to setting them up.
+ * Builds the grouped model-picker data. AVAILABILITY is the grouping axis
+ * (mockup-onboarding-flow §02, chosen 2026-08-15), which replaced the cost
+ * tiers of 2026-07-30: "free" and "paid" were true but answered the wrong
+ * question — the reader wants to know what will answer right now, and the
+ * price belongs on the row (provider · cost · image ability).
  *
- * G3 (mockup-onboarding-flow §07, chosen 2026-08-15) adds one exception to
- * that hiding: a keyless provider with a FREE tier gets a row in its own
- * "to set up" group, between the cost tiers and the local group. It is the
- * only group whose rows cannot be selected — there is no key to use yet.
+ * So the cloud models of every provider WITH a key form one 'usable' bundle
+ * here; splitByAvailability peels the cooling, unknown and retired ones off
+ * into 'unavailable' at render time, where the live quota memory is known.
+ * The local group is always last and always present so the private option
+ * never silently disappears. Keyless providers are hidden — except:
+ *
+ * G3 (mockup-onboarding-flow §07, chosen 2026-08-15): a keyless provider with
+ * a FREE tier gets a row in its own "to set up" group, ahead of the local
+ * group. It is deliberately NOT merged into "not usable right now" (§02):
+ * nothing there is broken, it was only never set up — two states, two words.
+ * It is the only group whose rows cannot be selected.
  */
 
 import type { PickerGroup, PickerModel } from '../components/ChatArea/ModelPicker';
 import type { LLMProvider, OllamaModelInfo, Registry, Settings } from '../types';
 
 export interface PickerGroupLabels {
-  free: string;
-  paid: string;
   local: string;
   // G3 (mockup-onboarding-flow §07): header of the "to set up" group.
-  // Optional so the picker still builds where the caller has not passed it
-  // yet — a group without a header would render as a nameless section, so
-  // without the label the group is left out entirely.
   setup: string;
+  // Cost tiers stopped being groups in §02 (2026-08-15) — these two are
+  // accepted and ignored so the caller that still passes them keeps
+  // compiling. The availability groups are named by the picker itself.
+  free?: string;
+  paid?: string;
 }
 
 export function buildPickerGroups(
@@ -35,10 +40,9 @@ export function buildPickerGroups(
   ollamaModels: OllamaModelInfo[],
   labels: PickerGroupLabels,
 ): PickerGroup[] {
-  const free: PickerModel[] = [];
-  const paid: PickerModel[] = [];
+  const cloud: PickerModel[] = [];
   if (registry) {
-    // The active provider leads so its selected model tops the free group.
+    // The active provider leads so its selected model tops the first group.
     const ids = Object.keys(registry.providers).sort((a, b) =>
       a === settings.llm_provider ? -1 : b === settings.llm_provider ? 1 : 0,
     );
@@ -63,17 +67,53 @@ export function buildPickerGroups(
           // models would fake a safety the counter cannot promise.
           requestsPerDay: m.freeQuota?.requestsPerDay,
         };
-        (m.free === false ? paid : free).push(row);
+        cloud.push(row);
       }
     }
   }
   const groups: PickerGroup[] = [];
-  if (free.length > 0) groups.push({ tier: 'free', label: labels.free, models: free });
-  if (paid.length > 0) groups.push({ tier: 'paid', label: labels.paid, models: paid });
+  // One cloud bundle, free and paid mixed: cost is a word on the row now
+  // (§02). Free models lead so the cheapest choice is the first one read —
+  // the ladder itself avoids paid models (cost tiers, 2026-07-30).
+  const byCost = [...cloud].sort((a, b) => Number(a.free === false) - Number(b.free === false));
+  if (byCost.length > 0) groups.push({ tier: 'usable', models: byCost });
   const setup = buildSetupRows(settings, registry);
   if (setup.length > 0) groups.push({ tier: 'setup', label: labels.setup, models: setup });
   groups.push({ tier: 'local', provider: 'ollama', label: labels.local, local: true, models: ollamaModels });
   return groups;
+}
+
+/**
+ * Second half of the grouping (mockup-onboarding-flow §02, chosen
+ * 2026-08-15): whether a model is usable RIGHT NOW is known only from the
+ * live quota memory, which reaches the picker over
+ * GET /api/quota-cooldowns — so buildPickerGroups hands out one 'usable'
+ * bundle and the picker splits it here, at render time.
+ *
+ * An empty group is left out entirely: on a fresh install "not usable right
+ * now" has no members and used to render as a headline over nothing, which
+ * read like a damage report on an app where nothing was wrong yet.
+ */
+export function splitByAvailability(
+  groups: PickerGroup[],
+  isUnavailable: (provider: LLMProvider, model: string) => boolean,
+): PickerGroup[] {
+  const out: PickerGroup[] = [];
+  for (const group of groups) {
+    if (group.tier !== 'usable') {
+      out.push(group);
+      continue;
+    }
+    const usable: PickerModel[] = [];
+    const unavailable: PickerModel[] = [];
+    for (const model of group.models) {
+      const provider = (model.provider ?? group.provider) as LLMProvider;
+      (isUnavailable(provider, model.name) ? unavailable : usable).push(model);
+    }
+    if (usable.length > 0) out.push({ ...group, models: usable });
+    if (unavailable.length > 0) out.push({ ...group, tier: 'unavailable', models: unavailable });
+  }
+  return out;
 }
 
 /**

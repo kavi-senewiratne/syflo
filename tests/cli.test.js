@@ -157,9 +157,15 @@ describe('root package.json', () => {
     // through the pattern and would have been published — someone's real
     // chats. The package must exclude every database-shaped file.
     expect(files).toContain('!backend/*.db*');
-    for (const excluded of ['design/', 'article/', 'tests/', 'scripts/', 'searxng/']) {
+    for (const excluded of ['design/', 'article/', 'tests/', 'searxng/']) {
       expect(files.some((entry) => entry.startsWith(excluded))).toBe(false);
     }
+    // scripts/ is excluded EXCEPT the postinstall script, and that exception is
+    // pinned rather than loosened: without the file in the package,
+    // `npm install -g syflo` would run it, hit MODULE_NOT_FOUND and fail the
+    // install outright — the opposite of what a skippable model download is for.
+    expect(files.filter((entry) => entry.startsWith('scripts/')))
+      .toEqual(['scripts/download-embedding-model.js']);
   });
 });
 

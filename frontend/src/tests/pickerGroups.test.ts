@@ -1,9 +1,11 @@
 /**
  * tests/pickerGroups.test.ts
  *
- * Tier-grouped picker data (mockup-model-cost-tiers W2b, chosen 2026-07-30):
- * cost tier is the grouping axis — free models of every KEYED provider in
- * one group, paid-only models in a second, the local group always last.
+ * Availability-grouped picker data (mockup-onboarding-flow §02, chosen
+ * 2026-08-15): the models of every KEYED provider form one 'usable' bundle,
+ * free ones first, with the cost tier carried on the row instead of in a
+ * group header. The local group is always last. Which of those rows is
+ * usable RIGHT NOW is decided later, by splitByAvailability in the picker.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -46,43 +48,46 @@ const settings = {
   openai_api_key_set: false,
 } as unknown as Settings;
 
-const LABELS = { free: 'Free', paid: 'Requires billing', local: 'Local · Ollama', setup: 'To set up' };
+const LABELS = { local: 'Local · Ollama', setup: 'To set up' };
 
 // G3 (mockup-onboarding-flow §07): only Gemini has a key, so Groq's free
 // tier is the gap the picker must make visible.
 const geminiOnly = { ...settings, groq_api_key_set: false } as unknown as Settings;
 
-describe('buildPickerGroups (cost tiers)', () => {
-  it('groups free models of every keyed provider into one tier group', () => {
+describe('buildPickerGroups (one usable bundle)', () => {
+  it('puts the models of every keyed provider in one group, free ones first', () => {
     const groups = buildPickerGroups(settings, registry, [], LABELS);
-    const free = groups.find(g => g.tier === 'free')!;
-    expect(free.label).toBe('Free');
-    expect(free.models.map(m => m.name)).toEqual([
+    const usable = groups.find(g => g.tier === 'usable')!;
+    // Cost no longer splits the list, it only orders it: the paid Gemini Pro
+    // comes last, and the group has no cost label at all.
+    expect(usable.models.map(m => m.name)).toEqual([
       'gemini-flash-latest',
       'gemini-flash-lite-latest',
       'openai/gpt-oss-120b',
+      'gemini-pro-latest',
     ]);
+    expect(usable.models.at(-1)!.free).toBe(false);
     // Rows carry their provider — the group no longer does.
-    expect(free.models[0].provider).toBe('gemini');
-    expect(free.models[0].providerLabel).toBe('Gemini');
+    expect(usable.models[0].provider).toBe('gemini');
+    expect(usable.models[0].providerLabel).toBe('Gemini');
     // Request quota rides along for the meter; token-limited Groq gets none.
-    expect(free.models[0].requestsPerDay).toBe(20);
-    expect(free.models[2].requestsPerDay).toBeUndefined();
+    expect(usable.models[0].requestsPerDay).toBe(20);
+    expect(usable.models[2].requestsPerDay).toBeUndefined();
   });
 
-  it('collects paid-only models of keyed providers into the billing group', () => {
+  it('hides the models of providers without a key', () => {
     const groups = buildPickerGroups(settings, registry, [], LABELS);
-    const paid = groups.find(g => g.tier === 'paid')!;
-    expect(paid.models.map(m => m.name)).toEqual(['gemini-pro-latest']);
-    expect(paid.models[0].free).toBe(false);
-    // OpenAI has no key — its paid models stay hidden.
-    expect(paid.models.some(m => m.provider === 'openai')).toBe(false);
+    const usable = groups.find(g => g.tier === 'usable')!;
+    // OpenAI has no key — neither its paid nor any other model shows up.
+    expect(usable.models.some(m => m.provider === 'openai')).toBe(false);
   });
 
-  it('omits the billing group when no keyed provider has paid models', () => {
-    const groqOnly = { ...settings, gemini_api_key_set: false } as unknown as Settings;
-    const groups = buildPickerGroups(groqOnly, registry, [], LABELS);
-    expect(groups.find(g => g.tier === 'paid')).toBeUndefined();
+  it('omits the cloud group entirely when no provider has a key', () => {
+    const noKeys = { ...settings, gemini_api_key_set: false, groq_api_key_set: false } as unknown as Settings;
+    const groups = buildPickerGroups(noKeys, registry, [], LABELS);
+    // First start: nothing usable, everything still to set up — and no
+    // headline over an empty list.
+    expect(groups.find(g => g.tier === 'usable')).toBeUndefined();
   });
 
   it('keeps the local group last and always present', () => {
@@ -93,11 +98,11 @@ describe('buildPickerGroups (cost tiers)', () => {
     expect(last.models[0].name).toBe('qwen3.5:9b');
   });
 
-  it('puts the active provider’s selected model first in the free group', () => {
+  it('puts the active provider’s selected model first', () => {
     const groqActive = { ...settings, llm_provider: 'groq' } as unknown as Settings;
     const groups = buildPickerGroups(groqActive, registry, [], LABELS);
-    const free = groups.find(g => g.tier === 'free')!;
-    expect(free.models[0].name).toBe('openai/gpt-oss-120b');
+    const usable = groups.find(g => g.tier === 'usable')!;
+    expect(usable.models[0].name).toBe('openai/gpt-oss-120b');
   });
 });
 
@@ -154,9 +159,9 @@ describe('buildPickerGroups (setup group)', () => {
     expect(setup.models.find(m => m.provider === 'groq')!.vision).toBe(false);
   });
 
-  it('sits behind the cost tiers and ahead of the local group', () => {
+  it('sits behind the usable models and ahead of the local group', () => {
     const groups = buildPickerGroups(geminiOnly, registry, [{ name: 'qwen3.5:9b' }], LABELS);
-    expect(groups.map(g => g.tier)).toEqual(['free', 'paid', 'setup', 'local']);
+    expect(groups.map(g => g.tier)).toEqual(['usable', 'setup', 'local']);
   });
 
   it('omits the group when every free provider already has a key', () => {
