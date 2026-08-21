@@ -42,7 +42,8 @@ const {
 const { buildPerfRecord, formatPerfLine, appendPerfJsonl, isPerfJsonlEnabled } = require('../perf-log');
 const {
   isRateLimit, isDailyQuota, isTooLarge, isModelUnavailable, isBillingRequired,
-  isOverloaded, msUntilUtcMidnight, callCloudLadder,
+  isOverloaded, msUntilQuotaReset, callCloudLadder, retryAfterSeconds, isBadKey,
+  errorText,
 } = require('../quota');
 const {
   buildAncestorContext,
@@ -1406,11 +1407,6 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
       // max. 3 attempts); an exhausted DAILY limit fails immediately with a
       // switch hint. Retry only as long as no text has been streamed yet —
       // otherwise the answer would arrive twice.
-      const retryAfterSeconds = (e) => {
-        const raw = e?.headers?.['retry-after'] ?? e?.response?.headers?.['retry-after'];
-        const parsed = parseInt(raw, 10);
-        return Number.isFinite(parsed) ? Math.min(parsed, 120) : 20;
-      };
       const sleep = (ms) => new Promise((resolve) => {
         const t = setTimeout(resolve, ms);
         upstreamAbort.signal.addEventListener('abort', () => { clearTimeout(t); resolve(); }, { once: true });
@@ -1584,7 +1580,7 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
           const daily = isRateLimit(err) && isDailyQuota(err);
           // Remember the exhausted model so this and future requests skip it
           // (413 is request-size-dependent, not a quota — no cooldown).
-          if (daily) markQuotaCooldown(provider, model, msUntilUtcMidnight(), 'daily');
+          if (daily) markQuotaCooldown(provider, model, msUntilQuotaReset(provider), 'daily');
           else if (!tooLarge) markQuotaCooldown(provider, model, 90_000, 'minute');
           // Waiting is only rational when there is no alternative: if any
           // candidate is free, switch IMMEDIATELY instead of backing off
@@ -1628,7 +1624,7 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
           // Precise wait copy (mockup-quota-states §10, variant C): WHICH
           // minute limit bit — tokens (TPM) or requests (RPM) — and on
           // which model. Classified from the provider's 429 message.
-          const scope = /token|TPM/i.test(err?.message || '') ? 'tokens' : 'requests';
+          const scope = /token|TPM/i.test(errorText(err)) ? 'tokens' : 'requests';
           sseWrite(res, { rateLimit: { retryInSeconds: wait, attempt, scope, model } });
           await sleep(wait * 1000);
           if (upstreamAbort.signal.aborted) throw err;
@@ -1892,7 +1888,7 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
       // Machine-readable cause for the UI card (mockup-model-flow §05):
       // classify here what wasn't classified at the throw site. A key that
       // was valid on save but got revoked later surfaces as a 401 mid-use.
-      if (!err.failReason && (err.status === 401 || err.response?.status === 401)) {
+      if (!err.failReason && isBadKey(err)) {
         err.failReason = 'bad_key';
         err.failProvider = err.failProvider || getSetting(db, 'llm_provider');
       }

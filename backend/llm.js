@@ -100,6 +100,56 @@ function normalizeSystemMessages(messages) {
 }
 
 /**
+ * Wraps `fetch` so an error body that arrives as a JSON ARRAY is unpacked to
+ * its first element before the SDK ever sees it.
+ *
+ * Why (measured 2026-08-11 against the real Gemini key): the
+ * OpenAI-compatible Gemini endpoint answers every error with
+ *
+ *   [{"error":{"code":429,"message":"… limit: 0 … Please retry in 32.07s",
+ *              "status":"RESOURCE_EXHAUSTED","details":[…QuotaFailure…]}}]
+ *
+ * while `APIError.generate` in the SDK reads `body['error']` — `undefined` for
+ * an array. The result was `err.message === '429 status code (no body)'` and
+ * `err.error === undefined`, which made EVERY regex classifier in quota.js
+ * blind against Gemini: a daily limit was counted as a 90 s minute limit (the
+ * false countdowns). Repairing the body here fixes all of them at once
+ * instead of teaching each classifier a second, array-shaped input.
+ *
+ * Only failures are touched — a successful (or streaming) response is passed
+ * through untouched, so nothing on the happy path changes.
+ */
+function unwrapProviderErrors(baseFetch) {
+  const impl = baseFetch || ((...args) => fetch(...args));
+  return async (url, init) => {
+    const res = await impl(url, init);
+    if (res.ok) return res;
+    let text;
+    try {
+      text = await res.clone().text();
+    } catch {
+      return res; // body already consumed or not readable — leave it alone
+    }
+    let parsed;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      return res; // HTML error page, empty body — nothing to unwrap
+    }
+    if (!Array.isArray(parsed) || parsed.length === 0) return res;
+    const headers = new Headers(res.headers);
+    // The re-serialised body has a different length; a stale content-length
+    // would make the SDK's reader hang or truncate.
+    headers.delete('content-length');
+    return new Response(JSON.stringify(parsed[0]), {
+      status: res.status,
+      statusText: res.statusText,
+      headers,
+    });
+  };
+}
+
+/**
  * Wraps a client so EVERY chat completion goes through
  * normalizeSystemMessages. Done here rather than at the call sites because
  * there are many (chat answers, /btw, /explain, titles, outcome lines, the
@@ -170,7 +220,10 @@ function getLLMClientFor(db, provider) {
   // minutes of silent waiting (live incident 2026-07-26). The messages
   // route owns the retry policy: visible countdown, cooldown memory,
   // failover ladder.
-  const opts = { apiKey, maxRetries: 0 };
+  // Array-shaped error bodies are unpacked before the SDK builds its error
+  // (see unwrapProviderErrors): Gemini sends them, and a well-formed body
+  // passes through untouched, so every cloud provider can share the wrapper.
+  const opts = { apiKey, maxRetries: 0, fetch: unwrapProviderErrors() };
   if (p.baseURL) opts.baseURL = p.baseURL;
   return {
     client: withMessageNormalization(new OpenAI(opts)),
@@ -186,7 +239,10 @@ function getLLMClientFor(db, provider) {
  */
 async function testProviderKey(db, provider, apiKey) {
   const p = getRegistry(db).providers[provider];
-  const opts = { apiKey };
+  // Same unwrapping as the chat clients: Gemini rejects a wrong key with a
+  // 400 whose body is an array, which the SDK would report as
+  // "400 status code (no body)" instead of "Invalid Auth key."
+  const opts = { apiKey, fetch: unwrapProviderErrors() };
   if (p && p.baseURL) opts.baseURL = p.baseURL;
   const client = new OpenAI(opts);
   try {
@@ -236,4 +292,4 @@ async function extendOllamaKeepAlive(model) {
   } catch { /* Ollama unreachable — the TTL simply stays at the default */ }
 }
 
-module.exports = { getLLMClient, getLLMClientFor, normalizeSystemMessages, withMessageNormalization, getSetting, setSetting, getAllSettings, testOpenAIKey, testProviderKey, noThinkExtras, extendOllamaKeepAlive, DEFAULTS, CLOUD_PROVIDERS };
+module.exports = { getLLMClient, getLLMClientFor, normalizeSystemMessages, withMessageNormalization, unwrapProviderErrors, getSetting, setSetting, getAllSettings, testOpenAIKey, testProviderKey, noThinkExtras, extendOllamaKeepAlive, DEFAULTS, CLOUD_PROVIDERS };

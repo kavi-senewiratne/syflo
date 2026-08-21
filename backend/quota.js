@@ -10,25 +10,67 @@
 
 const isRateLimit = (e) => e?.status === 429 || e?.response?.status === 429;
 
-// Daily limits fail until the provider's reset; classified from the 429
-// message (Google: 'per_day', OpenAI: 'RPD/TPD').
-const isDailyQuota = (e) => /per[_ ]day|daily|RPD|TPD/i.test(e?.message || '');
+/**
+ * Everything the provider said about this failure, as one searchable string.
+ *
+ * `err.message` is only the prose line ("429 Quota exceeded for metric: …,
+ * limit: 20"). WHICH quota bit is stated nowhere in it — Google puts that in
+ * the structured `details` of the error body, as
+ * `quotaId: 'GenerateRequestsPerDayPerProjectPerModel-FreeTier'` plus a
+ * `RetryInfo` (measured 2026-08-11 against the real key; the array-body
+ * unwrapping in llm.js is what makes `err.error` exist at all). Classifying
+ * on the message alone therefore turned every Gemini daily limit into a
+ * 90 s minute limit — the false countdowns.
+ */
+const errorText = (e) => {
+  let text = e?.message || '';
+  const body = e?.error ?? e?.response?.data?.error;
+  if (body && typeof body === 'object') {
+    try {
+      text += ' ' + JSON.stringify(body);
+    } catch { /* circular / unserialisable — the message alone has to do */ }
+  }
+  return text;
+};
 
-const isTooLarge = (e) => e?.status === 413 || /request too large/i.test(e?.message || '');
+// Daily limits fail until the provider's reset; classified from the 429 text
+// (Google prose: 'per_day'; Google quotaId: 'PerDayPerProject' — no separator,
+// hence the optional one; OpenAI: 'RPD/TPD').
+const isDailyQuota = (e) => /per[_ ]?day|daily|RPD|TPD/i.test(errorText(e));
+
+const isTooLarge = (e) => e?.status === 413 || /request too large/i.test(errorText(e));
 
 // Zero-limit 429: the free tier of this model is literally 0 — a billing
 // gate, not a quota that resets at midnight. Google encodes it as
-// quotaValue/limit "0" in the 429 details. Must be checked BEFORE
-// isDailyQuota: the same message usually also names a per-day metric.
+// quotaValue/limit "0", in the prose AND in the 429 details. Must be checked
+// BEFORE isDailyQuota: the same message usually also names a per-day metric.
 const isBillingRequired = (e) =>
   isRateLimit(e) &&
-  /(?:quota_?value|quota_limit_value|limit)["']?\s*[:=]\s*["']?0["']?(?![.\d])/i.test(e?.message || '');
+  /(?:quota_?value|quota_limit_value|limit)["']?\s*[:=]\s*["']?0["']?(?![.\d])/i.test(errorText(e));
 
 // Providers retire models under existing names (Google 2026-07: 2.5 models
 // return 404 "no longer available to new users") — a failover reason, not a
 // user-facing hard error.
+// (Gemini's real 404, measured 2026-08-11: "models/gemini-2.5-flash is not
+// found for API version v1main, or is not supported for generateContent.")
 const isModelUnavailable = (e) =>
-  e?.status === 404 && /model|not found|no longer available/i.test(e?.message || '');
+  e?.status === 404 && /model|not found|no longer available/i.test(errorText(e));
+
+/**
+ * The key itself is wrong — the user's configuration, not a quota.
+ *
+ * 401/403 is what most providers send. Gemini does NOT: with a wrong key its
+ * OpenAI-compatible endpoint answers 400 "Invalid Auth key." (measured
+ * 2026-08-11), which used to fall into the generic-error bucket and let the
+ * ladder walk every remaining model to collect four identical 400s instead of
+ * stopping at the one thing only the user can fix.
+ */
+const isBadKey = (e) => {
+  const status = e?.status ?? e?.response?.status;
+  if (status === 401 || status === 403) return true;
+  return status === 400
+    && /invalid auth|api[_ ]?key not valid|invalid api[_ ]?key|api key expired/i.test(errorText(e));
+};
 
 // The provider's own servers are saturated (Google: 503 UNAVAILABLE "This
 // model is currently experiencing high demand"). Neither a quota nor a key
@@ -40,13 +82,101 @@ const isModelUnavailable = (e) =>
 const isOverloaded = (e) =>
   e?.status === 503 ||
   e?.response?.status === 503 ||
-  /overloaded|high demand|UNAVAILABLE/i.test(e?.message || '');
+  /overloaded|high demand|UNAVAILABLE/i.test(errorText(e));
 
-// Cooldown horizon for a daily limit: the free tiers reset at UTC midnight.
-const msUntilUtcMidnight = () => {
-  const now = new Date();
-  return Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1) - now.getTime();
-};
+/**
+ * How long to wait before retrying — the provider's own number, not a guess.
+ *
+ * Three places carry it, in decreasing authority:
+ *   1. the `Retry-After` header (OpenAI, Groq);
+ *   2. a `RetryInfo` detail in the error body, e.g. `retryDelay: "32s"` — the
+ *      only place Gemini states it (measured 2026-08-11: no Retry-After
+ *      header on its 429s at all);
+ *   3. the prose, "Please retry in 32.07s".
+ * Fractions round UP: retrying a hair too early buys a second 429.
+ *
+ * The 120 s cap stays: beyond that the queue's visible countdown stops being
+ * a wait and becomes a hang. Without any of the three, 20 s as before.
+ */
+const RETRY_CAP_SECONDS = 120;
+
+function retryAfterSeconds(e, { fallbackSeconds = 20, capSeconds = RETRY_CAP_SECONDS } = {}) {
+  const capped = (n) => Math.min(Math.ceil(n), capSeconds);
+  const header = e?.headers?.['retry-after'] ?? e?.response?.headers?.['retry-after'];
+  const fromHeader = parseInt(header, 10);
+  if (Number.isFinite(fromHeader)) return capped(fromHeader);
+
+  const details = e?.error?.details ?? e?.response?.data?.error?.details;
+  if (Array.isArray(details)) {
+    for (const d of details) {
+      const m = /^([\d.]+)s$/.exec(String(d?.retryDelay || ''));
+      if (m) return capped(Number(m[1]));
+    }
+  }
+
+  const prose = /retry in ([\d.]+)\s*s/i.exec(errorText(e));
+  if (prose) return capped(Number(prose[1]));
+
+  return fallbackSeconds;
+}
+
+/**
+ * The same instant read as wall-clock time in `timeZone`, expressed as a UTC
+ * timestamp. `Intl` is the only tool needed for that — no new dependency, and
+ * it knows the DST rules.
+ */
+function wallClockUtc(date, timeZone) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    hour12: false,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+  }).formatToParts(date);
+  const f = {};
+  for (const p of parts) f[p.type] = p.value;
+  // 'en-US' renders midnight as hour 24 — normalised to 0.
+  const hour = Number(f.hour) % 24;
+  return Date.UTC(Number(f.year), Number(f.month) - 1, Number(f.day), hour, Number(f.minute), Number(f.second));
+}
+
+/**
+ * Cooldown horizon for a daily limit: the time left until the provider's own
+ * midnight.
+ *
+ * NOT UTC midnight, which is what this used to compute: Google resets the
+ * daily quota at midnight PACIFIC time ("RPD quotas reset at midnight Pacific
+ * time", ai.google.dev/gemini-api/docs/rate-limits), so in Europe the
+ * countdown promised the quota back 7–8 h too early and every retry after it
+ * ran into the same 429. The zone per provider lives in registry.json
+ * (`resetTimezone`) — the registry is the source of truth for provider facts;
+ * providers that do not state one keep UTC.
+ *
+ * `now` is a parameter so tests do not depend on the machine clock.
+ */
+function msUntilQuotaReset(provider, now = new Date()) {
+  const { getRegistry } = require('./registry');
+  // No db: the bundled registry is enough for a provider constant — this is
+  // called from error paths that have no handle on the database.
+  const zone = getRegistry().providers?.[provider]?.resetTimezone || 'UTC';
+  const DAY = 86_400_000;
+  const nowMs = now.getTime();
+  // How far the zone's wall clock is ahead of UTC at a given instant.
+  // wallClockUtc has second resolution, so the instant is floored to match.
+  const offsetAt = (instant) => {
+    try {
+      return wallClockUtc(new Date(instant), zone) - Math.floor(instant / 1000) * 1000;
+    } catch {
+      return 0; // unknown zone name from a refreshed registry — fall back to UTC
+    }
+  };
+  const offset = offsetAt(nowMs);
+  const localNow = nowMs + offset;
+  const nextMidnightLocal = localNow - (localNow % DAY) + DAY;
+  // Second pass with the offset that will be in force AT the reset: a DST
+  // change between now and midnight would otherwise shift the horizon by 1 h.
+  const instant = nextMidnightLocal - offsetAt(nextMidnightLocal - offset);
+  return instant - nowMs;
+}
 
 /**
  * The failover ladder, shared by every cloud route (explain, passage titles).
@@ -89,13 +219,15 @@ function cloudCandidates(db, activeProvider) {
  *   - a 413 depends on the request size, not on a quota;
  *   - anything else (400, timeout, 500) says nothing about availability.
  */
-function cooldownFor(err) {
+function cooldownFor(err, provider) {
   if (isBillingRequired(err)) return null;
   if (isModelUnavailable(err)) return { ms: 24 * 60 * 60 * 1000, kind: 'retired' };
   if (isTooLarge(err)) return null;
   if (isRateLimit(err)) {
+    // The daily horizon is the PROVIDER's midnight (see msUntilQuotaReset);
+    // without the provider name it stays UTC, as it was before.
     return isDailyQuota(err)
-      ? { ms: msUntilUtcMidnight(), kind: 'daily' }
+      ? { ms: msUntilQuotaReset(provider), kind: 'daily' }
       : { ms: 90_000, kind: 'minute' };
   }
   return null;
@@ -234,13 +366,15 @@ async function callCloudLadder(db, {
           plain = true;
           continue;
         }
-        const cooldown = cooldownFor(err);
+        const cooldown = cooldownFor(err, cand.provider);
         if (cooldown && markCooldown) {
           markCooldown(cand.provider, cand.model, cooldown.ms, cooldown.kind);
         }
         onError(err, cand);
-        const status = err?.status ?? err?.response?.status;
-        if (status === 401 || status === 403) authFailure = true;
+        // isBadKey, not a bare 401/403 check: Gemini rejects a wrong key with
+        // a 400 (measured 2026-08-11), which used to look like an ordinary
+        // per-model failure.
+        if (isBadKey(err)) authFailure = true;
         // EVERY failure moves on to the next candidate — a timeout or a 400
         // used to end the whole ladder even though the very next model would
         // have answered in 0.5 s (measured 2026-08-02).
@@ -256,6 +390,6 @@ async function callCloudLadder(db, {
 
 module.exports = {
   isRateLimit, isDailyQuota, isTooLarge, isModelUnavailable, isBillingRequired,
-  isOverloaded,
-  msUntilUtcMidnight, cloudCandidates, cooldownFor, callCloudLadder,
+  isOverloaded, isBadKey, errorText, retryAfterSeconds,
+  msUntilQuotaReset, cloudCandidates, cooldownFor, callCloudLadder,
 };
