@@ -5,20 +5,19 @@
  * mirroring arxiv.js/openalex.js: thin wrappers with a stable result shape,
  * injectable into routes for tests.
  *
- * - searchVideos(query): video search via the local SearXNG instance
- *   (YouTube engine — no API key, same local-first stance as web search).
+ * - searchVideos(query): video search via YouTube's InnerTube API
+ *   (youtubei.js — no API key, no local service; replaced the SearXNG
+ *   YouTube engine on 2026-08-15).
  * - fetchTranscript(youtubeId): full caption track + title/channel via
  *   YouTube's InnerTube API (youtubei.js — pure npm, no shipped binary).
  */
-
-const SEARXNG_URL = process.env.SEARXNG_URL || 'http://localhost:8888';
 
 // Same trim rationale as routes/search.js: the top hits are almost always
 // the relevant ones, and the modal shows a short list anyway.
 const MAX_RESULTS = 8;
 
-// Pull the 11-char video id out of the URL shapes SearXNG's YouTube engine
-// returns (watch?v=, youtu.be/, /shorts/, /embed/).
+// Pull the 11-char video id out of every URL shape YouTube uses
+// (watch?v=, youtu.be/, /shorts/, /embed/) — used by the import-by-URL path.
 function extractYoutubeId(url) {
   if (!url || typeof url !== 'string') return null;
   const m =
@@ -28,55 +27,37 @@ function extractYoutubeId(url) {
   return m ? m[1] : null;
 }
 
+// One search, one source: InnerTube already carries the upload date the
+// modal shows, so there is nothing left to merge in by video id.
 async function searchVideos(query) {
-  // SearXNG's YouTube engine drops the upload date (it never reads
-  // publishedTimeText from the search page), so a parallel InnerTube search
-  // supplies YouTube's own relative date ("9 months ago") to merge in by id.
-  const [searxngResults, publishedById] = await Promise.all([
-    searxngVideoSearch(query),
-    fetchPublishedByVideoId(query),
-  ]);
-  const results = searxngResults.map((res) => ({
-    ...res,
-    published: publishedById.get(res.youtube_id) || null,
-  }));
-  // The two engines rank differently, so a few SearXNG hits miss InnerTube's
-  // first search page (~20 videos). Fetch those dates one by one — in
-  // parallel, so the whole search stays ~one getInfo (~1 s) slower at worst.
-  await Promise.all(
-    results
-      .filter((res) => !res.published)
-      .map(async (res) => {
-        res.published = await fetchPublishedForVideo(res.youtube_id);
-      }),
-  );
-  return results;
+  return innertubeVideoSearch(query);
 }
 
-async function searxngVideoSearch(query) {
-  const url = new URL('/search', SEARXNG_URL);
-  url.searchParams.set('q', query);
-  url.searchParams.set('format', 'json');
-  url.searchParams.set('engines', 'youtube');
-  url.searchParams.set('safesearch', '0');
-
-  const r = await fetch(url.toString(), { signal: AbortSignal.timeout(15_000) });
-  if (!r.ok) throw new Error(`SearXNG responded with HTTP ${r.status}`);
-  const data = await r.json();
-
-  return (data.results || [])
-    .map((res) => {
-      const youtube_id = extractYoutubeId(res.url);
-      if (!youtube_id || !res.title) return null;
+// Video search via InnerTube (2026-08-15). Until then this ran through the
+// local SearXNG YouTube engine, which forced a Docker dependency AND a
+// SECOND InnerTube search per query, because SearXNG never reads
+// publishedTimeText — the upload date had to be merged in by video id, with
+// a per-video getInfo fallback for the ranking mismatch between the two
+// engines. InnerTube carries every field the modal shows (measured live:
+// 21 hits, title/author/duration/published/thumbnail complete on all of
+// them), so one search replaces two and nothing can be missing per instance.
+async function innertubeVideoSearch(query) {
+  const yt = await getInnertube();
+  const search = await yt.search(query, { type: 'video' });
+  return (search.videos || [])
+    .map((v) => {
+      const youtube_id = v?.id;
+      const title = v?.title?.text;
+      if (!youtube_id || !title) return null;
       return {
         youtube_id,
-        title: res.title,
-        // SearXNG's YouTube engine exposes the channel as `author` and the
-        // duration as `length` ("59:47"); both are absent on some instances.
-        channel: res.author || '',
-        duration: res.length || null,
-        thumbnail_url: res.thumbnail || null,
-        url: res.url,
+        title,
+        channel: v?.author?.name || '',
+        // "10:04" — same shape SearXNG's `length` had, so the modal is unchanged.
+        duration: v?.duration?.text || null,
+        thumbnail_url: v?.thumbnails?.[0]?.url || null,
+        url: `https://www.youtube.com/watch?v=${youtube_id}`,
+        published: cleanPublished(v?.published?.text),
       };
     })
     .filter(Boolean)
@@ -89,36 +70,6 @@ function cleanPublished(text) {
   return text ? text.replace(/^(?:Streamed|Premiered)\s+/i, '') : null;
 }
 
-// Best-effort: the date is decoration, so any InnerTube failure degrades to
-// "no date" instead of failing the search (SearXNG stays the only hard
-// dependency, as decided in ADR-0005).
-async function fetchPublishedByVideoId(query) {
-  const byId = new Map();
-  try {
-    const yt = await getInnertube();
-    const search = await yt.search(query, { type: 'video' });
-    for (const v of search.videos || []) {
-      const published = cleanPublished(v?.published?.text);
-      if (v?.id && published && !byId.has(v.id)) byId.set(v.id, published);
-    }
-  } catch {
-    // ignore — results simply carry published: null
-  }
-  return byId;
-}
-
-// Single-video fallback for the ranking mismatch above. getInfo (player +
-// watch-next) is the only InnerTube call that carries the date; getBasicInfo
-// does not. relative_date keeps the wording consistent with the search path.
-async function fetchPublishedForVideo(youtubeId) {
-  try {
-    const yt = await getInnertube();
-    const info = await yt.getInfo(youtubeId);
-    return cleanPublished(info.primary_info?.relative_date?.text || info.primary_info?.published?.text);
-  } catch {
-    return null;
-  }
-}
 
 // ─── Transcript fetch (InnerTube via youtubei.js) ───────────────────────────
 
@@ -319,5 +270,4 @@ module.exports = {
   extractYoutubeId,
   getTreeVideoContext,
   transcriptTruncationNote,
-  SEARXNG_URL,
 };

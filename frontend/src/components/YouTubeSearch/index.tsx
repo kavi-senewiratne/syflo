@@ -3,8 +3,8 @@
  *
  * "Add a YouTube transcript" modal (design/mockup-youtube-transcript.html
  * section 02, ADR-0005): a centered dialog over a dimmed backdrop with a
- * search input, results from the local SearXNG YouTube engine (thumbnail,
- * title, channel, upload date, duration) and an Add button per row.
+ * search input, results from YouTube's InnerTube API (thumbnail, title,
+ * channel, upload date, duration) and an Add button per row.
  *
  * Search runs debounced (400 ms, ≥3 chars) and on Enter / the Search button
  * — same thresholds as PaperSearchModal. The parent owns the import —

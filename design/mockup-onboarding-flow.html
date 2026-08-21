@@ -998,5 +998,322 @@
   </div>
 </div>
 
+<!-- ============================================================ -->
+<div class="section">
+  <div class="section-head">
+    <h2><span class="num">§06</span> Websuche ohne SearXNG — und die Frage nach dem Bezahl-Status</h2>
+    <p>
+      Stand 15.08.2026: Die YouTube-Suche läuft jetzt über InnerTube (<code>youtube.js</code>, gemessen: 8 Treffer,
+      Titel/Kanal/Dauer/Datum/Vorschaubild vollständig). Übrig bleiben zwei Stellen, die eine Websuche
+      wollen: der <strong>Referenz-Volltext</strong> (nur wenn OpenAlex kein PDF hat) und
+      <strong><code>web_search</code> im Chat</strong>. Beide sollen künftig über einen Schlüssel laufen —
+      Tavily, 1000 Anfragen pro Monat kostenlos.
+    </p>
+  </div>
+
+  <div class="variants">
+    <div class="variant">
+      <div class="variant-head"><span class="variant-badge">FRAGE</span><h3>Wissen wir, ob der Nutzer zahlt?</h3></div>
+      <p class="idea">
+        Teilweise — und nur nachdem ein Aufruf stattgefunden hat. Gemessen am 11.08.2026 gegen den
+        echten Gemini-Key:
+      </p>
+      <table class="vocab" style="margin-top:4px">
+        <thead><tr><th>Signal</th><th>Beweist</th></tr></thead>
+        <tbody>
+          <tr><td><b>429 mit <code>limit: 0</code></b></td><td>Dieser Key hat <em>keine</em> Abrechnung — sicher.</td></tr>
+          <tr><td><b>Aufruf an ein Bezahl-Modell klappt</b></td><td>Abrechnung ist aktiv — sicher, kostet Bruchteile eines Cents.</td></tr>
+          <tr><td>Nur Gratis-Modelle im Einsatz</td><td>Nichts. Der Nutzer könnte zahlen und es einfach nicht nutzen.</td></tr>
+        </tbody>
+      </table>
+      <div class="pro-con">
+        <div class="pc plus"><b>machbar</b>Ein Ein-Token-Aufruf beim „Schlüssel prüfen" (§03) liefert die Antwort und schreibt sie mit Zeitstempel in die Einstellungen.</div>
+        <div class="pc minus"><b>Denkfehler in der Kopplung</b>Wer Google bezahlt, hat deswegen keinen Tavily-Schlüssel. Der Bezahl-Status sagt über die Websuche nichts aus — er sagt nur etwas über die Zahlungsbereitschaft.</div>
+      </div>
+      <div class="verdict">
+        <b>Alternative Bedingung, die wirklich trägt:</b> nicht „zahlt der Nutzer?", sondern
+        <em>„wurde die Websuche gerade gebraucht?"</em> — die Karte erscheint genau in dem Moment, in dem
+        eine Suche stattgefunden hätte. Das ist messbar, ehrlich und braucht keine Vermutung über den Geldbeutel.
+      </div>
+    </div>
+
+    <div class="variant">
+      <div class="variant-head"><span class="variant-badge">W1</span><h3>Karte am Bedarfsort: Referenz ohne PDF</h3></div>
+      <p class="idea">
+        Der Nutzer klickt eine Referenz an, OpenAlex hat kein PDF. Hier hätte die Websuche gesucht —
+        also fragt die Karte hier nach dem Schlüssel, nicht vorher irgendwo in den Einstellungen.
+      </p>
+      <div class="card acc">
+        <h4><svg class="ic sm" style="color:var(--accent)"><use href="#i-search"/></svg>Kein freier Volltext gefunden</h4>
+        <p>
+          OpenAlex kennt für <em>„Layer Normalization"</em> keine offene Fassung. Mit einem
+          Such-Schlüssel könnte Syflo im Netz nach dem PDF suchen.
+          <br><span style="color:var(--text-muted)">Tavily: 1000 Suchen im Monat kostenlos, keine Kreditkarte.</span>
+        </p>
+        <div class="btn-row">
+          <button class="btn primary"><svg class="ic xs"><use href="#i-key"/></svg>Such-Schlüssel hinzufügen</button>
+          <button class="btn">Bei Google Scholar öffnen</button>
+        </div>
+      </div>
+      <div class="pro-con">
+        <div class="pc plus"><b>gut</b>Die Frage kommt im Moment des Bedarfs, mit sichtbarem Nutzen. Kein Einrichtungsschritt auf Vorrat.</div>
+        <div class="pc minus"><b>Problem</b>Wer viele Referenzen anklickt, sieht die Karte oft. Braucht ein „nicht mehr fragen".</div>
+      </div>
+    </div>
+
+    <div class="variant">
+      <div class="variant-head"><span class="variant-badge">W2</span><h3>Karte im Chat: Modell wollte suchen</h3></div>
+      <p class="idea">
+        Das Modell hat <code>web_search</code> aufgerufen, aber es gibt keinen Schlüssel. Statt einer
+        erfundenen Antwort erscheint die Karte — mit der Suchanfrage, die das Modell formuliert hat.
+      </p>
+      <div class="card warn">
+        <h4><svg class="ic sm" style="color:var(--warn)"><use href="#i-search"/></svg>Für diese Frage wollte das Modell im Netz nachsehen</h4>
+        <p>
+          Gesucht hätte es nach: <code>qwen3.5 release date</code><br>
+          <span style="color:var(--text-muted)">Ohne Websuche antwortet das Modell nur aus seinem Wissensstand — der endet vor dieser Frage.</span>
+        </p>
+        <div class="btn-row">
+          <button class="btn soft"><svg class="ic xs"><use href="#i-key"/></svg>Such-Schlüssel hinzufügen</button>
+          <button class="btn">Trotzdem antworten</button>
+        </div>
+      </div>
+      <div class="pro-con">
+        <div class="pc plus"><b>gut</b>Der ehrlichste Zustand von allen: Syflo sagt, dass die Antwort veraltet sein wird, statt sie stillschweigend zu liefern.</div>
+        <div class="pc minus"><b>Problem</b>Braucht einen zweiten Modell-Aufruf, um überhaupt zu wissen, dass gesucht worden wäre — kostet eine Anfrage vom Tageskontingent.</div>
+      </div>
+    </div>
+
+    <div class="variant">
+      <div class="variant-head"><span class="variant-badge">W3</span><h3>Einstellungen: ein Anbieter mit zwei Wegen</h3></div>
+      <p class="idea">
+        Die Websuche wird ein Anbieter wie Gemini oder Groq — gleiche Maske, gleiches Muster
+        (ADR-0008). Zwei Wege: eigener Schlüssel oder lokales SearXNG für alle, die nichts nach außen
+        geben wollen.
+      </p>
+      <div class="menu inline">
+        <div class="mg">Websuche</div>
+        <div class="row active"><svg class="ic sm" style="color:var(--accent);margin-top:2px"><use href="#i-key"/></svg>
+          <div class="rm"><div class="rn">Tavily</div><div class="rs ok">Schlüssel geprüft · 0 von 1000 diesen Monat</div></div>
+          <svg class="ic sm" style="color:var(--accent-strong)"><use href="#i-check"/></svg></div>
+        <div class="row"><svg class="ic sm" style="color:var(--text-muted);margin-top:2px"><use href="#i-cpu"/></svg>
+          <div class="rm"><div class="rn">Eigenes SearXNG</div><div class="rs">Docker · nichts verlässt den Rechner</div></div>
+          <span class="badge">Einrichten</span></div>
+        <div class="row"><svg class="ic sm" style="color:var(--text-muted);margin-top:2px"><use href="#i-x"/></svg>
+          <div class="rm"><div class="rn">Aus</div><div class="rs">Standard · Referenzen nutzen nur OpenAlex</div></div></div>
+      </div>
+      <div class="pro-con">
+        <div class="pc plus"><b>gut</b>Ein Ort für die Entscheidung, wiedererkennbares Muster, und der Zähler „0 von 1000" ist dieselbe Idee wie bei den Modellen.</div>
+        <div class="pc minus"><b>Problem</b>Auf Vorrat einzurichten ist genau das, was beim ersten Start schon nicht funktioniert (§01). Wirkt nur zusammen mit W1 oder W2.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="note">
+    <b>Was dafür fehlt:</b> Es gibt heute keinen Zähler für Suchen — weder in <code>usage_log</code> noch
+    sonstwo (geprüft am 15.08.2026). Ohne ihn ist „0 von 1000" nicht darstellbar und die Tarifwahl bleibt
+    geschätzt. Der Zähler gehört zu B3 auf der Fehlerliste: <code>usage_log</code> bekommt eine Spalte
+    <code>kind</code>, dann zählt dieselbe Tabelle Chat-Antworten, Titel <em>und</em> Suchen.
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<div class="section">
+  <div class="section-head">
+    <h2><span class="num">§07</span> Beide Gratis-Anbieter einrichten — das Kontingent verdoppeln</h2>
+    <p>
+      Aus <code>registry.json</code> gelesen: Gemini und Groq haben beide einen kostenlosen Tarif, und
+      sie ergänzen sich. Wer nur einen einrichtet, verschenkt die Hälfte — genau das soll die Oberfläche
+      sagen, statt es dem Nutzer zu überlassen.
+    </p>
+  </div>
+
+  <div class="variant wide" style="margin-bottom:26px">
+    <div class="scroll-x">
+      <table class="vocab">
+        <thead><tr><th>Anbieter</th><th>Modell</th><th>Kostenlos pro Tag</th><th>Pro Minute</th><th>Bilder</th></tr></thead>
+        <tbody>
+          <tr><td><b>Gemini</b></td><td>Gemini Flash</td><td><b>20</b> Anfragen</td><td>5</td><td>ja</td></tr>
+          <tr><td></td><td>Gemini Flash Lite</td><td><b>500</b> Anfragen</td><td>15</td><td>ja</td></tr>
+          <tr><td><b>Groq</b></td><td>GPT-OSS 120B</td><td><b>200.000</b> Token</td><td>8.000 Token</td><td><span style="color:var(--danger)">nein</span></td></tr>
+          <tr><td></td><td>Llama 3.3 70B</td><td><b>100.000</b> Token</td><td>8.000 Token</td><td><span style="color:var(--danger)">nein</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="verdict">
+      <b>Was das ehrlich bedeutet:</b> Gemini allein reicht für <b>520 Fragen am Tag</b> und ist der
+      einzige der beiden, der PDF-Seiten und Abbildungen lesen kann. Groq verdoppelt nicht die Bilder,
+      sondern die <em>Textkapazität</em> — und ist die Reserve, wenn Gemini für heute leer ist. Zwei
+      Haken gehören dazu: Groq zählt in Token statt Anfragen, und das Minutenlimit von 8.000 Token war
+      genau die Ursache der <em>Failed</em>-Marker vom 25.07. Die Oberfläche darf also nicht „doppelt so
+      viel" versprechen, sondern „Text läuft weiter, wenn Gemini leer ist".
+    </div>
+  </div>
+
+  <div class="variants">
+    <div class="variant">
+      <div class="variant-head"><span class="variant-badge">G1</span><h3>Beide Schlüssel im selben Schritt</h3></div>
+      <p class="idea">
+        Der Weg „Kostenlos starten" fragt nicht nach <em>einem</em> Schlüssel, sondern nach beiden —
+        mit einer Fortschrittszeile, die zeigt, was jeder einzelne bringt. Der zweite ist überspringbar.
+      </p>
+      <div class="card acc">
+        <h4><svg class="ic sm" style="color:var(--accent)"><use href="#i-zap"/></svg>Kostenlos starten</h4>
+        <p style="margin-bottom:10px">
+          Zwei Anbieter geben kostenlose Schlüssel aus. Beide zusammen decken einen normalen Arbeitstag
+          bequem ab — ohne Kreditkarte.
+        </p>
+        <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden">
+          <div class="row" style="border-radius:0">
+            <svg class="ic sm" style="color:var(--ok);margin-top:2px"><use href="#i-check"/></svg>
+            <div class="rm"><div class="rn">Gemini</div>
+              <div class="rs ok">520 Fragen am Tag · liest Bilder und PDF-Seiten</div></div>
+            <span class="badge live">Geprüft</span>
+          </div>
+          <div class="row" style="border-radius:0;border-top:1px solid var(--border)">
+            <svg class="ic sm" style="color:var(--accent);margin-top:2px"><use href="#i-plus"/></svg>
+            <div class="rm"><div class="rn">Groq</div>
+              <div class="rs acc">300.000 Token am Tag · sehr schnell · liest keine Bilder</div></div>
+            <span class="badge acc">Schlüssel holen</span>
+          </div>
+        </div>
+        <div class="btn-row">
+          <button class="btn primary">Groq-Schlüssel hinzufügen</button>
+          <button class="btn">Erstmal nur mit Gemini</button>
+        </div>
+        <p class="caption" style="margin-top:9px">
+          Ohne Groq funktioniert alles — nur ist bei 520 Fragen für heute Schluss.</p>
+      </div>
+      <div class="pro-con">
+        <div class="pc plus"><b>gut</b>Sagt den Nutzen in Zahlen, statt „empfohlen" zu behaupten. Beide Zeilen nennen auch, was der Anbieter <em>nicht</em> kann.</div>
+        <div class="pc minus"><b>Problem</b>Zwei Konten anzulegen, bevor man die App überhaupt gesehen hat, ist viel verlangt. Der Überspringen-Knopf muss echt gleichwertig aussehen.</div>
+      </div>
+    </div>
+
+    <div class="variant">
+      <div class="variant-head"><span class="variant-badge">G2</span><h3>Zweiter Anbieter erst, wenn der erste leer ist</h3></div>
+      <p class="idea">
+        Einrichtung bleibt bei einem Schlüssel. Der zweite wird genau dann vorgeschlagen, wenn das
+        Tageslimit zuschlägt — dort ist der Nutzen unmittelbar sichtbar.
+      </p>
+      <div class="card warn">
+        <h4><svg class="ic sm" style="color:var(--warn)"><use href="#i-clock"/></svg>Tageslimit von Gemini erreicht</h4>
+        <p>
+          Alle 520 kostenlosen Fragen sind aufgebraucht. Google setzt um 2:00 Uhr zurück.
+          <br><span style="color:var(--text-muted)">Mit einem Groq-Schlüssel könntest du sofort
+          weiterarbeiten — 300.000 Token am Tag, kostenlos. Bilder liest Groq allerdings nicht.</span>
+        </p>
+        <div class="btn-row">
+          <button class="btn primary"><svg class="ic xs"><use href="#i-key"/></svg>Groq hinzufügen (2 Minuten)</button>
+          <button class="btn">Bis morgen warten</button>
+        </div>
+      </div>
+      <div class="pro-con">
+        <div class="pc plus"><b>gut</b>Der Vorschlag kommt im Moment des Schmerzes; die Zahl „300.000 Token" ist dann keine Werbung, sondern eine Lösung. Der erste Start bleibt kurz.</div>
+        <div class="pc minus"><b>Problem</b>Der Nutzer steht mitten in der Arbeit und soll ein Konto anlegen. Und wer nie ans Limit kommt, erfährt von Groq nie.</div>
+      </div>
+    </div>
+
+    <div class="variant">
+      <div class="variant-head"><span class="variant-badge">G3</span><h3>Dauerhafte Zeile im Modell-Fenster</h3></div>
+      <p class="idea">
+        Das Fenster zeigt fehlende Gratis-Anbieter als eigene Zeile — sichtbar, aber nie aufdringlich.
+        Verbindet sich mit der Gruppe „Noch einzurichten" aus §02.
+      </p>
+      <div class="menu inline">
+        <div class="mg ok"><svg class="ic xs"><use href="#i-check"/></svg>Jetzt nutzbar</div>
+        <div class="row active"><div class="rm"><div class="rn">Gemini Flash Lite</div>
+          <div class="rs">Gemini · kostenlos · liest Bilder</div>
+          <span class="badge live" style="margin-top:3px">29 von 500 heute</span></div>
+          <svg class="ic sm" style="color:var(--accent-strong)"><use href="#i-check"/></svg></div>
+        <div class="msep"></div>
+        <div class="mg acc"><svg class="ic xs"><use href="#i-plus"/></svg>Noch einzurichten</div>
+        <div class="row"><svg class="ic sm" style="color:var(--accent);margin-top:2px"><use href="#i-zap"/></svg>
+          <div class="rm"><div class="rn">Groq</div>
+            <div class="rs acc">kostenlos · 300.000 Token am Tag · Reserve, wenn Gemini leer ist</div></div>
+          <span class="badge acc">Einrichten</span></div>
+        <div class="mfoot"><span class="dot ok"></span>1 von 2 Gratis-Anbietern eingerichtet</div>
+      </div>
+      <div class="pro-con">
+        <div class="pc plus"><b>gut</b>Kein Unterbrechen, kein Zeitpunkt-Raten. Die Fußzeile „1 von 2" macht die Lücke ohne Werbesprache sichtbar.</div>
+        <div class="pc minus"><b>Problem</b>Wer das Fenster nie öffnet, sieht es nie — und beim ersten Start ist das Fenster laut §01 gar nicht erreichbar.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="note">
+    <b>Sprachregel für alle drei:</b> keine Wertung, nur Zahlen und Grenzen. „520 Fragen am Tag, liest
+    Bilder" und „300.000 Token am Tag, liest keine Bilder" — nie „empfohlen" oder „am besten". Der
+    Nutzer sieht, was jeder Anbieter kann, und entscheidet selbst.
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<div class="section">
+  <div class="section-head">
+    <h2><span class="num">§08</span> Bauplan — Reihenfolge und Stand</h2>
+    <p>Stand 15.08.2026. Alles unentschieden markierte wartet auf die Durchsicht dieser Seite.</p>
+  </div>
+  <div class="variant wide">
+    <div class="scroll-x">
+      <table class="vocab">
+        <thead><tr><th>Schritt</th><th>Was</th><th>Stand</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><b>0 · YouTube-Suche</b></td>
+            <td>SearXNG raus, nur noch InnerTube (<code>youtube.js</code>)</td>
+            <td><b style="color:var(--ok)">gebaut</b>, Tests 19/19, live geprüft — nicht committet</td>
+          </tr>
+          <tr>
+            <td><b>1 · Datenordner</b></td>
+            <td><code>~/.syflo/</code> statt Programmordner — verhindert Datenverlust bei <code>npm update</code></td>
+            <td>offen, klein</td>
+          </tr>
+          <tr>
+            <td><b>2 · Gemini-Fehler auspacken</b></td>
+            <td><code>[{error}]</code> normalisieren → Tageslimit, Abrechnung und 404 werden wieder erkannt</td>
+            <td>offen, klein</td>
+          </tr>
+          <tr>
+            <td><b>3 · Reset-Horizont</b></td>
+            <td><code>msUntilQuotaReset(provider)</code> — Gemini pazifisch, Groq UTC</td>
+            <td>offen, klein</td>
+          </tr>
+          <tr>
+            <td><b>4 · Zähler ehrlich</b></td>
+            <td><code>usage_log</code> mit <code>kind</code>: jeder Aufruf, auch Titel, /btw, Explain <em>und Suchen</em></td>
+            <td>offen, mittel</td>
+          </tr>
+          <tr>
+            <td><b>5 · Portal-Helfer</b></td>
+            <td>Popover per <code>createPortal</code> — behebt das abgeschnittene Modell-Fenster</td>
+            <td>offen, klein</td>
+          </tr>
+          <tr>
+            <td><b>6 · npm-Paket</b></td>
+            <td>Wurzel-<code>package.json</code> mit <code>bin</code>, Pfade im <code>main.js</code>, Backend über <code>process.execPath</code></td>
+            <td>offen, mittel</td>
+          </tr>
+          <tr>
+            <td><b>7 · Einbettungen</b></td>
+            <td><code>bge-m3</code> über <code>node-llama-cpp</code> — Ollama nicht mehr nötig für Cloud-Nutzer</td>
+            <td>offen, groß</td>
+          </tr>
+          <tr>
+            <td><b>8 · Websuche</b></td>
+            <td>Tavily als Anbieter; SearXNG aus <code>tools.js</code> und <code>references.js</code>; Docker bleibt optional</td>
+            <td>offen, mittel — Entwurf in §06</td>
+          </tr>
+          <tr>
+            <td><b>9 · Oberfläche</b></td>
+            <td>Erster Start (§01/§03), sechs Zustände (§02), Bildfall (§04), Gratis-Anbieter (§07)</td>
+            <td>wartet auf Varianten-Entscheidung</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
 </body>
 </html>

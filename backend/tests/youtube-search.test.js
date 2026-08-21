@@ -81,15 +81,19 @@ describe('GET /api/youtube/search', () => {
     expect(searchVideosFn).not.toHaveBeenCalled();
   });
 
-  it('answers 503 with a clear message when the search backend is unreachable', async () => {
+  // Since 2026-08-15 the search runs through InnerTube, so an unreachable
+  // backend means the network is down — there is no local service to start,
+  // and the message must not send the user to searxng/README.md any more.
+  it('answers 503 pointing at the network when YouTube is unreachable', async () => {
     const searchVideosFn = jest.fn().mockRejectedValue(
-      Object.assign(new Error('Could not reach SearXNG'), { cause: { code: 'ECONNREFUSED' } }),
+      Object.assign(new Error('fetch failed'), { cause: { code: 'ENOTFOUND' } }),
     );
     const app = makeApp({ searchVideosFn });
 
     const res = await request(app).get('/api/youtube/search').query({ q: 'karpathy' });
 
     expect(res.status).toBe(503);
-    expect(res.body.error).toMatch(/SearXNG/i);
+    expect(res.body.error).toMatch(/YouTube/i);
+    expect(res.body.error).not.toMatch(/SearXNG/i);
   });
 });

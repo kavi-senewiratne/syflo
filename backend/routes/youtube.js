@@ -55,9 +55,10 @@ module.exports = (db, options = {}) => {
       const results = await searchVideosFn(q);
       res.json({ results });
     } catch (err) {
-      // Most common case: SearXNG isn't running — same guidance as web search.
-      const msg = err?.cause?.code === 'ECONNREFUSED'
-        ? `Could not reach SearXNG at ${defaultYoutube.SEARXNG_URL}. Is it running? See searxng/README.md.`
+      // The search now runs through InnerTube (2026-08-15), so the failure
+      // mode is the network or YouTube itself — no local service to start.
+      const msg = err?.cause?.code === 'ECONNREFUSED' || err?.cause?.code === 'ENOTFOUND'
+        ? 'Could not reach YouTube. Check your internet connection.'
         : err.message || 'Video search failed';
       res.status(503).json({ error: msg });
     }
