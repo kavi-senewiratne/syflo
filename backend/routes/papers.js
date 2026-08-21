@@ -588,7 +588,10 @@ module.exports = (db, uploadsDir, options = {}) => {
   router.post('/:id/references/:refId/fulltext', async (req, res, next) => {
     try {
       const reference = await ensureFulltext(db, req.params.refId, {
-        webSearchFn: options.webSearchFn || defaultWebSearch,
+        // Bind db so the reference search reaches Tavily as well; without it
+        // this path would keep requiring a running SearXNG (2026-08-21).
+        webSearchFn: options.webSearchFn
+          || ((query, depth) => defaultWebSearch(query, { db, max: depth })),
       });
       if (!reference) return res.status(404).json({ error: 'Reference not found' });
       return res.json({ reference });

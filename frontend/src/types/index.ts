@@ -756,10 +756,19 @@ export interface UsageSummary {
   month: string;
   pricesAsOf: string;
   providers: Partial<Record<LLMProvider, UsageProviderSummary>>;
-  // Per-model request counters since UTC midnight (cost tiers 2026-07-30),
-  // keyed 'provider/model' — feeds the quota meters in picker and settings.
+  // Per-model request counters for the current day IN THE PROVIDER'S OWN
+  // TIMEZONE (2026-08-21), keyed 'provider/model' — Google resets at midnight
+  // Pacific, Groq at midnight UTC, so a UTC day made the meter wrong for both.
+  // It now counts EVERY call, including titles, /btw, explain and refused
+  // ones, because all of them spend the same allowance. That is what made the
+  // picker read "0/20" while the limit was long exhausted.
   modelsToday: Record<string, number>;
+  // What today's calls were FOR, keyed exactly like modelsToday — lets the
+  // quota card say "12 answers, 6 titles, 2 x /btw" instead of a bare number.
+  kindsToday: Record<string, Partial<Record<UsageKind, number>>>;
 }
+
+export type UsageKind = 'chat' | 'title' | 'btw' | 'explain' | 'passage_title';
 
 // Ein lokal installiertes Ollama-Modell, wie es der (vision-gefilterte)
 // Backend-Endpoint liefert. `canThink` steuert die Thinking-Zeile im Picker.

@@ -1,0 +1,66 @@
+{
+  "name": "syflo",
+  "version": "0.1.0",
+  "description": "Branching research chats over papers, PDFs and videos — local-first, bring your own model keys",
+  "license": "MIT",
+  "author": "Kavi Senewiratne",
+  "homepage": "https://github.com/kavi-senewiratne/syflo",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kavi-senewiratne/syflo.git"
+  },
+  "bugs": {
+    "url": "https://github.com/kavi-senewiratne/syflo/issues"
+  },
+  "keywords": [
+    "research",
+    "llm",
+    "pdf",
+    "chat",
+    "electron",
+    "local-first"
+  ],
+  "bin": {
+    "syflo": "./bin/syflo.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "files": [
+    "bin/",
+    "backend/",
+    "!backend/tests/",
+    "!backend/*.db*",
+    "!backend/package-lock.json",
+    "frontend/dist/",
+    "electron/main.js",
+    "electron/preload.js",
+    "electron/assets/",
+    "docs/adr/"
+  ],
+  "dependencies": {
+    "better-sqlite3": "^12.8.0",
+    "dotenv": "^17.4.0",
+    "electron": "^38.0.0",
+    "express": "^5.2.1",
+    "fast-xml-parser": "^5.10.0",
+    "multer": "^2.1.1",
+    "node-llama-cpp": "^3.20.0",
+    "openai": "^6.33.0",
+    "pdfjs-dist": "^6.1.200",
+    "uuid": "^13.0.0",
+    "youtubei.js": "^17.2.0"
+  },
+  "devDependencies": {
+    "jest": "^30.3.0"
+  },
+  "scripts": {
+    "test": "jest"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "roots": [
+      "<rootDir>/tests"
+    ]
+  }
+}

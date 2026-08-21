@@ -76,13 +76,19 @@ async function sendOne() {
 describe('usage log + summary', () => {
   it('records provider, model and token counts for every answer', async () => {
     await sendOne();
-    const rows = db.prepare('SELECT * FROM usage_log').all();
+    // Every cloud call is logged since 2026-08-11, so the answer is picked out
+    // by its kind — the title call of the same request sits next to it.
+    const rows = db.prepare("SELECT * FROM usage_log WHERE kind = 'chat'").all();
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({
       provider: 'gemini',
       model: 'gemini-flash-latest',
       prompt_tokens: 4000,
       completion_tokens: 500,
+      // Every row states where the call came from and how it ended
+      // (2026-08-11) — a chat answer that arrived is the 'chat'/'ok' case.
+      kind: 'chat',
+      outcome: 'ok',
     });
   });
 
@@ -98,7 +104,10 @@ describe('usage log + summary', () => {
     expect(gem.completionTokens).toBe(1000);
     // 8000/1M × $0.30 + 1000/1M × $2.50 = $0.0024 + $0.0025 = $0.0049
     expect(gem.estimatedUsd).toBeCloseTo(0.0049, 4);
-    expect(gem.requestsToday).toBe(2);
+    // Two answers AND their two title calls: the daily counter counts calls,
+    // not answers. Counting only the answers is how it claimed "0/20" for an
+    // exhausted Gemini Flash (measured 2026-08-11).
+    expect(gem.requestsToday).toBe(4);
     // Honesty: the estimate carries the as-of date of the price table.
     expect(res.body.pricesAsOf).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
@@ -106,7 +115,8 @@ describe('usage log + summary', () => {
   it('counts today’s requests per model for the quota meters', async () => {
     await sendOne();
     await sendOne();
-    // A row from before UTC midnight must not count into today.
+    // A row from before the provider's own midnight must not count into
+    // today — 26 h back is outside any provider day.
     const yesterday = new Date(Date.now() - 26 * 60 * 60 * 1000).toISOString();
     db.prepare(
       'INSERT INTO usage_log (id, provider, model, prompt_tokens, completion_tokens, created_at) VALUES (?, ?, ?, ?, ?, ?)'
@@ -115,7 +125,8 @@ describe('usage log + summary', () => {
     const res = await request(app).get('/api/usage/summary');
     expect(res.status).toBe(200);
     // Flat provider/model keys — one fetch serves settings list AND picker.
-    expect(res.body.modelsToday['gemini/gemini-flash-latest']).toBe(2);
+    // Four: two answers plus the two title calls they triggered.
+    expect(res.body.modelsToday['gemini/gemini-flash-latest']).toBe(4);
     expect(res.body.modelsToday['gemini/gemini-pro-latest']).toBeUndefined();
   });
 
@@ -126,7 +137,9 @@ describe('usage log + summary', () => {
 
     const res = await request(app).get('/api/usage/summary');
     const local = res.body.providers.ollama;
-    expect(local.requestsToday).toBe(1);
+    // The answer and its title call — local calls are logged too, so the
+    // breakdown reads the same in both modes.
+    expect(local.requestsToday).toBe(2);
     expect(local.estimatedUsd).toBe(0);
   });
 });

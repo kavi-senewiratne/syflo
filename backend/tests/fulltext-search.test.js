@@ -217,6 +217,21 @@ describe('findFulltext', () => {
 });
 
 describe('when SearXNG has been shut out', () => {
+  // Since the search became optional (Tavily or SearXNG, 2026-08-21), "nothing
+  // is set up" arrives as a RETURNED error instead of a throw. Caching that as
+  // "this reference has no full text" would be wrong: nobody ever looked.
+  it('does not report "nothing found" when no search provider is configured', async () => {
+    const searchFn = async () => ({
+      provider: null,
+      error: 'no-search-provider',
+      results: [],
+    });
+
+    await expect(
+      findFulltext({ title: 'Layer Normalization' }, { searchFn }),
+    ).rejects.toMatchObject({ suspended: true });
+  });
+
   it('does not report "nothing found" while every engine is suspended', async () => {
     // Measured in the running app 2026-08-10: twenty serial searches were
     // enough for SearXNG to answer with zero results and

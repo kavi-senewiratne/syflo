@@ -108,7 +108,7 @@ function createApp(db, options = {}) {
   }));
   // options.transcribe: { manager } — injectable for tests (fake whisper).
   app.use('/api/transcribe', require('./routes/transcribe')(options.transcribe));
-  app.use('/api/search', require('./routes/search')());
+  app.use('/api/search', require('./routes/search')(db));
   // options.system: { totalmem, platform } — injectable for tests.
   app.use('/api/usage', require('./routes/usage')(db));
   // Hands the frontend the Web3Forms access key + diagnostics — the actual

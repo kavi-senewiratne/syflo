@@ -146,9 +146,17 @@ async function findFulltext(reference, { searchFn } = {}) {
   const query = queryFor(reference);
   if (!query.trim()) return null;
 
-  const { results = [], unresponsiveEngines } = (await searchFn(query, SEARCH_DEPTH)) || {};
-  if (wasShutOut(results, unresponsiveEngines)) {
-    const err = new Error('Web search is rate-limited or blocked; no answer to trust');
+  const { results = [], unresponsiveEngines, error } = (await searchFn(query, SEARCH_DEPTH)) || {};
+  // `error` is the shape searchWeb returns for a state the user can fix — no
+  // provider configured, a bad Tavily key, its monthly quota spent (2026-08-21,
+  // when the search became optional). Same conclusion as being shut out:
+  // nobody looked, so this must not be remembered as "no full text exists".
+  if (error || wasShutOut(results, unresponsiveEngines)) {
+    const err = new Error(
+      error
+        ? `Web search unavailable (${error}); no answer to trust`
+        : 'Web search is rate-limited or blocked; no answer to trust',
+    );
     // The caller must not cache this as a miss, and the prefetch queue must
     // back off rather than burn through the rest of the bibliography.
     err.suspended = true;

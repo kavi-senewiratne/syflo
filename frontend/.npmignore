@@ -1,0 +1,7 @@
+# Empty on purpose.
+#
+# frontend/.gitignore lists `dist`, and npm honours a nested .gitignore over
+# the root package.json "files" whitelist — which silently left frontend/dist
+# out of the published tarball, so `syflo` could only ever report
+# frontend-missing (measured 2026-08-21). An .npmignore overrides that
+# .gitignore for npm while git keeps ignoring dist.

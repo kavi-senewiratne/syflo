@@ -24,6 +24,7 @@ const { callCloudLadder, isRateLimit, isModelUnavailable, isOverloaded } = requi
 const { isTruncatedFinish, isAbortError } = require('../tools');
 const { joinContinuation, continuationInstruction, MAX_OVERLAP } = require('../continuation');
 const { writeOutcomeInBackground } = require('../outcome');
+const { recordUsage } = require('../usage');
 
 // Zeitbudget einer Nebenfrage: sie darf nie in die Warteschlange und nie
 // länger dauern, als der Nutzer hinschaut. Die ganze Leiter bekommt ein
@@ -179,8 +180,12 @@ module.exports = (db, { buildSystemAndHistory, isQuotaCoolingDown, markQuotaCool
     // (mockup-model-flow §11) means a local aside never silently becomes a
     // cloud one, and the ladder below is cloud-only by construction.
     if (activeProvider === 'ollama') {
+      // Held outside the try so a failed round can still say WHO failed —
+      // and so nothing is logged when there was no client to call at all.
+      let local = null;
       try {
-        const { client, model, provider } = getLLMClient(db);
+        local = getLLMClient(db);
+        const { client, model, provider } = local;
         // One round against the local model: streams what it writes and
         // reports how it ended, so a cut answer can be continued below.
         const round = async (msgs, onDelta) => {
@@ -204,9 +209,19 @@ module.exports = (db, { buildSystemAndHistory, isQuotaCoolingDown, markQuotaCool
           return { text, finishReason };
         };
         const first = await round(messages, (delta) => send({ delta }));
+        // An aside is a call like any other (kind 'btw' since 2026-08-11).
+        // It used to spend the provider's daily quota without appearing
+        // anywhere — one of the reasons the meter said "0/20" while Gemini
+        // Flash was exhausted.
+        recordUsage(db, { provider, model, kind: 'btw', outcome: 'ok' });
         const whole = await completeAnswer(first.text, first.finishReason, round);
         send({ done: true, provider, model, ...(whole.truncated ? { truncated: true } : {}) });
       } catch (err) {
+        if (local) {
+          recordUsage(db, {
+            provider: local.provider, model: local.model, kind: 'btw', outcome: 'failed',
+          });
+        }
         send({ error: err.message });
       }
       return res.end();
@@ -237,9 +252,21 @@ module.exports = (db, { buildSystemAndHistory, isQuotaCoolingDown, markQuotaCool
         // takes its fragment back, so the next candidate's answer does not
         // land underneath a torn-off one.
         onDiscard: () => send({ reset: true }),
-        onError: (err) => { if (!isRateLimit(err) && !isModelUnavailable(err)) lastErr = err; },
+        onError: (err, cand) => {
+          // Every candidate the ladder burns is a spent call — a 429 counts
+          // against the provider's day just like an answer does, and before
+          // 2026-08-11 none of these appeared in the meter.
+          recordUsage(db, {
+            provider: cand.provider, model: cand.model, kind: 'btw',
+            outcome: isRateLimit(err) ? 'quota' : 'failed',
+          });
+          if (!isRateLimit(err) && !isModelUnavailable(err)) lastErr = err;
+        },
       });
       if (result) {
+        recordUsage(db, {
+          provider: result.provider, model: result.model, kind: 'btw', outcome: 'ok',
+        });
         // Writing on is a ladder walk of its own: whoever can, finishes the
         // sentence. Pinning it to the model that broke off meant asking the
         // one provider whose quota had just run out — one 429, and the aside
@@ -259,7 +286,17 @@ module.exports = (db, { buildSystemAndHistory, isQuotaCoolingDown, markQuotaCool
               label: 'btw-continue',
               onDelta,
               onDiscard: onGiveUp,
+              // Writing on is a second call, with a second cost.
+              onError: (err, cand) => recordUsage(db, {
+                provider: cand.provider, model: cand.model, kind: 'btw',
+                outcome: isRateLimit(err) ? 'quota' : 'failed',
+              }),
             });
+            if (cont) {
+              recordUsage(db, {
+                provider: cont.provider, model: cont.model, kind: 'btw', outcome: 'ok',
+              });
+            }
             if (!cont) throw new Error('no model could write on');
             return { finishReason: cont.finishReason };
           },

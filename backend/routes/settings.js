@@ -10,7 +10,8 @@
  */
 
 const express = require('express');
-const { getAllSettings, setSetting, testProviderKey, CLOUD_PROVIDERS } = require('../llm');
+const { invalidateToolAvailability } = require('../tools');
+const { getAllSettings, getSetting, setSetting, testProviderKey, CLOUD_PROVIDERS } = require('../llm');
 const { getRegistry, refreshRegistry } = require('../registry');
 
 const ALLOWED_PROVIDERS = new Set(['ollama', ...CLOUD_PROVIDERS]);
@@ -31,6 +32,10 @@ function buildResponse(db) {
     custom_instructions: s.custom_instructions,
     custom_instructions_enabled: s.custom_instructions_enabled === 'true',
   };
+  // Web search (step 9, 2026-08-15): Tavily is the search provider an npm
+  // install can reach — SearXNG needs Docker and is optional. Same rule as
+  // the LLM keys: the frontend learns THAT there is a key, never which.
+  out.tavily_api_key_set = Boolean(getSetting(db, 'tavily_api_key'));
   // Per cloud provider: model choice + whether a key is stored. The
   // plaintext key never leaves the backend.
   for (const p of CLOUD_PROVIDERS) {
@@ -135,6 +140,22 @@ module.exports = (db, options = {}) => {
           return res.status(400).json({ error: err.message });
         }
       }
+    }
+
+    // The search key is stored unvalidated: Tavily has no free "is this key
+    // good?" endpoint, and every check would spend one of the 1000 monthly
+    // requests. A wrong key surfaces as `tavily-invalid-key` on first use.
+    const tavilyKey = req.body.tavily_api_key;
+    if (tavilyKey !== undefined) {
+      if (typeof tavilyKey !== 'string') {
+        return res.status(400).json({ error: 'tavily_api_key must be a string' });
+      }
+      // An empty string deletes the key, same convention as the LLM keys.
+      setSetting(db, 'tavily_api_key', tavilyKey.trim());
+      // availableTools caches "is a search configured?" for 15 s so one answer
+      // sends a stable tool list; a key written here must not sit behind that
+      // window.
+      invalidateToolAvailability();
     }
 
     if (llm_provider !== undefined) setSetting(db, 'llm_provider', llm_provider);

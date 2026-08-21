@@ -2,7 +2,9 @@
  * tools.js
  *
  * LLM tools the model can call during a chat completion call.
- * Currently: `web_search` via local SearXNG.
+ * Currently: `web_search`, via Tavily or a local SearXNG (whichever this
+ * install has — see search-providers.js). It is offered to the model ONLY
+ * when one of them exists; a tool that can only fail is worse than no tool.
  *
  * Streaming tool-use flow (OpenAI-compatible, also works with Ollama
  * Llama 3.1+):
@@ -15,9 +17,12 @@
  *   4. Loop until finish_reason === 'stop'
  */
 
-// Port 8890 instead of SearXNG's usual 8888 — 8888 is often taken by
-// Jupyter on developer Macs (exactly that silently killed the search here).
-const SEARXNG_URL = process.env.SEARXNG_URL || 'http://localhost:8890';
+// The search itself lives in web-search.js / search-providers.js — shared
+// with the /api/search route and the citation card's silent full-text search.
+// This file used to carry its own copy of the SearXNG call, on a different
+// port than the other copy (8890 here, 8888 there); one address now.
+const { searchWeb } = require('./web-search');
+const { isSearchAvailable, DEFAULT_MAX_RESULTS, SNIPPET_CHARS } = require('./search-providers');
 
 // Tool definition in the OpenAI function-calling format. Ollama Llama 3.1+
 // understands this schema too (via the OpenAI-compatible endpoint).
@@ -45,39 +50,100 @@ const WEB_SEARCH_TOOL = {
 
 const ALL_TOOLS = [WEB_SEARCH_TOOL];
 
-// Map tool name → implementation. Each impl receives the parsed args object
-// and must return a string (which is what gets fed back to the LLM).
-const TOOL_IMPLS = {
-  web_search: async ({ query }) => {
-    if (!query || typeof query !== 'string') {
-      return JSON.stringify({ error: 'Missing required "query" argument' });
-    }
-    const url = new URL('/search', SEARXNG_URL);
-    url.searchParams.set('q', query);
-    url.searchParams.set('format', 'json');
-    url.searchParams.set('safesearch', '0');
-    try {
-      const r = await fetch(url.toString(), { signal: AbortSignal.timeout(15_000) });
-      if (!r.ok) {
-        return JSON.stringify({ error: `Search backend responded HTTP ${r.status}` });
+/**
+ * The tools this install can actually honour.
+ *
+ * `web_search` used to be offered unconditionally. Without SearXNG running
+ * the model would dutifully call it, receive an error string, and then explain
+ * to the user that its search backend is unreachable — a dead end the reader
+ * can do nothing about. A tool the machine cannot perform is better left
+ * unmentioned: with none configured the model answers from what it knows.
+ *
+ * `deps` are the search dependencies — `{ db }` for the Tavily key, plus an
+ * injectable `fetchImpl` for tests.
+ */
+// The answer is cached for a moment, and that is a correctness requirement,
+// not an optimisation. Warm-up, answer and title are three separate requests
+// in two route handlers, so they cannot share one array — they each call this.
+// The tool definitions are part of the prompt prefix Ollama caches (see the
+// comment at the warm-up call in routes/messages.js), so if the answer
+// flickered between those calls the prefix would diverge and a warm cache
+// would be thrown away: about a minute of prefill on a 20k-token paper
+// (ADR-0007's benchmark). Fifteen seconds covers one answer comfortably;
+// a settings write invalidates it immediately, so a freshly pasted key is
+// never hidden behind the window.
+const AVAILABILITY_TTL_MS = 15_000;
+let availabilityCache = null; // { at: epoch ms, tools: readonly array }
+
+function invalidateToolAvailability() {
+  availabilityCache = null;
+}
+
+async function availableTools(deps = {}) {
+  if (availabilityCache && Date.now() - availabilityCache.at < AVAILABILITY_TTL_MS) {
+    return availabilityCache.tools;
+  }
+  const tools = (await isSearchAvailable(deps)) ? [WEB_SEARCH_TOOL] : [];
+  availabilityCache = { at: Date.now(), tools };
+  return tools;
+}
+
+// Map tool name → implementation, bound to the search dependencies. Each impl
+// receives the parsed args object and must return a string (which is what gets
+// fed back to the LLM).
+function toolImpls(deps = {}) {
+  return {
+    web_search: async ({ query }) => {
+      if (!query || typeof query !== 'string') {
+        return JSON.stringify({ error: 'Missing required "query" argument' });
       }
-      const data = await r.json();
-      // Top 6 results, trimmed to what's useful for an LLM. We want enough
-      // diversity for synthesis but not so much that it blows the context window.
-      const results = (data.results || []).slice(0, 6).map(r => ({
-        title: r.title,
-        url: r.url,
-        snippet: (r.content || '').slice(0, 400),
-      }));
-      return JSON.stringify({ query, results });
-    } catch (err) {
-      const msg = err?.cause?.code === 'ECONNREFUSED'
-        ? `Could not reach the search backend at ${SEARXNG_URL}. The SearXNG container may not be running.`
-        : err.message || 'Search failed';
-      return JSON.stringify({ error: msg });
-    }
-  },
-};
+      try {
+        // Six results with 400-character snippets: enough diversity for
+        // synthesis, not enough to blow the context window.
+        const found = await searchWeb(query, {
+          ...deps,
+          max: DEFAULT_MAX_RESULTS,
+          snippetChars: SNIPPET_CHARS,
+        });
+        // A named state (no provider, bad key, allowance spent) travels as-is
+        // so the frontend's tool-result event can say which one it was
+        // instead of parsing a sentence.
+        if (found.error) {
+          return JSON.stringify({ error: found.error, message: searchStateMessage(found.error) });
+        }
+        // Exactly the three fields the model has always been given — SearXNG
+        // also reports which engine found a hit, which is for the UI's
+        // attribution line, not for the context window.
+        const results = (found.results || []).map((hit) => ({
+          title: hit.title,
+          url: hit.url,
+          snippet: hit.snippet,
+        }));
+        return JSON.stringify({ query, results });
+      } catch (err) {
+        return JSON.stringify({ error: 'search-failed', message: err.message || 'Search failed' });
+      }
+    },
+  };
+}
+
+/** One sentence per named search state — this is what the model gets to read. */
+function searchStateMessage(error) {
+  switch (error) {
+    case 'no-search-provider':
+      return 'No web search is configured on this installation (no Tavily key, no SearXNG running).';
+    case 'tavily-invalid-key':
+      return 'The stored Tavily API key was rejected.';
+    case 'tavily-quota-exhausted':
+      return 'The Tavily monthly request allowance is used up.';
+    default:
+      return 'The web search failed.';
+  }
+}
+
+// Default binding for callers that have no db to hand (and for the tests that
+// predate the injection).
+const TOOL_IMPLS = toolImpls();
 
 /**
  * Streaming chunks from OpenAI carry tool_calls as fragments that must be
@@ -186,9 +252,21 @@ class ThinkTagFilter {
   }
 }
 
-async function streamWithTools({ client, model, messages, onText, onToolEvent, onThinking, onReasoning, onPerf, extras = {}, signal }) {
+async function streamWithTools({ client, model, messages, onText, onToolEvent, onThinking, onReasoning, onPerf, extras = {}, signal, searchDeps, tools }) {
   // Defensive: keep messages in a local array we can append to across rounds.
   const convo = [...messages];
+
+  // Three ways to arrive at the tool list, in order of precedence:
+  //   1. `tools` — the caller already decided. Preferred, because the Ollama
+  //      warm-up, the title call and this answer MUST send a byte-identical
+  //      tools array; a second availability check could disagree with the
+  //      first and the chat template would render a different prefix, losing
+  //      the KV cache.
+  //   2. `searchDeps` — decide here from what this install can search.
+  //   3. neither — the old unconditional list, so existing call sites work.
+  // The web_search impl always reads its key from searchDeps.db when given.
+  const toolList = tools || (searchDeps ? await availableTools(searchDeps) : ALL_TOOLS);
+  const impls = searchDeps ? toolImpls(searchDeps) : TOOL_IMPLS;
   // Most realistic queries should resolve in 1-2 tool calls. Bail at 5 to
   // guarantee we never get stuck in an infinite tool-calling loop if the
   // model goes haywire.
@@ -254,7 +332,9 @@ async function streamWithTools({ client, model, messages, onText, onToolEvent, o
   // OpenAI's search-preview models already have built-in web search; passing
   // our `tools` definition alongside causes API errors. Detect them by name
   // and skip our tool wiring from the start.
-  let toolsDisabled = /search-preview/i.test(model);
+  // An empty tool list means there is nothing this install can perform —
+  // treat it exactly like a model that cannot do tools at all.
+  let toolsDisabled = /search-preview/i.test(model) || toolList.length === 0;
   // Some OpenAI-compatible gateways don't know stream_options — after the
   // first error, continue permanently without the field (then only the
   // token statistics are missing, never the response).
@@ -267,7 +347,7 @@ async function streamWithTools({ client, model, messages, onText, onToolEvent, o
     const makeBody = () => ({
       model,
       messages: convo,
-      ...(toolsDisabled ? {} : { tools: ALL_TOOLS }),
+      ...(toolsDisabled ? {} : { tools: toolList }),
       ...(extrasEnabled ? extras : {}),
       stream: true,
       // usage chunk at the end of the stream: prompt/response tokens for
@@ -436,7 +516,7 @@ async function streamWithTools({ client, model, messages, onText, onToolEvent, o
     // model needs a `tool` message for every `tool_call` it produced — missing
     // one would make the next request fail.
     for (const tc of assistantToolCalls) {
-      const impl = TOOL_IMPLS[tc.function.name];
+      const impl = impls[tc.function.name];
       let parsedArgs = {};
       try { parsedArgs = JSON.parse(tc.function.arguments || '{}'); } catch (_) { /* invalid JSON → empty args */ }
 
@@ -478,4 +558,4 @@ function isTruncatedFinish(finishReason) {
   return finishReason !== 'stop' && finishReason !== 'tool_calls';
 }
 
-module.exports = { ALL_TOOLS, streamWithTools, isTruncatedFinish, isAbortError };
+module.exports = { ALL_TOOLS, availableTools, invalidateToolAvailability, toolImpls, streamWithTools, isTruncatedFinish, isAbortError };

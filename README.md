@@ -94,18 +94,55 @@ you can branch immediately if the definition raises more questions.
 
 ---
 
-## Prerequisites
+## Install
 
-- **Node.js 20+**
-- **[Ollama](https://ollama.com)** running locally on `http://localhost:11434`
-- A **vision model** pulled, e.g. `ollama pull qwen3.5:9b` (or download it from Settings → Models)
+```bash
+npm install -g syflo
+syflo
+```
+
+`syflo` starts the local backend and opens the Syflo window. Everything
+runs on your machine: the backend listens on `127.0.0.1` only, and your
+chats, uploads and API keys live in `~/.syflo` (override with
+`SYFLO_DATA_DIR`).
+
+| Command | What it does |
+| --- | --- |
+| `syflo` | Backend + desktop window (Electron). |
+| `syflo --browser` | Backend only, opens your default browser. |
+| `syflo --port 4000` | Same, on another port. |
+| `syflo --help` | The flags above. |
+
+**If the window doesn't appear**, use `syflo --browser`. The desktop
+window needs Electron's binary, which is downloaded when the package is
+installed — that download is the one step likely to fail behind a
+corporate proxy. Syflo notices and opens the browser by itself, so the
+app works either way; `--browser` just skips the lookup.
+
+Ctrl-C in the terminal (or closing the window) stops the backend with
+it — nothing keeps running in the background.
+
+Distribution is npm-only on purpose, on all three platforms: see
+[ADR-0009](docs/adr/0009-npm-first-distribution.md).
 
 ---
 
-## Setup
+## Prerequisites
+
+- **Node.js 20+** — the only hard requirement.
+- A provider API key (Settings → Model), *or*, for the fully local
+  route: **[Ollama](https://ollama.com)** on `http://localhost:11434`
+  with a **vision model** pulled, e.g. `ollama pull qwen3.5:9b` (or
+  download it from Settings → Models).
+
+---
+
+## Development setup
+
+From a clone, instead of the global install:
 
 ```bash
-git clone git@github.com:kavinda14/syflo.git
+git clone git@github.com:kavi-senewiratne/syflo.git
 cd syflo
 
 # Backend
@@ -178,6 +215,9 @@ cd frontend && npm test
 
 # Backend (Jest)
 cd backend && npm test
+
+# The syflo command (Jest, repo root)
+npm test
 ```
 
 The backend suite currently has 430+ tests; the frontend runs on
@@ -201,5 +241,4 @@ vitest — both must be green before a change counts as done.
 
 ## License
 
-No license file yet — add one before sharing publicly if you want
-others to be able to fork and contribute.
+MIT (ADR-0009). The `LICENSE` file ships with the first public release.

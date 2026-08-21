@@ -13,7 +13,10 @@
 const express = require('express');
 const { searchWeb, unreachableMessage, MAX_RESULTS } = require('../web-search');
 
-module.exports = () => {
+// Takes db since 2026-08-21: the search provider is chosen from the stored
+// settings (Tavily key, else SearXNG), so a route without db would silently
+// stay SearXNG-only.
+module.exports = (db) => {
   const router = express.Router();
 
   // POST /api/search  body: { query: string, max?: number }
@@ -27,7 +30,7 @@ module.exports = () => {
     const max = Math.min(Number(req.body?.max) || MAX_RESULTS, 20);
 
     try {
-      const found = await searchWeb(query, max);
+      const found = await searchWeb(query, { db, max });
       res.json({ query, ...found });
     } catch (err) {
       // A bad response from SearXNG is a gateway problem; not reaching it at

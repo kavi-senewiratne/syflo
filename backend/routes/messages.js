@@ -17,7 +17,7 @@ const fs = require('fs');
 const multer = require('multer');
 const { getLLMClient, getLLMClientFor, getSetting, noThinkExtras, extendOllamaKeepAlive } = require('../llm');
 const { getModelInfo, getRegistry } = require('../registry');
-const { streamWithTools, ALL_TOOLS, isTruncatedFinish } = require('../tools');
+const { streamWithTools, availableTools, isTruncatedFinish } = require('../tools');
 const { joinContinuation, continuationInstruction } = require('../continuation');
 const {
   MAX_PASSAGE_CHARS, capTitleWords, sanitizeTitle,
@@ -40,6 +40,7 @@ const {
   RETRIEVE_K,
 } = require('../retrieval');
 const { buildPerfRecord, formatPerfLine, appendPerfJsonl, isPerfJsonlEnabled } = require('../perf-log');
+const { recordUsage } = require('../usage');
 const {
   isRateLimit, isDailyQuota, isTooLarge, isModelUnavailable, isBillingRequired,
   isOverloaded, msUntilQuotaReset, callCloudLadder, retryAfterSeconds, isBadKey,
@@ -611,8 +612,9 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
           model,
           messages: contextMessages,
           // Same tools as the real request — otherwise the prompt prefix
-          // diverges and the cache misses.
-          tools: ALL_TOOLS,
+          // diverges and the cache misses. availableTools caches its answer
+          // for a moment precisely so these three call sites agree.
+          tools: await availableTools({ db }),
           ...noThinkExtras(provider),
           max_tokens: 1,
         }, { signal: warmupAbort.signal });
@@ -1295,10 +1297,22 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
     // (The SSE headers have been set since the POST.)
     abortActiveWarmup();
 
+    // Who the answer is riding on, visible OUTSIDE the try: a call that never
+    // reached the stream loop (context build, client resolution) still has to
+    // land in usage_log, and `provider`/`model` below live inside the try.
+    // `failureLogged` keeps the two logging sites from counting one spent call
+    // twice — the stream loop logs the candidate that failed, the outer catch
+    // only what never got that far.
+    let usedProvider = startProvider;
+    let usedModel = getSetting(db, startProvider === 'ollama' ? 'ollama_model' : `${startProvider}_model`);
+    let failureLogged = false;
+
     try {
       let { client, model, provider } = job.forceProvider
         ? getLLMClientFor(db, job.forceProvider)
         : getLLMClient(db);
+      usedProvider = provider;
+      usedModel = model;
 
       // Thinking is OFF by default (answers start immediately). Only if the
       // client explicitly sends think=true may the model run its chain of
@@ -1355,6 +1369,8 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
         client = resolved.client;
         model = target.model;
         provider = target.provider;
+        usedProvider = provider;
+        usedModel = model;
         extras = thinkOn ? {} : noThinkExtras(provider);
         // The prompt follows the model (fix 2026-07-29): rebuild when the
         // candidate's budget differs — a prompt sized for the failed model
@@ -1427,6 +1443,10 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
         model,
         messages: contextMessages,
         extras,
+        // The web search is only offered when one is configured (Tavily key or
+        // a reachable SearXNG); otherwise the model would call a tool that can
+        // only fail. searchDeps also binds the tool's implementation to db.
+        searchDeps: { db },
         signal: upstreamAbort.signal,
         onText: (delta) => {
           streamedAnything = true;
@@ -1473,15 +1493,17 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
           if (isPerfJsonlEnabled()) appendPerfJsonl(record);
           // Token log (ADR-0008 slice 7): counting basis for the cost
           // estimate and the free-tier daily counter. Metrics only.
-          try {
-            db.prepare(
-              'INSERT INTO usage_log (id, provider, model, prompt_tokens, completion_tokens, created_at) VALUES (?, ?, ?, ?, ?, ?)'
-            ).run(
-              crypto.randomUUID(), provider, model,
-              perf.promptTokens ?? null, perf.completionTokens ?? null,
-              new Date().toISOString()
-            );
-          } catch (_) { /* statistics must never cost an answer */ }
+          // The INSERT lives in ../usage.js now — six call sites write this
+          // table since 2026-08-11, and a copied statement is how they would
+          // start disagreeing about the columns.
+          recordUsage(db, {
+            provider,
+            model,
+            kind: 'chat',
+            outcome: 'ok',
+            promptTokens: perf.promptTokens,
+            completionTokens: perf.completionTokens,
+          });
           // A prompt close to the context window means context shifting:
           // Ollama drops tokens at the front, the prefix changes on every
           // request and the KV cache never hits — exactly what the derived
@@ -1502,6 +1524,21 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
           fullContent = await runStream();
           break;
         } catch (err) {
+          // A refused call is a SPENT call. The provider counted it, the meter
+          // did not — which is how the model window claimed "0/20" for Gemini
+          // Flash while its daily quota was gone (measured 2026-08-11: four
+          // logged answers on 2026-08-10, a full limit). Logged HERE, at the
+          // failing candidate, not in the outer catch: a 429 on model A
+          // followed by a clean answer from model B used to leave only B's
+          // row, and A's spent request stayed invisible.
+          // A stop is the user's own doing and gets no row.
+          if (!upstreamAbort.signal.aborted) {
+            recordUsage(db, {
+              provider, model, kind: 'chat',
+              outcome: isRateLimit(err) ? 'quota' : 'failed',
+            });
+            failureLogged = true;
+          }
           if (upstreamAbort.signal.aborted) throw err; // stop button
           if (streamedAnything) throw err;
           const tooLarge = isTooLarge(err);
@@ -1777,7 +1814,7 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
                 // For a 4-word title no thinking model may brood for minutes.
                 ...noThinkExtras(titleProvider),
                 messages: titleMessages,
-                tools: ALL_TOOLS,
+                tools: await availableTools({ db }),
               });
             } catch (err) {
               if (!/does not support tools/i.test(err?.message || '')) throw err;
@@ -1788,6 +1825,14 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
               });
             }
             raw = titleCompletion.choices[0]?.message?.content || '';
+            // A title call spends the same quota as the answer (kind 'title'
+            // since 2026-08-11) — local is free, but the row keeps both
+            // providers comparable.
+            recordUsage(db, {
+              provider: titleProvider, model: titleModel, kind: 'title', outcome: 'ok',
+              promptTokens: titleCompletion.usage?.prompt_tokens,
+              completionTokens: titleCompletion.usage?.completion_tokens,
+            });
           } else {
             // Cloud: the SAME failover ladder as the answer, the passage title
             // and explain (../quota.js). Without it an exhausted quota left the
@@ -1803,8 +1848,20 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
               isCoolingDown: isQuotaCoolingDown,
               markCooldown: markQuotaCooldown,
               label: needsTitle ? 'branch title' : 'outcome line',
+              // Every candidate the ladder burns is a spent call, whether it
+              // answered or not — the ladder walks up to four models, and
+              // before 2026-08-11 none of them appeared in the meter.
+              onError: (err, cand) => recordUsage(db, {
+                provider: cand.provider, model: cand.model, kind: 'title',
+                outcome: isRateLimit(err) ? 'quota' : 'failed',
+              }),
             });
             raw = ladder?.raw || '';
+            if (ladder) {
+              recordUsage(db, {
+                provider: ladder.provider, model: ladder.model, kind: 'title', outcome: 'ok',
+              });
+            }
           }
           if (raw.trim()) {
             if (!needsTitle) {
@@ -1885,6 +1942,18 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
         return;
       }
       console.error(`[messages] Answer in chat ${chatId} failed: ${err.message}`);
+      // Everything the stream loop never saw — a client that could not be
+      // resolved, a context build that threw, a failure past the loop. The
+      // loop's own candidates are already logged (failureLogged), and one
+      // spent call must not become two rows.
+      if (!failureLogged) {
+        recordUsage(db, {
+          provider: err.failProvider || usedProvider,
+          model: err.failModel || usedModel,
+          kind: 'chat',
+          outcome: err.quotaExhausted || isRateLimit(err) ? 'quota' : 'failed',
+        });
+      }
       // Machine-readable cause for the UI card (mockup-model-flow §05):
       // classify here what wasn't classified at the throw site. A key that
       // was valid on save but got revoked later surfaces as a 401 mid-use.

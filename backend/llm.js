@@ -28,6 +28,10 @@ const DEFAULTS = {
   anthropic_api_key: '',
   anthropic_model: 'claude-sonnet-4-5',
   ollama_model: 'qwen3.5:9b',
+  // Web search key (2026-08-21): SearXNG became optional, Tavily is the
+  // key-based alternative. Listed here only so getSetting has a default; it
+  // is never included in the settings response (see buildResponse).
+  tavily_api_key: '',
   // Custom instructions (CONTEXT.md): free text from the user that is
   // passed along with every chat system prompt. The toggle is stored as a
   // 'true'/'false' string in the TEXT column of the settings table.

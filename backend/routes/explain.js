@@ -28,8 +28,9 @@
 const express = require('express');
 const { getLLMClient, getLLMClientFor, getSetting, noThinkExtras } = require('../llm');
 const { getRegistry, getModelInfo } = require('../registry');
-const { ALL_TOOLS } = require('../tools');
+const { availableTools } = require('../tools');
 const { callCloudLadder, isRateLimit, isModelUnavailable } = require('../quota');
+const { recordUsage } = require('../usage');
 
 // Zeitbudget des Popups: eine Definition, die länger braucht, als der Nutzer
 // hinschaut, ist keine mehr. Die ganze Leiter bekommt ein Budget, jeder
@@ -99,8 +100,12 @@ module.exports = (db, { buildSystemAndHistory, isQuotaCoolingDown, markQuotaCool
     // privacy guard works in both directions (never local → cloud), and the
     // KV-cache context path below only exists for Ollama anyway.
     if (activeProvider === 'ollama') {
+      // Held outside the try so a failed definition can still say WHO failed —
+      // and so nothing is logged when there was no client to call at all.
+      let local = null;
       try {
-        const { client, model, provider } = getLLMClient(db);
+        local = getLLMClient(db);
+        const { client, model, provider } = local;
 
         // Context path only for Ollama (there the local cache matters; cloud
         // providers keep the cheap mini prompt, like title generation).
@@ -127,7 +132,7 @@ module.exports = (db, { buildSystemAndHistory, isQuotaCoolingDown, markQuotaCool
                   messages: contextMessages,
                   // The same tools as the conversation — otherwise the chat
                   // template renders a different prefix and the cache misses.
-                  tools: ALL_TOOLS,
+                  tools: await availableTools({ db }),
                 });
               } catch (err) {
                 if (!/does not support tools/i.test(err?.message || '')) throw err;
@@ -147,8 +152,14 @@ module.exports = (db, { buildSystemAndHistory, isQuotaCoolingDown, markQuotaCool
         }
 
         if (!content) content = await askStandalone(client, model, provider);
+        recordUsage(db, { provider, model, kind: 'explain', outcome: 'ok' });
         return res.json({ explanation: content });
       } catch (err) {
+        if (local) {
+          recordUsage(db, {
+            provider: local.provider, model: local.model, kind: 'explain', outcome: 'failed',
+          });
+        }
         return res.status(500).json({ error: err.message });
       }
     }
@@ -177,9 +188,24 @@ module.exports = (db, { buildSystemAndHistory, isQuotaCoolingDown, markQuotaCool
         label: 'explain',
         // Quota-Fehler NICHT übernehmen: dafür gibt es die Zusammenfassung
         // unten, die auch den Ausweg über das lokale Modell nennt.
-        onError: (err) => { if (!isRateLimit(err) && !isModelUnavailable(err)) lastErr = err; },
+        onError: (err, cand) => {
+          // Every candidate the ladder burns is a spent call — a definition
+          // spends the same daily quota as an answer, and before 2026-08-11
+          // none of these calls reached usage_log at all (the meter said
+          // "0/20" for a Gemini Flash that was long exhausted).
+          recordUsage(db, {
+            provider: cand.provider, model: cand.model, kind: 'explain',
+            outcome: isRateLimit(err) ? 'quota' : 'failed',
+          });
+          if (!isRateLimit(err) && !isModelUnavailable(err)) lastErr = err;
+        },
       });
-      if (result) return res.json({ explanation: result.raw });
+      if (result) {
+        recordUsage(db, {
+          provider: result.provider, model: result.model, kind: 'explain', outcome: 'ok',
+        });
+        return res.json({ explanation: result.raw });
+      }
 
       // Nothing delivered: every candidate was rate-limited, retired, gated,
       // out of time — or the key is simply wrong.

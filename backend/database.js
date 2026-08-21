@@ -398,6 +398,25 @@ function createDb(dbPath = DB_PATH) {
     CREATE INDEX IF NOT EXISTS idx_usage_log_created ON usage_log(created_at);
   `);
 
+  // Migration: usage_log.kind / usage_log.outcome — WHERE a call came from and
+  // HOW it ended (2026-08-11). The log used to have exactly one writer, the
+  // successful chat answer in routes/messages.js, so the model window claimed
+  // "0/20" for Gemini Flash while the daily quota was long exhausted: title
+  // generation, /btw, Explain and passage titles spent the same quota
+  // invisibly, and a 429 — a spent call as well — left no trace at all
+  // (measured 2026-08-10: four logged Flash answers, full limit).
+  //   kind:    'chat' | 'title' | 'btw' | 'explain' | 'passage_title'
+  //   outcome: 'ok' | 'failed' | 'quota'
+  // The defaults carry the meaning of the existing rows: every one of them was
+  // a successful chat answer, because nothing else could write one.
+  const usageCols = db.prepare("PRAGMA table_info('usage_log')").all();
+  if (!usageCols.some((c) => c.name === 'kind')) {
+    db.exec("ALTER TABLE usage_log ADD COLUMN kind TEXT NOT NULL DEFAULT 'chat'");
+  }
+  if (!usageCols.some((c) => c.name === 'outcome')) {
+    db.exec("ALTER TABLE usage_log ADD COLUMN outcome TEXT NOT NULL DEFAULT 'ok'");
+  }
+
   // Migration: embedding_model — the stamp of the model that embedded the
   // chunks (ADR-0006 addendum 2026-07-25). Vectors of different models live
   // in incompatible spaces; a mismatch means a rebuild. Existing rows

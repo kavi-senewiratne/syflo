@@ -94,11 +94,22 @@ describe('chunkText', () => {
   });
 });
 
-// ─── embedTexts: Ollama's native embedding API ───────────────────────────────
+// ─── embedTexts: now the embeddings module (node-llama-cpp, Ollama fallback) ──
+// Embeddings no longer live in retrieval.js: embeddings.js embeds through
+// node-llama-cpp and only falls back to Ollama, so a cloud-only user needs no
+// Ollama at all. retrieval.js keeps the thin wrapper because its callers
+// (routes/messages.js) degrade to full-text truncation on a thrown error.
+//
+// The model directory is passed explicitly so no test ever looks at — let
+// alone downloads into — a real model directory.
 
 describe('embedTexts', () => {
   const realFetch = global.fetch;
   afterEach(() => { global.fetch = realFetch; });
+
+  // A directory without the GGUF: node-llama-cpp cannot serve, Ollama does.
+  const emptyModelDir = () =>
+    fs.mkdtempSync(path.join(require('os').tmpdir(), 'syflo-retrieval-embed-'));
 
   it('posts the texts to /api/embed and returns the embedding vectors', async () => {
     global.fetch = jest.fn().mockResolvedValue({
@@ -106,12 +117,23 @@ describe('embedTexts', () => {
       json: async () => ({ embeddings: [[0.1, 0.2], [0.3, 0.4]] }),
     });
 
-    const vecs = await embedTexts(['first', 'second']);
+    const vecs = await embedTexts(['first', 'second'], { modelDir: emptyModelDir() });
 
     expect(vecs).toEqual([[0.1, 0.2], [0.3, 0.4]]);
     const [url, init] = global.fetch.mock.calls[0];
     expect(String(url)).toBe('http://localhost:11434/api/embed');
     expect(JSON.parse(init.body)).toEqual({ model: require('../retrieval').EMBEDDING_MODEL, input: ['first', 'second'] });
+  });
+
+  it('delegates to the embeddings module, so a local provider skips Ollama', async () => {
+    global.fetch = jest.fn(); // Ollama must NOT be touched
+    const provider = jest.fn(async (texts) => texts.map((t) => [t.length]));
+
+    const vecs = await embedTexts(['abc'], { provider });
+
+    expect(vecs).toEqual([[3]]);
+    expect(provider).toHaveBeenCalledWith(['abc']);
+    expect(global.fetch).not.toHaveBeenCalled();
   });
 
   it('throws when the embedding model is unavailable (callers degrade)', async () => {
@@ -120,7 +142,15 @@ describe('embedTexts', () => {
       status: 404,
       json: async () => ({ error: 'model "nomic-embed-text" not found' }),
     });
-    await expect(embedTexts(['x'])).rejects.toThrow(/nomic-embed-text/);
+    await expect(embedTexts(['x'], { modelDir: emptyModelDir() })).rejects.toThrow(/nomic-embed-text/);
+  });
+
+  it('takes the model name and its dimensions from the embeddings module only', () => {
+    const embeddings = require('../embeddings');
+    // ONE place for the model: retrieval re-exports it, it is the stamp in
+    // source_chunks.embedding_model, and a switch invalidates the cache.
+    expect(require('../retrieval').EMBEDDING_MODEL).toBe(embeddings.EMBEDDING_MODEL);
+    expect(embeddings.EMBEDDING_DIMENSIONS).toBe(1024); // bge-m3
   });
 });
 

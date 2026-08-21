@@ -103,40 +103,31 @@ function chunkText(text, opts = {}) {
 
 // Embedding model: bge-m3 (switch 2026-07-25, ADR-0006 addendum) — multi-
 // lingual so German questions hit English paper chunks (benchmark:
-// DE↔EN top-5 Jaccard 0.73 vs. 0.19 with nomic-embed-text). Runs locally
-// next to the chat model as before; if it is missing, we throw — callers
-// degrade to the old full-text truncation.
-const EMBEDDING_MODEL = 'bge-m3';
-
-// Batch size per /api/embed call — keeps individual requests small without
-// paying an HTTP roundtrip per chunk.
-const EMBED_BATCH_SIZE = 32;
+// DE↔EN top-5 Jaccard 0.73 vs. 0.19 with nomic-embed-text). Named in exactly
+// ONE place, embeddings.js, because the name is also the cache stamp in
+// source_chunks.embedding_model.
+const {
+  embedTexts: embedTextsWithProvider,
+  EMBEDDING_MODEL,
+} = require('./embeddings');
 
 /**
- * Embeds texts via Ollama's native embedding API.
+ * Embeds texts through the local embedding provider (embeddings.js:
+ * node-llama-cpp first, Ollama as fallback).
  * Returns: one vector (number[]) per input text, in order.
+ *
+ * The provider reports a missing model as a state instead of throwing; here
+ * it becomes a throw again, because that is what the callers already handle:
+ * routes/messages.js catches it and degrades to full-text truncation
+ * (prepareSourceInBackground just warns). Same behaviour as before, only the
+ * provider underneath changed.
  */
-async function embedTexts(texts, { model = EMBEDDING_MODEL } = {}) {
-  const vectors = [];
-  for (let i = 0; i < texts.length; i += EMBED_BATCH_SIZE) {
-    const batch = texts.slice(i, i + EMBED_BATCH_SIZE);
-    const res = await fetch('http://localhost:11434/api/embed', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model, input: batch }),
-    });
-    if (!res.ok) {
-      let detail = `HTTP ${res.status}`;
-      try {
-        const body = await res.json();
-        if (body && body.error) detail = body.error;
-      } catch (_) { /* status is enough */ }
-      throw new Error(`Embedding with ${model} failed: ${detail}`);
-    }
-    const data = await res.json();
-    vectors.push(...(data.embeddings || []));
+async function embedTexts(texts, deps = {}) {
+  const result = await embedTextsWithProvider(texts, deps);
+  if (result && result.error) {
+    throw new Error(`Embedding with ${EMBEDDING_MODEL} failed: ${result.detail || result.error}`);
   }
-  return vectors;
+  return result;
 }
 
 // Cheap, stable hash of the source text — detects re-extractions (e.g. old
