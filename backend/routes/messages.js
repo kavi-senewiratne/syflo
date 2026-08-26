@@ -11,6 +11,12 @@
  *   - Other files: only mention name/mimetype (model cannot read binary)
  */
 
+// Search-wish causes that survive a reload. A missing key and a rejected key
+// are facts about this machine's configuration and stay true; a used-up
+// allowance is a fact about this month and resets on the 1st, so it is never
+// stored (same rule as fail_reason — see database.js).
+const STORED_SEARCH_WISH_ERRORS = new Set(['no-search-provider', 'tavily-invalid-key']);
+
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
@@ -1441,6 +1447,11 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
       // this request's token cost, so one cause must not eat the other's tries.
       let overloadAttempt = 0;
 
+      // Set by onToolEvent below, read when the answer is stored. A retry
+      // re-runs the whole stream, so the last attempt's verdict wins — which
+      // is the one whose text is kept.
+      let searchWish = null;
+
       // Tool-use loop: the LLM may call web_search on its own. On a tool
       // call we stream special SSE events to the frontend so it can show
       // "Searching the web…" and list the sources under the answer.
@@ -1460,6 +1471,16 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
         },
         onToolEvent: (evt) => {
           res.write(`data: ${JSON.stringify({ tool: evt })}\n\n`);
+          // The model wanted to search and nobody looked. Kept for the row
+          // below, not just for the stream: the card would otherwise vanish on
+          // the next chat switch (user report 2026-08-25) and a stale answer
+          // would look current. Only deterministic causes — a used-up
+          // allowance resets on the 1st, so storing it would lie next month.
+          if (evt.phase === 'result' && evt.name === 'web_search' && evt.result?.error) {
+            searchWish = STORED_SEARCH_WISH_ERRORS.has(evt.result.error)
+              ? { query: evt.result.query ?? '', error: evt.result.error }
+              : null;
+          }
         },
         onThinking: () => {
           res.write(`data: ${JSON.stringify({ thinking: true })}\n\n`);
@@ -1710,8 +1731,13 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
           : joinContinuation(job.continueOf.existingContent, assistantContent, {
               mode: job.continueOf.mode,
             });
-        db.prepare('UPDATE messages SET content = ?, truncated = ? WHERE id = ?')
-          .run(storedContent, aborted ? 1 : truncated ? 1 : 0, assistantMsgId);
+        db.prepare(
+          'UPDATE messages SET content = ?, truncated = ?, '
+          + 'search_wish_query = ?, search_wish_error = ? WHERE id = ?'
+        ).run(
+          storedContent, aborted ? 1 : truncated ? 1 : 0,
+          searchWish?.query ?? null, searchWish?.error ?? null, assistantMsgId,
+        );
       } else {
         assistantMsgId = crypto.randomUUID();
         // Anchored regenerate: the replacement takes the old marker's slot so
@@ -1719,8 +1745,12 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
         assistantNow = job.regenerate?.anchorCreatedAt ?? monotonicNow(chatId);
         storedContent = assistantContent;
         db.prepare(
-          'INSERT INTO messages (id, chat_id, role, content, created_at, truncated) VALUES (?, ?, ?, ?, ?, ?)'
-        ).run(assistantMsgId, req.params.chatId, 'assistant', assistantContent, assistantNow, truncated ? 1 : 0);
+          'INSERT INTO messages (id, chat_id, role, content, created_at, truncated, '
+          + 'search_wish_query, search_wish_error) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+        ).run(
+          assistantMsgId, req.params.chatId, 'assistant', assistantContent, assistantNow,
+          truncated ? 1 : 0, searchWish?.query ?? null, searchWish?.error ?? null,
+        );
       }
       if (truncated) sseWrite(res, { truncated: true, messageId: assistantMsgId });
 

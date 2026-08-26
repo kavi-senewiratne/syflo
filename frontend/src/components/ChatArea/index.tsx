@@ -141,6 +141,10 @@ interface Props {
   // W2 (§06): a Tavily key handed over from the card under an answer the model
   // could not look up. Passed straight through to MessageBubble.
   onSaveSearchKey?: (key: string, message: Message) => Promise<void> | void;
+  // True once a Tavily key is stored. A search-wish note from before that
+  // moment stays (it describes how the answer was written) but stops offering
+  // to add a key — the offer would be a dead end.
+  searchKeyStored?: boolean;
   // Grows a cut-off answer in place (mockup-truncated-answer §01).
   onContinueMessage?: (message: Message) => void;
   // True while the active cloud provider has no API key (ADR-0008, grill 12b).
@@ -289,7 +293,7 @@ function renderComposerHighlight(text: string): React.ReactNode {
   );
 }
 
-export function ChatArea({ chat, videoYoutubeId, onTimeMarkClick, loading, streaming, onSendMessage, onWordRightClick, onSelectChat, onUploadPdf, onOpenPaperSearch, onOpenYouTubeSearch, videoBanner, transcriptDrawer, chatHighlights, onChatSelection, onHighlightContextMenu, pendingSelection, onBranchedFromClick, parentTitle, onQuoteClick, composerQuote, onClearComposerQuote, onOpenFeedback, onAskAside, onOpenTopicBranch, branchTargets, aside, onDismissAside, onKeepAside, onBranchAside, onToggleHighlights, highlightsOpen, highlightsDrawer, modelPicker, onStopStreaming, streamingMessageIds, onRetryMessage, onContinueMessage, firstRun = false, onOpenSetup, modelLabels, onRetryLocalModel, hasLocalModel, billingUrl, billingUrls, onOpenModelPicker, settingsChangedAt, onOpenSettings, providerLabels, localModelName, cloudFallback, onRetryCloudModel, freeFallback, onRetryFreeModel, onResendUnanswered, freeProviderOffer, onAddFreeProvider, visionGate, onSwitchVisionModel, onOpenSettingsForProvider, voiceRecorderFactory, onSaveSearchKey, ref }: Props) {
+export function ChatArea({ chat, videoYoutubeId, onTimeMarkClick, loading, streaming, onSendMessage, onWordRightClick, onSelectChat, onUploadPdf, onOpenPaperSearch, onOpenYouTubeSearch, videoBanner, transcriptDrawer, chatHighlights, onChatSelection, onHighlightContextMenu, pendingSelection, onBranchedFromClick, parentTitle, onQuoteClick, composerQuote, onClearComposerQuote, onOpenFeedback, onAskAside, onOpenTopicBranch, branchTargets, aside, onDismissAside, onKeepAside, onBranchAside, onToggleHighlights, highlightsOpen, highlightsDrawer, modelPicker, onStopStreaming, streamingMessageIds, onRetryMessage, onContinueMessage, firstRun = false, onOpenSetup, modelLabels, onRetryLocalModel, hasLocalModel, billingUrl, billingUrls, onOpenModelPicker, settingsChangedAt, onOpenSettings, providerLabels, localModelName, cloudFallback, onRetryCloudModel, freeFallback, onRetryFreeModel, onResendUnanswered, freeProviderOffer, onAddFreeProvider, visionGate, onSwitchVisionModel, onOpenSettingsForProvider, voiceRecorderFactory, onSaveSearchKey, searchKeyStored, ref }: Props) {
   // UI-Texte in der App language — re-rendert beim Sprachwechsel mit.
   const S = useStrings().chatArea;
   const [input, setInput] = useState('');
@@ -1689,6 +1693,7 @@ export function ChatArea({ chat, videoYoutubeId, onTimeMarkClick, loading, strea
                     }
                     onRetryMessage={onRetryMessage}
                     onSaveSearchKey={onSaveSearchKey}
+                    searchKeyStored={searchKeyStored}
                     onContinueMessage={onContinueMessage}
                     modelLabels={modelLabels}
                     onRetryLocalModel={onRetryLocalModel}

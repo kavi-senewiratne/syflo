@@ -325,6 +325,25 @@ function createDb(dbPath = DB_PATH) {
     db.exec('ALTER TABLE messages ADD COLUMN truncated INTEGER NOT NULL DEFAULT 0');
   }
 
+  // Migration: messages.search_wish_query / search_wish_error — the model
+  // called web_search and nobody looked (design/mockup-search-wish-card.html).
+  // Persisted for the same reason as `truncated`: an answer written without a
+  // search reads exactly like one written with it, so a card that lives only in
+  // the stream leaves the reader believing a stale answer is current. Reported
+  // 2026-08-25: leave the chat and come back and the card is gone.
+  //
+  // Only DETERMINISTIC causes are stored — the same rule as fail_reason above.
+  // 'no-search-provider' (no key) and 'tavily-invalid-key' (a stored key
+  // Tavily rejects) stay true across reloads; 'tavily-quota-exhausted' is
+  // time-dependent (Tavily resets on the 1st) and is deliberately transient,
+  // so a chat opened next month does not claim an allowance is still gone.
+  if (!messagesCols.some((c) => c.name === 'search_wish_query')) {
+    db.exec('ALTER TABLE messages ADD COLUMN search_wish_query TEXT');
+  }
+  if (!messagesCols.some((c) => c.name === 'search_wish_error')) {
+    db.exec('ALTER TABLE messages ADD COLUMN search_wish_error TEXT');
+  }
+
   // Migration: messages.quote_highlight_id — the highlight an "Ask in chat"
   // quote was taken from (design/mockup-quote-jump-to-source.html, variant A).
   // The quote itself lives inside content as markdown blockquote lines; this

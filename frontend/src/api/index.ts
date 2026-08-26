@@ -200,7 +200,16 @@ export const api = {
       ...chat,
       messages: (chat.messages ?? []).map((m) => {
         const persisted = asFailReason(m.fail_reason);
-        return persisted ? { ...m, failReason: persisted } : m;
+        const withFail = persisted ? { ...m, failReason: persisted } : m;
+        // The search wish outlives the stream it arrived in (columns added
+        // 2026-08-25): without this the card only existed until the next chat
+        // switch, and a stale answer looked current again.
+        return m.search_wish_error
+          ? {
+              ...withFail,
+              searchWish: { query: m.search_wish_query ?? '', error: m.search_wish_error },
+            }
+          : withFail;
       }),
     };
   },

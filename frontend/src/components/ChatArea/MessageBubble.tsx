@@ -173,6 +173,7 @@ interface Props {
   // caller knows WHICH answer to ask again — it owns the chat, the card owns
   // only the key.
   onSaveSearchKey?: (key: string, message: Message) => Promise<void> | void;
+  searchKeyStored?: boolean;
 }
 
 // "Thought for 1m 42s" / "Thought for 34s".
@@ -294,6 +295,7 @@ export function MessageBubble({
   freeProviderOffer,
   onAddFreeProvider,
   onSaveSearchKey,
+  searchKeyStored,
 }: Props) {
   // UI-Texte in der App language — re-rendert beim Sprachwechsel mit.
   const STR = useStrings();
@@ -1467,6 +1469,7 @@ export function MessageBubble({
         {message.searchWish && (
           <SearchWishCard
             wish={message.searchWish}
+            searchKeyStored={searchKeyStored}
             onSaveSearchKey={onSaveSearchKey && ((key) => onSaveSearchKey(key, message))}
           />
         )}
@@ -1628,9 +1631,11 @@ function SourcesList({ sources }: { sources: NonNullable<Message['sources']> }) 
  */
 function SearchWishCard({
   wish,
+  searchKeyStored,
   onSaveSearchKey,
 }: {
   wish: NonNullable<Message['searchWish']>;
+  searchKeyStored?: boolean;
   onSaveSearchKey?: (key: string) => Promise<void> | void;
 }) {
   const S = useStrings().messageBubble.searchWish;
@@ -1662,13 +1667,24 @@ function SearchWishCard({
             action: null,
             allowance: null,
           }
-        : {
-            title: S.title,
-            body: S.body(wish.query),
-            offer: S.offer,
-            action: S.addKey,
-            allowance: S.allowance,
-          };
+        : searchKeyStored
+          // Stored since this answer was written — the note is still true
+          // (this answer was written without a search), but offering to add a
+          // key would be a dead end, so only the fact remains.
+          ? {
+              title: S.title,
+              body: S.body(wish.query),
+              offer: null,
+              action: null,
+              allowance: null,
+            }
+          : {
+              title: S.title,
+              body: S.body(wish.query),
+              offer: S.offer,
+              action: S.addKey,
+              allowance: S.allowance,
+            };
 
   const save = async () => {
     const key = keyInput.trim();

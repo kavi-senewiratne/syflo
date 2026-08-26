@@ -145,6 +145,23 @@ describe('the search wish card', () => {
     expect(screen.queryByTestId('search-wish')).not.toBeInTheDocument();
   });
 
+  // Reported 2026-08-25: the note used to vanish on the next chat switch,
+  // because it lived only in the stream. Now it is a stored column — which
+  // means it can outlive the situation it describes.
+  it('keeps the note but drops the offer once a key is stored', () => {
+    render(
+      <MessageBubble message={answered} onWordRightClick={vi.fn()} searchKeyStored />,
+    );
+
+    const card = screen.getByTestId('search-wish');
+    // Still true: this answer WAS written without a search.
+    expect(card).toHaveTextContent('Answered without a web search');
+    expect(card).toHaveTextContent('weather in Austin today');
+    // No longer true: there is nothing left to add.
+    expect(card).not.toHaveTextContent('switches web search on');
+    expect(screen.queryByTestId('search-wish-key-open')).not.toBeInTheDocument();
+  });
+
   it('says the key was rejected rather than asking as if none existed', () => {
     render(
       <MessageBubble

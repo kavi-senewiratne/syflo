@@ -3349,6 +3349,7 @@ export default function App() {
                   : ordered.slice(0, idx).reverse().find(m => m.role === 'user');
                 if (question) void handleSendMessage(question.content, [], chat.id);
               }}
+              searchKeyStored={settings?.tavily_api_key_set ?? false}
               modelLabels={modelLabels}
               onWordRightClick={handleWordRightClick}
               onSelectChat={handleSelectChat}

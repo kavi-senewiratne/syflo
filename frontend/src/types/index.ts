@@ -208,6 +208,10 @@ export interface Message {
   // Persisted column behind failReason (returned raw by GET /api/chats/:id;
   // api.getChat maps valid values onto failReason).
   fail_reason?: string | null;
+  // Raw columns as they arrive from the API; api.getChat folds them into
+  // `searchWish` below, which is what the UI reads.
+  search_wish_query?: string | null;
+  search_wish_error?: string | null;
   // 1 when the provider ended this answer mid-thought (finish_reason
   // 'length'/'content_filter'/MAX_TOKENS or a missing finish chunk,
   // design/mockup-truncated-answer.html §01). Persisted, because a cut-off

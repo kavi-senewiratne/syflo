@@ -3288,3 +3288,81 @@ describe('queue split: settings kick + prompt hygiene', () => {
     expect(system).not.toContain('Still queued');
   });
 });
+
+// ─── The search wish outlives its stream ────────────────────────────────────
+// design/mockup-search-wish-card.html: the model called web_search and nobody
+// looked. Reported in the running app 2026-08-25 — the card was there, then
+// gone after switching chats and back, because the wish lived only in the SSE
+// stream. An answer written without a search reads exactly like one written
+// with it, so losing the note leaves a stale answer looking current.
+
+describe('a search wish under an answer', () => {
+  // One tool round: the model calls web_search, the tool reports that nothing
+  // is configured, then the model answers from memory.
+  function searchCallThenAnswer() {
+    const toolRound = {
+      [Symbol.asyncIterator]: async function* () {
+        yield {
+          choices: [{
+            delta: {
+              tool_calls: [{
+                index: 0,
+                id: 'tc1',
+                type: 'function',
+                function: { name: 'web_search', arguments: '{"query":"gold price today"}' },
+              }],
+            },
+            finish_reason: 'tool_calls',
+          }],
+        };
+      },
+    };
+    return [toolRound, makeStream(['Answered ', 'from ', 'memory.'])];
+  }
+
+  async function askWithSearchWish() {
+    const chat = await request(app).post('/api/chats').send({ title: 'Gold' });
+    const [round1, round2] = searchCallThenAnswer();
+    mockCreate
+      .mockResolvedValueOnce(round1)
+      .mockResolvedValueOnce(round2)
+      // title generation
+      .mockResolvedValue({ choices: [{ message: { content: 'Gold' } }] });
+    await request(app)
+      .post(`/api/chats/${chat.body.id}/messages`)
+      .send({ content: 'What does gold cost today?' });
+    return chat.body.id;
+  }
+
+  it('is stored with the answer, so it survives leaving the chat and coming back', async () => {
+    const chatId = await askWithSearchWish();
+
+    // Read it back the way the app does after a chat switch: from the DB.
+    const row = db.prepare(
+      "SELECT * FROM messages WHERE chat_id = ? AND role = 'assistant'"
+    ).get(chatId);
+    expect(row.search_wish_error).toBe('no-search-provider');
+    expect(row.search_wish_query).toBe('gold price today');
+
+    // And it reaches the client through the same endpoint the app reloads with.
+    const reload = await request(app).get(`/api/chats/${chatId}`);
+    const assistant = reload.body.messages.find(m => m.role === 'assistant');
+    expect(assistant.search_wish_error).toBe('no-search-provider');
+  });
+
+  it('leaves the columns empty when the search actually ran', async () => {
+    const chat = await request(app).post('/api/chats').send({ title: 'Plain' });
+    mockCreate
+      .mockResolvedValueOnce(makeStream(['Hello.']))
+      .mockResolvedValue({ choices: [{ message: { content: 'Plain' } }] });
+    await request(app)
+      .post(`/api/chats/${chat.body.id}/messages`)
+      .send({ content: 'Hi' });
+
+    const row = db.prepare(
+      "SELECT * FROM messages WHERE chat_id = ? AND role = 'assistant'"
+    ).get(chat.body.id);
+    expect(row.search_wish_error).toBeNull();
+    expect(row.search_wish_query).toBeNull();
+  });
+});
