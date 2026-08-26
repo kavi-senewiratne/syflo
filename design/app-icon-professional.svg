@@ -1,61 +1,90 @@
 <svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
   <!-- Syflo App-Icon, Basic (Dock/Schreibtisch, 1024er-Canvas mit
-       Transparenzrand). Sticker-Material aus Runde 7 + Knoten-Anschluss M1
-       aus Runde 8 (Nutzerwahl 2026-08-12/13).
-       Design source: design/mockup-logo-icons-basic-round8.html
+       Transparenzrand). Material D4 + Marken-Anschluss R2.
+       Design source: design/mockup-logo-simply-blue-round13.html (D4),
+                      design/mockup-logo-simply-blue-round11.html (R2)
 
-       Maßstab: die 96er Kachel des Mockups × 8.333 → 800er Kachel.
+       Maßstab unverändert: die 96er Kachel des Mockups × 8.333 → 800er Kachel.
          Radius 24 → 200 · Kontur 3 → 25 · Offset-Schatten 6 → 50
-         Marke: 48er Box in der 96er Kachel (Hälfte) → 400er Box, zentriert
-         auf der Kachelmitte (492 / 472).
-       Die Kontur ist Schiefergrau, nicht Navy: Basic hat nirgends eine
-       Tintenkontur. Der Offset-Schatten ist Basics eigene Schatten-Tinte
-       #E2E8F0 — dieselbe, die Knöpfe, Blasen und Karten in der App tragen.
 
-       Regenerieren: 1024er-PNG via headless Chromium (omitBackground)
+       MATERIAL D4 (Nutzerwahl 2026-08-25) — löst M1 ab, das aus Runde 12 kam
+       und in der laufenden App als „zu flach“ zurückgemeldet wurde. D4 ist:
+
+         1. senkrechter Verlauf blue-400 → blue-600 → blue-700 (wie die
+            Produktionsdatei vor Runde 12 und wie alle vier anderen Icons —
+            gemessen an electron/assets, senkrechter Schnitt bei 22 % Breite:
+            Ink Blue rgb(86,151,254)→rgb(48,110,227), Mushroom
+            rgb(234,130,120)→rgb(204,60,53));
+
+         2. ein 22er INNENRAND, oben Weiß bei 42 %, unten blue-900 bei 38 %.
+            Der ersetzt die alte 25er Lichtkante: statt eines waagerechten
+            weißen Streifens, der bei 32 px zum Halbton zerfällt, bekommt die
+            Kachel rundherum eine Materialstärke. Bei 16 px misst der Rand
+            noch ein halbes Pixel und bleibt damit sichtbar.
+
+       Kontur und Offset-Schatten bleiben blue-800 (Entscheidung aus Runde 10):
+       jedes Theme zieht beides aus der eigenen Farbe, Basic borgte sie sich
+       früher aus dem Graustufensatz und fiel damit aus der Reihe.
+
+       Marke R2 — die Knoten sind RINGE (Loch offen, Wand 4 Einheiten) auf
+       (41.77|11.35) und (41.77|36.65); der Ast ist unverändert. Gerechnet:
+       mit dem Knoten auf (38.5|12) endet der Ast 2.69 Einheiten vor der
+       Knotenmitte, seine runde Kappe (r 2.5) deckt dann 3.31 der 3.5 Einheiten
+       Lochradius — 94 % des Lochs. Auf Abstand 6.0 endet die Kappe exakt an
+       der Lochkante. Verschoben wurde der Knoten, nicht der Ast, damit die
+       Astlänge aus Runde 8 erhalten bleibt. Folge: die Markenbox ist 50 × 48,
+       die Tinte liegt um 1.5 Einheiten außerhalb der Boxmitte (26.5 statt 25),
+       was das translate unten ausgleicht.
+
+       Maßstab der Marke: 8.3333 × 1.45 ≈ 12.1 war auf die 48er Box gerechnet
+       (Tintenbreite 38 Einheiten). R2 ist 42.5 Einheiten breit, also
+       12.1 × 38/42.5 ≈ 10.8 — gleiche Tintenbreite auf der Kachel wie vorher,
+       vergleichbar mit Ink Blue (53.9 %) und Matrix (54.1 %).
+         Markenbox 50 × 10.8 = 540 breit, 48 × 10.8 = 518.4 hoch
+         translate x = 492 − 26.5 × 10.8 = 205.8 · y = 472 − 259.2 = 212.8
+
+       Bewusst OHNE Weichzeichner-Filter gebaut — nur Verläufe, Konturen und
+       Clip-Pfade, damit librsvg das Icon zuverlässig rastert.
+
+       Regenerieren: rsvg-convert -w 1024 -h 1024 (transparenter Grund)
        → electron/assets/icon-professional.png -->
 
-  <!-- harter Offset-Schatten, 50px nach rechts unten -->
-  <rect x="142" y="122" width="800" height="800" rx="200" fill="#E2E8F0"/>
-
   <defs>
-    <linearGradient id="pro-tile" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#5B9BFF"/>
-      <stop offset="52%" stop-color="#2563EB"/>
+    <linearGradient id="tileFill" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#60A5FA"/>
+      <stop offset="55%" stop-color="#2563EB"/>
       <stop offset="100%" stop-color="#1D4ED8"/>
     </linearGradient>
-    <!-- Innenkante der Kachel: außen 92…892 minus die 25er Kontur -->
-    <clipPath id="pro-inner">
-      <rect x="117" y="97" width="750" height="750" rx="175"/>
-    </clipPath>
+    <!-- Der Innenrand als EIN Strich mit Farbverlauf, nicht als zwei geclippte
+         Hälften: bei zwei Hälften steht im 1024er PNG an den Seitenkanten eine
+         harte Stufe genau auf halber Höhe. Der Verlauf blendet Licht und
+         Schatten in der Mitte auf null und wieder auf. -->
+    <linearGradient id="rim" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%"   stop-color="#FFFFFF" stop-opacity="0.55"/>
+      <stop offset="42%"  stop-color="#FFFFFF" stop-opacity="0"/>
+      <stop offset="58%"  stop-color="#1E3A8A" stop-opacity="0"/>
+      <stop offset="100%" stop-color="#1E3A8A" stop-opacity="0.45"/>
+    </linearGradient>
   </defs>
 
-  <!-- Kachel: Fläche 92…892 / 72…872, die 25er Kontur liegt innen auf der Kante -->
+  <!-- harter Offset-Schatten, 50px nach rechts unten, in blue-800 -->
+  <rect x="142" y="122" width="800" height="800" rx="200" fill="#1E40AF"/>
+
+  <!-- Kachel: Verlauf, die 25er Kontur liegt innen auf der Kante -->
   <rect x="104.5" y="84.5" width="775" height="775" rx="187.5"
-        fill="url(#pro-tile)" stroke="#CBD5E1" stroke-width="25"/>
+        fill="url(#tileFill)" stroke="#1E40AF" stroke-width="25"/>
 
-  <!-- Lichtkante: das SVG-Gegenstück zu `inset 0 3px 0 rgba(255,255,255,.32)`.
-       Sie muss AUF der Innenkante sitzen und deren Rundung mitnehmen — als
-       frei schwebender Balken mit eigenen runden Enden liest sie sich als
-       weißer Strich quer durchs Icon (Nutzer-Screenshot 2026-08-13). Darum
-       ein randloses Rechteck ab der Innenkante, am Kachelinneren beschnitten:
-       an den Ecken läuft es mit dem Radius aus, genau wie im CSS. -->
-  <g clip-path="url(#pro-inner)">
-    <rect x="117" y="97" width="750" height="25" fill="#FFFFFF" opacity="0.32"/>
-  </g>
+  <!-- Innenrand: oben Licht, unten Schatten, in der Mitte nichts -->
+  <rect x="128" y="108" width="728" height="728" rx="164"
+        fill="none" stroke="url(#rim)" stroke-width="22"/>
 
-  <!-- Marke: Sidebar-Zeichen, Anschluss M1.
-       Größe aus den anderen Dock-Icons gemessen (2026-08-13, gleiche Methode
-       für alle fünf PNGs): die Tinte der Marke füllt bei Ink Blue 53.9 % und
-       bei Matrix 54.1 % der Kachelbreite — beide tragen dieselbe Zweig-Marke.
-       Mushroom liegt bei 63 %, Hyrule bei 68 %. Simply Blue lag mit 37 % weit
-       darunter und wirkte verloren in der Kachel (Nutzer-Report).
-       Faktor 53.9/37.1 = 1.45 → Maßstab 8.3333 × 1.45 ≈ 12.1, Markenbox
-       48 × 12.1 = 580.8, zentriert auf der Kachelmitte (492 / 472). -->
-  <g transform="translate(201.6, 181.6) scale(12.1)">
-    <path d="M8 24 H 22 C 28 24, 29 15, 38 12.5" stroke="#FFFFFF" stroke-width="6" stroke-linecap="round" fill="none"/>
-    <path d="M22 24 C 28 24, 29 33, 38 35.5" stroke="#FFFFFF" stroke-width="6" stroke-linecap="round" fill="none"/>
-    <circle cx="38" cy="12.5" r="5" fill="#FFFFFF"/>
-    <circle cx="38" cy="35.5" r="5" fill="#FFFFFF"/>
+  <!-- Marke R2. Die Löcher der Ringe bleiben ungefüllt: dort scheint die
+       Kachel durch, im Dock also der Verlauf. -->
+  <g transform="translate(205.8, 212.8) scale(10.8)">
+    <path d="M11 24 H 22 C 28 24, 29 15, 36 13" stroke="#FFFFFF" stroke-width="5" stroke-linecap="round" fill="none"/>
+    <path d="M22 24 C 28 24, 29 33, 36 35" stroke="#FFFFFF" stroke-width="5" stroke-linecap="round" fill="none"/>
+    <circle cx="8" cy="24" r="4" fill="#FFFFFF"/>
+    <circle cx="41.77" cy="11.35" r="5.5" fill="none" stroke="#FFFFFF" stroke-width="4"/>
+    <circle cx="41.77" cy="36.65" r="5.5" fill="none" stroke="#FFFFFF" stroke-width="4"/>
   </g>
 </svg>

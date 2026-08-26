@@ -60,7 +60,7 @@ describe('ModelPicker (grouped)', () => {
     defaultProps.onOpenSettings.mockClear();
     cooldownsSpy = vi.spyOn(api, 'getQuotaCooldowns').mockResolvedValue([]);
     usageSpy = vi.spyOn(api, 'getUsageSummary').mockResolvedValue({
-      month: '2026-07', pricesAsOf: '2026-07-30', providers: {}, modelsToday: {},
+      month: '2026-07', pricesAsOf: '2026-07-30', providers: {}, modelsToday: {}, kindsToday: {},
     });
   });
   afterEach(() => {
@@ -278,7 +278,7 @@ describe('ModelPicker (setup group)', () => {
     defaultProps.onOpenSettings.mockClear();
     cooldownsSpy = vi.spyOn(api, 'getQuotaCooldowns').mockResolvedValue([]);
     usageSpy = vi.spyOn(api, 'getUsageSummary').mockResolvedValue({
-      month: '2026-07', pricesAsOf: '2026-07-30', providers: {}, modelsToday: {},
+      month: '2026-07', pricesAsOf: '2026-07-30', providers: {}, modelsToday: {}, kindsToday: {},
     });
   });
   afterEach(() => {

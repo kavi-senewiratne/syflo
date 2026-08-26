@@ -1,0 +1,887 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<title>Syflo · Simply Blue — Wortmarke, Ausrichtung, Icon-Tiefe (Runde 13)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@700;800&family=Manrope:wght@700;800&family=Figtree:wght@700;800&display=swap" rel="stylesheet">
+<style>
+  /* ============================================================
+     Runde 13 — zwei Rückmeldungen aus der laufenden App:
+
+       (1) „Für das Dock ist das Logo vielleicht zu flach.“
+           → M1 (Runde 12) ist als einziges Icon im Set ohne Verlauf.
+       (2) „In der App ist das Logo nicht gut senkrecht geordnet mit dem
+            Symbol, und die Schriftart passt nicht zur Textschrift.“
+           → Plus Jakarta Sans 700 gegen die System-UI-Schrift von
+             Simply Blue (SF Pro), und die Marke ist 20 px hoch gegen
+             11,4 px Versalhöhe.
+
+     Feststehend aus den Runden 9–12, hier NICHT zur Wahl:
+       Symbol S5 (hohle Knoten) · Anschluss R2 (Knoten auf 41.77|11.35
+       und 41.77|36.65, Box 50 × 48) · zweifarbige Wortmarke „Sy“ +
+       blaues „flo“ · Icon-Kontur und Offset-Schatten in blue-800.
+
+     ALLE Zeichnungen dieser Seite kommen aus EINEM <symbol> (#r2) und
+     einem Satz Kachel-Symbole (#d1 … #d5). Der Fehler aus Runde 10 —
+     dieselbe Variante in zwei Abschnitten verschieden gezeichnet —
+     kann so nicht wieder passieren.
+
+     Alle Zahlen in §01 und §03 sind zur Laufzeit gemessen
+     (Canvas-TextMetrics, nach document.fonts.ready), nicht geschätzt.
+     ============================================================ */
+  :root{
+    --blue-50:#EFF6FF;--blue-100:#DBEAFE;--blue-200:#BFDBFE;--blue-400:#60A5FA;
+    --blue-600:#2563EB;--blue-700:#1D4ED8;--blue-800:#1E40AF;--blue-900:#1E3A8A;
+    --gray-50:#F9FAFB;--gray-100:#F3F4F6;--gray-200:#E5E7EB;--gray-300:#D1D5DC;
+    --gray-400:#99A1AF;--gray-500:#6A7282;--gray-700:#364153;--gray-900:#101828;
+    --surface:#FFF;--border:var(--gray-200);
+    --shadow:0 1px 3px rgba(0,0,0,.07),0 1px 2px rgba(0,0,0,.05);
+    --sys:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Inter',var(--sys);background:var(--gray-50);color:var(--gray-700);
+       -webkit-font-smoothing:antialiased;padding:44px 32px 160px}
+  .wrap{max-width:1340px;margin:0 auto}
+  .intro h1{font-size:25px;font-weight:700;color:var(--gray-900);letter-spacing:-.015em;margin-bottom:9px}
+  .intro p{font-size:14px;line-height:1.68;max-width:980px;color:var(--gray-500)}
+  .intro p+p{margin-top:10px}
+  .intro strong{color:var(--gray-700);font-weight:600}
+  code{background:var(--gray-100);border-radius:4px;padding:1px 5px;font-size:12px;
+       font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--gray-700)}
+  section{margin-top:52px}
+  section>h2{font-size:18px;font-weight:700;color:var(--gray-900);letter-spacing:-.01em;margin-bottom:6px}
+  section>h2 .num{color:var(--blue-600)}
+  section>.lead{font-size:13.5px;line-height:1.65;color:var(--gray-500);max-width:980px;margin-bottom:22px}
+  .grid{display:flex;flex-wrap:wrap;gap:24px}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px 16px 18px;
+        box-shadow:var(--shadow);width:306px}
+  .card.wide{width:472px}
+  .card>.tag{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;
+             color:var(--blue-700);background:var(--blue-50);border-radius:999px;padding:3px 9px}
+  .card>.tag.now{color:var(--gray-500);background:var(--gray-100)}
+  .card>h3{font-size:14.5px;font-weight:650;color:var(--gray-900);margin:7px 0 3px}
+  .card>p{font-size:12.5px;line-height:1.6;color:var(--gray-500)}
+  .note{font-size:12px;line-height:1.55;color:var(--gray-500);border-top:1px dashed var(--gray-200);
+        margin-top:12px;padding-top:10px}
+  .note b{color:var(--gray-700);font-weight:600}
+  .num-out{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--blue-700);font-weight:600}
+  .desk{background:linear-gradient(160deg,#DCE4EE,#EEF2F7);border-radius:10px;padding:16px;
+        display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+  .desk.dark{background:linear-gradient(160deg,#2A3342,#404C5E)}
+  .desk.photo{background:linear-gradient(150deg,#6B7F9E 0%,#94A7BE 40%,#C3B79E 100%)}
+  .row{display:flex;align-items:flex-end;gap:18px;margin-top:14px}
+  .row .s{display:flex;flex-direction:column;align-items:center;gap:6px}
+  .row .s span{font-size:10px;color:var(--gray-400)}
+  table.facts{border-collapse:collapse;background:var(--surface);border:1px solid var(--border);
+              border-radius:12px;overflow:hidden;box-shadow:var(--shadow);font-size:13px;width:100%}
+  table.facts th,table.facts td{padding:9px 14px;text-align:left;border-bottom:1px solid var(--gray-100);vertical-align:middle}
+  table.facts thead th{background:var(--gray-50);font-size:11px;letter-spacing:.06em;text-transform:uppercase;
+                       color:var(--gray-400);font-weight:600}
+  table.facts tbody tr:last-child td{border-bottom:none}
+  table.facts td b{color:var(--gray-900)}
+  table.facts td.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}
+
+  /* --- Sidebar-Kopf, 1:1 wie in der App (256 px breit, 20 px Polster) --- */
+  .head{width:256px;background:var(--surface);border:1px solid var(--border);border-bottom-color:var(--gray-100);
+        border-radius:10px 10px 0 0;padding:20px;display:flex;align-items:center;justify-content:space-between;
+        box-shadow:var(--shadow)}
+  .head .icons{display:flex;gap:8px}
+  .head .icons i{width:15px;height:15px;border-radius:3px;background:var(--gray-200);display:block}
+  .head+.body{width:256px;background:var(--surface);border:1px solid var(--border);border-top:none;
+              border-radius:0 0 10px 10px;padding:8px 12px 16px;box-shadow:var(--shadow)}
+  .head+.body .lbl{font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--gray-400);
+                   font-weight:600;margin:8px 4px 6px}
+  .head+.body .item{font-size:13px;color:var(--gray-700);padding:6px 8px;border-radius:6px}
+  .head+.body .item.on{background:var(--blue-50);color:var(--blue-700);font-weight:550}
+
+  /* --- Das Schloss: Marke + Wortmarke. Genau wie Logo.tsx heute. --- */
+  .lock{display:inline-flex;align-items:center;line-height:1;gap:9px}
+  .lock .mk{position:relative;flex:none}
+  .wm{color:var(--gray-900);font-weight:700;letter-spacing:-.02em;white-space:nowrap}
+  .wm .flo{color:var(--blue-600)}
+  .side{--ink:var(--blue-600);--hole:#FFFFFF}
+  .onblue{--ink:#FFFFFF;--hole:none}
+  .shadowink{--ink:#1E3A8A;--hole:none}
+
+  /* Hilfslinien für die Messkarte — das Schloss steht hier 3× vergrößert,
+     damit die vier Linien überhaupt auseinanderliegen. */
+  .ruler{position:relative;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;
+         padding:44px 118px 44px 22px;display:block;overflow:hidden}
+  .ruler .gl{position:absolute;left:0;right:0;height:1px;background:var(--blue-200)}
+  .ruler .gl.base{background:var(--gray-300);border-top:1px dashed var(--gray-300);height:0}
+  .ruler .gl::after{position:absolute;right:8px;top:-6px;font-size:9.5px;color:var(--gray-400);
+                    font-family:ui-monospace,Menlo,monospace;content:attr(data-l);
+                    background:var(--gray-50);padding:0 3px}
+  .legend{display:flex;gap:16px;flex-wrap:wrap;font-size:11.5px;color:var(--gray-500);margin-top:10px}
+  .legend i{display:inline-block;width:16px;height:2px;background:var(--blue-200);margin-right:6px;
+            vertical-align:middle}
+  .legend i.g{background:var(--gray-300)}
+
+  .switch{display:flex;gap:8px;align-items:center;margin-bottom:18px;flex-wrap:wrap}
+  .switch span.t{font-size:12px;color:var(--gray-500);margin-right:2px}
+  .switch button{font:inherit;font-size:12px;font-weight:550;color:var(--gray-700);background:var(--surface);
+                 border:1px solid var(--gray-200);border-radius:999px;padding:5px 12px;cursor:pointer}
+  .switch button[aria-pressed="true"]{background:var(--blue-600);border-color:var(--blue-600);color:#FFF}
+  .foot{margin-top:58px;border-top:1px solid var(--border);padding-top:18px;font-size:12.5px;
+        color:var(--gray-400);line-height:1.7;max-width:980px}
+</style>
+</head>
+<body>
+
+<!-- ================= EINE Quelle für jede Zeichnung ================= -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <!-- Marke R2, unverändert aus Runde 11 / app-icon-professional.svg -->
+  <symbol id="r2" viewBox="0 0 50 48">
+    <g fill="none" stroke="var(--ink)" stroke-width="5" stroke-linecap="round">
+      <path d="M11 24 H 22 C 28 24, 29 15, 36 13"/>
+      <path d="M22 24 C 28 24, 29 33, 36 35"/>
+    </g>
+    <circle cx="8" cy="24" r="4" fill="var(--ink)"/>
+    <circle cx="41.77" cy="11.35" r="5.5" fill="var(--hole)" stroke="var(--ink)" stroke-width="4"/>
+    <circle cx="41.77" cy="36.65" r="5.5" fill="var(--hole)" stroke="var(--ink)" stroke-width="4"/>
+  </symbol>
+
+  <!-- ---- Kachel-Materialien. Maße 1:1 aus app-icon-professional.svg:
+          Offset-Schatten 800 @ (142|122) rx 200 · Kachel 775 @ (104.5|84.5) rx 187.5
+          Kontur 25 · Marke scale 10.8, translate (205.8|212.8) ---- -->
+  <defs>
+    <clipPath id="tile"><rect x="117" y="97" width="750" height="750" rx="175"/></clipPath>
+    <clipPath id="tileTop"><rect x="117" y="97" width="750" height="375" rx="175"/></clipPath>
+    <clipPath id="tileBot"><rect x="117" y="472" width="750" height="375"/></clipPath>
+    <linearGradient id="gVert" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#60A5FA"/><stop offset="55%" stop-color="#2563EB"/><stop offset="100%" stop-color="#1D4ED8"/>
+    </linearGradient>
+    <radialGradient id="gDome" cx="50%" cy="4%" r="82%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity=".40"/>
+      <stop offset="48%" stop-color="#FFFFFF" stop-opacity=".09"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="gSink" x1="0" y1="0.5" x2="0" y2="1">
+      <stop offset="0%" stop-color="#1E3A8A" stop-opacity="0"/>
+      <stop offset="100%" stop-color="#1E3A8A" stop-opacity=".40"/>
+    </linearGradient>
+    <linearGradient id="gRim" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity=".55"/>
+      <stop offset="42%" stop-color="#FFFFFF" stop-opacity="0"/>
+      <stop offset="58%" stop-color="#1E3A8A" stop-opacity="0"/>
+      <stop offset="100%" stop-color="#1E3A8A" stop-opacity=".45"/>
+    </linearGradient>
+  </defs>
+
+  <!-- D1 — heute: flach, keine Lichtkante (M1 aus Runde 12) -->
+  <symbol id="d1" viewBox="0 0 1024 1024">
+    <rect x="142" y="122" width="800" height="800" rx="200" fill="#1E40AF"/>
+    <rect x="104.5" y="84.5" width="775" height="775" rx="187.5" fill="#2563EB" stroke="#1E40AF" stroke-width="25"/>
+    <g class="onblue" transform="translate(205.8, 212.8) scale(10.8)"><use href="#r2" width="50" height="48"/></g>
+  </symbol>
+
+  <!-- D2 — senkrechter Verlauf + 25er Lichtkante (M4 aus Runde 12) -->
+  <symbol id="d2" viewBox="0 0 1024 1024">
+    <rect x="142" y="122" width="800" height="800" rx="200" fill="#1E40AF"/>
+    <rect x="104.5" y="84.5" width="775" height="775" rx="187.5" fill="url(#gVert)" stroke="#1E40AF" stroke-width="25"/>
+    <g clip-path="url(#tile)"><rect x="117" y="97" width="750" height="25" fill="#FFF" opacity=".32"/></g>
+    <g class="onblue" transform="translate(205.8, 212.8) scale(10.8)"><use href="#r2" width="50" height="48"/></g>
+  </symbol>
+
+  <!-- D3 — Kuppel: flaches blue-600, darüber weiches Oberlicht (radial)
+              und eine Abdunklung zum unteren Rand hin. Keine harte Kante. -->
+  <symbol id="d3" viewBox="0 0 1024 1024">
+    <rect x="142" y="122" width="800" height="800" rx="200" fill="#1E40AF"/>
+    <rect x="104.5" y="84.5" width="775" height="775" rx="187.5" fill="#2563EB" stroke="#1E40AF" stroke-width="25"/>
+    <g clip-path="url(#tile)">
+      <rect x="117" y="97" width="750" height="750" fill="url(#gDome)"/>
+      <rect x="117" y="97" width="750" height="750" fill="url(#gSink)"/>
+    </g>
+    <g class="onblue" transform="translate(205.8, 212.8) scale(10.8)"><use href="#r2" width="50" height="48"/></g>
+  </symbol>
+
+  <!-- D4 — Fase: Verlauf + heller Innenrand oben, dunkler Innenrand unten.
+              Die Kachel bekommt eine Dicke, statt nur einen Farbverlauf.
+              NACHTRAG 2026-08-25: der Rand ist EIN Strich mit Farbverlauf,
+              nicht zwei geclippte Hälften — bei zwei Hälften steht im
+              1024er PNG an den Seitenkanten eine harte Stufe auf halber
+              Höhe. Erst im gerasterten Icon sichtbar geworden. -->
+  <symbol id="d4" viewBox="0 0 1024 1024">
+    <rect x="142" y="122" width="800" height="800" rx="200" fill="#1E40AF"/>
+    <rect x="104.5" y="84.5" width="775" height="775" rx="187.5" fill="url(#gVert)" stroke="#1E40AF" stroke-width="25"/>
+    <rect x="128" y="108" width="728" height="728" rx="164" fill="none" stroke="url(#gRim)" stroke-width="22"/>
+    <g class="onblue" transform="translate(205.8, 212.8) scale(10.8)"><use href="#r2" width="50" height="48"/></g>
+  </symbol>
+
+  <!-- D5 — Kuppel + die Marke wirft selbst einen Schatten (harte Kopie in
+              blue-900, 9 px nach rechts unten, wie der Offset der Kachel). -->
+  <symbol id="d5" viewBox="0 0 1024 1024">
+    <rect x="142" y="122" width="800" height="800" rx="200" fill="#1E40AF"/>
+    <rect x="104.5" y="84.5" width="775" height="775" rx="187.5" fill="#2563EB" stroke="#1E40AF" stroke-width="25"/>
+    <g clip-path="url(#tile)">
+      <rect x="117" y="97" width="750" height="750" fill="url(#gDome)"/>
+      <rect x="117" y="97" width="750" height="750" fill="url(#gSink)"/>
+    </g>
+    <g class="shadowink" opacity=".42" transform="translate(214.8, 224.8) scale(10.8)"><use href="#r2" width="50" height="48"/></g>
+    <g class="onblue" transform="translate(205.8, 212.8) scale(10.8)"><use href="#r2" width="50" height="48"/></g>
+  </symbol>
+</svg>
+
+<div class="wrap">
+
+  <div class="intro">
+    <h1>Runde 13 — die Wortmarke, ihre Ausrichtung und die Tiefe des Dock-Icons</h1>
+    <p>Drei getrennte Fragen aus einer Rückmeldung. <strong>§02</strong> ist die Schrift der Wortmarke,
+      <strong>§03</strong> ist Größe und senkrechte Ausrichtung der Marke neben der Schrift,
+      <strong>§04/§05</strong> ist das Material der Dock-Kachel. Sie hängen nicht voneinander ab — du kannst
+      aus jedem Abschnitt einzeln wählen.</p>
+    <p><strong>Was in dieser Runde nicht zur Wahl steht:</strong> das Symbol S5 mit den hohlen Knoten, der
+      Anschluss R2, das zweifarbige „Sy&thinsp;+&thinsp;<span style="color:var(--blue-600)">flo</span>“ und
+      Kontur&nbsp;+ Offset-Schatten des Icons in <code>blue-800</code>. Alle Zeichnungen dieser Seite stammen
+      aus einem einzigen <code>&lt;symbol&gt;</code>.</p>
+    <p><strong>Gemessen, nicht geschätzt:</strong> die Zahlen in §01 und §03 werden beim Laden dieser Seite aus
+      den echten Schriftmetriken berechnet (Canvas-TextMetrics), nachdem die Webfonts fertig geladen sind.</p>
+  </div>
+
+  <!-- ============================================================ §01 -->
+  <section>
+    <h2><span class="num">§01</span> &nbsp;Diagnose: woran es senkrecht hakt</h2>
+    <p class="lead">Nicht die Mitte ist verschoben — die <b>Größen stimmen nicht zueinander</b>. Die Marke ist
+      20&nbsp;px hoch, die Versalhöhe der Wortmarke bei 15&nbsp;px Schriftgröße aber nur rund 11,4&nbsp;px. Die
+      Marke ragt oben um gut 5&nbsp;px über die Versallinie hinaus und reicht unten bis unter den Schwanz des
+      „y“; das liest sich als „schwebt neben dem Text“ und nicht als ein Schloss aus zwei Teilen.</p>
+
+    <div class="grid">
+      <div class="card wide">
+        <span class="tag now">Heute</span>
+        <h3>Marke, Text und die vier Linien</h3>
+        <p>Dieselbe Darstellung wie in der Sidebar, nur mit eingezeichneten Linien: Oberkante der Marke,
+          Versallinie, Grundlinie, Unterkante der Marke.</p>
+        <div style="margin-top:14px">
+          <div class="ruler" id="ruler"></div>
+          <div class="legend">
+            <span><i></i>Versallinie / Grundlinie der Schrift</span>
+            <span><i class="g"></i>Ober- und Unterkante der Marke</span>
+            <span>3× vergrößert · die Zahlen unten gelten für 1×</span>
+          </div>
+        </div>
+        <div class="note">
+          <b>Gemessen:</b> Versalhöhe <span class="num-out" data-out="cap">…</span>,
+          Unterlänge <span class="num-out" data-out="desc">…</span>,
+          Markenhöhe 20 px = <span class="num-out" data-out="ratio">…</span> der Versalhöhe.
+          Die Marke steht <span class="num-out" data-out="over">…</span> über der Versallinie und
+          <span class="num-out" data-out="under">…</span> unter der Unterlänge.
+        </div>
+      </div>
+
+      <div class="card">
+        <span class="tag">Befund A</span>
+        <h3>Die Mitte ist fast richtig</h3>
+        <p>Mit <code>align-items:center</code> liegt die Mitte der Marke <span class="num-out" data-out="capoff">…</span>
+          von der Mitte des Versalbandes entfernt — weniger als ein Pixel, bei 20 px Marke also unter 5&nbsp;%.
+          Die gefühlte Unruhe kommt nicht von der Mitte.</p>
+        <div class="note"><b>Folge:</b> Ein reines Verschieben nach oben oder unten löst nichts. Was hilft, ist
+          eine <b>kleinere Marke</b> (§03 A2/A3) oder eine <b>größere Schrift</b> (§03 A4).</div>
+      </div>
+
+      <div class="card">
+        <span class="tag">Befund B</span>
+        <h3>Und waagerecht 1,7 px Luft</h3>
+        <p>Die Tinte der R2-Marke sitzt in einer 50er Box, füllt sie aber nicht: links bleiben 4 Einheiten frei
+          = <b>1,7 px</b> bei 20 px Höhe. Das Logo beginnt also 1,7 px weiter rechts als das
+          <code>&lt;svg&gt;</code>, gegen das die Sidebar es ausrichtet.</p>
+        <div class="desk" style="margin-top:12px;justify-content:center;background:#FFF;border:1px dashed var(--gray-200)">
+          <span style="display:inline-flex;flex-direction:column;gap:10px">
+            <span style="display:flex;align-items:center;gap:8px">
+              <span style="width:2px;height:34px;background:var(--blue-200)"></span>
+              <span class="lock"><svg class="mk side" width="41.6" height="40" viewBox="0 0 50 48"><use href="#r2" width="50" height="48"/></svg></span>
+            </span>
+            <span style="display:flex;align-items:center;gap:8px">
+              <span style="width:2px;height:34px;background:var(--blue-200)"></span>
+              <span class="lock"><svg class="mk side" width="41.6" height="40" viewBox="0 0 50 48" style="margin-left:-3.4px"><use href="#r2" width="50" height="48"/></svg></span>
+            </span>
+          </span>
+        </div>
+        <div class="note"><b>Unten mit Ausgleich</b> (<code>margin-left:-1.7px</code>, hier bei doppelter Größe
+          −3,4&nbsp;px). In §03 lässt sich der Ausgleich zuschalten.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ §02 -->
+  <section>
+    <h2><span class="num">§02</span> &nbsp;Die Schrift der Wortmarke</h2>
+    <p class="lead">Simply Blue ist das Theme <b>ohne</b> eigene UI-Schrift: die Oberfläche läuft in der
+      Systemschrift (auf dem Mac SF&nbsp;Pro). Plus Jakarta Sans ist dagegen eine geometrische Schrift mit
+      runderem „o“, höherer x-Höhe und offenerem „y“ — daneben wirkt sie wie aus einem anderen Haus. Vier
+      Wege daraus, jeder mit demselben blauen „flo“. Jede Karte zeigt das Schloss zuerst im Sidebar-Kopf in
+      Originalgröße, darunter groß.</p>
+
+    <div class="grid" id="fontGrid">
+
+      <div class="card" data-fontcard="sys">
+        <span class="tag">F1</span>
+        <h3>Systemschrift (SF Pro)</h3>
+        <p>Genau die Schrift der Oberfläche, nur fett und enger gesetzt. Kein Bruch mehr — dafür hat die
+          Wortmarke keine eigene Stimme.</p>
+      </div>
+
+      <div class="card" data-fontcard="inter">
+        <span class="tag">F2</span>
+        <h3>Inter 700</h3>
+        <p>Dasselbe Skelett wie SF Pro (gleiche x-Höhe, gerades „y“), aber eine eigene Schrift. Der Unterschied
+          fällt im Fließtext auf, im Logo kaum.</p>
+      </div>
+
+      <div class="card" data-fontcard="manrope">
+        <span class="tag">F3</span>
+        <h3>Manrope 800</h3>
+        <p>Halb geometrisch, halb grotesk: rundes „o“ wie Plus Jakarta, aber gerade Endungen wie SF Pro.
+          Deutlich kräftiger als der Text daneben.</p>
+      </div>
+
+      <div class="card" data-fontcard="figtree">
+        <span class="tag">F4</span>
+        <h3>Figtree 700</h3>
+        <p>Zwischen F2 und F3: etwas weicher als Inter, weniger geometrisch als Plus Jakarta. Das „y“ hat
+          einen geraden Abstrich.</p>
+      </div>
+
+      <div class="card" data-fontcard="pjs">
+        <span class="tag now">Heute</span>
+        <h3>Plus Jakarta Sans 700</h3>
+        <p>Der Stand aus Runde 9. Zum Vergleich in derselben Reihe, damit der Abstand zur Systemschrift
+          sichtbar ist.</p>
+      </div>
+    </div>
+
+    <p class="lead" style="margin-top:24px">Und dieselben fünf Schriften direkt untereinander in der
+      Sidebar-Größe — so sieht man den Unterschied im „y“, im „f“ und in der Breite des „Sy“:</p>
+    <div class="card wide" style="width:auto;max-width:560px">
+      <div id="stack" style="display:flex;flex-direction:column;gap:16px"></div>
+    </div>
+  </section>
+
+  <!-- ============================================================ §03 -->
+  <section>
+    <h2><span class="num">§03</span> &nbsp;Größe und Ausrichtung der Marke</h2>
+    <p class="lead">Die vier Karten unterscheiden sich nur in zwei Zahlen: wie hoch die Marke ist und worauf
+      sie senkrecht ausgerichtet wird. Über den Schalter lässt sich die Schrift aus §02 durchprobieren —
+      alle vier Karten wechseln gemeinsam, damit der Vergleich sauber bleibt.</p>
+
+    <div class="switch">
+      <span class="t">Schrift:</span>
+      <button data-setfont="pjs" aria-pressed="true">Plus Jakarta (heute)</button>
+      <button data-setfont="sys" aria-pressed="false">System</button>
+      <button data-setfont="inter" aria-pressed="false">Inter</button>
+      <button data-setfont="manrope" aria-pressed="false">Manrope</button>
+      <button data-setfont="figtree" aria-pressed="false">Figtree</button>
+      <span class="t" style="margin-left:14px">Waagerechter Ausgleich:</span>
+      <button id="kernBtn" aria-pressed="false">−1,7 px links</button>
+    </div>
+
+    <div class="grid" id="alignGrid">
+
+      <div class="card">
+        <span class="tag now">A1 · heute</span>
+        <h3>Marke 20 px, Zeilenbox-Mitte</h3>
+        <p>Der Stand von heute: <code>align-items:center</code>, Marke 20&nbsp;px, Text 15&nbsp;px.</p>
+        <div class="pv"></div>
+        <div class="note"><b>Verhältnis:</b> Marke = <span class="num-out" data-a="ratio">…</span> der
+          Versalhöhe. Überstand oben <span class="num-out" data-a="over">…</span>, unten
+          <span class="num-out" data-a="under">…</span>.</div>
+      </div>
+
+      <div class="card">
+        <span class="tag">A2</span>
+        <h3>Marke = Versalhöhe + Unterlänge</h3>
+        <p>Die Marke bekommt genau die Höhe der Tinte des Wortes und wird auf deren Mitte gesetzt: oben schließt
+          sie mit dem „S“ ab, unten mit dem Schwanz des „y“.</p>
+        <div class="pv"></div>
+        <div class="note"><b>Höhe</b> <span class="num-out" data-a="h">…</span> statt 20 px,
+          Versatz <span class="num-out" data-a="off">…</span>. Kein Überstand mehr — das Logo wird dadurch
+          rund 5 px flacher.</div>
+      </div>
+
+      <div class="card">
+        <span class="tag">A3</span>
+        <h3>Marke 1,45 × Versalhöhe, Versalmitte</h3>
+        <p>Der übliche Kompromiss bei Wort-Bild-Marken: die Marke darf etwas über die Versallinie ragen, aber
+          nicht doppelt so hoch sein. Ausgerichtet auf die Mitte des Versalbandes.</p>
+        <div class="pv"></div>
+        <div class="note"><b>Höhe</b> <span class="num-out" data-a="h">…</span>,
+          Versatz <span class="num-out" data-a="off">…</span>. Überstand oben
+          <span class="num-out" data-a="over">…</span>.</div>
+      </div>
+
+      <div class="card">
+        <span class="tag">A4</span>
+        <h3>Marke bleibt 20 px, Text auf 18 px</h3>
+        <p>Der andere Weg: nicht die Marke schrumpfen, sondern die Wortmarke wachsen lassen — wie bei Ink Blue,
+          wo 20 px Marke auf 17 px Schrift treffen.</p>
+        <div class="pv"></div>
+        <div class="note"><b>Verhältnis</b> <span class="num-out" data-a="ratio">…</span>.
+          Das Logo wird breiter: <span class="num-out" data-a="w">…</span> statt
+          <span class="num-out" data-a="w0">…</span> im 256-px-Kopf.</div>
+      </div>
+    </div>
+
+    <p class="lead" style="margin-top:26px">Und dieselben vier im echten Sidebar-Kopf, nebeneinander:</p>
+    <div class="grid" id="headGrid"></div>
+  </section>
+
+  <!-- ============================================================ §04 -->
+  <section>
+    <h2><span class="num">§04</span> &nbsp;Tiefe der Dock-Kachel</h2>
+    <p class="lead">D1 ist der heutige Stand — die flache Fläche, die aus Runde 12 gewählt wurde und die jetzt
+      als „zu flach“ zurückkommt. D2 ist das Material, das die anderen vier Themes tragen. D3 bis D5 sind
+      Zwischenstufen, die Tiefe erzeugen, ohne die Kachel glänzend zu machen. Kontur, Radien, Offset-Schatten
+      und die Marke sind in allen fünf identisch.</p>
+
+    <div class="grid">
+
+      <div class="card">
+        <span class="tag now">D1 · heute</span>
+        <h3>Flach</h3>
+        <p>Fläche <code>blue-600</code>, kein Verlauf, keine Lichtkante. Kontur und Offset-Schatten
+          <code>blue-800</code>.</p>
+        <div class="desk" style="margin-top:14px;justify-content:center"><svg width="132" height="132"><use href="#d1" width="132" height="132"/></svg></div>
+        <div class="row">
+          <div class="s"><svg width="64" height="64"><use href="#d1" width="64" height="64"/></svg><span>64</span></div>
+          <div class="s"><svg width="32" height="32"><use href="#d1" width="32" height="32"/></svg><span>32</span></div>
+          <div class="s"><svg width="16" height="16"><use href="#d1" width="16" height="16"/></svg><span>16</span></div>
+        </div>
+        <div class="note"><b>Warum es flach wirkt:</b> im Dock liegt die Kachel zwischen lauter Icons mit
+          Lichtquelle. Ohne Helligkeitsunterschied auf der Fläche fehlt der Hinweis, wo oben ist.</div>
+      </div>
+
+      <div class="card">
+        <span class="tag">D2</span>
+        <h3>Verlauf + Lichtkante</h3>
+        <p><code>blue-400 → blue-600 → blue-700</code> von oben nach unten, dazu die 25-px-Lichtkante in Weiß
+          bei 32&nbsp;%. Das Material der anderen vier Icons.</p>
+        <div class="desk" style="margin-top:14px;justify-content:center"><svg width="132" height="132"><use href="#d2" width="132" height="132"/></svg></div>
+        <div class="row">
+          <div class="s"><svg width="64" height="64"><use href="#d2" width="64" height="64"/></svg><span>64</span></div>
+          <div class="s"><svg width="32" height="32"><use href="#d2" width="32" height="32"/></svg><span>32</span></div>
+          <div class="s"><svg width="16" height="16"><use href="#d2" width="16" height="16"/></svg><span>16</span></div>
+        </div>
+        <div class="note"><b>Kleinster Eingriff:</b> zwei Zeilen in
+          <code>app-icon-professional.svg</code> — der Verlauf und der geklippte weiße Streifen sind dort
+          schon einmal dagewesen. Bei 32 px ist die Kante 0,8 px hoch und wird zum Halbton.</div>
+      </div>
+
+      <div class="card">
+        <span class="tag">D3</span>
+        <h3>Kuppel — weiches Oberlicht</h3>
+        <p>Fläche bleibt flach <code>blue-600</code>, darüber liegt ein radialer Lichtfleck (Weiß, 40&nbsp;%
+          in der Mitte oben, nach außen auf null) und zum unteren Rand hin eine Abdunklung in
+          <code>blue-900</code>.</p>
+        <div class="desk" style="margin-top:14px;justify-content:center"><svg width="132" height="132"><use href="#d3" width="132" height="132"/></svg></div>
+        <div class="row">
+          <div class="s"><svg width="64" height="64"><use href="#d3" width="64" height="64"/></svg><span>64</span></div>
+          <div class="s"><svg width="32" height="32"><use href="#d3" width="32" height="32"/></svg><span>32</span></div>
+          <div class="s"><svg width="16" height="16"><use href="#d3" width="16" height="16"/></svg><span>16</span></div>
+        </div>
+        <div class="note"><b>Ohne harte Kante:</b> kein weißer Streifen, der bei 16 px zur grauen Linie
+          zerfällt. Die Wölbung überlebt die Verkleinerung, weil sie über die ganze Fläche geht.</div>
+      </div>
+
+      <div class="card">
+        <span class="tag">D4</span>
+        <h3>Fase — dicke Kachel</h3>
+        <p>Verlauf wie D2, dazu ein 22-px-Innenrand: oben Weiß bei 55&nbsp;%, zur Mitte hin auf null, unten
+          <code>blue-900</code> bei 45&nbsp;%. Die Kachel bekommt eine Materialstärke statt nur einen
+          Farbverlauf.</p>
+        <div class="desk" style="margin-top:14px;justify-content:center"><svg width="132" height="132"><use href="#d4" width="132" height="132"/></svg></div>
+        <div class="row">
+          <div class="s"><svg width="64" height="64"><use href="#d4" width="64" height="64"/></svg><span>64</span></div>
+          <div class="s"><svg width="32" height="32"><use href="#d4" width="32" height="32"/></svg><span>32</span></div>
+          <div class="s"><svg width="16" height="16"><use href="#d4" width="16" height="16"/></svg><span>16</span></div>
+        </div>
+        <div class="note"><b>Die kräftigste Tiefe</b> der fünf — und die einzige, die bei 16 px sichtbar
+          bleibt, weil der Innenrand dort noch ein halbes Pixel misst. Preis: Simply Blue wird das am
+          stärksten verzierte Icon im Set.</div>
+      </div>
+
+      <div class="card">
+        <span class="tag">D5</span>
+        <h3>Kuppel + Schatten unter der Marke</h3>
+        <p>D3, und zusätzlich wirft die weiße Marke selbst einen harten Schatten (Kopie in
+          <code>blue-900</code>, 42&nbsp;%, 9 px nach rechts unten — dieselbe Richtung wie der Schatten der
+          Kachel).</p>
+        <div class="desk" style="margin-top:14px;justify-content:center"><svg width="132" height="132"><use href="#d5" width="132" height="132"/></svg></div>
+        <div class="row">
+          <div class="s"><svg width="64" height="64"><use href="#d5" width="64" height="64"/></svg><span>64</span></div>
+          <div class="s"><svg width="32" height="32"><use href="#d5" width="32" height="32"/></svg><span>32</span></div>
+          <div class="s"><svg width="16" height="16"><use href="#d5" width="16" height="16"/></svg><span>16</span></div>
+        </div>
+        <div class="note"><b>Zwei Ebenen:</b> die Marke liegt sichtbar auf der Kachel statt in ihr. Bei 16 px
+          verschmilzt der Schatten mit der Marke und macht sie etwas dicker — das kann als Unschärfe
+          gelesen werden.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ §05 -->
+  <section>
+    <h2><span class="num">§05</span> &nbsp;Im Dock, neben den echten vier Icons</h2>
+    <p class="lead">Die fünf mittleren Kacheln sind die Kandidaten, außen stehen die unveränderten PNGs aus
+      <code>electron/assets/</code> — links Ink Blue und Mushroom Kingdom, rechts Hyrule und Matrix. Drei
+      Untergründe, weil das Dock je nach Schreibtischbild anders wirkt.</p>
+
+    <div id="dockRows"></div>
+
+    <p class="lead" style="margin-top:26px">Und die fünf direkt untereinander bei Dock-Größe (64 px), ohne
+      fremde Nachbarn:</p>
+    <div class="desk" style="justify-content:flex-start">
+      <div class="row" style="margin-top:0">
+        <div class="s"><svg width="64" height="64"><use href="#d1" width="64" height="64"/></svg><span>D1</span></div>
+        <div class="s"><svg width="64" height="64"><use href="#d2" width="64" height="64"/></svg><span>D2</span></div>
+        <div class="s"><svg width="64" height="64"><use href="#d3" width="64" height="64"/></svg><span>D3</span></div>
+        <div class="s"><svg width="64" height="64"><use href="#d4" width="64" height="64"/></svg><span>D4</span></div>
+        <div class="s"><svg width="64" height="64"><use href="#d5" width="64" height="64"/></svg><span>D5</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ §06 -->
+  <section>
+    <h2><span class="num">§06</span> &nbsp;Was jede Wahl im Code kostet</h2>
+    <p class="lead">Damit die Entscheidung den Aufwand kennt. Alle Dateipfade sind die echten.</p>
+    <table class="facts">
+      <thead><tr><th style="width:74px">Variante</th><th>Datei</th><th>Änderung</th><th style="width:190px">Nebenwirkung</th></tr></thead>
+      <tbody>
+        <tr><td><b>F1</b></td><td class="mono">Logo.tsx, main.tsx</td>
+            <td><code>fontFamily</code> auf den Systemstapel; der Import
+              <code>@fontsource/plus-jakarta-sans/700.css</code> fällt weg</td>
+            <td>Ein Webfont weniger im Bündel (~28 kB)</td></tr>
+        <tr><td><b>F2–F4</b></td><td class="mono">Logo.tsx, main.tsx, package.json</td>
+            <td>Neues Paket <code>@fontsource/inter</code> / <code>-manrope</code> / <code>-figtree</code>,
+              Import tauschen, <code>fontFamily</code> tauschen</td>
+            <td>Bündelgröße bleibt gleich (ein Font raus, einer rein)</td></tr>
+        <tr><td><b>A2/A3</b></td><td class="mono">Logo.tsx</td>
+            <td>Höhe und Breite des <code>&lt;svg&gt;</code> in der Variante <code>professional</code>,
+              dazu ein <code>position:relative; top:…</code></td>
+            <td>Der Empty-State skaliert mit (<code>scale 1.6</code>), muss nachgesehen werden</td></tr>
+        <tr><td><b>A4</b></td><td class="mono">Logo.tsx</td>
+            <td>Nur <code>fontSize</code> von 15 auf 18</td>
+            <td>Das Logo wird breiter — im 256-px-Kopf prüfen</td></tr>
+        <tr><td><b>D2–D5</b></td><td class="mono">design/app-icon-professional.svg</td>
+            <td>Kachel-Füllung und Überlagerungen, danach
+              <code>rsvg-convert -w 1024 -h 1024</code> nach
+              <code>electron/assets/icon-professional.png</code></td>
+            <td>Verläufe kann librsvg; auf Weichzeichner-Filter wurde bewusst verzichtet</td></tr>
+        <tr><td><b>offen</b></td><td class="mono">electron/assets/icon.png, icon.icns</td>
+            <td>Tragen weiterhin die <b>Ink-Blue</b>-Marke, nicht Simply Blue</td>
+            <td>Aus Runde 12 offen geblieben</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <div class="foot">
+    Mockup Runde 13 · <code>design/mockup-logo-simply-blue-round13.html</code> · Marke R2 und alle Icon-Maße
+    1:1 aus <code>design/app-icon-professional.svg</code>. Die vier fremden Icons in §05 sind die echten PNGs
+    aus <code>electron/assets/</code>. Anschluss an Runde 12
+    (<code>mockup-logo-simply-blue-round12.html</code>) und Runde 11 (Anschluss R2).
+  </div>
+</div>
+
+<script>
+/* ==================================================================
+   Alles, was hier gerechnet wird, kommt aus echten Schriftmetriken.
+   Ein einziger Renderer baut jedes Schloss — damit dieselbe Variante
+   in §01, §02, §03 garantiert gleich aussieht.
+   ================================================================== */
+
+const SYS = "-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif";
+const FONTS = {
+  sys:     { label: 'Systemschrift (SF Pro)', family: null,                  stack: SYS,                          weight: 700, ls: '-0.02em' },
+  inter:   { label: 'Inter 700',              family: "'Inter'",             stack: "'Inter', " + SYS,            weight: 700, ls: '-0.02em' },
+  manrope: { label: 'Manrope 800',            family: "'Manrope'",           stack: "'Manrope', " + SYS,          weight: 800, ls: '-0.03em' },
+  figtree: { label: 'Figtree 700',            family: "'Figtree'",           stack: "'Figtree', " + SYS,          weight: 700, ls: '-0.02em' },
+  pjs:     { label: 'Plus Jakarta Sans 700',  family: "'Plus Jakarta Sans'", stack: "'Plus Jakarta Sans', " + SYS, weight: 700, ls: '-0.02em' },
+};
+
+// Markenbox R2: 50 × 48. Die Tinte beginnt bei x = 4 (Ursprungsknoten
+// cx 8, r 4) und endet bei x = 49.27 (41.77 + 5.5 + 2 Konturhälfte),
+// senkrecht 3.85 … 44.15 — also senkrecht mittig, waagerecht 1.6
+// Einheiten aus der Mitte nach rechts.
+const MARK_W = 50, MARK_H = 48, INK_LEFT = 4;
+
+const ctx = document.createElement('canvas').getContext('2d');
+function metrics(fontKey, size) {
+  const f = FONTS[fontKey];
+  ctx.font = `${f.weight} ${size}px ${f.stack}`;
+  const cap  = ctx.measureText('S').actualBoundingBoxAscent;      // Versalhöhe
+  const desc = ctx.measureText('y').actualBoundingBoxDescent;     // Unterlänge
+  const m    = ctx.measureText('Syflo');
+  return { cap, desc, fontAsc: m.fontBoundingBoxAscent, fontDesc: m.fontBoundingBoxDescent, width: m.width };
+}
+
+/* Wo liegt die Grundlinie, gerechnet von der Oberkante des Schlosses?
+   Der Text ist ein Flex-Element der Höhe `size` (line-height 1) und
+   wird mittig gesetzt; innerhalb dieser Zeilenbox verteilt der Browser
+   den Überhang der Schrift gleichmäßig (half leading). */
+function geometry(fontKey, size, markH) {
+  const m = metrics(fontKey, size);
+  const H = Math.max(markH, size);
+  const halfLeading = (size - (m.fontAsc + m.fontDesc)) / 2;
+  const baseline = (H - size) / 2 + halfLeading + m.fontAsc;
+  return {
+    ...m, H, baseline,
+    capCenter: baseline - m.cap / 2,                 // Mitte des Versalbandes
+    inkCenter: baseline - m.cap / 2 + m.desc / 2,    // Mitte von Versal + Unterlänge
+    boxCenter: H / 2,
+  };
+}
+
+function offsetFor(anchor, g) {
+  if (anchor === 'cap') return g.capCenter - g.boxCenter;
+  if (anchor === 'ink') return g.inkCenter - g.boxCenter;
+  return 0; // 'line' — der heutige Stand
+}
+
+/* Baut EIN Schloss. Jede Zeichnung dieser Seite geht hier durch. */
+function buildLock({ font, size, markH, anchor, kern }) {
+  const f = FONTS[font];
+  const g = geometry(font, size, markH);
+  const lock = document.createElement('span');
+  lock.className = 'lock';
+
+  const svgNS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(svgNS, 'svg');
+  svg.setAttribute('viewBox', `0 0 ${MARK_W} ${MARK_H}`);
+  svg.setAttribute('height', markH);
+  svg.setAttribute('width', (markH * MARK_W / MARK_H).toFixed(2));
+  svg.setAttribute('class', 'mk side');
+  const use = document.createElementNS(svgNS, 'use');
+  use.setAttribute('href', '#r2');
+  use.setAttribute('width', MARK_W); use.setAttribute('height', MARK_H);
+  svg.appendChild(use);
+  svg.style.top = offsetFor(anchor, g).toFixed(2) + 'px';
+  if (kern) svg.style.marginLeft = (-INK_LEFT * markH / MARK_H).toFixed(2) + 'px';
+
+  const wm = document.createElement('span');
+  wm.className = 'wm';
+  wm.style.fontFamily = f.stack;
+  wm.style.fontWeight = f.weight;
+  wm.style.fontSize = size + 'px';
+  wm.style.letterSpacing = f.ls;
+  wm.innerHTML = 'Sy<span class="flo">flo</span>';
+
+  lock.append(svg, wm);
+  return { lock, g };
+}
+
+const px = n => n.toFixed(1).replace('.', ',') + ' px';
+const x  = n => n.toFixed(2).replace('.', ',') + ' ×';
+
+/* ---------------- §01 — Diagnose mit Linien ---------------- */
+function renderDiagnosis() {
+  const Z = 3;                                   // 3× vergrößert gezeichnet
+  const g  = geometry('pjs', 15, 20);            // Zahlen: echte Größe
+  const gz = geometry('pjs', 15 * Z, 20 * Z);    // Linien: gezeichnete Größe
+  const ruler = document.getElementById('ruler');
+  const padTop = 44; // .ruler padding-top
+  ruler.innerHTML = '';
+
+  ruler.appendChild(buildLock({ font: 'pjs', size: 15 * Z, markH: 20 * Z, anchor: 'line', kern: false }).lock);
+
+  // Die vier Linien, bezogen auf die Oberkante des Schlosses
+  const lines = [
+    { y: 0,                     cls: 'base', l: 'Marke oben' },
+    { y: gz.baseline - gz.cap,  cls: '',     l: 'Versallinie' },
+    { y: gz.baseline,           cls: '',     l: 'Grundlinie' },
+    { y: gz.H,                  cls: 'base', l: 'Marke unten' },
+  ];
+  for (const ln of lines) {
+    const el = document.createElement('span');
+    el.className = 'gl ' + ln.cls;
+    el.style.top = (padTop + ln.y).toFixed(2) + 'px';
+    el.dataset.l = ln.l;
+    ruler.appendChild(el);
+  }
+
+  const out = {
+    cap:    px(g.cap),
+    desc:   px(g.desc),
+    ratio:  x(20 / g.cap),
+    over:   px((g.baseline - g.cap) - 0),
+    under:  px(g.H - (g.baseline + g.desc)),
+    capoff: px(Math.abs(g.capCenter - g.boxCenter)),
+  };
+  document.querySelectorAll('[data-out]').forEach(el => { el.textContent = out[el.dataset.out] ?? '–'; });
+}
+
+/* ---------------- §02 — Schriftkarten ---------------- */
+function renderFontCards() {
+  document.querySelectorAll('[data-fontcard]').forEach(card => {
+    const key = card.dataset.fontcard;
+
+    // Sidebar-Kopf in Originalgröße
+    const head = document.createElement('div');
+    head.className = 'head';
+    head.style.marginTop = '14px';
+    head.style.width = '274px';
+    head.appendChild(buildLock({ font: key, size: 15, markH: 20, anchor: 'line', kern: false }).lock);
+    const icons = document.createElement('div');
+    icons.className = 'icons';
+    icons.innerHTML = '<i></i><i></i>';
+    head.appendChild(icons);
+
+    // Groß, damit die Buchstabenformen sichtbar werden
+    const big = document.createElement('div');
+    big.className = 'desk';
+    big.style.marginTop = '12px';
+    big.style.justifyContent = 'center';
+    big.style.background = '#FFF';
+    big.style.border = '1px dashed var(--gray-200)';
+    big.appendChild(buildLock({ font: key, size: 30, markH: 40, anchor: 'line', kern: false }).lock);
+
+    card.append(head, big);
+  });
+
+  // Der Stapel: fünf Schlösser untereinander, Label daneben
+  const stack = document.getElementById('stack');
+  for (const key of Object.keys(FONTS)) {
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;gap:20px';
+    row.appendChild(buildLock({ font: key, size: 15, markH: 20, anchor: 'line', kern: false }).lock);
+    const lab = document.createElement('span');
+    lab.style.cssText = 'font-size:11.5px;color:var(--gray-400)';
+    lab.textContent = FONTS[key].label + (key === 'pjs' ? '  · heute' : '');
+    row.appendChild(lab);
+    stack.appendChild(row);
+  }
+}
+
+/* ---------------- §03 — Ausrichtungsvarianten ---------------- */
+let alignFont = 'pjs';
+let alignKern = false;
+
+function alignVariants() {
+  const g15 = geometry(alignFont, 15, 20);
+  return [
+    { size: 15, markH: 20,                              anchor: 'line' },
+    { size: 15, markH: +(g15.cap + g15.desc).toFixed(2), anchor: 'ink'  },
+    { size: 15, markH: +(g15.cap * 1.45).toFixed(2),     anchor: 'cap'  },
+    { size: 18, markH: 20,                              anchor: 'cap'  },
+  ];
+}
+
+function renderAlign() {
+  const cards = document.querySelectorAll('#alignGrid .card');
+  const heads = document.getElementById('headGrid');
+  heads.innerHTML = '';
+  const vs = alignVariants();
+
+  vs.forEach((v, i) => {
+    const card = cards[i];
+    const pv = card.querySelector('.pv');
+    pv.innerHTML = '';
+    pv.style.cssText = 'margin-top:14px;background:#FFF;border:1px dashed var(--gray-200);border-radius:8px;' +
+                       'padding:18px 16px;display:flex;flex-direction:column;gap:16px;align-items:flex-start';
+
+    const small = buildLock({ ...v, font: alignFont, kern: alignKern });
+    const big   = buildLock({ font: alignFont, size: v.size * 2, markH: v.markH * 2, anchor: v.anchor, kern: alignKern });
+    pv.append(small.lock, big.lock);
+
+    // Zahlen in die Notiz
+    const g = small.g;
+    const vals = {
+      ratio: x(v.markH / g.cap),
+      h:     px(v.markH),
+      off:   (Math.abs(offsetFor(v.anchor, g)) < 0.05 ? '' :
+              offsetFor(v.anchor, g) > 0 ? '+' : '−') + px(Math.abs(offsetFor(v.anchor, g))),
+      over:  px(Math.max(0, (g.baseline - g.cap) - offsetFor(v.anchor, g))),
+      under: px(Math.max(0, (v.markH + offsetFor(v.anchor, g)) - (g.baseline + g.desc))),
+      w:     px(small.lock.getBoundingClientRect().width || 0),
+      w0:    px(geometry(alignFont, 15, 20).width + 20 * MARK_W / MARK_H + 9),
+    };
+    card.querySelectorAll('[data-a]').forEach(el => { el.textContent = vals[el.dataset.a] ?? '–'; });
+
+    // Sidebar-Kopf
+    const wrap = document.createElement('div');
+    const head = document.createElement('div');
+    head.className = 'head';
+    head.appendChild(buildLock({ ...v, font: alignFont, kern: alignKern }).lock);
+    const ic = document.createElement('div'); ic.className = 'icons'; ic.innerHTML = '<i></i><i></i>';
+    head.appendChild(ic);
+    const body = document.createElement('div');
+    body.className = 'body';
+    body.innerHTML = '<div class="lbl">Angepinnt</div><div class="item on">Attention Is All You Need</div>' +
+                     '<div class="lbl">Heute</div><div class="item">Warum Q, K, V?</div>' +
+                     '<div class="item">Positionskodierung</div>';
+    const cap = document.createElement('div');
+    cap.style.cssText = 'font-size:11.5px;color:var(--gray-400);margin-top:8px;text-align:center;width:256px';
+    cap.textContent = ['A1 · heute', 'A2', 'A3', 'A4'][i];
+    wrap.append(head, body, cap);
+    heads.appendChild(wrap);
+  });
+}
+
+/* ---------------- §05 — Dock-Reihen ---------------- */
+function renderDock() {
+  const host = document.getElementById('dockRows');
+  const others = ['ink-blue', 'mushroom-kingdom', 'hyrule', 'matrix'];
+  const grounds = [
+    { cls: '',      label: 'heller Schreibtisch' },
+    { cls: 'dark',  label: 'dunkler Schreibtisch' },
+    { cls: 'photo', label: 'Foto als Hintergrund' },
+  ];
+  for (const g of grounds) {
+    const lab = document.createElement('div');
+    lab.style.cssText = 'font-size:11.5px;color:var(--gray-400);margin:16px 0 8px';
+    lab.textContent = g.label;
+    host.appendChild(lab);
+
+    // Eine Reihe je Untergrund: die zwei echten Nachbarn links, die fünf
+    // Kandidaten in der Mitte, die zwei anderen echten rechts.
+    const cap = g.cls === 'dark' ? '#B9C2CF' : 'var(--gray-500)';
+    const real = n => `<img src="../electron/assets/icon-${n}.png" width="80" height="80" alt="" style="align-self:flex-start">`;
+    const cand = id =>
+      `<span style="display:flex;flex-direction:column;align-items:center;gap:6px">` +
+      `<svg width="80" height="80"><use href="#${id}" width="80" height="80"/></svg>` +
+      `<span style="font-size:10.5px;color:${cap};font-family:ui-monospace,Menlo,monospace">` +
+      `${id.toUpperCase()}${id === 'd1' ? '·heute' : ''}</span></span>`;
+
+    const row = document.createElement('div');
+    row.className = 'desk ' + g.cls;
+    row.style.gap = '14px';
+    row.innerHTML = real(others[0]) + real(others[1]) +
+      ['d1', 'd2', 'd3', 'd4', 'd5'].map(cand).join('') +
+      real(others[2]) + real(others[3]);
+    host.appendChild(row);
+  }
+}
+
+/* ---------------- Schalter ---------------- */
+document.querySelectorAll('[data-setfont]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    alignFont = btn.dataset.setfont;
+    document.querySelectorAll('[data-setfont]').forEach(b =>
+      b.setAttribute('aria-pressed', String(b === btn)));
+    renderAlign();
+  });
+});
+document.getElementById('kernBtn').addEventListener('click', e => {
+  alignKern = !alignKern;
+  e.currentTarget.setAttribute('aria-pressed', String(alignKern));
+  renderAlign();
+});
+
+/* Erst die Webfonts erzwingen: `document.fonts.ready` allein genügt NICHT —
+   solange eine Schrift noch nirgends benutzt wurde, misst measureText() die
+   Ersatzschrift. Genau das kam als 10,8 px statt 11,4 px Versalhöhe heraus. */
+Promise.all(Object.values(FONTS).filter(f => f.family)
+    .map(f => document.fonts.load(`${f.weight} 15px ${f.family}`)))
+  .then(() => document.fonts.ready)
+  .then(() => {
+    renderDiagnosis();
+    renderFontCards();
+    renderAlign();
+    renderDock();
+    // Breite erst messbar, wenn im Dokument — zweiter Durchgang für w/w0
+    requestAnimationFrame(() => { renderDiagnosis(); renderAlign(); });
+  });
+</script>
+</body>
+</html>

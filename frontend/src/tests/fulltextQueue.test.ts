@@ -5,7 +5,7 @@
  * standard.html § 05). Searching the whole bibliography at import would be
  * ~25 requests per paper for the ~5 references a reader actually opens
  * (measured over the stored corpus 2026-08-10) — and 25 web searches in one
- * burst is what gets the engines behind SearXNG to answer with a captcha.
+ * burst is what gets a search engine to answer with a captcha.
  *
  * So the queue is deliberately unhurried: whatever page is on screen, one
  * request at a time, and the reference under the mouse jumps the line.
@@ -100,7 +100,7 @@ describe('createFulltextQueue', () => {
 
   it('keeps going when one search throws', async () => {
     const run = vi.fn(async (id: string) => {
-      if (id === 'a') throw new Error('SearXNG down');
+      if (id === 'a') throw new Error('search down');
     });
     const queue = createFulltextQueue(run);
 

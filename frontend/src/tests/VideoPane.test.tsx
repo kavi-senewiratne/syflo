@@ -11,6 +11,7 @@
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { VideoPane } from '../components/VideoPane';
+import type { VideoPaneHandle } from '../components/VideoPane';
 import type { Video } from '../types';
 
 const video: Video = {
@@ -630,7 +631,7 @@ describe('VideoPane · Vorlauf bleibt unsichtbar', () => {
   });
 
   it('gilt auch für einen Sprung aus dem Chat (kein Klick in der Liste)', () => {
-    const griff = { current: null as { seekTo: (s: number) => void } | null };
+    const griff = { current: null as VideoPaneHandle | null };
     render(<VideoPane ref={griff} video={{ ...video, transcript: transkript }} overview={kapitel} />);
     act(() => reportPlayerState(1, 0)); // der Player läuft — sonst wird nicht gesprungen
 

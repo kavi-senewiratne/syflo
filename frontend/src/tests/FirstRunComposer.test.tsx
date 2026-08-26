@@ -5,7 +5,7 @@ import { getStrings } from '../strings';
 import type { ChatDetail } from '../types';
 
 // First run, variant O2 (design/mockup-onboarding-flow.html §03, chosen
-// 2026-08-15). Until now `setupNotice` replaced the whole composer row, so the
+// 2026-08-15). The setup card used to replace the whole composer row, so the
 // very first start of the app had no text field, no attach button, no dictation
 // and no model pill — the app was sealed before the user could see what a key
 // would even be for. O2 keeps the composer usable and locks only sending.
@@ -45,11 +45,11 @@ afterEach(() => {
 });
 
 describe('First run (O2) — the composer stays usable', () => {
-  it('keeps text field, attach button and dictation while the setup card is up', () => {
+  it('keeps text field, attach button and dictation while no model is set up', () => {
     render(
       <ChatArea
         {...baseProps}
-        setupNotice={<div data-testid="setup-notice-slot" />}
+        firstRun
         onUploadPdf={vi.fn()}
       />,
     );
@@ -70,7 +70,7 @@ describe('First run (O2) — the composer stays usable', () => {
     render(
       <ChatArea
         {...baseProps}
-        setupNotice={<div data-testid="setup-notice-slot" />}
+        firstRun
         onOpenSetup={onOpenSetup}
       />,
     );
@@ -87,7 +87,7 @@ describe('First run (O2) — the composer stays usable', () => {
     render(
       <ChatArea
         {...baseProps}
-        setupNotice={<div data-testid="setup-notice-slot" />}
+        firstRun
         onOpenSetup={vi.fn()}
       />,
     );
@@ -107,7 +107,7 @@ describe('First run (O2) — the composer stays usable', () => {
     render(
       <ChatArea
         {...baseProps}
-        setupNotice={<div data-testid="setup-notice-slot" />}
+        firstRun
         onOpenSetup={onOpenSetup}
       />,
     );
@@ -130,7 +130,7 @@ describe('First run (O2) — the composer stays usable', () => {
     render(
       <ChatArea
         {...baseProps}
-        setupNotice={<div data-testid="setup-notice-slot" />}
+        firstRun
         onOpenSetup={onOpenSetup}
         modelPicker={<div data-testid="model-picker-slot" />}
       />,
@@ -147,7 +147,7 @@ describe('First run (O2) — the composer stays usable', () => {
   });
 });
 
-describe('Without a setup card nothing changes', () => {
+describe('Without the first run nothing changes', () => {
   it('sends normally, shows no strip and keeps the real model pill', async () => {
     const onOpenSetup = vi.fn();
     render(
@@ -176,26 +176,21 @@ describe('Without a setup card nothing changes', () => {
   });
 });
 
-describe('The path card moved, it did not go away', () => {
-  it('renders the card ABOVE the composer, both in the DOM at once', () => {
-    render(
-      <ChatArea
-        {...baseProps}
-        setupNotice={<div data-testid="setup-notice-slot" />}
-        onOpenSetup={vi.fn()}
-      />,
-    );
+describe('Die alte Drei-Wege-Karte ist weg (2026-08-22)', () => {
+  it('zeigt nur den Streifen, nicht die ersetzte Karte', () => {
+    render(<ChatArea {...baseProps} firstRun onOpenSetup={vi.fn()} />);
 
-    const card = screen.getByTestId('setup-notice-slot');
+    // O2 hat die Karte durch den Streifen ERSETZT — bis zum 2026-08-22 stand
+    // sie trotzdem noch darüber, der Nutzer sah beide Designs gleichzeitig.
+    expect(screen.queryByTestId('cloud-setup-notice')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('setup-path-free')).not.toBeInTheDocument();
+
+    const strip = screen.getByTestId('first-run-strip');
     const textarea = screen.getByTestId('chat-textarea');
-    expect(card).toBeInTheDocument();
-    expect(textarea).toBeInTheDocument();
-
-    // "Above" in document order — the card precedes the composer inside the
-    // shared composer shell.
     const shell = screen.getByTestId('chat-input-shell');
-    expect(shell).toContainElement(card);
+    expect(shell).toContainElement(strip);
     expect(shell).toContainElement(textarea);
-    expect(card.compareDocumentPosition(textarea) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // Der Streifen steht in der Dokumentordnung ÜBER dem Eingabefeld.
+    expect(strip.compareDocumentPosition(textarea) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });

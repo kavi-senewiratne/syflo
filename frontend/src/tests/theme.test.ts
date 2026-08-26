@@ -9,7 +9,7 @@
  */
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { applyTheme, THEMES } from '../theme';
+import { applyTheme, getStoredTheme, THEMES } from '../theme';
 
 afterEach(() => {
   delete (window as unknown as { syfloDesktop?: unknown }).syfloDesktop;
@@ -43,6 +43,19 @@ describe('applyTheme', () => {
     // Umbenannt 2026-08-13; die ID bleibt `professional` (localStorage-Prefs).
     expect(basic?.label).toBe('Simply Blue');
     expect(THEMES).toHaveLength(5);
+  });
+
+  it('falls back to Mushroom Kingdom without a stored choice (2026-08-22)', () => {
+    localStorage.clear();
+    expect(getStoredTheme()).toBe('mushroom-kingdom');
+    // Unbekannte/alte Werte fallen ebenfalls auf den Standard zurück.
+    localStorage.setItem('syflo.theme', 'not-a-theme');
+    expect(getStoredTheme()).toBe('mushroom-kingdom');
+  });
+
+  it('keeps a stored choice untouched by the new default', () => {
+    localStorage.setItem('syflo.theme', 'professional');
+    expect(getStoredTheme()).toBe('professional');
   });
 
   it('hides Ink Blue from the picker but keeps it a valid theme (2026-08-13)', () => {

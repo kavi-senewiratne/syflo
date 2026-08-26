@@ -46,7 +46,10 @@ export const THEMES: ThemeInfo[] = [
 ];
 
 const STORAGE_KEY = 'syflo.theme';
-const DEFAULT_THEME: ThemeId = 'professional';
+// Was 'professional' until 2026-08-22 (user request): a fresh install now
+// opens in Mushroom Kingdom. Only the fallback for an empty/unknown stored
+// value changes — anyone who has already picked a theme keeps it.
+const DEFAULT_THEME: ThemeId = 'mushroom-kingdom';
 
 export function getStoredTheme(): ThemeId {
   const raw = localStorage.getItem(STORAGE_KEY);

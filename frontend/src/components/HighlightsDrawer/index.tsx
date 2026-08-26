@@ -242,7 +242,10 @@ export function HighlightsDrawer({
                   )}
                   {item.kind === 'pdf' ? (
                     <span className="truncate">{S.pdfSource(item.pageNumber)}</span>
-                  ) : item.kind === 'transcript' || item.kind === 'chapter' ? (
+                  ) : item.kind !== 'chat' ? (
+                    // Asked as "not a chat mark": a two-value discriminant
+                    // ('transcript' | 'chapter') leaves the video form in the
+                    // union, so the chat branch below would not narrow.
                     <span className="truncate">
                       {item.kind === 'chapter'
                         ? S.chapterSource(formatDuration(item.startSeconds) ?? '')

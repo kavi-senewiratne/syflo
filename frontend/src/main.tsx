@@ -26,6 +26,7 @@ import '@fontsource/dm-sans/700.css'
 import '@fontsource/space-grotesk/400.css'   // Ink Blue — display
 import '@fontsource/space-grotesk/600.css'
 import '@fontsource/space-grotesk/700.css'
+import '@fontsource/plus-jakarta-sans/700.css' // Basic — logo wordmark only
 import App from './App.tsx'
 import { applyTheme, getStoredTheme } from './theme'
 

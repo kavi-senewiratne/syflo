@@ -17,7 +17,7 @@ const fs = require('fs');
 const multer = require('multer');
 const { getLLMClient, getLLMClientFor, getSetting, noThinkExtras, extendOllamaKeepAlive } = require('../llm');
 const { getModelInfo, getRegistry } = require('../registry');
-const { streamWithTools, availableTools, isTruncatedFinish } = require('../tools');
+const { streamWithTools, availableTools, toolsField, isTruncatedFinish } = require('../tools');
 const { joinContinuation, continuationInstruction } = require('../continuation');
 const {
   MAX_PASSAGE_CHARS, capTitleWords, sanitizeTitle,
@@ -613,8 +613,9 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
           messages: contextMessages,
           // Same tools as the real request — otherwise the prompt prefix
           // diverges and the cache misses. availableTools caches its answer
-          // for a moment precisely so these three call sites agree.
-          tools: await availableTools({ db }),
+          // for a moment precisely so these three call sites agree, and
+          // toolsField keeps "no tools" spelled the same way in all three.
+          ...toolsField(await availableTools({ db })),
           ...noThinkExtras(provider),
           max_tokens: 1,
         }, { signal: warmupAbort.signal });
@@ -1448,9 +1449,9 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
         model,
         messages: contextMessages,
         extras,
-        // The web search is only offered when one is configured (Tavily key or
-        // a reachable SearXNG); otherwise the model would call a tool that can
-        // only fail. searchDeps also binds the tool's implementation to db.
+        // The web search is only offered when one is configured (a stored
+        // Tavily key); otherwise the model would call a tool that can only
+        // fail. searchDeps also binds the tool's implementation to db.
         searchDeps: { db },
         signal: upstreamAbort.signal,
         onText: (delta) => {
@@ -1824,7 +1825,7 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
                 // For a 4-word title no thinking model may brood for minutes.
                 ...noThinkExtras(titleProvider),
                 messages: titleMessages,
-                tools: await availableTools({ db }),
+                ...toolsField(await availableTools({ db })),
               });
             } catch (err) {
               if (!/does not support tools/i.test(err?.message || '')) throw err;

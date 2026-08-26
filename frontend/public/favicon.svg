@@ -2,10 +2,14 @@
   <!-- Default favicon (pre-JS first paint) — identical to the Professional
        theme icon, since "professional" is the default theme. applyTheme()
        swaps this link to /favicon-<theme>.svg on startup.
-       Design source: design/mockup-logo-icons.html (Professional, Favicon-Test) -->
-  <rect width="48" height="48" rx="11" fill="#2563EB"/>
-  <path d="M8 24 H 22 C 28 24, 29 15, 36 13" stroke="#FFFFFF" stroke-width="5" stroke-linecap="round" fill="none"/>
-  <path d="M22 24 C 28 24, 29 33, 36 35" stroke="#FFFFFF" stroke-width="5" stroke-linecap="round" fill="none"/>
-  <circle cx="37" cy="12.5" r="6" fill="#34D399"/>
-  <circle cx="37" cy="35.5" r="6" fill="#FFFFFF"/>
+       Keep this file byte-identical to favicon-professional.svg.
+       Design source: design/app-icon-professional.svg (M1 + R2, 2026-08-23) -->
+  <rect x="1.5" y="1.5" width="45" height="45" rx="10" fill="#2563EB" stroke="#1E40AF" stroke-width="3"/>
+  <g transform="translate(7.38, 8.95) scale(0.6271)">
+    <path d="M11 24 H 22 C 28 24, 29 15, 36 13" stroke="#FFFFFF" stroke-width="5" stroke-linecap="round" fill="none"/>
+    <path d="M22 24 C 28 24, 29 33, 36 35" stroke="#FFFFFF" stroke-width="5" stroke-linecap="round" fill="none"/>
+    <circle cx="8" cy="24" r="4" fill="#FFFFFF"/>
+    <circle cx="41.77" cy="11.35" r="5.5" fill="none" stroke="#FFFFFF" stroke-width="4"/>
+    <circle cx="41.77" cy="36.65" r="5.5" fill="none" stroke="#FFFFFF" stroke-width="4"/>
+  </g>
 </svg>

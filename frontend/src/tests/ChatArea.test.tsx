@@ -2,7 +2,6 @@ import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
 import { createRef } from 'react';
 import { ChatArea, type ChatAreaHandle } from '../components/ChatArea';
-import { CloudSetupNotice } from '../components/ChatArea/CloudSetupNotice';
 import type { ChatDetail } from '../types';
 
 const mockChat: ChatDetail = {
@@ -755,26 +754,23 @@ describe('ChatArea', () => {
 
 // ─── Geführter Leerzustand (ADR-0008, Grill 12b) ─────────────────────────────
 
-describe('ChatArea – setupNotice steht über dem Composer', () => {
-  it('rendert die Notiz statt der Composer-Zeile', () => {
-    render(
-      <ChatArea
-        chat={mockChat}
-        loading={false}
-        {...defaultProps}
-        setupNotice={<div data-testid="setup-notice-slot" />}
-      />,
-    );
-    expect(screen.getByTestId('setup-notice-slot')).toBeInTheDocument();
-    // Since O2 (2026-08-15) the card sits ABOVE the composer instead of
+describe('ChatArea – Hinweisstreifen steht über dem Composer', () => {
+  it('rendert den Streifen und die Composer-Zeile', () => {
+    render(<ChatArea chat={mockChat} loading={false} {...defaultProps} firstRun />);
+    expect(screen.getByTestId('first-run-strip')).toBeInTheDocument();
+    // Since O2 (2026-08-15) the strip sits ABOVE the composer instead of
     // replacing it: the user can type, attach and dictate before setting up
     // anything, and only sending is locked.
     expect(screen.getByTestId('chat-textarea')).toBeInTheDocument();
+    // Die alte Drei-Wege-Karte ist am 2026-08-22 entfernt worden — sie stand
+    // nach dem O2-Umbau weiter ÜBER dem Streifen, also beide Designs zugleich.
+    expect(screen.queryByTestId('cloud-setup-notice')).not.toBeInTheDocument();
   });
 
-  it('rendert ohne setupNotice die normale Composer-Zeile', () => {
+  it('rendert ohne firstRun die normale Composer-Zeile', () => {
     render(<ChatArea chat={mockChat} loading={false} {...defaultProps} />);
     expect(screen.getByTestId('chat-textarea')).toBeInTheDocument();
+    expect(screen.queryByTestId('first-run-strip')).not.toBeInTheDocument();
   });
 });
 
@@ -835,30 +831,6 @@ describe('Scroll-Verhalten während der Antwort (2026-08-06)', () => {
     };
     rerender(<ChatArea chat={withNewQuestion} loading={false} {...defaultProps} streaming />);
     await waitFor(() => expect(screen.getByLabelText(/scroll to latest/i)).toBeInTheDocument());
-  });
-});
-
-describe('CloudSetupNotice', () => {
-  // W9 (mockup-model-cost-tiers, 2026-07-30): the notice is a PATH chooser
-  // — a fresh install has every provider, so the card offers the three ways
-  // (free / own account / fully private) instead of naming one provider.
-  // No cost badges: the row titles carry the tier.
-  it('bietet die drei Wege an und öffnet Settings mit passender Vorauswahl', () => {
-    const onOpenSettings = vi.fn();
-    render(<CloudSetupNotice onOpenSettings={onOpenSettings} />);
-
-    const notice = screen.getByTestId('cloud-setup-notice');
-    expect(notice).toHaveTextContent('Start for free');
-    expect(notice).toHaveTextContent('Gemini Flash or Groq');
-    expect(notice).toHaveTextContent('Use your own account');
-    expect(notice).toHaveTextContent('Fully private');
-
-    fireEvent.click(screen.getByTestId('setup-path-free'));
-    expect(onOpenSettings).toHaveBeenLastCalledWith('gemini');
-    fireEvent.click(screen.getByTestId('setup-path-paid'));
-    expect(onOpenSettings).toHaveBeenLastCalledWith('openai');
-    fireEvent.click(screen.getByTestId('setup-path-local'));
-    expect(onOpenSettings).toHaveBeenLastCalledWith('ollama');
   });
 });
 

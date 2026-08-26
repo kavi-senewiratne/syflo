@@ -72,42 +72,65 @@ function MatrixMark({ size = 20 }: { size?: number }) {
 const VARIANTS: Record<ThemeId, React.ReactNode> = {
   professional: (
     <>
+      {/* Bare mark, no tile (user choice 2026-08-22, design/mockup-logo-
+          simply-blue-round9.html §03/S5 + round11.html/R2). Basic was the only
+          theme whose logo sat on a tile, which read as an app icon inside the
+          sidebar; the other four all carry the mark alone.
+
+          Two-tone without a second hue: the nodes are RINGS — white hole,
+          blue wall — while trunk and origin node stay solid. The hole must be
+          filled white, not `none`: the sidebar header is white today, but a
+          transparent hole would show whatever sits behind it anywhere else.
+
+          Geometry R2 (48-unit box widened to 50): the branch is unchanged from
+          M1, the nodes moved OUT to (41.77|11.35) and (41.77|36.65). Measured
+          reason: with the node at (38.5|12) the branch tip lands 2.69 units
+          from the node centre, and its round cap (r 2.5) then covers 94 % of
+          the 3.5-unit hole — the ring looked filled in. At distance 6.0 the cap
+          ends exactly on the hole's edge. Moving the node (rather than
+          shortening the branch) keeps the branch length of round 8. */}
+      {/* `top: 0.7` centres the mark on the CAP BAND of the wordmark rather
+          than on the flex line box (user choice 2026-08-25, design/mockup-
+          logo-simply-blue-round14.html §02). Measured: at 14 px, Plus Jakarta
+          Sans has a cap height of 10.6 px, so the centre of "SYFLO"'s ink sits
+          0.7 px below the centre of the 20 px mark. With the old mixed-case
+          "Syflo" this anchor was impossible to hit cleanly — the descender of
+          the "y" pulled the ink band down and the mark overhung the caps by
+          5.1 px. Uppercase has no descender, so the word is a clean bar. */}
+      <svg
+        width="20.83"
+        height="20"
+        viewBox="0 0 50 48"
+        fill="none"
+        aria-hidden="true"
+        style={{ position: 'relative', top: 0.7 }}
+      >
+        <path d="M11 24 H 22 C 28 24, 29 15, 36 13" stroke="#2563EB" strokeWidth="5" strokeLinecap="round" />
+        <path d="M22 24 C 28 24, 29 33, 36 35" stroke="#2563EB" strokeWidth="5" strokeLinecap="round" />
+        <circle cx="8" cy="24" r="4" fill="#2563EB" />
+        <circle cx="41.77" cy="11.35" r="5.5" fill="#FFFFFF" stroke="#2563EB" strokeWidth="4" />
+        <circle cx="41.77" cy="36.65" r="5.5" fill="#FFFFFF" stroke="#2563EB" strokeWidth="4" />
+      </svg>
+      {/* Basic was the only theme without a display face for its wordmark — it
+          used the same system font as every menu label, so the logo read as UI
+          text. Plus Jakarta Sans 700 is its display face.
+
+          Set in CAPS and in ONE colour (user choice 2026-08-25): the blue now
+          lives only in the mark, so the logo also works in a single ink. Caps
+          need tracking — 0.04em is the "knapp" step of round 14 §02 — and one
+          point less size than the old mixed case, because a line of capitals
+          reads bigger at the same pixel size. Hyrule and Matrix already set
+          SYFLO in caps; Ink Blue and Mushroom Kingdom keep the two-tone name. */}
       <span
         style={{
-          width: 18,
-          height: 18,
-          borderRadius: 5,
-          background: '#2563EB',
-          display: 'inline-grid',
-          placeItems: 'center',
-          flexShrink: 0,
+          fontFamily: "'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif",
+          fontWeight: 700,
+          fontSize: 14,
+          letterSpacing: '0.04em',
+          color: '#101828',
         }}
       >
-        {/* Der Ast endet AUF der Knotenmitte (38 / 12.5), nicht davor
-            (mockup-logo-icons-basic-round8.html, M1, Nutzerwahl 2026-08-13).
-            Vorher lief er schräg in die Flanke des Knotens: an der Innenseite
-            blieb eine Kerbe stehen, der Knoten wirkte aufgesteckt statt
-            angewachsen. Mit dem Ende in der Mitte liegt die runde Kappe des
-            Astes mittig im Knoten, der Übergang ist auf beiden Seiten gleich.
-            Der Radius fiel dazu von 6.5 auf 5 — ein Knoten, der nur noch 2
-            über den Ast aufträgt, liest sich als verdickte Astspitze. */}
-        <svg width="12" height="12" viewBox="0 0 48 48" fill="none" aria-hidden="true">
-          <path d="M8 24 H 22 C 28 24, 29 15, 38 12.5" stroke="#FFFFFF" strokeWidth="6" strokeLinecap="round" />
-          <path d="M22 24 C 28 24, 29 33, 38 35.5" stroke="#FFFFFF" strokeWidth="6" strokeLinecap="round" />
-          <circle cx="38" cy="12.5" r="5" fill="#FFFFFF" />
-          <circle cx="38" cy="35.5" r="5" fill="#FFFFFF" />
-        </svg>
-      </span>
-      <span
-        style={{
-          fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif",
-          fontWeight: 600,
-          fontSize: 15,
-          letterSpacing: '-0.01em',
-          color: '#111827',
-        }}
-      >
-        Syflo
+        SYFLO
       </span>
     </>
   ),

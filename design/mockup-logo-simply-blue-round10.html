@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<title>Syflo · Simply Blue — T5 + S5 und das Dock-Icon (Runde 10)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap" rel="stylesheet">
+<style>
+  /* ============================================================
+     Runde 10. Gewählt in Runde 9: T5 (Plus Jakarta Sans 700) + S5
+     (gefüllter Stamm, hohle Knoten, blanke Marke ohne Kachel).
+     Diese Datei zeigt (a) die Kombination fertig und (b) vier Wege, das
+     Dock-/Schreibtisch-Icon darauf nachzuziehen.
+
+     Quellen, aus denen 1:1 zitiert wird:
+       · design/app-icon-professional.svg      — ALLE Icon-Maße unten
+         Kachel 775 @ (104.5|84.5), Radius 187.5, Kontur 25 (#CBD5E1),
+         Offset-Schatten 800 @ (142|122) in #E2E8F0, Lichtkante 25 / 32 %,
+         Marke zentriert auf (492|472)
+       · frontend/src/components/Logo.tsx:101-111 — Wortmarke, Größen
+       · frontend/src/components/Sidebar/index.tsx:686-689 — w-64, px-5 py-5
+       · electron/main.js:112-141              — icon-<theme>.png, dock.setIcon
+       · electron/assets/icon-*.png            — die vier anderen Icons, echt geladen
+
+     Alle Icon-SVGs unten stehen auf demselben 1024er viewBox wie die
+     Produktionsdatei — die Zahlen sind also direkt übertragbar, und dieselbe
+     Grafik lässt sich in 128, 64, 32 und 16 px ausgeben.
+     ============================================================ */
+  :root {
+    --blue-50:#EFF6FF; --blue-100:#DBEAFE; --blue-200:#BFDBFE; --blue-300:#93C5FD;
+    --blue-500:#3B82F6; --blue-600:#2563EB; --blue-700:#1D4ED8; --blue-800:#1E40AF;
+    --gray-50:#F9FAFB; --gray-100:#F3F4F6; --gray-200:#E5E7EB; --gray-300:#D1D5DC;
+    --gray-400:#99A1AF; --gray-500:#6A7282; --gray-700:#364153; --gray-900:#101828;
+    --surface:#FFFFFF; --border:var(--gray-200);
+    --shadow:0 1px 3px rgba(0,0,0,.07), 0 1px 2px rgba(0,0,0,.05);
+    --sys:-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Inter',var(--sys);background:var(--gray-50);color:var(--gray-700);
+       -webkit-font-smoothing:antialiased;padding:44px 32px 160px}
+  .wrap{max-width:1340px;margin:0 auto}
+  .intro h1{font-size:25px;font-weight:700;color:var(--gray-900);letter-spacing:-.015em;margin-bottom:9px}
+  .intro p{font-size:14px;line-height:1.68;max-width:960px;color:var(--gray-500)}
+  .intro p+p{margin-top:10px}
+  .intro strong{color:var(--gray-700);font-weight:600}
+  code{background:var(--gray-100);border-radius:4px;padding:1px 5px;font-size:12px;
+       font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--gray-700)}
+  section{margin-top:52px}
+  section>h2{font-size:18px;font-weight:700;color:var(--gray-900);letter-spacing:-.01em;margin-bottom:6px}
+  section>h2 .num{color:var(--blue-600)}
+  section>.lead{font-size:13.5px;line-height:1.65;color:var(--gray-500);max-width:960px;margin-bottom:22px}
+
+  table.facts{border-collapse:collapse;background:var(--surface);border:1px solid var(--border);
+              border-radius:12px;overflow:hidden;box-shadow:var(--shadow);font-size:13px;width:100%}
+  table.facts th,table.facts td{padding:9px 14px;text-align:left;border-bottom:1px solid var(--gray-100);vertical-align:middle}
+  table.facts thead th{background:var(--gray-50);font-size:11px;letter-spacing:.06em;text-transform:uppercase;
+                       color:var(--gray-400);font-weight:600}
+  table.facts tbody tr:last-child td{border-bottom:none}
+  table.facts td b{color:var(--gray-900)}
+  table.facts td.warn{color:var(--blue-700);font-weight:600}
+
+  /* Sidebar-Kopf-Attrappe, exakt w-64 / px-5 py-5 */
+  .head{width:256px;background:var(--surface);border:1px solid var(--border);border-bottom-color:var(--gray-100);
+        border-radius:10px 10px 0 0;padding:20px;display:flex;align-items:center;justify-content:space-between;
+        box-shadow:var(--shadow)}
+  .head .icons{display:flex;gap:8px}
+  .head .icons i{width:15px;height:15px;border-radius:3px;background:var(--gray-200);display:block}
+  .logo{display:inline-flex;align-items:center;gap:9px;line-height:1}
+
+  .wm{color:var(--gray-900);font-family:'Plus Jakarta Sans',var(--sys);font-weight:700;font-size:15px;letter-spacing:-.02em}
+  .wm .flo{color:var(--blue-600)}
+  .loupe{display:inline-block;zoom:4}
+
+  .grid{display:flex;flex-wrap:wrap;gap:26px}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px 16px 18px;
+        box-shadow:var(--shadow);width:306px}
+  .card>.tag{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;
+             color:var(--blue-700);background:var(--blue-50);border-radius:999px;padding:3px 9px}
+  .card>h3{font-size:14px;font-weight:650;color:var(--gray-900);margin:7px 0 3px}
+  .card>p{font-size:12.5px;line-height:1.6;color:var(--gray-500)}
+  .note{font-size:12px;line-height:1.55;color:var(--gray-500);border-top:1px dashed var(--gray-200);
+        margin-top:12px;padding-top:10px}
+  .note b{color:var(--gray-700);font-weight:600}
+
+  /* Icon-Bühne: der Schreibtisch, damit der Offset-Schatten etwas zu tragen hat */
+  .desk{background:linear-gradient(160deg,#DCE4EE,#EEF2F7);border-radius:10px;padding:18px;
+        display:flex;align-items:flex-end;gap:20px;flex-wrap:wrap}
+  .desk.dark{background:linear-gradient(160deg,#2A3342,#404C5E)}
+  .sizes{display:flex;align-items:flex-end;gap:16px;margin-top:14px}
+  .sizes .s{display:flex;flex-direction:column;align-items:center;gap:6px}
+  .sizes .s span{font-size:10px;color:var(--gray-400);font-variant-numeric:tabular-nums}
+  .png{image-rendering:auto;border-radius:8px}
+  .foot{margin-top:58px;border-top:1px solid var(--border);padding-top:18px;font-size:12.5px;
+        color:var(--gray-400);line-height:1.7;max-width:960px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="intro">
+    <h1>T5 + S5 — und was daraus für das Dock-Icon folgt</h1>
+    <p>Gewählt: Wortmarke in <strong>Plus Jakarta Sans 700</strong>, Symbol als <strong>blanke Marke mit
+      gefülltem Stamm und hohlen Knoten</strong>. §01 zeigt die Kombination fertig, §02 warum das Icon eine
+      eigene Frage ist, §03 vier Icon-Varianten, §04 den Test, der über sie entscheidet (16 px), §05 die Folgen.</p>
+    <p>Der harte Punkt vorweg: die Sidebar-Marke steht auf <strong>20 px</strong> und darf blank sein — das
+      Dock-Icon steht auf einer Kachel, weil macOS ihm keinen weißen Grund garantiert, und es muss zusätzlich
+      als <strong>16-px-Favicon</strong> im Browser-Tab funktionieren. Hohle Knoten sind genau dort das Risiko.</p>
+  </div>
+
+  <!-- ============================================================ §01 -->
+  <section>
+    <h2><span class="num">§01</span> &nbsp;Die Wahl, fertig gebaut</h2>
+    <p class="lead">Links der Sidebar-Kopf in echter Breite, daneben derselbe Logo-Knoten vierfach vergrößert,
+      rechts der Empty-State (<code>Logo.tsx:227</code>, <code>scale(1.6)</code>). Wortmarke einmal einfarbig
+      und einmal mit „flo“ in <code>blue-600</code> — die Frage aus Runde 8 ist damit wieder offen.</p>
+
+    <div class="grid" style="align-items:flex-start;gap:22px">
+      <div>
+        <div class="head">
+          <span class="logo">
+            <svg width="20" height="20" viewBox="0 0 48 48" fill="none">
+              <path d="M11 24 H 22 C 28 24, 29 15, 36 13" stroke="#2563EB" stroke-width="5" stroke-linecap="round"/>
+              <path d="M22 24 C 28 24, 29 33, 36 35" stroke="#2563EB" stroke-width="5" stroke-linecap="round"/>
+              <circle cx="8" cy="24" r="4" fill="#2563EB"/>
+              <circle cx="38.5" cy="12" r="5.5" fill="#FFFFFF" stroke="#2563EB" stroke-width="4"/>
+              <circle cx="38.5" cy="36" r="5.5" fill="#FFFFFF" stroke="#2563EB" stroke-width="4"/>
+            </svg>
+            <span class="wm">Syflo</span>
+          </span>
+          <span class="icons"><i></i><i></i></span>
+        </div>
+        <p style="font-size:12px;color:var(--gray-500);margin-top:9px;width:256px">
+          <b style="color:var(--gray-700)">A · einfarbig</b> — Wortmarke ganz in <code>gray-900</code>.</p>
+
+        <div class="head" style="margin-top:22px">
+          <span class="logo">
+            <svg width="20" height="20" viewBox="0 0 48 48" fill="none">
+              <path d="M11 24 H 22 C 28 24, 29 15, 36 13" stroke="#2563EB" stroke-width="5" stroke-linecap="round"/>
+              <path d="M22 24 C 28 24, 29 33, 36 35" stroke="#2563EB" stroke-width="5" stroke-linecap="round"/>
+              <circle cx="8" cy="24" r="4" fill="#2563EB"/>
+              <circle cx="38.5" cy="12" r="5.5" fill="#FFFFFF" stroke="#2563EB" stroke-width="4"/>
+              <circle cx="38.5" cy="36" r="5.5" fill="#FFFFFF" stroke="#2563EB" stroke-width="4"/>
+            </svg>
+            <span class="wm">Sy<span class="flo">flo</span></span>
+          </span>
+          <span class="icons"><i></i><i></i></span>
+        </div>
+        <p style="font-size:12px;color:var(--gray-500);margin-top:9px;width:256px">
+          <b style="color:var(--gray-700)">B · zweifarbig</b> — wie Ink Blue und Mushroom Kingdom.</p>
+      </div>
+
+      <div class="card" style="width:420px">
+        <span class="tag">Lupe ×4</span>
+        <h3>Wo die Ringe entstehen und aufhören</h3>
+        <p>Ringwand 1,7 px, Loch 3,0 px bei 20 px Marke. Unter der Lupe getrennt, in der Sidebar knapp.</p>
+        <div style="margin:26px 0 22px;display:flex;justify-content:center">
+          <span class="loupe">
+            <span class="logo">
+              <svg width="20" height="20" viewBox="0 0 48 48" fill="none">
+                <path d="M11 24 H 22 C 28 24, 29 15, 36 13" stroke="#2563EB" stroke-width="5" stroke-linecap="round"/>
+                <path d="M22 24 C 28 24, 29 33, 36 35" stroke="#2563EB" stroke-width="5" stroke-linecap="round"/>
+                <circle cx="8" cy="24" r="4" fill="#2563EB"/>
+                <circle cx="38.5" cy="12" r="5.5" fill="#FFFFFF" stroke="#2563EB" stroke-width="4"/>
+                <circle cx="38.5" cy="36" r="5.5" fill="#FFFFFF" stroke="#2563EB" stroke-width="4"/>
+              </svg>
+              <span class="wm">Sy<span class="flo">flo</span></span>
+            </span>
+          </span>
+        </div>
+        <div class="note"><b>Zu beachten:</b> das Loch ist <b>weiß gefüllt</b>, nicht durchsichtig — auf der
+          weißen Sidebar ist das gleich, auf jedem anderen Grund nicht. Für die App gehört dort
+          <code>fill="var(--color-white)"</code> hin, nicht <code>none</code>.</div>
+      </div>
+
+      <div class="card" style="width:420px">
+        <span class="tag">Empty-State</span>
+        <h3>Dasselbe Logo × 1,6</h3>
+        <p>So erscheint es mitten im leeren Chatfenster. Hier gewinnen die Ringe, hier fällt das <i>y</i> von
+          Plus Jakarta Sans auf.</p>
+        <div style="margin:34px 0 30px;display:flex;justify-content:center">
+          <span style="transform:scale(1.6);transform-origin:center;display:inline-flex">
+            <span class="logo" style="gap:9px">
+              <svg width="20" height="20" viewBox="0 0 48 48" fill="none">
+                <path d="M11 24 H 22 C 28 24, 29 15, 36 13" stroke="#2563EB" stroke-width="5" stroke-linecap="round"/>
+                <path d="M22 24 C 28 24, 29 33, 36 35" stroke="#2563EB" stroke-width="5" stroke-linecap="round"/>
+                <circle cx="8" cy="24" r="4" fill="#2563EB"/>
+                <circle cx="38.5" cy="12" r="5.5" fill="#FFFFFF" stroke="#2563EB" stroke-width="4"/>
+                <circle cx="38.5" cy="36" r="5.5" fill="#FFFFFF" stroke="#2563EB" stroke-width="4"/>
+              </svg>
+              <span class="wm">Sy<span class="flo">flo</span></span>
+            </span>
+          </span>
+        </div>
+        <div class="note"><b>Falle aus Runde 8:</b> <code>scale()</code> ändert den Platzbedarf nicht — der
+          <code>gap</code> von 9 px wird mitskaliert, der umgebende Abstand nicht.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ §02 -->
+  <section>
+    <h2><span class="num">§02</span> &nbsp;Die vier anderen Icons — was „gleicher Stil“ dort heißt</h2>
+    <p class="lead">Echte Dateien, direkt aus <code>electron/assets/</code> geladen (1024 px, hier auf 132 px
+      dargestellt). Simply Blue steht zuerst und trägt <b>heute schon</b> denselben Bau: Kachel, Kontur,
+      harter Offset-Schatten. Der Unterschied liegt in zwei Zahlen.</p>
+
+    <div class="desk" style="margin-bottom:18px">
+      <div class="sizes">
+        <div class="s"><img class="png" src="../electron/assets/icon-professional.png" width="132" height="132" alt="Simply Blue"><span>Simply Blue</span></div>
+        <div class="s"><img class="png" src="../electron/assets/icon-ink-blue.png" width="132" height="132" alt="Ink Blue"><span>Ink Blue</span></div>
+        <div class="s"><img class="png" src="../electron/assets/icon-mushroom-kingdom.png" width="132" height="132" alt="Mushroom Kingdom"><span>Mushroom Kingdom</span></div>
+        <div class="s"><img class="png" src="../electron/assets/icon-hyrule.png" width="132" height="132" alt="Hyrule"><span>Hyrule</span></div>
+        <div class="s"><img class="png" src="../electron/assets/icon-matrix.png" width="132" height="132" alt="Matrix"><span>Matrix</span></div>
+      </div>
+    </div>
+
+    <table class="facts">
+      <thead><tr><th>Icon</th><th>Kontur</th><th>Offset-Schatten</th><th>Marke</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><b>Simply Blue</b></td>
+          <td class="warn">Schiefergrau <code>#CBD5E1</code> — <b>fremd zur Kachel</b></td>
+          <td class="warn">hellgrau <code>#E2E8F0</code>, auf hellem Grund kaum sichtbar</td>
+          <td class="warn">einfarbig weiß, gefüllte Knoten</td>
+        </tr>
+        <tr><td>Ink Blue</td><td>Navy <code>#1C2B4A</code>, die eigene Tinte</td><td>dieselbe Navy-Tinte</td><td>zweifarbig, Knoten mit Kontur</td></tr>
+        <tr><td>Mushroom Kingdom</td><td>Dunkelviolett <code>#26264F</code></td><td>dieselbe Tinte</td><td>vierfarbige Pixel</td></tr>
+        <tr><td>Hyrule</td><td>Gold <code>#B8963A</code></td><td>dasselbe Gold</td><td>zweifarbig, Rauten</td></tr>
+        <tr><td>Matrix</td><td>Phosphorgrün</td><td>grüner Schein</td><td>drei Grünstufen, Glitch</td></tr>
+      </tbody>
+    </table>
+    <p class="lead" style="margin-top:14px">Die vier anderen ziehen Kontur <b>und</b> Schatten aus ihrer eigenen
+      Themefarbe — das Icon liest sich als ein Material. Simply Blue borgt sich beides aus dem Graustufen-Satz.
+      Die Begründung dafür steht in der Datei: „Basic hat nirgends eine Tintenkontur“. Das war vor S5 richtig.
+      <b>Mit S5 hat Simply Blue jetzt eine Kontur-Sprache</b> — die Ringe der Knoten sind genau das.</p>
+  </section>
+
+  <!-- ============================================================ §03 -->
+  <section>
+    <h2><span class="num">§03</span> &nbsp;Vier Icons mit der S5-Marke — I1 bis I4</h2>
+    <p class="lead">Alle vier stehen auf dem 1024er Raster der Produktionsdatei: Kachel 775 px, Radius 187,5,
+      Kontur 25, Offset-Schatten 800 px um 50/50 versetzt, Marke zentriert auf (492|472). Geändert sind nur
+      Farbe der Kontur, Farbe des Schattens, Füllung der Kachel und die Marke.</p>
+
+    <div class="grid">
+      <!-- ---------------- I1 ---------------- -->
+      <div class="card">
+        <span class="tag">I1</span>
+        <h3>Heutiges Material, neue Marke</h3>
+        <p>Blauverlauf, grauer Rand, Lichtkante — unverändert. Nur die Marke wird S5: hohle Knoten, der
+          Verlauf scheint durch die Löcher.</p>
+        <div class="desk" style="margin-top:14px">
+          <svg width="132" height="132" viewBox="0 0 1024 1024">
+            <rect x="142" y="122" width="800" height="800" rx="200" fill="#E2E8F0"/>
+            <defs>
+              <linearGradient id="i1g" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#5B9BFF"/><stop offset="52%" stop-color="#2563EB"/><stop offset="100%" stop-color="#1D4ED8"/>
+              </linearGradient>
+              <clipPath id="i1c"><rect x="117" y="97" width="750" height="750" rx="175"/></clipPath>
+            </defs>
+            <rect x="104.5" y="84.5" width="775" height="775" rx="187.5" fill="url(#i1g)" stroke="#CBD5E1" stroke-width="25"/>
+            <g clip-path="url(#i1c)"><rect x="117" y="97" width="750" height="25" fill="#FFFFFF" opacity=".32"/></g>
+            <g transform="translate(219.3, 212.8) scale(10.8)">
+              <path d="M11 24 H 22 C 28 24, 29 15, 36 13" stroke="#FFFFFF" stroke-width="5" stroke-linecap="round" fill="none"/>
+              <path d="M22 24 C 28 24, 29 33, 36 35" stroke="#FFFFFF" stroke-width="5" stroke-linecap="round" fill="none"/>
+              <circle cx="8" cy="24" r="4" fill="#FFFFFF"/>
+              <circle cx="38.5" cy="12" r="5.5" fill="none" stroke="#FFFFFF" stroke-width="4"/>
+              <circle cx="38.5" cy="36" r="5.5" fill="none" stroke="#FFFFFF" stroke-width="4"/>
+            </g>
+          </svg>
+        </div>
+        <div class="note"><b>Anschluss:</b> passt zum neuen Sidebar-Logo im Motiv, nicht in der Farbe — dort
+          ist die Marke blau auf weiß, hier weiß auf blau. Das war schon bisher so.</div>
+      </div>
+
+      <!-- ---------------- I2 ---------------- -->
+      <div class="card">
+        <span class="tag">I2</span>
+        <h3>Kontur und Schatten in eigener Farbe</h3>
+        <p>Der Schritt, der Simply Blue in die Reihe der anderen vier stellt: Kontur <code>blue-800</code>,
+          Offset-Schatten <code>blue-800</code> — wie Ink Blues Navy, Hyrules Gold, Mushrooms Violett.</p>
+        <div class="desk" style="margin-top:14px">
+          <svg width="132" height="132" viewBox="0 0 1024 1024">
+            <rect x="142" y="122" width="800" height="800" rx="200" fill="#1E40AF"/>
+            <defs>
+              <linearGradient id="i2g" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#60A5FA"/><stop offset="55%" stop-color="#2563EB"/><stop offset="100%" stop-color="#1D4ED8"/>
+              </linearGradient>
+              <clipPath id="i2c"><rect x="117" y="97" width="750" height="750" rx="175"/></clipPath>
+            </defs>
+            <rect x="104.5" y="84.5" width="775" height="775" rx="187.5" fill="url(#i2g)" stroke="#1E40AF" stroke-width="25"/>
+            <g clip-path="url(#i2c)"><rect x="117" y="97" width="750" height="25" fill="#FFFFFF" opacity=".32"/></g>
+            <g transform="translate(219.3, 212.8) scale(10.8)">
+              <path d="M11 24 H 22 C 28 24, 29 15, 36 13" stroke="#FFFFFF" stroke-width="5" stroke-linecap="round" fill="none"/>
+              <path d="M22 24 C 28 24, 29 33, 36 35" stroke="#FFFFFF" stroke-width="5" stroke-linecap="round" fill="none"/>
+              <circle cx="8" cy="24" r="4" fill="#FFFFFF"/>
+              <circle cx="38.5" cy="12" r="5.5" fill="none" stroke="#FFFFFF" stroke-width="4"/>
+              <circle cx="38.5" cy="36" r="5.5" fill="none" stroke="#FFFFFF" stroke-width="4"/>
+            </g>
+          </svg>
+        </div>
+        <div class="note"><b>Preis:</b> auf dunklem Schreibtisch verschwindet der dunkle Schatten — genau das
+          Problem, das die graue Fassung heute vermeidet. Vergleich in §04, zweite Reihe.</div>
+      </div>
+
+      <!-- ---------------- I3 ---------------- -->
+      <div class="card">
+        <span class="tag">I3</span>
+        <h3>Zwilling des Sidebar-Logos</h3>
+        <p>Weiße Kachel, Kontur <code>blue-600</code>, Marke <code>blue-600</code> — dieselben Farben und
+          dieselbe Richtung wie in der Sidebar. Schatten bleibt Simply Blues Tinte <code>#E2E8F0</code>.</p>
+        <div class="desk" style="margin-top:14px">
+          <svg width="132" height="132" viewBox="0 0 1024 1024">
+            <rect x="142" y="122" width="800" height="800" rx="200" fill="#BFDBFE"/>
+            <rect x="104.5" y="84.5" width="775" height="775" rx="187.5" fill="#FFFFFF" stroke="#2563EB" stroke-width="25"/>
+            <g transform="translate(219.3, 212.8) scale(10.8)">
+              <path d="M11 24 H 22 C 28 24, 29 15, 36 13" stroke="#2563EB" stroke-width="5" stroke-linecap="round" fill="none"/>
+              <path d="M22 24 C 28 24, 29 33, 36 35" stroke="#2563EB" stroke-width="5" stroke-linecap="round" fill="none"/>
+              <circle cx="8" cy="24" r="4" fill="#2563EB"/>
+              <circle cx="38.5" cy="12" r="5.5" fill="#FFFFFF" stroke="#2563EB" stroke-width="4"/>
+              <circle cx="38.5" cy="36" r="5.5" fill="#FFFFFF" stroke="#2563EB" stroke-width="4"/>
+            </g>
+          </svg>
+        </div>
+        <div class="note"><b>Nähe zu Hyrule:</b> helles Material mit farbiger Kontur ist dort schon vergeben —
+          im Dock stehen die beiden nie gleichzeitig, in dieser Reihe (§04) aber doch.</div>
+      </div>
+
+      <!-- ---------------- I4 ---------------- -->
+      <div class="card">
+        <span class="tag">I4</span>
+        <h3>Blaupause</h3>
+        <p>Kachel <code>blue-50</code>, Kontur und Marke <code>blue-700</code>, Schatten <code>blue-200</code>.
+          Hell wie I3, aber ganz aus einer Farbfamilie — kein Weiß, kein Grau.</p>
+        <div class="desk" style="margin-top:14px">
+          <svg width="132" height="132" viewBox="0 0 1024 1024">
+            <rect x="142" y="122" width="800" height="800" rx="200" fill="#BFDBFE"/>
+            <rect x="104.5" y="84.5" width="775" height="775" rx="187.5" fill="#EFF6FF" stroke="#1D4ED8" stroke-width="25"/>
+            <g transform="translate(219.3, 212.8) scale(10.8)">
+              <path d="M11 24 H 22 C 28 24, 29 15, 36 13" stroke="#1D4ED8" stroke-width="5" stroke-linecap="round" fill="none"/>
+              <path d="M22 24 C 28 24, 29 33, 36 35" stroke="#1D4ED8" stroke-width="5" stroke-linecap="round" fill="none"/>
+              <circle cx="8" cy="24" r="4" fill="#1D4ED8"/>
+              <circle cx="38.5" cy="12" r="5.5" fill="#EFF6FF" stroke="#1D4ED8" stroke-width="4"/>
+              <circle cx="38.5" cy="36" r="5.5" fill="#EFF6FF" stroke="#1D4ED8" stroke-width="4"/>
+            </g>
+          </svg>
+        </div>
+        <div class="note"><b>Masse:</b> ein helles Icon trägt im Dock weniger Gewicht als die vier anderen —
+          neben Mushrooms Rot und Matrix' Schwarz wirkt es zurückgenommen. Kann Absicht sein: Simply Blue ist
+          das ruhige Theme.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ §04 -->
+  <section>
+    <h2><span class="num">§04</span> &nbsp;Der Test, der entscheidet</h2>
+    <p class="lead">Erste Reihe: dieselben vier Grafiken in 128, 64, 32 und 16 px — 32 px ist die Dock-Größe im
+      Umschalter (⌘-Tab), 16 px der Browser-Tab. Bei 16 px ist die Ringwand <b>0,67 px</b> und das Loch
+      <b>1,2 px</b>: rechnerisch unter einem Pixel. Zweite Reihe: dasselbe auf dunklem Grund.</p>
+
+    <table class="facts" style="margin-bottom:22px">
+      <thead><tr><th style="width:120px">Variante</th><th>128 px</th><th>64 px</th><th>32 px</th><th>16 px</th><th style="width:290px">gefüllte Knoten zum Vergleich (16 px)</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><b>I1</b></td>
+          <td><svg width="128" height="128" viewBox="0 0 1024 1024"><rect x="142" y="122" width="800" height="800" rx="200" fill="#E2E8F0"/><rect x="104.5" y="84.5" width="775" height="775" rx="187.5" fill="#2563EB" stroke="#CBD5E1" stroke-width="25"/><g transform="translate(219.3, 212.8) scale(10.8)"><path d="M11 24 H 22 C 28 24, 29 15, 36 13" stroke="#FFF" stroke-width="5" stroke-linecap="round" fill="none"/><path d="M22 24 C 28 24, 29 33, 36 35" stroke="#FFF" stroke-width="5" stroke-linecap="round" fill="none"/><circle cx="8" cy="24" r="4" fill="#FFF"/><circle cx="38.5" cy="12" r="5.5" fill="none" stroke="#FFF" stroke-width="4"/><circle cx="38.5" cy="36" r="5.5" fill="none" stroke="#FFF" stroke-width="4"/></g></svg></td>
+          <td><svg width="64" height="64" viewBox="0 0 1024 1024"><rect x="142" y="122" width="800" height="800" rx="200" fill="#E2E8F0"/><rect x="104.5" y="84.5" width="775" height="775" rx="187.5" fill="#2563EB" stroke="#CBD5E1" stroke-width="25"/><g transform="translate(219.3, 212.8) scale(10.8)"><path d="M11 24 H 22 C 28 24, 29 15, 36 13" stroke="#FFF" stroke-width="5" stroke-linecap="round" fill="none"/><path d="M22 24 C 28 24, 29 33, 36 35" stroke="#FFF" stroke-width="5" stroke-linecap="round" fill="none"/><circle cx="8" cy="24" r="4" fill="#FFF"/><circle cx="38.5" cy="12" r="5.5" fill="none" stroke="#FFF" stroke-width="4"/><circle cx="38.5" cy="36" r="5.5" fill="none" stroke="#FFF" stroke-width="4"/></g></svg></td>
+          <td><svg width="32" height="32" viewBox="0 0 1024 1024"><rect x="142" y="122" width="800" height="800" rx="200" fill="#E2E8F0"/><rect x="104.5" y="84.5" width="775" height="775" rx="187.5" fill="#2563EB" stroke="#CBD5E1" stroke-width="25"/><g transform="translate(219.3, 212.8) scale(10.8)"><path d="M11 24 H 22 C 28 24, 29 15, 36 13" stroke="#FFF" stroke-width="5" stroke-linecap="round" fill="none"/><path d="M22 24 C 28 24, 29 33, 36 35" stroke="#FFF" stroke-width="5" stroke-linecap="round" fill="none"/><circle cx="8" cy="24" r="4" fill="#FFF"/><circle cx="38.5" cy="12" r="5.5" fill="none" stroke="#FFF" stroke-width="4"/><circle cx="38.5" cy="36" r="5.5" fill="none" stroke="#FFF" stroke-width="4"/></g></svg></td>
+          <td><svg width="16" height="16" viewBox="0 0 1024 1024"><rect x="104.5" y="84.5" width="775" height="775" rx="187.5" fill="#2563EB" stroke="#CBD5E1" stroke-width="25"/><g transform="translate(219.3, 212.8) scale(10.8)"><path d="M11 24 H 22 C 28 24, 29 15, 36 13" stroke="#FFF" stroke-width="5" stroke-linecap="round" fill="none"/><path d="M22 24 C 28 24, 29 33, 36 35" stroke="#FFF" stroke-width="5" stroke-linecap="round" fill="none"/><circle cx="8" cy="24" r="4" fill="#FFF"/><circle cx="38.5" cy="12" r="5.5" fill="none" stroke="#FFF" stroke-width="4"/><circle cx="38.5" cy="36" r="5.5" fill="none" stroke="#FFF" stroke-width="4"/></g></svg></td>
+          <td>
+            <svg width="16" height="16" viewBox="0 0 1024 1024"><rect x="104.5" y="84.5" width="775" height="775" rx="187.5" fill="#2563EB" stroke="#CBD5E1" stroke-width="25"/><g transform="translate(201.6, 181.6) scale(12.1)"><path d="M8 24 H 22 C 28 24, 29 15, 38 12.5" stroke="#FFF" stroke-width="6" stroke-linecap="round" fill="none"/><path d="M22 24 C 28 24, 29 33, 38 35.5" stroke="#FFF" stroke-width="6" stroke-linecap="round" fill="none"/><circle cx="38" cy="12.5" r="5" fill="#FFF"/><circle cx="38" cy="35.5" r="5" fill="#FFF"/></g></svg>
+            <span style="font-size:11.5px;color:var(--gray-500);margin-left:10px">= das heutige Favicon. Links daneben derselbe Platz mit Ringen.</span>
+          </td>
+        </tr>
+        <tr>
+          <td><b>I2</b></td>
+          <td><svg width="128" height="128" viewBox="0 0 1024 1024"><rect x="142" y="122" width="800" height="800" rx="200" fill="#1E40AF"/><rect x="104.5" y="84.5" width="775" height="775" rx="187.5" fill="#2563EB" stroke="#1E40AF" stroke-width="25"/><g transform="translate(219.3, 212.8) scale(10.8)"><path d="M11 24 H 22 C 28 24, 29 15, 36 13" stroke="#FFF" stroke-width="5" stroke-linecap="round" fill="none"/><path d="M22 24 C 28 24, 29 33, 36 35" stroke="#FFF" stroke-width="5" stroke-linecap="round" fill="none"/><circle cx="8" cy="24" r="4" fill="#FFF"/><circle cx="38.5" cy="12" r="5.5" fill="none" stroke="#FFF" stroke-width="4"/><circle cx="38.5" cy="36" r="5.5" fill="none" stroke="#FFF" stroke-width="4"/></g></svg></td>
+          <td><svg width="64" height="64" viewBox="0 0 1024 1024"><rect x="142" y="122" width="800" height="800" rx="200" fill="#1E40AF"/><rect x="104.5" y="84.5" width="775" height="775" rx="187.5" fill="#2563EB" stroke="#1E40AF" stroke-width="25"/><g transform="translate(219.3, 212.8) scale(10.8)"><path d="M11 24 H 22 C 28 24, 29 15, 36 13" stroke="#FFF" stroke-width="5" stroke-linecap="round" fill="none"/><path d="M22 24 C 28 24, 29 33, 36 35" stroke="#FFF" stroke-width="5" stroke-linecap="round" fill="none"/><circle cx="8" cy="24" r="4" fill="#FFF"/><circle cx="38.5" cy="12" r="5.5" fill="none" stroke="#FFF" stroke-width="4"/><circle cx="38.5" cy="36" r="5.5" fill="none" stroke="#FFF" stroke-width="4"/></g></svg></td>
+          <td><svg width="32" height="32" viewBox="0 0 1024 1024"><rect x="142" y="122" width="800" height="800" rx="200" fill="#1E40AF"/><rect x="104.5" y="84.5" width="775" height="775" rx="187.5" fill="#2563EB" stroke="#1E40AF" stroke-width="25"/><g transform="translate(219.3, 212.8) scale(10.8)"><path d="M11 24 H 22 C 28 24, 29 15, 36 13" stroke="#FFF" stroke-width="5" stroke-linecap="round" fill="none"/><path d="M22 24 C 28 24, 29 33, 36 35" stroke="#FFF" stroke-width="5" stroke-linecap="round" fill="none"/><circle cx="8" cy="24" r="4" fill="#FFF"/><circle cx="38.5" cy="12" r="5.5" fill="none" stroke="#FFF" stroke-width="4"/><circle cx="38.5" cy="36" r="5.5" fill="none" stroke="#FFF" stroke-width="4"/></g></svg></td>
+          <td><svg width="16" height="16" viewBox="0 0 1024 1024"><rect x="104.5" y="84.5" width="775" height="775" rx="187.5" fill="#2563EB" stroke="#1E40AF" stroke-width="25"/><g transform="translate(219.3, 212.8) scale(10.8)"><path d="M11 24 H 22 C 28 24, 29 15, 36 13" stroke="#FFF" stroke-width="5" stroke-linecap="round" fill="none"/><path d="M22 24 C 28 24, 29 33, 36 35" stroke="#FFF" stroke-width="5" stroke-linecap="round" fill="none"/><circle cx="8" cy="24" r="4" fill="#FFF"/><circle cx="38.5" cy="12" r="5.5" fill="none" stroke="#FFF" stroke-width="4"/><circle cx="38.5" cy="36" r="5.5" fill="none" stroke="#FFF" stroke-width="4"/></g></svg></td>
+          <td><svg width="16" height="16" viewBox="0 0 1024 1024"><rect x="104.5" y="84.5" width="775" height="775" rx="187.5" fill="#2563EB" stroke="#1E40AF" stroke-width="25"/><g transform="translate(201.6, 181.6) scale(12.1)"><path d="M8 24 H 22 C 28 24, 29 15, 38 12.5" stroke="#FFF" stroke-width="6" stroke-linecap="round" fill="none"/><path d="M22 24 C 28 24, 29 33, 38 35.5" stroke="#FFF" stroke-width="6" stroke-linecap="round" fill="none"/><circle cx="38" cy="12.5" r="5" fill="#FFF"/><circle cx="38" cy="35.5" r="5" fill="#FFF"/></g></svg></td>
+        </tr>
+        <tr>
+          <td><b>I3</b></td>
+          <td><svg width="128" height="128" viewBox="0 0 1024 1024"><rect x="142" y="122" width="800" height="800" rx="200" fill="#BFDBFE"/><rect x="104.5" y="84.5" width="775" height="775" rx="187.5" fill="#FFF" stroke="#2563EB" stroke-width="25"/><g transform="translate(219.3, 212.8) scale(10.8)"><path d="M11 24 H 22 C 28 24, 29 15, 36 13" stroke="#2563EB" stroke-width="5" stroke-linecap="round" fill="none"/><path d="M22 24 C 28 24, 29 33, 36 35" stroke="#2563EB" stroke-width="5" stroke-linecap="round" fill="none"/><circle cx="8" cy="24" r="4" fill="#2563EB"/><circle cx="38.5" cy="12" r="5.5" fill="#FFF" stroke="#2563EB" stroke-width="4"/><circle cx="38.5" cy="36" r="5.5" fill="#FFF" stroke="#2563EB" stroke-width="4"/></g></svg></td>
+          <td><svg width="64" height="64" viewBox="0 0 1024 1024"><rect x="142" y="122" width="800" height="800" rx="200" fill="#BFDBFE"/><rect x="104.5" y="84.5" width="775" height="775" rx="187.5" fill="#FFF" stroke="#2563EB" stroke-width="25"/><g transform="translate(219.3, 212.8) scale(10.8)"><path d="M11 24 H 22 C 28 24, 29 15, 36 13" stroke="#2563EB" stroke-width="5" stroke-linecap="round" fill="none"/><path d="M22 24 C 28 24, 29 33, 36 35" stroke="#2563EB" stroke-width="5" stroke-linecap="round" fill="none"/><circle cx="8" cy="24" r="4" fill="#2563EB"/><circle cx="38.5" cy="12" r="5.5" fill="#FFF" stroke="#2563EB" stroke-width="4"/><circle cx="38.5" cy="36" r="5.5" fill="#FFF" stroke="#2563EB" stroke-width="4"/></g></svg></td>
+          <td><svg width="32" height="32" viewBox="0 0 1024 1024"><rect x="142" y="122" width="800" height="800" rx="200" fill="#BFDBFE"/><rect x="104.5" y="84.5" width="775" height="775" rx="187.5" fill="#FFF" stroke="#2563EB" stroke-width="25"/><g transform="translate(219.3, 212.8) scale(10.8)"><path d="M11 24 H 22 C 28 24, 29 15, 36 13" stroke="#2563EB" stroke-width="5" stroke-linecap="round" fill="none"/><path d="M22 24 C 28 24, 29 33, 36 35" stroke="#2563EB" stroke-width="5" stroke-linecap="round" fill="none"/><circle cx="8" cy="24" r="4" fill="#2563EB"/><circle cx="38.5" cy="12" r="5.5" fill="#FFF" stroke="#2563EB" stroke-width="4"/><circle cx="38.5" cy="36" r="5.5" fill="#FFF" stroke="#2563EB" stroke-width="4"/></g></svg></td>
+          <td><svg width="16" height="16" viewBox="0 0 1024 1024"><rect x="104.5" y="84.5" width="775" height="775" rx="187.5" fill="#FFF" stroke="#2563EB" stroke-width="25"/><g transform="translate(219.3, 212.8) scale(10.8)"><path d="M11 24 H 22 C 28 24, 29 15, 36 13" stroke="#2563EB" stroke-width="5" stroke-linecap="round" fill="none"/><path d="M22 24 C 28 24, 29 33, 36 35" stroke="#2563EB" stroke-width="5" stroke-linecap="round" fill="none"/><circle cx="8" cy="24" r="4" fill="#2563EB"/><circle cx="38.5" cy="12" r="5.5" fill="#FFF" stroke="#2563EB" stroke-width="4"/><circle cx="38.5" cy="36" r="5.5" fill="#FFF" stroke="#2563EB" stroke-width="4"/></g></svg></td>
+          <td><svg width="16" height="16" viewBox="0 0 1024 1024"><rect x="104.5" y="84.5" width="775" height="775" rx="187.5" fill="#FFF" stroke="#2563EB" stroke-width="25"/><g transform="translate(201.6, 181.6) scale(12.1)"><path d="M8 24 H 22 C 28 24, 29 15, 38 12.5" stroke="#2563EB" stroke-width="6" stroke-linecap="round" fill="none"/><path d="M22 24 C 28 24, 29 33, 38 35.5" stroke="#2563EB" stroke-width="6" stroke-linecap="round" fill="none"/><circle cx="38" cy="12.5" r="5" fill="#2563EB"/><circle cx="38" cy="35.5" r="5" fill="#2563EB"/></g></svg></td>
+        </tr>
+        <tr>
+          <td><b>I4</b></td>
+          <td><svg width="128" height="128" viewBox="0 0 1024 1024"><rect x="142" y="122" width="800" height="800" rx="200" fill="#BFDBFE"/><rect x="104.5" y="84.5" width="775" height="775" rx="187.5" fill="#EFF6FF" stroke="#1D4ED8" stroke-width="25"/><g transform="translate(219.3, 212.8) scale(10.8)"><path d="M11 24 H 22 C 28 24, 29 15, 36 13" stroke="#1D4ED8" stroke-width="5" stroke-linecap="round" fill="none"/><path d="M22 24 C 28 24, 29 33, 36 35" stroke="#1D4ED8" stroke-width="5" stroke-linecap="round" fill="none"/><circle cx="8" cy="24" r="4" fill="#1D4ED8"/><circle cx="38.5" cy="12" r="5.5" fill="#EFF6FF" stroke="#1D4ED8" stroke-width="4"/><circle cx="38.5" cy="36" r="5.5" fill="#EFF6FF" stroke="#1D4ED8" stroke-width="4"/></g></svg></td>
+          <td><svg width="64" height="64" viewBox="0 0 1024 1024"><rect x="142" y="122" width="800" height="800" rx="200" fill="#BFDBFE"/><rect x="104.5" y="84.5" width="775" height="775" rx="187.5" fill="#EFF6FF" stroke="#1D4ED8" stroke-width="25"/><g transform="translate(219.3, 212.8) scale(10.8)"><path d="M11 24 H 22 C 28 24, 29 15, 36 13" stroke="#1D4ED8" stroke-width="5" stroke-linecap="round" fill="none"/><path d="M22 24 C 28 24, 29 33, 36 35" stroke="#1D4ED8" stroke-width="5" stroke-linecap="round" fill="none"/><circle cx="8" cy="24" r="4" fill="#1D4ED8"/><circle cx="38.5" cy="12" r="5.5" fill="#EFF6FF" stroke="#1D4ED8" stroke-width="4"/><circle cx="38.5" cy="36" r="5.5" fill="#EFF6FF" stroke="#1D4ED8" stroke-width="4"/></g></svg></td>
+          <td><svg width="32" height="32" viewBox="0 0 1024 1024"><rect x="142" y="122" width="800" height="800" rx="200" fill="#BFDBFE"/><rect x="104.5" y="84.5" width="775" height="775" rx="187.5" fill="#EFF6FF" stroke="#1D4ED8" stroke-width="25"/><g transform="translate(219.3, 212.8) scale(10.8)"><path d="M11 24 H 22 C 28 24, 29 15, 36 13" stroke="#1D4ED8" stroke-width="5" stroke-linecap="round" fill="none"/><path d="M22 24 C 28 24, 29 33, 36 35" stroke="#1D4ED8" stroke-width="5" stroke-linecap="round" fill="none"/><circle cx="8" cy="24" r="4" fill="#1D4ED8"/><circle cx="38.5" cy="12" r="5.5" fill="#EFF6FF" stroke="#1D4ED8" stroke-width="4"/><circle cx="38.5" cy="36" r="5.5" fill="#EFF6FF" stroke="#1D4ED8" stroke-width="4"/></g></svg></td>
+          <td><svg width="16" height="16" viewBox="0 0 1024 1024"><rect x="104.5" y="84.5" width="775" height="775" rx="187.5" fill="#EFF6FF" stroke="#1D4ED8" stroke-width="25"/><g transform="translate(219.3, 212.8) scale(10.8)"><path d="M11 24 H 22 C 28 24, 29 15, 36 13" stroke="#1D4ED8" stroke-width="5" stroke-linecap="round" fill="none"/><path d="M22 24 C 28 24, 29 33, 36 35" stroke="#1D4ED8" stroke-width="5" stroke-linecap="round" fill="none"/><circle cx="8" cy="24" r="4" fill="#1D4ED8"/><circle cx="38.5" cy="12" r="5.5" fill="#EFF6FF" stroke="#1D4ED8" stroke-width="4"/><circle cx="38.5" cy="36" r="5.5" fill="#EFF6FF" stroke="#1D4ED8" stroke-width="4"/></g></svg></td>
+          <td><svg width="16" height="16" viewBox="0 0 1024 1024"><rect x="104.5" y="84.5" width="775" height="775" rx="187.5" fill="#EFF6FF" stroke="#1D4ED8" stroke-width="25"/><g transform="translate(201.6, 181.6) scale(12.1)"><path d="M8 24 H 22 C 28 24, 29 15, 38 12.5" stroke="#1D4ED8" stroke-width="6" stroke-linecap="round" fill="none"/><path d="M22 24 C 28 24, 29 33, 38 35.5" stroke="#1D4ED8" stroke-width="6" stroke-linecap="round" fill="none"/><circle cx="38" cy="12.5" r="5" fill="#1D4ED8"/><circle cx="38" cy="35.5" r="5" fill="#1D4ED8"/></g></svg></td>
+        </tr>
+      </tbody>
+    </table>
+
+    <p class="lead">Im Dock neben den anderen vier — oben heller Schreibtisch, unten dunkler. Die dritte
+      Kachel ist jeweils die neue.</p>
+    <div class="desk" style="margin-bottom:14px">
+      <img class="png" src="../electron/assets/icon-ink-blue.png" width="96" height="96" alt="Ink Blue">
+      <img class="png" src="../electron/assets/icon-mushroom-kingdom.png" width="96" height="96" alt="Mushroom">
+      <svg width="96" height="96" viewBox="0 0 1024 1024"><rect x="142" y="122" width="800" height="800" rx="200" fill="#1E40AF"/><rect x="104.5" y="84.5" width="775" height="775" rx="187.5" fill="#2563EB" stroke="#1E40AF" stroke-width="25"/><g transform="translate(219.3, 212.8) scale(10.8)"><path d="M11 24 H 22 C 28 24, 29 15, 36 13" stroke="#FFF" stroke-width="5" stroke-linecap="round" fill="none"/><path d="M22 24 C 28 24, 29 33, 36 35" stroke="#FFF" stroke-width="5" stroke-linecap="round" fill="none"/><circle cx="8" cy="24" r="4" fill="#FFF"/><circle cx="38.5" cy="12" r="5.5" fill="none" stroke="#FFF" stroke-width="4"/><circle cx="38.5" cy="36" r="5.5" fill="none" stroke="#FFF" stroke-width="4"/></g></svg>
+      <img class="png" src="../electron/assets/icon-hyrule.png" width="96" height="96" alt="Hyrule">
+      <img class="png" src="../electron/assets/icon-matrix.png" width="96" height="96" alt="Matrix">
+      <span style="font-size:12px;color:var(--gray-700);align-self:center">I2 auf hellem Grund</span>
+    </div>
+    <div class="desk dark">
+      <img class="png" src="../electron/assets/icon-ink-blue.png" width="96" height="96" alt="Ink Blue">
+      <img class="png" src="../electron/assets/icon-mushroom-kingdom.png" width="96" height="96" alt="Mushroom">
+      <svg width="96" height="96" viewBox="0 0 1024 1024"><rect x="142" y="122" width="800" height="800" rx="200" fill="#1E40AF"/><rect x="104.5" y="84.5" width="775" height="775" rx="187.5" fill="#2563EB" stroke="#1E40AF" stroke-width="25"/><g transform="translate(219.3, 212.8) scale(10.8)"><path d="M11 24 H 22 C 28 24, 29 15, 36 13" stroke="#FFF" stroke-width="5" stroke-linecap="round" fill="none"/><path d="M22 24 C 28 24, 29 33, 36 35" stroke="#FFF" stroke-width="5" stroke-linecap="round" fill="none"/><circle cx="8" cy="24" r="4" fill="#FFF"/><circle cx="38.5" cy="12" r="5.5" fill="none" stroke="#FFF" stroke-width="4"/><circle cx="38.5" cy="36" r="5.5" fill="none" stroke="#FFF" stroke-width="4"/></g></svg>
+      <svg width="96" height="96" viewBox="0 0 1024 1024"><rect x="142" y="122" width="800" height="800" rx="200" fill="#E2E8F0"/><rect x="104.5" y="84.5" width="775" height="775" rx="187.5" fill="#2563EB" stroke="#CBD5E1" stroke-width="25"/><g transform="translate(219.3, 212.8) scale(10.8)"><path d="M11 24 H 22 C 28 24, 29 15, 36 13" stroke="#FFF" stroke-width="5" stroke-linecap="round" fill="none"/><path d="M22 24 C 28 24, 29 33, 36 35" stroke="#FFF" stroke-width="5" stroke-linecap="round" fill="none"/><circle cx="8" cy="24" r="4" fill="#FFF"/><circle cx="38.5" cy="12" r="5.5" fill="none" stroke="#FFF" stroke-width="4"/><circle cx="38.5" cy="36" r="5.5" fill="none" stroke="#FFF" stroke-width="4"/></g></svg>
+      <img class="png" src="../electron/assets/icon-matrix.png" width="96" height="96" alt="Matrix">
+      <span style="font-size:12px;color:#E5E7EB;align-self:center">Mitte: I2 (dunkler Schatten) neben I1 (grauer Schatten)</span>
+    </div>
+  </section>
+
+  <!-- ============================================================ §05 -->
+  <section>
+    <h2><span class="num">§05</span> &nbsp;Was zu tun wäre</h2>
+    <table class="facts">
+      <tbody>
+        <tr><td style="width:210px"><b>Sidebar-Logo</b></td><td><code>Logo.tsx:73-113</code> — Kachel-<code>span</code> entfällt, SVG auf 20 px, Wortmarke auf Plus Jakarta Sans 700. Die Ringe brauchen <code>fill</code> in Weiß, nicht <code>none</code>.</td></tr>
+        <tr><td><b>Schrift-Paket</b></td><td><code>npm i @fontsource/plus-jakarta-sans</code> + <code>import '@fontsource/plus-jakarta-sans/700.css'</code> in <code>main.tsx</code> — dieselbe Zeile wie für die vier anderen Theme-Schriften.</td></tr>
+        <tr><td><b>Icon-Dateien</b></td><td>drei Stellen, alle drei von Hand gepflegt: <code>design/app-icon-professional.svg</code> (Quelle), <code>electron/assets/icon-professional.png</code> (1024er Ausgabe, headless Chromium mit <code>omitBackground</code>), <code>frontend/public/favicon-professional.svg</code> (16-px-Fassung, ohne Offset-Schatten). Dazu <code>icon.icns</code>/<code>icon.png</code>, wenn Simply Blue das Standard-Icon des Bundles bleibt.</td></tr>
+        <tr><td><b>Ringe bei 16 px</b></td><td class="warn">Wenn der 16-px-Test durchfällt: Favicon behält gefüllte Knoten, Dock und Sidebar tragen die Ringe. Ein Icon-Satz, der sich zwischen 16 und 1024 px im Detail unterscheidet, ist üblich — Ink Blue macht es heute nicht, hat aber auch keine Löcher.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <div class="foot">
+    Mockup Runde 10 · <code>design/mockup-logo-simply-blue-round10.html</code> · Fortsetzung von
+    <code>mockup-logo-simply-blue-round9.html</code> (T5 + S5 gewählt). Icon-Maße 1:1 aus
+    <code>design/app-icon-professional.svg</code>; die vier fremden Icons sind die echten PNGs aus
+    <code>electron/assets/</code>. Muss über einen Server aus dem <b>Repo-Wurzelordner</b> geöffnet werden,
+    sonst fehlen diese vier Bilder.
+  </div>
+
+</div>
+</body>
+</html>

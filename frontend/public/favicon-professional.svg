@@ -1,34 +1,22 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
-  <!-- Basic favicon — Sticker-Kachel (Blau-Verlauf, Lichtkante oben, Kontur in
-       Schiefergrau statt Navy: Basic hat nirgends eine Tintenkontur) mit der
-       Marke des Sidebar-Logos, Anschluss M1 (Ast endet auf der Knotenmitte,
-       Knoten r 5). Kein grüner Knoten und kein Startpunkt — die Sidebar hat
-       beides nicht.
+  <!-- Basic favicon — Material M1 (flache blue-600-Kachel, Kontur blue-800,
+       kein Verlauf und keine Lichtkante) mit der Marke des Sidebar-Logos,
+       Anschluss R2 (Ringe als Knoten, nach außen gerückt).
        Wie bei den anderen Themes trägt das Favicon KEINEN Offset-Schatten:
        der gehört zur Dock-Kachel, im 16px-Tab wäre er nur Unschärfe.
-       Design source: design/mockup-logo-icons-basic-round8.html (V3 + M1) -->
-  <defs>
-    <linearGradient id="pro-tile" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#5B9BFF"/>
-      <stop offset="52%" stop-color="#2563EB"/>
-      <stop offset="100%" stop-color="#1D4ED8"/>
-    </linearGradient>
-    <!-- Innenkante: außen 0…48 minus die 3er Kontur -->
-    <clipPath id="pro-inner">
-      <rect x="3" y="3" width="42" height="42" rx="8.5"/>
-    </clipPath>
-  </defs>
-  <rect x="1.5" y="1.5" width="45" height="45" rx="10" fill="url(#pro-tile)" stroke="#CBD5E1" stroke-width="3"/>
-  <!-- Lichtkante: sitzt AUF der Innenkante und läuft mit deren Rundung aus.
-       Ein frei schwebender Balken mit eigenen runden Enden liest sich als
-       weißer Strich quer durchs Icon (Nutzer-Screenshot 2026-08-13). -->
-  <g clip-path="url(#pro-inner)">
-    <rect x="3" y="3" width="42" height="3" fill="#FFFFFF" opacity="0.32"/>
-  </g>
-  <g transform="translate(6.7, 6.7) scale(0.72)">
-    <path d="M8 24 H 22 C 28 24, 29 15, 38 12.5" stroke="#FFFFFF" stroke-width="6" stroke-linecap="round" fill="none"/>
-    <path d="M22 24 C 28 24, 29 33, 38 35.5" stroke="#FFFFFF" stroke-width="6" stroke-linecap="round" fill="none"/>
-    <circle cx="38" cy="12.5" r="5" fill="#FFFFFF"/>
-    <circle cx="38" cy="35.5" r="5" fill="#FFFFFF"/>
+       Design source: design/app-icon-professional.svg (dieselben Verhältnisse,
+       auf die 48er Box gerechnet: Markenbox = 69.68 % der Kachelbreite,
+       45 × 0.6968 = 31.36 → scale 31.36/50 = 0.6271; zentriert auf der
+       Kachelmitte (24|24), x um 1.5 Einheiten korrigiert, weil die Tinte der
+       50er Box auf 26.5 mittig liegt).
+       Bekannte Grenze: bei 16 px ist die Ringwand 0.67 px und das Loch 1.2 px —
+       die Ringe laufen dort zu einem Punkt zusammen. -->
+  <rect x="1.5" y="1.5" width="45" height="45" rx="10" fill="#2563EB" stroke="#1E40AF" stroke-width="3"/>
+  <g transform="translate(7.38, 8.95) scale(0.6271)">
+    <path d="M11 24 H 22 C 28 24, 29 15, 36 13" stroke="#FFFFFF" stroke-width="5" stroke-linecap="round" fill="none"/>
+    <path d="M22 24 C 28 24, 29 33, 36 35" stroke="#FFFFFF" stroke-width="5" stroke-linecap="round" fill="none"/>
+    <circle cx="8" cy="24" r="4" fill="#FFFFFF"/>
+    <circle cx="41.77" cy="11.35" r="5.5" fill="none" stroke="#FFFFFF" stroke-width="4"/>
+    <circle cx="41.77" cy="36.65" r="5.5" fill="none" stroke="#FFFFFF" stroke-width="4"/>
   </g>
 </svg>

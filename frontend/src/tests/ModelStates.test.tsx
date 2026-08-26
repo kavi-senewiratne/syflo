@@ -66,7 +66,7 @@ beforeEach(() => {
   defaultProps.onOpenSettings.mockClear();
   cooldownsSpy = vi.spyOn(api, 'getQuotaCooldowns').mockResolvedValue([]);
   usageSpy = vi.spyOn(api, 'getUsageSummary').mockResolvedValue({
-    month: '2026-08', pricesAsOf: '2026-08-15', providers: {}, modelsToday: {},
+    month: '2026-08', pricesAsOf: '2026-08-15', providers: {}, modelsToday: {}, kindsToday: {},
   });
 });
 afterEach(() => {

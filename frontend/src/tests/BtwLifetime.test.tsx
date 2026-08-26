@@ -81,7 +81,7 @@ beforeEach(() => {
   vi.mocked(api.getChat).mockImplementation(async (id: string) =>
     detail(id === 'c2' ? branch : parent),
   );
-  vi.mocked(api.askAside).mockResolvedValue({ answer: 'A raw score.', model: null });
+  vi.mocked(api.askAside).mockResolvedValue({ answer: 'A raw score.', model: null, truncated: false });
 });
 
 describe('an aside belongs to its chat', () => {
@@ -117,7 +117,7 @@ describe('an aside reveals itself at reading pace', () => {
       // Ein einziges großes Paket — genau das, was schnelle Cloud-Modelle
       // liefern und was ohne Glättung als Block erscheint.
       onDelta(paragraph);
-      return { answer: paragraph, model: null };
+      return { answer: paragraph, model: null, truncated: false };
     });
 
     render(<App />);
