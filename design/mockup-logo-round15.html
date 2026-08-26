@@ -1,0 +1,841 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<title>Syflo · Runde 15 — Simply-Blue-Wortmarke in der Textschrift, Mushroom-Marke statt Pilz</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700;800&family=Press+Start+2P&family=Baloo+2:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  /* ============================================================
+     Runde 15 — zwei Rückmeldungen vom 2026-08-25:
+
+     (1) Simply Blue: „Die Schrift des Namens ist nicht dieselbe wie
+         der Text im Theme. Bitte dieselbe Schrift. Und vielleicht nur
+         das S groß, der Rest klein, mit ‚flo‘ im selben Blau.“
+         → §01–§04.
+
+     (2) Mushroom Kingdom: „Hier sollte kein Pilz stehen, sondern das
+         Zeichen aus dem Dock-Icon — das mit den Ästen.“
+         → §05.
+
+     Ehrliche Vorgeschichte zu (1), damit die Entscheidung bewusst
+     fällt: Genau diese Schrift war schon einmal gesetzt. Bis Runde 9
+     benutzte Simply Blue die System-Schrift der App; die Rückmeldung
+     damals lautete „die Schrift des Logos passt nicht zum Theme“, und
+     daraufhin kam Plus Jakarta Sans als Display-Schrift dazu (Runden
+     9–12), in Runde 14 dann Versalien und eine Farbe. Runde 15 dreht
+     beides zurück. Das ist kein Einwand — nur der Hinweis, dass die
+     Frage „Display-Schrift oder Textschrift“ hier zum zweiten Mal auf
+     dem Tisch liegt. §01 stellt beide Fassungen direkt nebeneinander.
+
+     Alle Marken dieser Seite stammen aus EINEM <symbol> je Theme
+     (#r2 für Simply Blue, #mk für Mushroom Kingdom) — die Lehre aus
+     Runde 10, wo dieselbe Variante zweimal verschieden gezeichnet war.
+     Alle Zahlen sind zur Laufzeit mit Canvas-TextMetrics gemessen,
+     nach `document.fonts.load()` je Familie (die Falle aus Runde 13:
+     `fonts.ready` allein misst die Ersatzschrift).
+     ============================================================ */
+  :root{
+    --blue-50:#EFF6FF;--blue-100:#DBEAFE;--blue-200:#BFDBFE;--blue-400:#60A5FA;
+    --blue-600:#2563EB;--blue-700:#1D4ED8;--blue-800:#1E40AF;--blue-900:#1E3A8A;
+    --gray-50:#F9FAFB;--gray-100:#F3F4F6;--gray-200:#E5E7EB;--gray-300:#D1D5DC;
+    --gray-400:#99A1AF;--gray-500:#6A7282;--gray-700:#364153;--gray-900:#101828;
+    --surface:#FFF;--border:var(--gray-200);
+    --shadow:0 1px 3px rgba(0,0,0,.07),0 1px 2px rgba(0,0,0,.05);
+    --sys:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
+    /* Mushroom Kingdom, aus frontend/src/index.css */
+    --mk-cream:#FFFDF4;--mk-card:#F7F4E4;--mk-ink:#26264F;--mk-red:#D8433B;
+    --mk-gold:#EFB43A;--mk-paper:#FFF9EE;--mk-line:#E4DECC;--mk-navy-txt:#23234A;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Inter',var(--sys);background:var(--gray-50);color:var(--gray-700);
+       -webkit-font-smoothing:antialiased;padding:44px 32px 160px}
+  .wrap{max-width:1340px;margin:0 auto}
+  .intro h1{font-size:25px;font-weight:700;color:var(--gray-900);letter-spacing:-.015em;margin-bottom:9px}
+  .intro p{font-size:14px;line-height:1.68;max-width:980px;color:var(--gray-500)}
+  .intro p+p{margin-top:10px}
+  .intro strong{color:var(--gray-700);font-weight:600}
+  code{background:var(--gray-100);border-radius:4px;padding:1px 5px;font-size:12px;
+       font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--gray-700)}
+  section{margin-top:52px}
+  section>h2{font-size:18px;font-weight:700;color:var(--gray-900);letter-spacing:-.01em;margin-bottom:6px}
+  section>h2 .num{color:var(--blue-600)}
+  section>.lead{font-size:13.5px;line-height:1.65;color:var(--gray-500);max-width:980px;margin-bottom:22px}
+  .grid{display:flex;flex-wrap:wrap;gap:24px;align-items:flex-start}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px 16px 18px;
+        box-shadow:var(--shadow);width:306px}
+  .card.w2{width:472px}
+  .card.w3{width:636px}
+  .card>.tag{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;
+             color:var(--blue-700);background:var(--blue-50);border-radius:999px;padding:3px 9px}
+  .card>.tag.now{color:var(--gray-500);background:var(--gray-100)}
+  .card>h3{font-size:14.5px;font-weight:650;color:var(--gray-900);margin:7px 0 3px}
+  .card>p{font-size:12.5px;line-height:1.6;color:var(--gray-500)}
+  .note{font-size:12px;line-height:1.55;color:var(--gray-500);border-top:1px dashed var(--gray-200);
+        margin-top:12px;padding-top:10px}
+  .note b{color:var(--gray-700);font-weight:600}
+  .num-out{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--blue-700);font-weight:600}
+  .stage{margin-top:14px;background:#FFF;border:1px dashed var(--gray-200);border-radius:8px;
+         padding:18px 16px;display:flex;flex-direction:column;gap:16px;align-items:flex-start}
+  .stage.mk{background:var(--mk-cream);border-color:var(--mk-line)}
+  .desk{background:linear-gradient(160deg,#DCE4EE,#EEF2F7);border-radius:10px;padding:16px;
+        display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+  table.facts{border-collapse:collapse;background:var(--surface);border:1px solid var(--border);
+              border-radius:12px;overflow:hidden;box-shadow:var(--shadow);font-size:13px;width:100%}
+  table.facts th,table.facts td{padding:9px 14px;text-align:left;border-bottom:1px solid var(--gray-100);vertical-align:middle}
+  table.facts thead th{background:var(--gray-50);font-size:11px;letter-spacing:.06em;text-transform:uppercase;
+                       color:var(--gray-400);font-weight:600}
+  table.facts tbody tr:last-child td{border-bottom:none}
+  table.facts td.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}
+
+  /* Sidebar-Kopf 1:1 wie Sidebar/index.tsx: w-64, px-5 py-5, border-b */
+  .head{width:256px;background:var(--surface);border:1px solid var(--border);border-bottom-color:var(--gray-100);
+        border-radius:10px 10px 0 0;padding:20px;display:flex;align-items:center;justify-content:space-between;
+        box-shadow:var(--shadow)}
+  .head.mk{background:var(--mk-cream);border-color:var(--mk-ink);border-bottom-color:var(--mk-line)}
+  .head .icons{display:flex;gap:8px}
+  .head .icons i{width:15px;height:15px;border-radius:3px;background:var(--gray-200);display:block}
+  .head.mk .icons i{background:var(--mk-line)}
+  .sbody{width:256px;background:var(--surface);border:1px solid var(--border);border-top:none;
+         border-radius:0 0 10px 10px;padding:8px 12px 16px;box-shadow:var(--shadow)}
+  .sbody.mk{background:var(--mk-cream);border-color:var(--mk-ink)}
+  .sbody .lbl{font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--gray-400);
+              font-weight:600;margin:8px 4px 6px}
+  .sbody .item{font-size:13px;color:var(--gray-700);padding:6px 8px;border-radius:6px}
+  .sbody .item.on{background:var(--blue-50);color:var(--blue-700);font-weight:550}
+  .sbody.mk{font-family:'Baloo 2',var(--sys)}
+  .sbody.mk .lbl{font-family:'Press Start 2P',monospace;font-size:8px;letter-spacing:.08em;color:var(--mk-navy-txt)}
+  .sbody.mk .item{color:var(--mk-navy-txt)}
+  .sbody.mk .item.on{background:var(--mk-red);color:#FFF9EE}
+
+  .lock{display:inline-flex;align-items:center;line-height:1;gap:9px}
+  .lock .mk-slot{position:relative;flex:none;display:block}
+  .wm{white-space:nowrap}
+  .side{--ink:var(--blue-600);--hole:#FFFFFF}
+  .onblue{--ink:#FFFFFF;--hole:none}
+
+  /* Lineal-Ansicht für §03: Versallinie, Grundlinie, Unterlänge */
+  /* Lineal: links und rechts je eine Spalte für die Beschriftung, damit die
+     vier Linien sich nicht gegenseitig überschreiben. */
+  .ruler{position:relative;display:block;padding:34px 92px;background:#FFF;
+         border:1px dashed var(--gray-200);border-radius:8px}
+  .ruler .line{position:absolute;left:-88px;right:-88px;height:0;border-top:1px dashed var(--blue-200)}
+  .ruler .line.base{border-top-color:var(--gray-300)}
+  .ruler .line.mark{border-top:1px solid var(--blue-600);opacity:.5}
+  .ruler .line span{position:absolute;top:-6px;font-size:9px;color:var(--gray-400);
+                    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;background:#FFF;padding:0 3px;
+                    white-space:nowrap}
+  .ruler .line span.r{right:0}
+  .ruler .line span.l{left:0}
+  .ruler .line.mark span{color:var(--blue-700)}
+
+  .switch{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
+  .switch span.t{font-size:12px;color:var(--gray-500);min-width:130px}
+  .switch button{font:inherit;font-size:12px;font-weight:550;color:var(--gray-700);background:var(--surface);
+                 border:1px solid var(--gray-200);border-radius:999px;padding:5px 12px;cursor:pointer}
+  .switch button[aria-pressed="true"]{background:var(--blue-600);border-color:var(--blue-600);color:#FFF}
+  .panel{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px 18px 14px;
+         box-shadow:var(--shadow);margin-bottom:24px}
+  pre.out{background:var(--gray-900);color:#E5E7EB;border-radius:10px;padding:14px 16px;font-size:12px;
+          line-height:1.62;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;overflow-x:auto}
+  pre.out .k{color:#93C5FD}
+  pre.out .s{color:#FCA5A5}
+  pre.out .c{color:#6A7282}
+  .foot{margin-top:58px;border-top:1px solid var(--border);padding-top:18px;font-size:12.5px;
+        color:var(--gray-400);line-height:1.7;max-width:980px}
+  .zoom{transform-origin:left center}
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <!-- Simply Blue, Anschluss R2 (Runde 12, unverändert) -->
+  <symbol id="r2" viewBox="0 0 50 48">
+    <g fill="none" stroke="var(--ink)" stroke-width="5" stroke-linecap="round">
+      <path d="M11 24 H 22 C 28 24, 29 15, 36 13"/>
+      <path d="M22 24 C 28 24, 29 33, 36 35"/>
+    </g>
+    <circle cx="8" cy="24" r="4" fill="var(--ink)"/>
+    <circle cx="41.77" cy="11.35" r="5.5" fill="var(--hole)" stroke="var(--ink)" stroke-width="4"/>
+    <circle cx="41.77" cy="36.65" r="5.5" fill="var(--hole)" stroke="var(--ink)" stroke-width="4"/>
+  </symbol>
+
+  <!-- Mushroom Kingdom, Pixel-Astmarke — exakt die Rechtecke aus dem
+       Dock-Icon (design/mockup-logo-icons-round6.html, Abschnitt Mushroom
+       Kingdom / electron/assets/icon-mushroom-kingdom.png). Die Farben
+       kommen von außen über --mk-stem und --mk-node1/--mk-node2, damit
+       jede Variante DIESELBE Geometrie benutzt. -->
+  <symbol id="mk" viewBox="0 0 48 48">
+    <g shape-rendering="crispEdges">
+      <g fill="var(--mk-stem)">
+        <rect x="4"  y="20" width="16" height="8"/>
+        <rect x="16" y="12" width="10" height="8"/>
+        <rect x="16" y="28" width="10" height="8"/>
+      </g>
+      <rect x="26" y="30" width="14" height="14" fill="var(--mk-node2)"/>
+      <rect x="26" y="4"  width="14" height="14" fill="var(--mk-node1)"/>
+    </g>
+  </symbol>
+
+  <!-- Der heutige Pilz, nur zum Vergleich in §05 -->
+  <symbol id="mushroom" viewBox="0 0 64 64">
+    <g shape-rendering="crispEdges">
+      <rect x="16" y="6"  width="32" height="8"  fill="#26264F"/>
+      <rect x="8"  y="14" width="48" height="16" fill="#D8433B"/>
+      <rect x="24" y="14" width="16" height="12" fill="#FFF9EE"/>
+      <rect x="8"  y="30" width="48" height="4"  fill="#26264F"/>
+      <rect x="18" y="34" width="28" height="16" fill="#FCEBC7"/>
+      <rect x="16" y="50" width="32" height="4"  fill="#26264F"/>
+    </g>
+  </symbol>
+
+  <defs>
+    <linearGradient id="gVert" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#60A5FA"/><stop offset="55%" stop-color="#2563EB"/><stop offset="100%" stop-color="#1D4ED8"/>
+    </linearGradient>
+    <linearGradient id="gRim" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity=".55"/>
+      <stop offset="42%" stop-color="#FFFFFF" stop-opacity="0"/>
+      <stop offset="58%" stop-color="#1E3A8A" stop-opacity="0"/>
+      <stop offset="100%" stop-color="#1E3A8A" stop-opacity=".45"/>
+    </linearGradient>
+    <linearGradient id="gMk" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#EA8278"/><stop offset="100%" stop-color="#CC3C35"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Simply-Blue-Dock-Kachel D4, seit 2026-08-25 gebaut (unverändert) -->
+  <symbol id="d4" viewBox="0 0 1024 1024">
+    <rect x="142" y="122" width="800" height="800" rx="200" fill="#1E40AF"/>
+    <rect x="104.5" y="84.5" width="775" height="775" rx="187.5" fill="url(#gVert)" stroke="#1E40AF" stroke-width="25"/>
+    <rect x="128" y="108" width="728" height="728" rx="164" fill="none" stroke="url(#gRim)" stroke-width="22"/>
+    <g class="onblue" transform="translate(205.8, 212.8) scale(10.8)"><use href="#r2" width="50" height="48"/></g>
+  </symbol>
+
+  <!-- Mushroom-Dock-Kachel, wie das gebaute PNG -->
+  <symbol id="dmk" viewBox="0 0 1024 1024">
+    <rect x="96" y="96" width="832" height="832" rx="180" fill="url(#gMk)" stroke="#26264F" stroke-width="36"/>
+    <g style="--mk-stem:#FFF9EE;--mk-node1:#EFB43A;--mk-node2:#FFF9EE"
+       transform="translate(160,160) scale(14)"><use href="#mk" width="48" height="48"/></g>
+  </symbol>
+</svg>
+
+<div class="wrap">
+
+  <div class="intro">
+    <h1>Runde 15 — der Name in der Schrift des Themes, und Äste statt Pilz</h1>
+    <p>Zwei getrennte Wünsche in einem Mockup. <strong>Simply Blue:</strong> die Wortmarke soll dieselbe Schrift
+      benutzen wie der übrige Text im Theme, wieder in Gemischtsatz — <em>S</em> groß, der Rest klein — und
+      „flo“ soll dasselbe Blau tragen wie die Marke. <strong>Mushroom Kingdom:</strong> im Sidebar-Kopf steht
+      heute ein Pilz; dort soll dieselbe Astmarke stehen, die das Dock-Icon trägt.</p>
+    <p><strong>Was das für Simply Blue technisch bedeutet:</strong> Gemischtsatz bringt die <em>Unterlänge des
+      „y“</em> zurück. Genau die war der Grund, warum in Runde 14 auf Versalien umgestellt wurde: ohne
+      Unterlänge ist die Worttinte ein sauberer Balken, auf dessen Mitte die Marke exakt sitzt. Mit „Syflo“
+      gibt es wieder drei mögliche Mitten — Zeilenbox, Versalband, volles Tintenband. §03 misst alle drei und
+      stellt sie nebeneinander, damit die senkrechte Ordnung diesmal bewusst gewählt wird.</p>
+    <p><strong>Zur Vorgeschichte, offen gesagt:</strong> die System-Schrift <em>war</em> schon einmal gesetzt.
+      Bis Runde 9 benutzte Simply Blue als einziges Theme keine eigene Display-Schrift; die Rückmeldung damals
+      lautete, die Logo-Schrift passe nicht zum Theme, und daraufhin kam Plus Jakarta Sans. Runde 15 dreht das
+      zurück. Beide Fassungen stehen in §01 direkt nebeneinander — die Entscheidung liegt bei dir.</p>
+  </div>
+
+  <!-- ============================================================ §01 -->
+  <section>
+    <h2><span class="num">§01</span> &nbsp;Heute gegen den Vorschlag</h2>
+    <p class="lead">Links das gebaute Logo (Plus Jakarta Sans 700, Versalien, einfarbig), rechts der Vorschlag
+      (System-Schrift, Gemischtsatz, „flo“ in <code>#2563EB</code>) und dazwischen die beiden Mischformen. Alle
+      vier in Originalgröße im Sidebar-Kopf, darunter dreifach vergrößert.</p>
+    <div class="grid" id="s01"></div>
+  </section>
+
+  <!-- ============================================================ §02 -->
+  <section>
+    <h2><span class="num">§02</span> &nbsp;Größe und Gewicht in der System-Schrift</h2>
+    <p class="lead">Die System-Schrift (San Francisco auf dem Mac) ist bei gleicher Pixelzahl schmaler und
+      etwas kleiner im Bild als Plus Jakarta Sans. Damit der Name im Kopf weiter <em>Name</em> bleibt und nicht
+      wie ein Menüpunkt liest, braucht er gegenüber den Sidebar-Einträgen (13 px, Gewicht 400) sichtbar mehr
+      Größe und Gewicht. Vier Stufen, jeweils im echten Kopf.</p>
+    <div class="grid" id="s02"></div>
+    <table class="facts" style="margin-top:24px" id="s02tab">
+      <thead><tr><th>Fassung</th><th>Schrift</th><th>Größe</th><th>Versalhöhe</th><th>Unterlänge</th><th>Wortbreite</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <!-- ============================================================ §03 -->
+  <section>
+    <h2><span class="num">§03</span> &nbsp;Die Unterlänge kommt zurück — drei mögliche Mitten</h2>
+    <p class="lead">Die Marke ist 20 px hoch, das Wort viel niedriger. „Auf welcher Mitte“ die Marke sitzt, ist
+      deshalb eine echte Wahl: auf der Mitte der <em>Zeilenbox</em> (was CSS von allein macht), auf der Mitte
+      des <em>Versalbands</em> (Oberkante „S“ bis Grundlinie — das Auge liest diesen Balken als „das Wort“) oder
+      auf der Mitte des <em>vollen Tintenbands</em> (Oberkante „S“ bis Unterkante „y“). Die gestrichelten Linien
+      zeigen Versallinie, Grundlinie und Unterlängenlinie; die Zahlen sind gemessen.</p>
+    <div class="grid" id="s03"></div>
+  </section>
+
+  <!-- ============================================================ §04 -->
+  <section>
+    <h2><span class="num">§04</span> &nbsp;Wo genau das Blau anfängt</h2>
+    <p class="lead">„flo“ in Blau ist gesetzt. Offen ist nur der Ton: dasselbe <code>#2563EB</code> wie die
+      Marke (dann sind Marke und Silbe exakt gleich) oder das dunklere <code>#1D4ED8</code> (auf Weiß etwas
+      ruhiger, aber dann trägt das Logo zwei Blautöne). Als dritte Karte steht die einfarbige Fassung daneben,
+      falls sich das Blau im Namen doch als zu viel erweist.</p>
+    <div class="grid" id="s04"></div>
+  </section>
+
+  <!-- ============================================================ §05 -->
+  <section>
+    <h2><span class="num">§05</span> &nbsp;Mushroom Kingdom — Astmarke statt Pilz</h2>
+    <p class="lead">Das Dock-Icon trägt die Astmarke längst, gepixelt: ein Stamm, zwei Stufen, zwei Knoten, der
+      obere in Gold. Nur der Sidebar-Kopf blieb beim Pilz. Beim Umzug in die Sidebar ist eine Farbfrage zu
+      klären: im Dock ist die Marke <em>cremeweiß auf Rot</em> — auf dem cremefarbenen Sidebar-Grund wäre sie
+      unsichtbar. Drei Wege, dieselbe Geometrie sichtbar zu machen.</p>
+    <div class="grid" id="s05"></div>
+
+    <div class="desk" style="margin-top:26px">
+      <div style="display:flex;flex-direction:column;align-items:center;gap:8px">
+        <svg width="76" height="76" viewBox="0 0 1024 1024" style="filter:drop-shadow(0 6px 10px rgba(0,0,0,.25))"><use href="#dmk"/></svg>
+        <span style="font-size:11px;color:var(--gray-700)">Dock heute</span>
+      </div>
+      <div style="display:flex;flex-direction:column;align-items:center;gap:8px">
+        <svg width="76" height="76" viewBox="0 0 1024 1024" style="filter:drop-shadow(0 6px 10px rgba(0,0,0,.25))"><use href="#d4"/></svg>
+        <span style="font-size:11px;color:var(--gray-700)">Simply Blue, Dock</span>
+      </div>
+      <p style="font-size:12.5px;line-height:1.6;color:var(--gray-700);max-width:520px">
+        Beide Dock-Kacheln tragen dieselbe Marke in ihrem eigenen Material — gepixelt hier, gerundet dort.
+        Nach §05 stimmt der Sidebar-Kopf in <em>allen fünf</em> Themes mit dem Dock überein; Mushroom Kingdom
+        war das letzte Theme mit einem anderen Zeichen.
+      </p>
+    </div>
+  </section>
+
+  <!-- ============================================================ §06 -->
+  <section>
+    <h2><span class="num">§06</span> &nbsp;Baukasten — einstellen und Code mitnehmen</h2>
+    <p class="lead">Jede Stellschraube als Schalter. Die Vorschau zeigt dieselbe Einstellung im Sidebar-Kopf
+      (Originalgröße) und dreifach vergrößert; darunter steht der fertige Ausschnitt für
+      <code>frontend/src/components/Logo.tsx</code> mit genau diesen Werten.</p>
+
+    <div class="panel">
+      <div class="switch"><span class="t">Schrift</span>
+        <button data-set="font" data-v="sys" aria-pressed="true">System (App-Schrift)</button>
+        <button data-set="font" data-v="pjs">Plus Jakarta (heute)</button>
+      </div>
+      <div class="switch"><span class="t">Schreibweise</span>
+        <button data-set="upper" data-v="0" aria-pressed="true">Syflo</button>
+        <button data-set="upper" data-v="1">SYFLO</button>
+      </div>
+      <div class="switch"><span class="t">Farbe</span>
+        <button data-set="color" data-v="two" aria-pressed="true">„flo“ blau #2563EB</button>
+        <button data-set="color" data-v="two700">„flo“ blau #1D4ED8</button>
+        <button data-set="color" data-v="dark">einfarbig dunkel</button>
+      </div>
+      <div class="switch"><span class="t">Größe</span>
+        <button data-set="size" data-v="14">14 px</button>
+        <button data-set="size" data-v="15" aria-pressed="true">15 px</button>
+        <button data-set="size" data-v="16">16 px</button>
+        <button data-set="size" data-v="17">17 px</button>
+      </div>
+      <div class="switch"><span class="t">Gewicht</span>
+        <button data-set="weight" data-v="600">600</button>
+        <button data-set="weight" data-v="700" aria-pressed="true">700</button>
+      </div>
+      <div class="switch"><span class="t">Sperrung</span>
+        <button data-set="ls" data-v="-0.02" aria-pressed="true">−0.02em</button>
+        <button data-set="ls" data-v="-0.01">−0.01em</button>
+        <button data-set="ls" data-v="0">0</button>
+        <button data-set="ls" data-v="0.04">+0.04em</button>
+      </div>
+      <div class="switch"><span class="t">Markenhöhe</span>
+        <button data-set="markH" data-v="17">17 px</button>
+        <button data-set="markH" data-v="18">18 px</button>
+        <button data-set="markH" data-v="20" aria-pressed="true">20 px</button>
+      </div>
+      <div class="switch"><span class="t">Senkrechte Mitte</span>
+        <button data-set="anchor" data-v="line">Zeilenbox</button>
+        <button data-set="anchor" data-v="cap" aria-pressed="true">Versalband</button>
+        <button data-set="anchor" data-v="ink">volles Tintenband</button>
+      </div>
+    </div>
+
+    <div class="grid">
+      <div class="card w2">
+        <span class="tag">Vorschau</span>
+        <h3>Sidebar-Kopf, Originalgröße</h3>
+        <p>Genau die Maße aus <code>Sidebar/index.tsx</code>: 256 px breit, 20 px Innenabstand.</p>
+        <div class="stage">
+          <div class="head"><span id="liveHead"></span><span class="icons"><i></i><i></i></span></div>
+          <div class="sbody">
+            <div class="lbl">Angepinnt</div>
+            <div class="item on">Attention Is All You Need</div>
+            <div class="lbl">Heute</div>
+            <div class="item">Positionskodierung erklärt</div>
+            <div class="item">Was macht der Decoder?</div>
+          </div>
+        </div>
+      </div>
+      <div class="card w2">
+        <span class="tag">Vorschau</span>
+        <h3>Dreifach vergrößert</h3>
+        <p>Zum Beurteilen von Ausrichtung, Sperrung und Farbübergang.</p>
+        <div class="stage">
+          <span class="zoom" style="transform:scale(3);margin:22px 0 22px 6px"><span id="liveBig"></span></span>
+        </div>
+        <div class="note" id="liveNums"></div>
+      </div>
+    </div>
+
+    <pre class="out" id="liveCode" style="margin-top:24px"></pre>
+  </section>
+
+  <!-- ============================================================ §07 -->
+  <section>
+    <h2><span class="num">§07</span> &nbsp;Alle fünf Themes nebeneinander</h2>
+    <p class="lead">Die Gegenprobe: mit §01/§05 entschieden, sieht das Set der fünf Sidebar-Köpfe so aus. Simply
+      Blue und Mushroom Kingdom stehen im Vorschlag, die drei anderen unverändert.</p>
+    <div class="grid" id="s07"></div>
+  </section>
+
+  <div class="foot">
+    Quelle für die Geometrie: <code>frontend/src/components/Logo.tsx</code> (Anschluss R2 aus Runde 12) und
+    <code>design/mockup-logo-icons-round6.html</code> (Pixel-Astmarke Mushroom Kingdom, identisch mit
+    <code>electron/assets/icon-mushroom-kingdom.png</code>). Sidebar-Maße aus
+    <code>frontend/src/components/Sidebar/index.tsx</code>, Theme-Farben aus <code>frontend/src/index.css</code>.
+    Alle Messwerte auf dieser Seite entstehen im Browser per Canvas-TextMetrics, nachdem jede Schriftfamilie
+    einzeln über <code>document.fonts.load()</code> geladen wurde.
+  </div>
+</div>
+
+<script>
+/* =============================================================
+   Gemeinsamer Bauplan. Jede Variante auf dieser Seite entsteht
+   über buildLock() — dieselbe Funktion, dieselbe SVG-Referenz.
+   ============================================================= */
+const SYS = "-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif";
+const PJS = "'Plus Jakarta Sans', " + SYS;
+const FONTS = { sys: { css: SYS, label: 'System' }, pjs: { css: PJS, label: 'Plus Jakarta Sans' } };
+const BLUE = '#2563EB', BLUE7 = '#1D4ED8', DARK = '#101828';
+
+/* --- Messung ------------------------------------------------- */
+// Falle aus Runde 13: document.fonts.ready allein genügt nicht. Solange
+// eine Webschrift nirgends benutzt wurde, misst measureText die
+// Ersatzschrift (10,8 statt 11,4 px). Also je Familie explizit laden.
+async function loadFonts() {
+  const jobs = [
+    "600 15px 'Plus Jakarta Sans'", "700 15px 'Plus Jakarta Sans'",
+    "400 12px 'Press Start 2P'", "400 15px 'Baloo 2'", "700 15px 'Baloo 2'",
+  ];
+  await Promise.all(jobs.map((f) => document.fonts.load(f, 'Syflo')));
+  await document.fonts.ready;
+}
+
+const ctx = document.createElement('canvas').getContext('2d');
+function metrics(fontCss, size, weight, text) {
+  ctx.font = `${weight} ${size}px ${fontCss}`;
+  const m = ctx.measureText(text);
+  return {
+    width: m.width,
+    cap: m.actualBoundingBoxAscent,           // Oberkante der Tinte über der Grundlinie
+    desc: m.actualBoundingBoxDescent,         // Unterlänge unter der Grundlinie
+    fAsc: m.fontBoundingBoxAscent,
+    fDesc: m.fontBoundingBoxDescent,
+  };
+}
+
+// Wie weit die Marke gegenüber der Zeilenmitte verschoben werden muss,
+// damit ihre Mitte auf der gewünschten Mitte liegt. line-height: 1, also
+// ist die Zeilenbox exakt `size` hoch.
+function markOffset(fontCss, size, weight, text, anchor) {
+  const m = metrics(fontCss, size, weight, text);
+  const box = size;
+  const halfLeading = (box - (m.fAsc + m.fDesc)) / 2;
+  const baseline = halfLeading + m.fAsc;          // Grundlinie, von der Oberkante der Box
+  const capOnly = metrics(fontCss, size, weight, 'S').cap;
+  let target;
+  if (anchor === 'line') target = box / 2;
+  else if (anchor === 'cap') target = baseline - capOnly / 2;
+  else target = baseline - (m.cap - m.desc) / 2;  // volles Tintenband inkl. Unterlänge
+  return { top: target - box / 2, baseline, capOnly, m };
+}
+
+/* --- Wortmarke + Marke -------------------------------------- */
+function wordmarkHTML(opts) {
+  const text = opts.upper ? 'SYFLO' : 'Syflo';
+  if (opts.color === 'dark') return `<span style="color:${DARK}">${text}</span>`;
+  const accent = opts.color === 'two700' ? BLUE7 : BLUE;
+  const head = opts.upper ? 'SY' : 'Sy';
+  const tail = opts.upper ? 'FLO' : 'flo';
+  return `<span style="color:${DARK}">${head}</span><span style="color:${accent}">${tail}</span>`;
+}
+
+function buildLock(opts) {
+  const o = Object.assign({
+    font: 'sys', upper: false, size: 15, weight: 700, ls: -0.02,
+    color: 'two', markH: 20, anchor: 'cap', theme: 'blue',
+  }, opts);
+  const fontCss = FONTS[o.font].css;
+  const text = o.upper ? 'SYFLO' : 'Syflo';
+  const off = markOffset(fontCss, o.size, o.weight, text, o.anchor);
+
+  const el = document.createElement('span');
+  el.className = 'lock';
+  if (o.theme === 'blue') {
+    const w = (o.markH * 50 / 48).toFixed(2);
+    el.innerHTML =
+      `<svg class="mk-slot side" width="${w}" height="${o.markH}" viewBox="0 0 50 48"
+            style="top:${off.top.toFixed(2)}px;position:relative"><use href="#r2"/></svg>` +
+      `<span class="wm" style="font-family:${fontCss};font-weight:${o.weight};font-size:${o.size}px;
+            letter-spacing:${o.ls}em">${wordmarkHTML(o)}</span>`;
+  }
+  return el;
+}
+
+/* --- Mushroom-Kingdom-Sperrholz ------------------------------ */
+// Wortmarke unverändert: Press Start 2P, „Sy" navy + „flo" rot.
+function mkWord() {
+  return `<span style="font-family:'Press Start 2P',monospace;font-size:12px;line-height:1;color:#23234A">` +
+         `Sy<span style="color:#D8433B">flo</span></span>`;
+}
+function mkLock(kind) {
+  const el = document.createElement('span');
+  el.className = 'lock';
+  let mark;
+  if (kind === 'mushroom') {
+    mark = `<svg class="mk-slot" width="20" height="20" viewBox="0 0 64 64"><use href="#mushroom"/></svg>`;
+  } else if (kind === 'A') {
+    mark = `<svg class="mk-slot" width="20" height="20" viewBox="0 0 48 48"
+             style="--mk-stem:#26264F;--mk-node1:#EFB43A;--mk-node2:#D8433B"><use href="#mk"/></svg>`;
+  } else if (kind === 'B') {
+    mark = `<svg class="mk-slot" width="20" height="20" viewBox="0 0 48 48"
+             style="--mk-stem:#26264F;--mk-node1:#EFB43A;--mk-node2:#26264F"><use href="#mk"/></svg>`;
+  } else { // C — die Dock-Kachel in klein
+    mark = `<span class="mk-slot" style="display:inline-flex;align-items:center;justify-content:center;
+              width:22px;height:22px;border-radius:6px;background:#D8433B;border:2px solid #26264F">
+              <svg width="15" height="15" viewBox="0 0 48 48"
+               style="--mk-stem:#FFF9EE;--mk-node1:#EFB43A;--mk-node2:#FFF9EE"><use href="#mk"/></svg></span>`;
+  }
+  el.innerHTML = mark + mkWord();
+  return el;
+}
+
+/* --- Bausteine für die Karten -------------------------------- */
+function headPreview(lockEl, mkTheme) {
+  const head = document.createElement('div');
+  head.className = 'head' + (mkTheme ? ' mk' : '');
+  head.appendChild(lockEl);
+  const icons = document.createElement('span');
+  icons.className = 'icons';
+  icons.innerHTML = '<i></i><i></i>';
+  head.appendChild(icons);
+  return head;
+}
+function card({ tag, tagNow, title, desc, nodes, note, width, mkTheme }) {
+  const c = document.createElement('div');
+  c.className = 'card' + (width ? ' ' + width : '');
+  c.innerHTML =
+    `<span class="tag${tagNow ? ' now' : ''}">${tag}</span><h3>${title}</h3><p>${desc}</p>`;
+  const stage = document.createElement('div');
+  stage.className = 'stage' + (mkTheme ? ' mk' : '');
+  nodes.forEach((n) => stage.appendChild(n));
+  c.appendChild(stage);
+  if (note) {
+    const nt = document.createElement('div');
+    nt.className = 'note';
+    nt.innerHTML = note;
+    c.appendChild(nt);
+  }
+  return c;
+}
+function big(lockEl, scale) {
+  const w = document.createElement('span');
+  w.className = 'zoom';
+  w.style.transform = `scale(${scale})`;
+  w.style.margin = `${8 * (scale - 1)}px 0 ${8 * (scale - 1)}px 4px`;
+  w.appendChild(lockEl);
+  return w;
+}
+const f1 = (n) => n.toFixed(1).replace('.', ',');
+const f2 = (n) => n.toFixed(2).replace('.', ',');
+
+/* =============================================================
+   Aufbau der Abschnitte
+   ============================================================= */
+function renderS01() {
+  const box = document.getElementById('s01');
+  const defs = [
+    { tag: 'Heute', now: true, title: 'Plus Jakarta Sans · SYFLO · einfarbig',
+      desc: 'Das gebaute Logo: 14 px, Sperrung 0.04em, Marke auf der Versalmitte.',
+      o: { font: 'pjs', upper: true, size: 14, ls: 0.04, color: 'dark', anchor: 'cap' } },
+    { tag: 'Nur Schrift', title: 'System-Schrift · SYFLO · einfarbig',
+      desc: 'Nur die Schrift getauscht — Versalien und eine Farbe bleiben.',
+      o: { font: 'sys', upper: true, size: 14, ls: 0.04, color: 'dark', anchor: 'cap' } },
+    { tag: 'Nur Schreibweise', title: 'Plus Jakarta Sans · Syflo · zweifarbig',
+      desc: 'Gemischtsatz und blaues „flo“, aber weiter in der Display-Schrift.',
+      o: { font: 'pjs', upper: false, size: 15, ls: -0.02, color: 'two', anchor: 'cap' } },
+    { tag: 'Vorschlag', title: 'System-Schrift · Syflo · „flo“ blau',
+      desc: 'Beides zusammen: die Schrift des Themes, Gemischtsatz, blaues „flo“.',
+      o: { font: 'sys', upper: false, size: 15, ls: -0.02, color: 'two', anchor: 'cap' } },
+  ];
+  defs.forEach((d) => {
+    const m = metrics(FONTS[d.o.font].css, d.o.size, 700, d.o.upper ? 'SYFLO' : 'Syflo');
+    box.appendChild(card({
+      tag: d.tag, tagNow: d.now, title: d.title, desc: d.desc,
+      nodes: [headPreview(buildLock(d.o)), big(buildLock(d.o), 3)],
+      note: `<b>Gemessen:</b> Wortbreite <span class="num-out">${f1(m.width)} px</span>, ` +
+            `Versalhöhe <span class="num-out">${f1(m.cap)} px</span>, Unterlänge ` +
+            `<span class="num-out">${f1(m.desc)} px</span>.`,
+    }));
+  });
+}
+
+function renderS02() {
+  const box = document.getElementById('s02');
+  const steps = [
+    { size: 14, weight: 600, tag: '14 / 600', d: 'Kaum über den Sidebar-Einträgen — der Name liest sich als Beschriftung.' },
+    { size: 15, weight: 700, tag: '15 / 700', d: 'Die Maße der Fassung aus Runde 12, nur in der System-Schrift.' },
+    { size: 16, weight: 700, tag: '16 / 700', d: 'Ein Punkt mehr, weil San Francisco schmaler baut als Plus Jakarta.' },
+    { size: 17, weight: 700, tag: '17 / 700', d: 'Deutlich Name. Prüfen, ob die Marke daneben nicht zu klein wirkt.' },
+  ];
+  const rows = [];
+  steps.forEach((s) => {
+    const o = { font: 'sys', size: s.size, weight: s.weight, ls: -0.02, color: 'two', anchor: 'cap' };
+    const m = metrics(SYS, s.size, s.weight, 'Syflo');
+    rows.push(['System · ' + s.tag, 'System', s.size + ' px', f1(m.cap) + ' px', f1(m.desc) + ' px', f1(m.width) + ' px']);
+    box.appendChild(card({
+      tag: s.tag, title: `${s.size} px, Gewicht ${s.weight}`, desc: s.d,
+      nodes: [headPreview(buildLock(o)), big(buildLock(o), 2.4)],
+      note: `<b>Gemessen:</b> Versalhöhe <span class="num-out">${f1(m.cap)} px</span>, ` +
+            `Marke 20 px = <span class="num-out">${f2(20 / m.cap)} ×</span> der Versalhöhe.`,
+    }));
+  });
+  const pj = metrics(PJS, 14, 700, 'SYFLO');
+  rows.unshift(['Plus Jakarta · heute', 'Plus Jakarta Sans', '14 px', f1(pj.cap) + ' px', f1(pj.desc) + ' px', f1(pj.width) + ' px']);
+  const tb = document.querySelector('#s02tab tbody');
+  rows.forEach((r) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = r.map((c, i) => `<td class="${i > 1 ? 'mono' : ''}">${c}</td>`).join('');
+    tb.appendChild(tr);
+  });
+}
+
+function renderS03() {
+  const box = document.getElementById('s03');
+  const anchors = [
+    { a: 'line', tag: 'Zeilenbox', title: 'Mitte der Zeilenbox',
+      d: 'Was CSS ohne Zutun macht. Die Unterlänge des „y“ zieht die Zeilenmitte nach unten, die Marke wandert mit — sie steht dann optisch zu hoch.' },
+    { a: 'cap', tag: 'Versalband', title: 'Mitte des Versalbands',
+      d: 'Oberkante „S“ bis Grundlinie. Das Auge liest diesen Balken als „das Wort“; die Unterlänge zählt es als Zierat.' },
+    { a: 'ink', tag: 'Tintenband', title: 'Mitte des vollen Tintenbands',
+      d: 'Oberkante „S“ bis Unterkante „y“. Rechnerisch sauber, wirkt aber leicht tief, weil nur ein Buchstabe unter die Linie reicht.' },
+  ];
+  anchors.forEach((x) => {
+    const o = { font: 'sys', size: 15, weight: 700, ls: -0.02, color: 'two', anchor: x.a };
+    const off = markOffset(SYS, 15, 700, 'Syflo', x.a);
+    // Die Lineal-Ansicht wird ECHT dreifach gesetzt (45 px Schrift, 60 px
+    // Marke) statt per transform:scale — nur so lassen sich die Linien aus
+    // gemessenen Werten an die richtige Stelle legen. Die Verhältnisse sind
+    // dieselben, Schriftmaße skalieren linear.
+    const K = 3;
+    const bigOpts = { ...o, size: 15 * K, markH: 20 * K };
+    const bigOff = markOffset(SYS, 15 * K, 700, 'Syflo', x.a);
+    const ruler = document.createElement('div');
+    ruler.className = 'ruler';
+    const inner = document.createElement('div');
+    inner.style.position = 'relative';
+    inner.appendChild(buildLock(bigOpts));
+    // Die Marke ist der höchste Kasten der Zeile (60 px), der Textkasten
+    // (45 px) sitzt mittig darin — daher der Versatz von 7,5 px.
+    const textTop = (20 * K - 15 * K) / 2;
+    const lines = [
+      { y: textTop + bigOff.baseline - bigOff.capOnly, label: 'Versallinie', side: 'r' },
+      { y: textTop + bigOff.baseline, label: 'Grundlinie', base: true, side: 'r' },
+      { y: textTop + bigOff.baseline + bigOff.m.desc, label: 'Unterlänge', side: 'l' },
+      { y: 20 * K / 2 + bigOff.top, label: 'Mitte der Marke', mark: true, side: 'l' },
+    ];
+    lines.forEach((l) => {
+      const el = document.createElement('div');
+      el.className = 'line' + (l.base ? ' base' : '') + (l.mark ? ' mark' : '');
+      el.style.top = l.y.toFixed(2) + 'px';
+      el.innerHTML = `<span class="${l.side}">${l.label}</span>`;
+      inner.appendChild(el);
+    });
+    ruler.appendChild(inner);
+    box.appendChild(card({
+      tag: x.tag, title: x.title, desc: x.d, width: 'w2',
+      nodes: [headPreview(buildLock(o)), ruler],
+      note: `<b>Versatz der Marke:</b> <span class="num-out">${f2(off.top)} px</span> gegenüber der ` +
+            `Zeilenmitte (<code>position:relative; top</code>). Versalhöhe ` +
+            `<span class="num-out">${f1(off.capOnly)} px</span>, Marke 20 px — der Überstand über die ` +
+            `Versallinie beträgt <span class="num-out">${f1((20 - off.capOnly) / 2)} px</span>.`,
+    }));
+  });
+}
+
+function renderS04() {
+  const box = document.getElementById('s04');
+  const defs = [
+    { c: 'two', tag: 'Vorschlag', title: '„flo“ in #2563EB',
+      d: 'Exakt das Blau der Marke. Marke und Silbe sind derselbe Ton — das Logo hat genau eine Akzentfarbe.' },
+    { c: 'two700', tag: 'Variante', title: '„flo“ in #1D4ED8',
+      d: 'Ein Schritt dunkler. Auf Weiß etwas ruhiger zu lesen, dafür trägt das Logo zwei Blautöne.' },
+    { c: 'dark', tag: 'Variante', title: 'einfarbig #101828',
+      d: 'Der Name ganz ohne Blau, wie seit Runde 14 gebaut — hier nur in Gemischtsatz und der System-Schrift.' },
+  ];
+  defs.forEach((d) => {
+    const o = { font: 'sys', size: 15, weight: 700, ls: -0.02, color: d.c, anchor: 'cap' };
+    box.appendChild(card({
+      tag: d.tag, title: d.title, desc: d.d,
+      nodes: [headPreview(buildLock(o)), big(buildLock(o), 3)],
+    }));
+  });
+}
+
+function renderS05() {
+  const box = document.getElementById('s05');
+  const defs = [
+    { k: 'mushroom', tag: 'Heute', now: true, title: 'Pilz',
+      d: 'Das einzige Sidebar-Zeichen im Set, das nicht die Astmarke ist — und damit auch das einzige, das nicht zum eigenen Dock-Icon passt.' },
+    { k: 'A', tag: 'Variante A', title: 'Astmarke, navy mit Gold und Rot',
+      d: 'Stamm und Stufen in der Konturtinte des Themes, oberer Knoten Gold, unterer Knoten Rot. Die Marke bringt beide Themefarben mit und bleibt auf Creme kräftig.' },
+    { k: 'B', tag: 'Variante B', title: 'Astmarke, navy mit einem Goldknoten',
+      d: 'Wie A, aber der untere Knoten bleibt navy. Ruhiger; das Gold sitzt allein wie im Dock, wo genau ein Knoten heraussticht.' },
+    { k: 'C', tag: 'Variante C', title: 'Dock-Kachel in klein',
+      d: 'Das Dock-Icon eins zu eins, nur 22 px groß: rote Kachel, navy Kontur, cremeweiße Marke. Buchstäblich „das Symbol aus dem Dock“ — allerdings ist Simply Blue seit Runde 9 bewusst ohne Kachel, die vier anderen Themes tragen die blanke Marke.' },
+  ];
+  defs.forEach((d) => {
+    box.appendChild(card({
+      tag: d.tag, tagNow: d.now, title: d.title, desc: d.d, mkTheme: true,
+      nodes: [headPreview(mkLock(d.k), true), big(mkLock(d.k), 3)],
+    }));
+  });
+}
+
+function renderS07() {
+  const box = document.getElementById('s07');
+  // Die drei unveränderten Themes, 1:1 aus Logo.tsx
+  const inkBlue = `<span class="lock">
+      <svg width="20" height="20" viewBox="0 0 48 48" fill="none">
+        <circle cx="7" cy="24" r="5" fill="#3B82F6" stroke="#1C2B4A" stroke-width="3"/>
+        <path d="M11 24 H 22 C 28 24, 29 15, 36 13" stroke="#1C2B4A" stroke-width="4" stroke-linecap="round"/>
+        <path d="M22 24 C 28 24, 29 33, 36 35" stroke="#1C2B4A" stroke-width="4" stroke-linecap="round"/>
+        <circle cx="39" cy="12.5" r="5.5" fill="#34D399" stroke="#1C2B4A" stroke-width="3"/>
+        <circle cx="39" cy="35.5" r="5.5" fill="#3B82F6" stroke="#1C2B4A" stroke-width="3"/></svg>
+      <span style="font-family:'Space Grotesk','DM Sans',sans-serif;font-weight:700;font-size:17px;
+        letter-spacing:-0.02em;color:#14263F">Sy<span style="color:#3B82F6">flo</span></span></span>`;
+  const hyrule = `<span class="lock">
+      <svg width="23" height="16" viewBox="0 0 86 60" fill="none">
+        <path d="M6 30 H 34 C 44 30, 46 16, 58 13" stroke="#2AA198" stroke-width="5" stroke-linecap="round"/>
+        <path d="M34 30 C 44 30, 46 44, 58 47" stroke="#2AA198" stroke-width="5" stroke-linecap="round"/>
+        <rect x="58" y="4" width="15" height="15" transform="rotate(45 65.5 11.5)" fill="#B8963A"/>
+        <rect x="58" y="38" width="15" height="15" transform="rotate(45 65.5 45.5)" fill="#B8963A"/></svg>
+      <span style="font-family:'Marcellus',serif;font-size:15px;letter-spacing:0.18em;
+        text-transform:uppercase;color:#33372A">Syflo</span></span>`;
+  const matrix = `<span class="lock">
+      <svg width="20" height="20" viewBox="0 0 48 48" fill="none">
+        <g stroke="#2BE76B" fill="#2BE76B" style="filter:drop-shadow(0 0 4px rgba(43,231,107,.5))">
+          <path d="M8 24 H 22 C 28 24, 29 15, 36 13" stroke-width="4.5" stroke-linecap="round" fill="none"/>
+          <path d="M22 24 C 28 24, 29 33, 36 35" stroke-width="4.5" stroke-linecap="round" fill="none"/>
+          <circle cx="7" cy="24" r="3.6"/><circle cx="39" cy="12.5" r="5.5"/><circle cx="39" cy="35.5" r="5.5"/></g></svg>
+      <span style="font-family:'Share Tech Mono','IBM Plex Mono',monospace;font-size:13px;letter-spacing:0.1em;
+        text-transform:uppercase;color:#2BE76B;text-shadow:0 0 8px rgba(43,231,107,.35)">SYFLO</span></span>`;
+
+  const cells = [
+    { t: 'Simply Blue · Vorschlag', bg: '#FFFFFF', border: '#E5E7EB', html: null,
+      node: buildLock({ font: 'sys', size: 15, weight: 700, ls: -0.02, color: 'two', anchor: 'cap' }) },
+    { t: 'Mushroom Kingdom · Variante A', bg: '#FFFDF4', border: '#26264F', node: mkLock('A') },
+    { t: 'Ink Blue · unverändert', bg: '#FFFFFF', border: '#E5E7EB', html: inkBlue },
+    { t: 'Hyrule · unverändert', bg: '#FBF7EC', border: '#E0D7BE', html: hyrule },
+    { t: 'Matrix · unverändert', bg: '#0A0F0C', border: '#173A22', html: matrix },
+  ];
+  cells.forEach((c) => {
+    const el = document.createElement('div');
+    el.className = 'card';
+    el.style.width = '306px';
+    el.innerHTML = `<h3 style="margin-top:0">${c.t}</h3>`;
+    const head = document.createElement('div');
+    head.style.cssText = `margin-top:12px;background:${c.bg};border:1px solid ${c.border};border-radius:10px;
+      padding:20px;display:flex;align-items:center;justify-content:space-between`;
+    if (c.html) head.innerHTML = c.html;
+    else head.appendChild(c.node);
+    const icons = document.createElement('span');
+    icons.className = 'icons';
+    icons.innerHTML = '<i style="width:15px;height:15px;border-radius:3px;display:block;background:rgba(128,128,128,.25)"></i>';
+    icons.style.cssText = 'display:flex;gap:8px';
+    head.appendChild(icons);
+    el.appendChild(head);
+    box.appendChild(el);
+  });
+}
+
+/* =============================================================
+   §06 — Baukasten
+   ============================================================= */
+const state = { font: 'sys', upper: 0, color: 'two', size: 15, weight: 700, ls: -0.02, markH: 20, anchor: 'cap' };
+
+function renderLive() {
+  const o = {
+    font: state.font, upper: !!Number(state.upper), size: Number(state.size),
+    weight: Number(state.weight), ls: Number(state.ls), color: state.color,
+    markH: Number(state.markH), anchor: state.anchor,
+  };
+  const head = document.getElementById('liveHead');
+  const bigEl = document.getElementById('liveBig');
+  head.replaceChildren(buildLock(o));
+  bigEl.replaceChildren(buildLock(o));
+
+  const fontCss = FONTS[o.font].css;
+  const text = o.upper ? 'SYFLO' : 'Syflo';
+  const off = markOffset(fontCss, o.size, o.weight, text, o.anchor);
+  const m = off.m;
+  document.getElementById('liveNums').innerHTML =
+    `<b>Gemessen:</b> Versalhöhe <span class="num-out">${f1(off.capOnly)} px</span>, Unterlänge ` +
+    `<span class="num-out">${f1(m.desc)} px</span>, Wortbreite <span class="num-out">${f1(m.width)} px</span>. ` +
+    `Marke <span class="num-out">${o.markH} px</span> = <span class="num-out">${f2(o.markH / off.capOnly)} ×</span> ` +
+    `der Versalhöhe, Versatz <span class="num-out">${f2(off.top)} px</span>.`;
+
+  const fam = o.font === 'sys'
+    ? `"-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif"`
+    : `"'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif"`;
+  const wmInner = o.color === 'dark'
+    ? text
+    : `Sy&lt;span style={{ color: '${o.color === 'two700' ? BLUE7 : BLUE}' }}&gt;flo&lt;/span&gt;`;
+  const w = (o.markH * 50 / 48).toFixed(2);
+  document.getElementById('liveCode').innerHTML =
+`<span class="c">// frontend/src/components/Logo.tsx — VARIANTS.professional</span>
+&lt;<span class="k">svg</span>
+  width=<span class="s">"${w}"</span> height=<span class="s">"${o.markH}"</span>
+  viewBox=<span class="s">"0 0 50 48"</span> fill=<span class="s">"none"</span> aria-hidden=<span class="s">"true"</span>
+  style={{ position: <span class="s">'relative'</span>, top: ${off.top.toFixed(2)} }}
+&gt;
+  <span class="c">{/* Anschluss R2 unverändert */}</span>
+&lt;/<span class="k">svg</span>&gt;
+&lt;<span class="k">span</span>
+  style={{
+    fontFamily: <span class="s">${fam}</span>,
+    fontWeight: ${o.weight},
+    fontSize: ${o.size},
+    letterSpacing: <span class="s">'${o.ls}em'</span>,
+    color: <span class="s">'${DARK}'</span>,
+  }}
+&gt;
+  ${wmInner}
+&lt;/<span class="k">span</span>&gt;`;
+}
+
+document.querySelectorAll('.switch button').forEach((b) => {
+  b.addEventListener('click', () => {
+    const set = b.dataset.set;
+    document.querySelectorAll(`.switch button[data-set="${set}"]`)
+      .forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    state[set] = b.dataset.v;
+    renderLive();
+  });
+});
+
+loadFonts().then(() => {
+  renderS01(); renderS02(); renderS03(); renderS04(); renderS05(); renderS07(); renderLive();
+});
+</script>
+</body>
+</html>

@@ -89,21 +89,25 @@ const VARIANTS: Record<ThemeId, React.ReactNode> = {
           the 3.5-unit hole — the ring looked filled in. At distance 6.0 the cap
           ends exactly on the hole's edge. Moving the node (rather than
           shortening the branch) keeps the branch length of round 8. */}
-      {/* `top: 0.7` centres the mark on the CAP BAND of the wordmark rather
-          than on the flex line box (user choice 2026-08-25, design/mockup-
-          logo-simply-blue-round14.html §02). Measured: at 14 px, Plus Jakarta
-          Sans has a cap height of 10.6 px, so the centre of "SYFLO"'s ink sits
-          0.7 px below the centre of the 20 px mark. With the old mixed-case
-          "Syflo" this anchor was impossible to hit cleanly — the descender of
-          the "y" pulled the ink band down and the mark overhung the caps by
-          5.1 px. Uppercase has no descender, so the word is a clean bar. */}
+      {/* The mark stays centred on the CAP BAND, not on the flex line box —
+          the eye reads that band as "the word". Re-measured for round 15's
+          system-font setting (user choice 2026-08-25, design/mockup-logo-
+          round15.html §01/§03): at 15 px/700 the system face has a cap height
+          of 10.84 px and a baseline 13.5 px down a 15 px box, which puts the
+          cap-band centre 0.58 px below the centre of the 20 px mark.
+
+          The descender is back with mixed case (2.8 px on the "y"), which is
+          exactly what round 14 avoided by going uppercase. Anchoring on the
+          cap band rather than the full ink band is what keeps that descender
+          out of the vertical decision: it hangs below the bar, it does not
+          move it. */}
       <svg
         width="20.83"
         height="20"
         viewBox="0 0 50 48"
         fill="none"
         aria-hidden="true"
-        style={{ position: 'relative', top: 0.7 }}
+        style={{ position: 'relative', top: 0.58 }}
       >
         <path d="M11 24 H 22 C 28 24, 29 15, 36 13" stroke="#2563EB" strokeWidth="5" strokeLinecap="round" />
         <path d="M22 24 C 28 24, 29 33, 36 35" stroke="#2563EB" strokeWidth="5" strokeLinecap="round" />
@@ -111,26 +115,31 @@ const VARIANTS: Record<ThemeId, React.ReactNode> = {
         <circle cx="41.77" cy="11.35" r="5.5" fill="#FFFFFF" stroke="#2563EB" strokeWidth="4" />
         <circle cx="41.77" cy="36.65" r="5.5" fill="#FFFFFF" stroke="#2563EB" strokeWidth="4" />
       </svg>
-      {/* Basic was the only theme without a display face for its wordmark — it
-          used the same system font as every menu label, so the logo read as UI
-          text. Plus Jakarta Sans 700 is its display face.
+      {/* Round 15 (user choice 2026-08-25, design/mockup-logo-round15.html
+          §01, the "Vorschlag" card): the wordmark uses the SAME face as the
+          rest of this theme — no display font — set mixed case, with "flo" in
+          the mark's own blue.
 
-          Set in CAPS and in ONE colour (user choice 2026-08-25): the blue now
-          lives only in the mark, so the logo also works in a single ink. Caps
-          need tracking — 0.04em is the "knapp" step of round 14 §02 — and one
-          point less size than the old mixed case, because a line of capitals
-          reads bigger at the same pixel size. Hyrule and Matrix already set
-          SYFLO in caps; Ink Blue and Mushroom Kingdom keep the two-tone name. */}
+          This reverses round 9 (which added Plus Jakarta Sans because the logo
+          font "did not match the theme") and round 14's caps. Kept from those
+          rounds: 700 weight and 15 px, so the name still reads as a name and
+          not as a menu label — the system face builds narrower than Plus
+          Jakarta at the same pixel size (measured: "Syflo" is 37.9 px wide,
+          cap height 11.2 px). Tracking goes slightly negative (-0.02em): caps
+          needed opening up, mixed case does not.
+
+          One blue, not two: "flo" takes #2563EB, the exact ink of the mark, so
+          mark and syllable are the same colour rather than a near-match. */}
       <span
         style={{
-          fontFamily: "'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif",
+          fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif",
           fontWeight: 700,
-          fontSize: 14,
-          letterSpacing: '0.04em',
+          fontSize: 15,
+          letterSpacing: '-0.02em',
           color: '#101828',
         }}
       >
-        SYFLO
+        Sy<span style={{ color: '#2563EB' }}>flo</span>
       </span>
     </>
   ),
@@ -160,15 +169,27 @@ const VARIANTS: Record<ThemeId, React.ReactNode> = {
 
   'mushroom-kingdom': (
     <>
-      {/* Pixel mushroom, crispEdges so the "sprite" stays sharp when scaled */}
-      <svg width="20" height="20" viewBox="0 0 64 64" aria-hidden="true">
+      {/* The branch mark, not the mushroom (user choice 2026-08-25,
+          design/mockup-logo-round15.html §05, variant A). The dock icon has
+          carried this pixel branch all along — a trunk, two steps, two nodes —
+          and only the sidebar head still showed a mushroom, so the app said
+          two different things about what Syflo is.
+
+          Same geometry as the dock icon, different ink: in the dock the branch
+          is cream on red, which would be invisible on this theme's cream
+          sidebar. Variant A keeps the navy trunk and gives the two nodes the
+          theme's own gold and red — the same pair the dock uses, just carrying
+          the contrast instead of the background. crispEdges so the sprite
+          stays sharp at any scale. */}
+      <svg width="20" height="20" viewBox="0 0 48 48" aria-hidden="true">
         <g shapeRendering="crispEdges">
-          <rect x="16" y="6" width="32" height="8" fill="#26264F" />
-          <rect x="8" y="14" width="48" height="16" fill="#D8433B" />
-          <rect x="24" y="14" width="16" height="12" fill="#FFF9EE" />
-          <rect x="8" y="30" width="48" height="4" fill="#26264F" />
-          <rect x="18" y="34" width="28" height="16" fill="#FCEBC7" />
-          <rect x="16" y="50" width="32" height="4" fill="#26264F" />
+          <g fill="#26264F">
+            <rect x="4" y="20" width="16" height="8" />
+            <rect x="16" y="12" width="10" height="8" />
+            <rect x="16" y="28" width="10" height="8" />
+          </g>
+          <rect x="26" y="4" width="14" height="14" fill="#EFB43A" />
+          <rect x="26" y="30" width="14" height="14" fill="#D8433B" />
         </g>
       </svg>
       {/* Wortmarke in der Pixel-Display-Schrift des Themes (wie die
