@@ -17,6 +17,10 @@ additionally runs a parallel InnerTube search and merges YouTube's relative date
 ("9 months ago") into the results by video id; hits the two rankings disagree on get
 their date fetched per video via `getInfo` — best-effort only; SearXNG remains the
 single hard dependency of the search.
+Amended 2026-08-15: the video search is InnerTube alone (`backend/youtube.js`) — one
+search per query instead of two, and the upload date comes with it. SearXNG stopped
+being a dependency here, and was removed from the project entirely on 2026-08-23
+(ADR-0012). Both halves of a YouTube source are now key-free again.
 Videos without any caption track fail with a clear error; transcribing audio with the
 local Whisper stack was deliberately deferred. We rejected the official YouTube Data API
 (first cloud key in the app) and yt-dlp (a binary to ship and keep current in the

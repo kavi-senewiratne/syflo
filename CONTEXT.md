@@ -240,9 +240,10 @@ downloaded, but never activated before the download completes.
 _Avoid_: auto model, suggested model
 
 **Web search**:
-A tool call the chat model makes against the local SearXNG instance to pull live web
-results into the conversation. Not related to Paper search.
-_Avoid_: search (unqualified), SearXNG search
+A tool call the chat model makes against Tavily, under the user's own key
+(ADR-0012), to pull live web results into the conversation. Offered to the model
+only when a key is stored. Not related to Paper search.
+_Avoid_: search (unqualified), SearXNG search (removed 2026-08-23), Tavily search
 
 **Thinking quote**:
 An entry of the curated quote pool (`frontend/src/components/ChatArea/quotes.json`)

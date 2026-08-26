@@ -1,21 +1,21 @@
 /**
  * routes/search.js
  *
- * Web search via local SearXNG. The backend is a thin proxy:
- * frontend (or tool call from the LLM) → POST /api/search → SearXNG JSON API.
+ * Web search: frontend (or tool call from the LLM) → POST /api/search →
+ * the configured provider (Tavily, ADR-0012).
  *
  * The asking itself lives in web-search.js, shared with the citation card's
- * silent full-text search. When SearXNG is not running, we respond with 503
- * and a clear message, so the LLM can tell the user: "I can't reach my search
- * backend".
+ * silent full-text search. When the provider cannot be reached we respond with
+ * 503 and a clear message, so the LLM can tell the user: "I can't reach my
+ * search backend". No key at all is not an error here — it comes back as the
+ * named state `no-search-provider` in a 200.
  */
 
 const express = require('express');
 const { searchWeb, unreachableMessage, MAX_RESULTS } = require('../web-search');
 
-// Takes db since 2026-08-21: the search provider is chosen from the stored
-// settings (Tavily key, else SearXNG), so a route without db would silently
-// stay SearXNG-only.
+// Takes db since 2026-08-21: the search provider is read from the stored
+// settings (the Tavily key), so a route without db could not search at all.
 module.exports = (db) => {
   const router = express.Router();
 
@@ -33,8 +33,8 @@ module.exports = (db) => {
       const found = await searchWeb(query, { db, max });
       res.json({ query, ...found });
     } catch (err) {
-      // A bad response from SearXNG is a gateway problem; not reaching it at
-      // all (docker not started) is the common case and gets its own message.
+      // A bad response from the provider is a gateway problem; not reaching it
+      // at all (no network) gets its own message.
       if (err.status) return res.status(502).json({ error: err.message });
       res.status(503).json({ error: unreachableMessage(err) });
     }

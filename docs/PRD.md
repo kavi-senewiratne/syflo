@@ -86,10 +86,14 @@ Design source of truth: `design/mockup-chat-highlights-ask-in-chat.html` (approv
 ### 6. Web search tool (existing)
 
 The chat model can call a **web search** tool: a thin backend proxy
-(`POST /api/search`) to a local SearXNG instance (`searxng/`, default
-`localhost:8888`, top 8 results). If SearXNG is down, the tool returns a clear 503 so
-the model can tell the user. This is unrelated to Paper search (feature 4) — web search
-feeds the conversation, paper search attaches a PDF.
+(`POST /api/search`) to Tavily under the user's own key (ADR-0012; top 8 results
+for a human, 6 for the model). Without a stored key the tool is not offered to the
+model at all, and the route answers with the named state `no-search-provider` — a
+setup state, not a failure. If Tavily is unreachable, the route returns a 503 so
+the model can tell the user. This is unrelated to Paper search (feature 4) — web
+search feeds the conversation, paper search attaches a PDF. The local SearXNG
+container it used to proxy was removed on 2026-08-23: npm cannot install a Python
+service that only ships as Docker images.
 
 ### 7. Desktop packaging (existing)
 

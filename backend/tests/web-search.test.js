@@ -1,11 +1,11 @@
 /**
  * tests/web-search.test.js
  *
- * Step 9: the web search gets a second provider. Tavily (user-owned key,
- * 1000 requests/month free) is the one an npm install can actually reach —
- * SearXNG is a Python service behind Docker, so it becomes optional instead
- * of a prerequisite (decision 2026-08-15, design/mockup-onboarding-flow.html
- * § 06).
+ * The web search runs on Tavily (user-owned key, 1000 requests/month free) —
+ * the only provider an npm install can reach on Linux, macOS and Windows. The
+ * local SearXNG path was removed on 2026-08-23 (ADR-0012); a search that only
+ * exists where Docker does was a second behaviour to keep alive, not a
+ * feature.
  *
  * No test talks to the network: `fetch` is injected, and the Tavily key is
  * read from the settings table like every LLM provider key, so a fake db is
@@ -81,49 +81,18 @@ describe('searchWeb via Tavily', () => {
   });
 });
 
-describe('searchWeb via SearXNG', () => {
-  it('falls back to SearXNG on port 8890 when no Tavily key is stored', async () => {
-    const fetchImpl = jest.fn(async () => ({
-      ok: true,
-      status: 200,
-      json: async () => ({
-        results: [{ title: 'A paper', url: 'https://example.org/a', content: 'snippet', engines: ['duckduckgo'] }],
-        unresponsive_engines: [['brave', 'Suspended: too many requests']],
-      }),
-    }));
-
-    const found = await searchWeb('a paper', { db: fakeDb(), fetchImpl });
-
-    expect(fetchImpl).toHaveBeenCalledTimes(1);
-    const [url] = fetchImpl.mock.calls[0];
-    // One address for SearXNG, and it is 8890 — 8888 is Jupyter on many
-    // developer Macs, and the two files used to disagree about it.
-    expect(url).toContain('http://localhost:8890/search');
-    expect(url).toContain('format=json');
-
-    expect(found.provider).toBe('searxng');
-    expect(found.results).toEqual([
-      { title: 'A paper', url: 'https://example.org/a', snippet: 'snippet', engines: ['duckduckgo'] },
-    ]);
-    // The citation card needs this to tell "blocked" from "nothing exists".
-    expect(found.unresponsiveEngines).toEqual([['brave', 'Suspended: too many requests']]);
-  });
-});
-
 describe('searchWeb with nothing set up', () => {
-  it('reports no-search-provider instead of throwing when neither provider exists', async () => {
-    // No key, and nothing listening on 8890 — the state a fresh npm install
-    // is in, which is "not set up", not "broken".
-    const refused = () => {
-      const err = new TypeError('fetch failed');
-      err.cause = { code: 'ECONNREFUSED' };
-      throw err;
-    };
+  it('reports no-search-provider without asking anyone when no key is stored', async () => {
+    // A fresh npm install is in this state: "not set up", not "broken".
+    const fetchImpl = jest.fn();
 
-    const found = await searchWeb('anything', { db: fakeDb(), fetchImpl: refused });
+    const found = await searchWeb('anything', { db: fakeDb(), fetchImpl });
 
     expect(found.error).toBe('no-search-provider');
     expect(found.results).toEqual([]);
+    // Nothing is probed any more — there is no localhost service left to ask,
+    // and a missing key is answered from the settings table alone.
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 });
 

@@ -76,5 +76,6 @@ convenience machinery is removed for simplicity —
 - GPU-residency warning and prefill-ETA display.
 
 Kept: the Ollama provider itself, warm-up/keep-alive/KV-cache path (encapsulated),
-dictation, SearXNG web search, and local embeddings (bge-m3). New UI must use
+dictation, the web search (SearXNG then; Tavily under the user's own key since
+ADR-0012), and local embeddings (bge-m3). New UI must use
 standard theme tokens so all five themes work unchanged.

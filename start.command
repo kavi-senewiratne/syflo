@@ -263,32 +263,6 @@ else
   ollama pull bge-m3 >"$LOG_DIR/embed-pull.log" 2>&1 &
 fi
 
-# 1.5 SearXNG (web search in chat) — best effort: without a running container
-# the web_search function dies silently (the model only gets an error
-# string). No container runtime is NOT fatal — the chat keeps running,
-# just without web search. Port 8890, see searxng/docker-compose.yml.
-# The runtime is Colima (decision 2026-07-22): a lean VM (~1 GB cap)
-# instead of Docker Desktop, autostart via `brew services start colima`. The
-# colima start here is only the safety net in case the service is off.
-if curl -s -m 2 http://localhost:8890/ >/dev/null 2>&1; then
-  echo "SearXNG is already running"
-elif command -v docker >/dev/null 2>&1; then
-  if ! docker info >/dev/null 2>&1 && command -v colima >/dev/null 2>&1; then
-    echo "Starting Colima..."
-    colima start >"$LOG_DIR/colima.log" 2>&1 || true
-  fi
-  if docker info >/dev/null 2>&1; then
-    echo "Starting SearXNG (port 8890)..."
-    docker compose -f "$SYFLO_DIR/searxng/docker-compose.yml" up -d >"$LOG_DIR/searxng.log" 2>&1 \
-      && echo "SearXNG ready" \
-      || echo "SearXNG could not start (see $LOG_DIR/searxng.log) — web search disabled"
-  else
-    echo "No container runtime reachable (colima start failed?) — web search disabled"
-  fi
-else
-  echo "Docker CLI is not installed — web search in chat is disabled"
-fi
-
 # 2. Backend
 echo "Starting backend (port 3001)..."
 (cd "$SYFLO_DIR/backend" && npm run dev) >"$LOG_DIR/backend.log" 2>&1 &

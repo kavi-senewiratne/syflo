@@ -3,7 +3,7 @@
  *
  * Integration tests for GET /api/youtube/search — the video search behind
  * the "YouTube Transcript" plus-menu item (ADR-0005). The search backend
- * (SearXNG's YouTube engine) is injected, same pattern as the paper search.
+ * (InnerTube via youtube.js) is injected, same pattern as the paper search.
  */
 process.env.OPENAI_API_KEY = 'test-key-for-unit-tests';
 const request = require('supertest');
@@ -83,7 +83,7 @@ describe('GET /api/youtube/search', () => {
 
   // Since 2026-08-15 the search runs through InnerTube, so an unreachable
   // backend means the network is down — there is no local service to start,
-  // and the message must not send the user to searxng/README.md any more.
+  // and the message must not send the user to a Docker readme any more.
   it('answers 503 pointing at the network when YouTube is unreachable', async () => {
     const searchVideosFn = jest.fn().mockRejectedValue(
       Object.assign(new Error('fetch failed'), { cause: { code: 'ENOTFOUND' } }),

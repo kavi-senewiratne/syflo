@@ -8,19 +8,17 @@
  * (2026-08-10) and both must fail the same way — a 503 with a sentence the UI
  * can show, never a generic 500.
  *
- * Since 2026-08-15 there are two providers behind this door (see
- * search-providers.js): Tavily when the user has stored a key, SearXNG when
- * they have not, and a named state when neither exists. SearXNG stopped being
- * a prerequisite because the npm delivery (ADR-0009) cannot install a Python
- * service that only ships as Docker images.
+ * Behind this door is Tavily under the user's own key (see
+ * search-providers.js) — and, when no key is stored, a named state rather than
+ * a failure. The local SearXNG path was removed on 2026-08-23 (ADR-0012):
+ * `npm install -g` has to work on Linux, macOS and Windows, and npm cannot
+ * install a Python service that only ships as Docker images.
  */
 
 const {
-  SEARXNG_URL,
   DEFAULT_MAX_RESULTS,
   getTavilyKey,
   searchTavily,
-  searchSearxng,
   isSearchAvailable,
 } = require('./search-providers');
 
@@ -55,40 +53,22 @@ async function searchWeb(query, deps) {
   const { db, fetchImpl = fetch, max = DEFAULT_MAX_RESULTS, snippetChars } = normalizeDeps(deps);
 
   const apiKey = getTavilyKey(db);
-  if (apiKey) {
-    return searchTavily(query, { fetchImpl, apiKey, max, snippetChars });
+  // No key means this install cannot search at all. That is a setup state, not
+  // a failure — the callers must be able to offer "add a key" instead of
+  // "search broke".
+  if (!apiKey) {
+    return { provider: null, error: 'no-search-provider', results: [] };
   }
-
-  try {
-    return await searchSearxng(query, { fetchImpl, max, snippetChars });
-  } catch (err) {
-    // Nothing listening on the SearXNG port and no Tavily key: this install
-    // has no web search at all. That is a setup state, not a failure — the
-    // callers must be able to offer "add a key" instead of "search broke".
-    // A SearXNG that DID answer (HTTP error, timeout) still throws: it is set
-    // up and misbehaving, which is a different sentence to the user.
-    if (isUnreachable(err)) {
-      return { provider: null, error: 'no-search-provider', results: [], searxngUrl: SEARXNG_URL };
-    }
-    throw err;
-  }
+  return searchTavily(query, { fetchImpl, apiKey, max, snippetChars });
 }
 
-// Connection never established. ECONNRESET and timeouts are deliberately not
-// here — something answered, so SearXNG exists and is having a bad day.
-const UNREACHABLE_CODES = new Set(['ECONNREFUSED', 'ENOTFOUND', 'EHOSTUNREACH', 'EAI_AGAIN']);
-
-function isUnreachable(err) {
-  return !err?.status && UNREACHABLE_CODES.has(err?.cause?.code);
-}
-
-/** The message to show when the search backend cannot be reached at all. */
+/** The message to show when the search provider cannot be reached at all. */
 function unreachableMessage(err) {
-  return err?.cause?.code === 'ECONNREFUSED'
-    ? `Could not reach SearXNG at ${SEARXNG_URL}. Is it running? See searxng/README.md.`
+  return err?.cause?.code === 'ECONNREFUSED' || err?.cause?.code === 'ENOTFOUND'
+    ? 'Could not reach the web search. Check the connection and the Tavily key in Settings.'
     : err?.message || 'Search request failed';
 }
 
 // isSearchAvailable is re-exported so a route needs only this one module to
 // ask both questions: "can we search?" and "search this".
-module.exports = { searchWeb, isSearchAvailable, unreachableMessage, SEARXNG_URL, MAX_RESULTS };
+module.exports = { searchWeb, isSearchAvailable, unreachableMessage, MAX_RESULTS };

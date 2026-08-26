@@ -2,8 +2,9 @@
  * routes/youtube.js
  *
  * Routes behind the "YouTube Transcript" plus-menu item (ADR-0005): search
- * videos via the local SearXNG instance. The search backend is injectable
- * for tests, same pattern as routes/papers.js.
+ * videos via InnerTube (youtube.js — it replaced the SearXNG YouTube engine
+ * on 2026-08-15). The search backend is injectable for tests, same pattern as
+ * routes/papers.js.
  */
 const express = require('express');
 const { randomUUID } = require('crypto');
