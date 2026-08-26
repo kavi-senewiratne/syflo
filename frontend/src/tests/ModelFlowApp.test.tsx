@@ -394,6 +394,7 @@ describe('App — picking a model via the card\'s "Modell wechseln" auto-retries
     anthropic_api_key_set: false,
     custom_instructions: '',
     custom_instructions_enabled: false,
+    tavily_api_key_set: false,
   };
   const failedUser: Message = {
     id: 'u1', chat_id: 'c1', role: 'user', content: 'Frage', created_at: '2026-07-26T00:00:01Z',

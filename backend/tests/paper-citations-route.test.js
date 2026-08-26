@@ -402,7 +402,7 @@ describe('POST /api/papers/:id/references/:refId/fulltext', () => {
   });
 
   it('says when it is worth asking again after being shut out', async () => {
-    // The engines behind SearXNG suspend a caller that asked too often and
+    // A search engine suspends a caller that asked too often and
     // let them back in minutes later — so a blocked search carries a time,
     // and the card counts it down and retries itself (user decision
     // 2026-08-11).
@@ -425,8 +425,83 @@ describe('POST /api/papers/:id/references/:refId/fulltext', () => {
     expect(waitMs).toBeLessThanOrEqual(5 * 60_000);
   });
 
+  it('asks for a key instead of a wait when no search is set up', async () => {
+    // W1 (design/mockup-onboarding-flow.html §06): with no Tavily key nobody
+    // looked either, but there is nothing to wait FOR — so the reference comes
+    // back as "search not set up" and without a retry time. A countdown here
+    // would tick forever and fix nothing.
+    insertPaper('p10');
+    insertReference('p10', 'r10', 'cite.nokey', 0, { title: 'A Findable Work', pdfUrl: null, arxivId: null });
+    const appWithStubs = createApp(db, {
+      papers: {
+        webSearchFn: async () => ({ provider: null, error: 'no-search-provider', results: [] }),
+      },
+    });
+
+    const res = await request(appWithStubs).post('/api/papers/p10/references/r10/fulltext');
+
+    expect(res.body.reference.fulltextSearchUnavailable).toBe(true);
+    expect(res.body.reference.fulltextSearchFailed).toBeFalsy();
+    expect(res.body.reference.fulltextRetryAt).toBeFalsy();
+  });
+
+  it('does not count down a wait for a key the search rejected', async () => {
+    // Found in the running app 2026-08-24: a wrong key produced BOTH the
+    // countdown line and the "add a key" card at once, so the card made two
+    // claims that contradicted each other. Every state a person has to repair
+    // is the same kind of state — no retry time.
+    insertPaper('p12');
+    insertReference('p12', 'r12', 'cite.badkey', 0, { title: 'A Findable Work', pdfUrl: null, arxivId: null });
+    const appWithStubs = createApp(db, {
+      papers: {
+        webSearchFn: async () => ({ provider: 'tavily', error: 'tavily-invalid-key', results: [] }),
+      },
+    });
+
+    const res = await request(appWithStubs).post('/api/papers/p12/references/r12/fulltext');
+
+    expect(res.body.reference.fulltextRetryAt).toBeFalsy();
+    expect(res.body.reference.fulltextSearchUnavailable).toBe(true);
+    // The reason travels so the card can name what is wrong with the key
+    // instead of repeating "no search is set up".
+    expect(res.body.reference.fulltextSearchReason).toBe('tavily-invalid-key');
+  });
+
+  it('looks again once a key has been added', async () => {
+    // The miss was never recorded, so the very next click searches for real —
+    // that is what makes the card's "add a key" button worth pressing.
+    insertPaper('p11');
+    insertReference('p11', 'r11', 'cite.laterkey', 0, {
+      title: 'Layer Normalization for Recurrent Neural Networks',
+      pdfUrl: null,
+      arxivId: null,
+    });
+    let key = '';
+    const appWithStubs = createApp(db, {
+      papers: {
+        webSearchFn: async () =>
+          key
+            ? {
+                results: [
+                  {
+                    title: 'Layer Normalization for Recurrent Neural Networks',
+                    url: 'https://arxiv.org/abs/2222.3333',
+                  },
+                ],
+              }
+            : { provider: null, error: 'no-search-provider', results: [] },
+      },
+    });
+
+    await request(appWithStubs).post('/api/papers/p11/references/r11/fulltext');
+    key = 'tvly-set-by-the-card';
+    const res = await request(appWithStubs).post('/api/papers/p11/references/r11/fulltext');
+
+    expect(res.body.reference.pdfUrl).toBe('https://arxiv.org/pdf/2222.3333');
+  });
+
   it('does not remember a miss the search backend caused', async () => {
-    // SearXNG being down is not "no PDF exists". Marking it done would make
+    // A search that could not run is not "no PDF exists". Marking it done would make
     // the card lie for good after one unlucky moment.
     insertPaper('p8');
     insertReference('p8', 'r8', 'cite.down', 0, { title: 'A Findable Work', pdfUrl: null, arxivId: null });

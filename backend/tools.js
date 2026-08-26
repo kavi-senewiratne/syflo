@@ -2,9 +2,9 @@
  * tools.js
  *
  * LLM tools the model can call during a chat completion call.
- * Currently: `web_search`, via Tavily or a local SearXNG (whichever this
- * install has — see search-providers.js). It is offered to the model ONLY
- * when one of them exists; a tool that can only fail is worse than no tool.
+ * Currently: `web_search`, via Tavily under the user's own key (see
+ * search-providers.js). It is offered to the model ONLY when a key is stored;
+ * a tool that can only fail is worse than no tool.
  *
  * Streaming tool-use flow (OpenAI-compatible, also works with Ollama
  * Llama 3.1+):
@@ -19,8 +19,8 @@
 
 // The search itself lives in web-search.js / search-providers.js — shared
 // with the /api/search route and the citation card's silent full-text search.
-// This file used to carry its own copy of the SearXNG call, on a different
-// port than the other copy (8890 here, 8888 there); one address now.
+// This file used to carry its own copy of the search call, against a different
+// port than the other copy (8890 here, 8888 there); one door now.
 const { searchWeb } = require('./web-search');
 const { isSearchAvailable, DEFAULT_MAX_RESULTS, SNIPPET_CHARS } = require('./search-providers');
 
@@ -51,16 +51,30 @@ const WEB_SEARCH_TOOL = {
 const ALL_TOOLS = [WEB_SEARCH_TOOL];
 
 /**
- * The tools this install can actually honour.
+ * The tools this install offers. `web_search` always — key or no key.
  *
- * `web_search` used to be offered unconditionally. Without SearXNG running
- * the model would dutifully call it, receive an error string, and then explain
- * to the user that its search backend is unreachable — a dead end the reader
- * can do nothing about. A tool the machine cannot perform is better left
- * unmentioned: with none configured the model answers from what it knows.
+ * The history is worth keeping, because this rule has now been both ways.
+ * Originally the search was offered unconditionally; with none configured the
+ * model called it, got an error string, and explained to the reader that its
+ * search backend was unreachable — a dead end nobody could act on. So the tool
+ * was hidden, and the model answered from what it knew.
+ *
+ * That fixed the apology and created a worse problem: a question that WANTED
+ * the web ("what is the weather today") came back confidently stale, and the
+ * reader never learned that a search would have helped. The model cannot tell
+ * them, because it was never told the search exists.
+ *
+ * W2 (design/mockup-onboarding-flow.html §06, built 2026-08-25) offers the
+ * tool again — but the failure no longer travels into the answer. The tool
+ * result tells the model to answer from its own knowledge without apologising,
+ * and the SAME result reaches the frontend as a tool event, which turns it
+ * into a card naming the query and asking for a key. The error goes to the
+ * person who can fix it instead of to the model that cannot.
  *
  * `deps` are the search dependencies — `{ db }` for the Tavily key, plus an
- * injectable `fetchImpl` for tests.
+ * injectable `fetchImpl` for tests. Kept in the signature: the answer is a
+ * constant today, and the cache below exists for the next tool that needs to
+ * ask something.
  */
 // The answer is cached for a moment, and that is a correctness requirement,
 // not an optimisation. Warm-up, answer and title are three separate requests
@@ -83,9 +97,24 @@ async function availableTools(deps = {}) {
   if (availabilityCache && Date.now() - availabilityCache.at < AVAILABILITY_TTL_MS) {
     return availabilityCache.tools;
   }
-  const tools = (await isSearchAvailable(deps)) ? [WEB_SEARCH_TOOL] : [];
+  const tools = [WEB_SEARCH_TOOL];
   availabilityCache = { at: Date.now(), tools };
   return tools;
+}
+
+/**
+ * The `tools` field for a completion call, as a spreadable object.
+ *
+ * An EMPTY list must be omitted, not sent as `tools: []`. The two are the same
+ * request to a provider but not the same rendered prompt for Ollama, and the
+ * warm-up, the answer and the title share one KV slot — a `tools: []` on one
+ * side and no field on the other diverges the prefix and costs the whole
+ * prefill (~40 s measured, 2026-07-21). It stayed invisible while SearXNG ran
+ * on every developer machine and the list was never empty; with Tavily as the
+ * only search (ADR-0012) "no search configured" is the DEFAULT state.
+ */
+function toolsField(tools) {
+  return tools && tools.length ? { tools } : {};
 }
 
 // Map tool name → implementation, bound to the search dependencies. Each impl
@@ -108,12 +137,25 @@ function toolImpls(deps = {}) {
         // A named state (no provider, bad key, allowance spent) travels as-is
         // so the frontend's tool-result event can say which one it was
         // instead of parsing a sentence.
+        //
+        // `query` and `instruction` are for the two different readers of this
+        // one result (W2, 2026-08-25). The query lets the card name what would
+        // have been searched — the fact that makes "is a key worth getting?"
+        // answerable. The instruction keeps the model from starting the setup
+        // conversation the card is already having: it must answer from what it
+        // knows, not apologise, and never mention keys or settings, or the
+        // reader meets the same dead end twice in one screen.
         if (found.error) {
-          return JSON.stringify({ error: found.error, message: searchStateMessage(found.error) });
+          return JSON.stringify({
+            error: found.error,
+            query,
+            message: searchStateMessage(found.error),
+            instruction: SEARCH_UNAVAILABLE_INSTRUCTION,
+          });
         }
-        // Exactly the three fields the model has always been given — SearXNG
-        // also reports which engine found a hit, which is for the UI's
-        // attribution line, not for the context window.
+        // Exactly the three fields the model has always been given — a hit may
+        // carry more (an engine name, a score), and that is for the UI, not for
+        // the context window.
         const results = (found.results || []).map((hit) => ({
           title: hit.title,
           url: hit.url,
@@ -127,11 +169,26 @@ function toolImpls(deps = {}) {
   };
 }
 
+/**
+ * What the model must DO when the search could not run (W2).
+ *
+ * Deliberately silent about keys, Tavily and settings: the UI is already
+ * showing a card about exactly that, and an answer repeating it would be the
+ * second dead end on the same screen. "Say plainly" rather than "apologise"
+ * because the honest half of the old behaviour was worth keeping — a stale
+ * answer presented as current is the failure this whole feature exists to fix.
+ */
+const SEARCH_UNAVAILABLE_INSTRUCTION =
+  'Answer the question from your own knowledge. Do not apologise and do not '
+  + 'discuss the search or how to set one up — the app is handling that '
+  + 'separately. If your knowledge may be out of date for this question, say '
+  + 'so plainly in one short sentence.';
+
 /** One sentence per named search state — this is what the model gets to read. */
 function searchStateMessage(error) {
   switch (error) {
     case 'no-search-provider':
-      return 'No web search is configured on this installation (no Tavily key, no SearXNG running).';
+      return 'No web search is configured on this installation (no Tavily key stored).';
     case 'tavily-invalid-key':
       return 'The stored Tavily API key was rejected.';
     case 'tavily-quota-exhausted':
@@ -347,7 +404,7 @@ async function streamWithTools({ client, model, messages, onText, onToolEvent, o
     const makeBody = () => ({
       model,
       messages: convo,
-      ...(toolsDisabled ? {} : { tools: toolList }),
+      ...(toolsDisabled ? {} : toolsField(toolList)),
       ...(extrasEnabled ? extras : {}),
       stream: true,
       // usage chunk at the end of the stream: prompt/response tokens for
@@ -558,4 +615,4 @@ function isTruncatedFinish(finishReason) {
   return finishReason !== 'stop' && finishReason !== 'tool_calls';
 }
 
-module.exports = { ALL_TOOLS, availableTools, invalidateToolAvailability, toolImpls, streamWithTools, isTruncatedFinish, isAbortError };
+module.exports = { ALL_TOOLS, availableTools, toolsField, invalidateToolAvailability, toolImpls, streamWithTools, isTruncatedFinish, isAbortError };

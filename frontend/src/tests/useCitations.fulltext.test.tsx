@@ -5,7 +5,7 @@
  * (design/mockup-citation-card-standard.html § 04).
  *
  * Both cases below were found in the RUNNING app on 2026-08-10, with every
- * engine behind SearXNG serving CAPTCHAs after twenty searches — and both
+ * search engine serving CAPTCHAs after twenty searches — and both
  * made the card state something untrue about the paper.
  */
 
@@ -135,6 +135,49 @@ describe('useCitations — the silent search', () => {
 
     expect(result.current.fulltextState.r1).toBeUndefined();
     expect(result.current.referenceById('r1')?.fulltextSearchFailed).toBe(true);
+  });
+
+  it('does not count a search that was never set up', async () => {
+    // W1 (§06): with no key nobody looked either, so the same rule applies —
+    // and the prefetch queue must stop, or it walks the whole bibliography
+    // recording every row as hopeless.
+    vi.spyOn(api, 'ensureFulltext').mockResolvedValue({
+      ...REFERENCE,
+      fulltextSearchUnavailable: true,
+    });
+    const { result } = renderHook(() => useCitations('p1'));
+    await waitFor(() => expect(result.current.references).toHaveLength(1));
+
+    let thrown: unknown = null;
+    await act(async () => {
+      await result.current.ensureFulltext('r1').catch((e) => { thrown = e; });
+    });
+
+    expect((thrown as { suspended?: boolean })?.suspended).toBe(true);
+    expect(result.current.fulltextState.r1).toBeUndefined();
+    expect(result.current.referenceById('r1')?.fulltextSearchUnavailable).toBe(true);
+  });
+
+  it('searches for real on the next click once a key exists', async () => {
+    // The card's "save and search" leans on this: the miss was never recorded,
+    // so asking again actually asks.
+    const search = vi.spyOn(api, 'ensureFulltext').mockResolvedValue({
+      ...REFERENCE,
+      fulltextSearchUnavailable: true,
+    });
+    const { result } = renderHook(() => useCitations('p1'));
+    await waitFor(() => expect(result.current.references).toHaveLength(1));
+
+    await act(async () => {
+      await result.current.ensureFulltext('r1').catch(() => {});
+    });
+    search.mockResolvedValue({ ...REFERENCE, pdfUrl: 'https://arxiv.org/pdf/1207.0580' });
+    await act(async () => {
+      await result.current.ensureFulltext('r1');
+    });
+
+    expect(search).toHaveBeenCalledTimes(2);
+    expect(result.current.referenceById('r1')?.pdfUrl).toBe('https://arxiv.org/pdf/1207.0580');
   });
 
   it('lets a failed search be tried again, but never repeats a real answer', async () => {

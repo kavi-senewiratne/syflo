@@ -610,15 +610,15 @@ async function resolveReference(db, referenceId, deps = {}) {
  *
  * The paper links a PDF for barely a third of its references (53 of 149,
  * measured 2026-08-10); the rest used to end in "No downloadable PDF
- * available". SearXNG already runs locally, so the gap can be closed without
+ * available". A web search closes the gap without
  * asking the reader anything — and, crucially, WITHOUT showing them a hit
  * list: what this finds becomes `pdfUrl`, and the card then looks exactly
  * like one whose PDF the paper did link (user decision 2026-08-10).
  *
  * Costs at most one web request per reference, ever: a hit and a miss are
  * both remembered in `fulltext_done`. A failure of the search backend is
- * neither — SearXNG being down is not "no PDF exists", so the next click
- * tries again.
+ * neither — a search that could not run is not "no PDF exists", so the next
+ * click tries again.
  *
  * Returns the reference as `loadReferences` shapes it (plus `fulltextHost`
  * and `fulltextSearchFailed`), or null if the reference is unknown.
@@ -705,6 +705,20 @@ async function ensureFulltext(db, referenceId, deps = {}) {
     found = await findFulltext(reference, { searchFn });
   } catch (err) {
     console.warn(`[references] full-text search failed for ${referenceId}: ${err.message}`);
+    // A NAMED search state — no provider, a rejected key, a spent monthly
+    // allowance — is one only a person can repair, so none of them gets a
+    // retry time (W1, design/mockup-onboarding-flow.html §06).
+    //
+    // Originally only 'no-search-provider' landed here. Seen in the running
+    // app 2026-08-24: typing a wrong key into the W1 card produced
+    // 'tavily-invalid-key', which fell through to the branch below — and the
+    // card then showed "Search paused — resuming in 80 s" ABOVE the very card
+    // asking for a key. Two claims, contradicting each other, and a countdown
+    // that could never end. Waiting repairs an engine that shut us out; it
+    // repairs neither a missing key nor a wrong one.
+    if (err.reason) {
+      return shape({ fulltextSearchUnavailable: true, fulltextSearchReason: err.reason });
+    }
     // Shut out for asking too often? Then waiting IS the fix, so the card is
     // told when to try again and does it itself (user decision 2026-08-11).
     // The engines never say how long they will keep us out, so this is a flat

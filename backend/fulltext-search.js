@@ -6,8 +6,8 @@
  *
  * The paper links a PDF for barely a third of its references (53 of 149,
  * measured over the stored corpus 2026-08-10); the rest ended in "No
- * downloadable PDF available". SearXNG already runs locally for the YouTube
- * source, so the gap can be filled without asking the reader anything.
+ * downloadable PDF available". A web search closes that gap without asking
+ * the reader anything.
  *
  * THE READER NEVER SEES A HIT LIST (user decision 2026-08-10): whatever this
  * module returns becomes the reference's `pdfUrl`, and the card then looks
@@ -90,7 +90,7 @@ function pdfUrlOf(url) {
  * How deep into the result list to look.
  *
  * The LLM's search tool trims to 8 to save context; here that threw away the
- * answer. Measured against the running SearXNG (2026-08-10): the arXiv page
+ * answer. Measured against the search then in use (2026-08-10): the arXiv page
  * for "Deep Residual Learning for Image Recognition" is hit number NINE,
  * behind a slide deck, GitHub and ResearchGate — the trusted sources sit
  * BELOW the popular ones, because popularity is not what we are after.
@@ -118,12 +118,15 @@ function queryFor({ title, authors, year, rawText }) {
 /**
  * Did this answer come from a search that could not actually run?
  *
- * Measured in the running app 2026-08-10: twenty serial searches were enough
- * for every engine behind SearXNG to shut us out — brave and google cse
- * "Suspended: too many requests", duckduckgo and startpage with a CAPTCHA.
- * SearXNG then answers 200 with an EMPTY result list, which reads exactly
- * like "this paper has no free full text". Sixteen references were recorded
- * as hopeless that way before anyone had looked at them.
+ * Measured in the running app 2026-08-10 (against the metasearch then in
+ * use): twenty serial searches were enough for every underlying engine to
+ * shut us out — brave and google cse "Suspended: too many requests",
+ * duckduckgo and startpage with a CAPTCHA. The search then answers 200 with an
+ * EMPTY result list, which reads exactly like "this paper has no free full
+ * text". Sixteen references were recorded as hopeless that way before anyone
+ * had looked at them. Tavily reports its own limits as errors rather than as
+ * an empty list, so this guard is now belt and braces — it stays because the
+ * cost of the misreading it prevents is a permanently wrong "no PDF exists".
  *
  * An empty list plus a suspended engine is therefore not an answer at all.
  */
@@ -137,7 +140,7 @@ function wasShutOut(results, unresponsiveEngines) {
 /**
  * The best downloadable full text for a reference, or null when nothing is
  * good enough. `searchFn(query)` is injected — in production it is the same
- * SearXNG proxy the /api/search route uses.
+ * search the /api/search route uses.
  *
  * Returns `{ url, host }`: the host is what the card shows above the doors,
  * the one visible trace that this came from the web rather than the paper.
@@ -160,6 +163,11 @@ async function findFulltext(reference, { searchFn } = {}) {
     // The caller must not cache this as a miss, and the prefetch queue must
     // back off rather than burn through the rest of the bibliography.
     err.suspended = true;
+    // Two states of "nobody looked", and only one is fixed by waiting: an
+    // engine that shut us out lets us back in, a search that was never set up
+    // does not. `reason` is what lets the card ask for a key instead of
+    // counting down a wait that can never end (W1, §06).
+    if (error) err.reason = error;
     throw err;
   }
 

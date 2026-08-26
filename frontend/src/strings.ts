@@ -23,6 +23,7 @@ const en = {
     tabs: {
       appearance: 'Appearance',
       model: 'Model',
+      search: 'Web search',
       language: 'Language',
       instructions: 'Instructions',
     },
@@ -143,6 +144,28 @@ const en = {
       libraryNote: 'The active model is switched from the chat composer.',
       installOllama: 'Install Ollama',
     },
+    // W3 (design/mockup-onboarding-flow.html §06): the search as a provider
+    // row. W1 asks at the point of need, but a reader who has not opened a PDF
+    // never reaches that point — so the same key has a home here. Numbers and
+    // limits, never a recommendation (§07's language rule).
+    search: {
+      // Its own tab (user decision 2026-08-24), between Model and Language:
+      // both answer "where do Syflo's answers come from?".
+      label: 'Web search',
+      allowance: 'Tavily · 1000 searches a month free, no credit card',
+      removeKey: 'Remove key',
+      keyStored: 'Key stored',
+      notSetUp: 'Not set up',
+      keyLabel: 'Tavily API key',
+      // No trailing ellipsis: the provider-key input on this same tab is found
+      // in tests by a placeholder regex that an "…" would also match, and two
+      // hits fail the query. A shape is more useful than a truncation anyway.
+      keyPlaceholder: 'tvly-xxxxxxxx',
+      replacePlaceholder: 'Enter a new key to replace it',
+      getKey: 'Get a free key',
+      withoutNote:
+        'Without a key Syflo answers from what the model knows, and cannot search for the PDF of a reference the paper does not link.',
+    },
     footer: {
       activated: 'Activated',
       needsKey: (label: string) => `Add an API key to activate ${label}`,
@@ -225,21 +248,6 @@ const en = {
     stopRecording: 'Stop recording',
     stopResponse: 'Stop response',
     send: 'Send',
-    // Guided empty state (ADR-0008, grill 12b): active cloud provider
-    // without a key — the notice card replaces the composer row.
-    cloudSetup: {
-      // W9 (cost tiers 2026-07-30): a path chooser, not a provider pitch —
-      // a fresh install has every provider. No cost badges: the row titles
-      // carry the tier.
-      title: 'Get set up in about a minute',
-      body: 'Answers come from an AI model of your choice — under your own API key or fully local.',
-      pathFree: 'Start for free',
-      pathFreeSub: 'Gemini Flash or Groq',
-      pathPaid: 'Use your own account',
-      pathPaidSub: 'OpenAI, Claude, Gemini Pro',
-      pathLocal: 'Fully private',
-      pathLocalSub: 'local model, no account',
-    },
     recordingVolumeAria: 'Recording volume',
     // Visible auto-retry after a 429 (ADR-0008).
     rateLimited: (seconds: number) => `Rate limit reached — retrying in ${seconds}s`,
@@ -399,6 +407,39 @@ const en = {
     // (mockup-quote-jump-to-source.html, variant A).
     quoteJumpTitle: 'Go to the source of this quote',
     sources: 'Sources',
+    // W2 (design/mockup-onboarding-flow.html §06). The card exists because the
+    // model cannot say this itself: it was never told a web search exists.
+    // Short, and no apology — the answer above is real, it is just older than
+    // the question.
+    /* Variant C of design/mockup-search-wish-card.html. Two facts the old copy
+       left to inference: a Tavily key is the ONLY way Syflo searches at all
+       (ADR-0012 dropped SearXNG), and the free tier is not a trial —
+       1000 a month is ~33 a day, which covers everyday work. The offer is its
+       own line: it is a different kind of sentence from what happened. */
+    searchWish: {
+      title: 'Answered without a web search',
+      body: (query: string) => `Syflo wanted to look up “${query}”.`,
+      offer: 'A free Tavily key switches web search on.',
+      allowance: 'Free · 1000 a month, ~33 a day',
+      rejectedTitle: 'The search key was rejected',
+      rejectedBody: 'Tavily did not accept the stored key, so nobody looked.',
+      replaceKey: 'Replace the key',
+      quotaTitle: 'Search allowance used up',
+      quotaBody: 'The 1000 searches for this month are gone — Tavily resets on the 1st.',
+      addKey: 'Add a search key',
+      keyTitle: 'Paste your Tavily key',
+      /* Rides on the title line in parentheses: where the key lives is an
+         aside, not a claim that deserves a line of its own. */
+      keyBody: 'stored on this machine only',
+      /* Second line: what the key does. Same split as `offer` above. */
+      keyEffect: 'Syflo asks again right away, then searches whenever an answer needs it.',
+      keyLabel: 'Tavily API key',
+      keyPlaceholder: 'tvly-xxxxxxxx',
+      save: 'Save & retry',
+      saving: 'Saving…',
+      getKey: 'Get a free key at tavily.com',
+      dismiss: 'Dismiss',
+    },
     assistantThinking: 'Assistant is thinking',
     tipLabel: 'Tip: ',
   },
@@ -727,6 +768,36 @@ const en = {
     // out is backstage — what they need to know is that Syflo stopped
     // looking, and starts again by itself in n seconds.
     searchRetryIn: (seconds: number) => `Search paused — resuming in ${seconds} s`,
+    // W1 (design/mockup-onboarding-flow.html §06): the ask lands where a
+    // search WOULD have run. No countdown here — waiting repairs an engine
+    // that shut us out, never a search that was never set up.
+    //
+    // The wording follows §07's language rule: numbers and limits, never a
+    // recommendation. "1000 searches a month free" is a fact the reader can
+    // weigh; "recommended" would be us deciding for them.
+    // Three short lines, not a paragraph (user report 2026-08-24: "it looks
+    // like a lot of text now"). The first draft quoted the paper's title back
+    // at the reader — but the title is already the card's own heading, two
+    // centimetres above, so the sentence spent three of its four lines saying
+    // nothing new.
+    searchSetupTitle: 'No freely available full text found',
+    searchSetupBody: 'A search key would let Syflo look for the PDF.',
+    searchSetupFree: 'Tavily · 1000 searches a month, free',
+    // Three named states, three sentences. Found in the running app
+    // 2026-08-24: with a rejected key the card asked for "a search key" as if
+    // none existed, so the obvious next move was to type the same wrong key
+    // again.
+    searchKeyRejectedTitle: 'The search key was rejected',
+    searchKeyRejectedBody: 'Tavily did not accept the stored key.',
+    searchQuotaTitle: 'Search allowance used up',
+    searchQuotaBody: 'The 1000 searches for this month are used up — Tavily resets on the 1st.',
+    searchSetupAddKey: 'Add a search key',
+    searchSetupKeyLabel: 'Tavily API key',
+    searchSetupKeyPlaceholder: 'tvly-…',
+    searchSetupSave: 'Save and search',
+    searchSetupSaving: 'Saving…',
+    searchSetupGetKey: 'Get a free key',
+    searchSetupScholar: 'Open in Google Scholar',
     goToTree: 'Go to tree',
     searchTheWeb: 'Search the web',
     loadingPaper: 'Loading paper…',
@@ -803,6 +874,7 @@ const de: Strings = {
     tabs: {
       appearance: 'Erscheinungsbild',
       model: 'Modell',
+      search: 'Websuche',
       language: 'Sprache',
       instructions: 'Anweisungen',
     },
@@ -908,6 +980,19 @@ const de: Strings = {
       libraryNote: 'Das aktive Modell wird im Chat-Eingabefeld gewechselt.',
       installOllama: 'Ollama installieren',
     },
+    search: {
+      label: 'Websuche',
+      allowance: 'Tavily · 1000 Suchen im Monat kostenlos, keine Kreditkarte',
+      removeKey: 'Schlüssel entfernen',
+      keyStored: 'Schlüssel gespeichert',
+      notSetUp: 'Noch nicht eingerichtet',
+      keyLabel: 'Tavily-API-Schlüssel',
+      keyPlaceholder: 'tvly-xxxxxxxx',
+      replacePlaceholder: 'Neuen Schlüssel eingeben, um ihn zu ersetzen',
+      getKey: 'Kostenlosen Schlüssel holen',
+      withoutNote:
+        'Ohne Schlüssel antwortet Syflo nur aus dem Wissen des Modells und kann nicht nach dem PDF einer Referenz suchen, die das Paper nicht verlinkt.',
+    },
     footer: {
       activated: 'Aktiviert',
       needsKey: (label: string) => `Füge einen API-Schlüssel hinzu, um ${label} zu aktivieren`,
@@ -972,16 +1057,6 @@ const de: Strings = {
     stopRecording: 'Aufnahme stoppen',
     stopResponse: 'Antwort stoppen',
     send: 'Senden',
-    cloudSetup: {
-      title: 'In etwa einer Minute startklar',
-      body: 'Antworten kommen von einem KI-Modell deiner Wahl — über deinen eigenen API-Key oder komplett lokal.',
-      pathFree: 'Kostenlos starten',
-      pathFreeSub: 'Gemini Flash oder Groq',
-      pathPaid: 'Eigenes Konto nutzen',
-      pathPaidSub: 'OpenAI, Claude, Gemini Pro',
-      pathLocal: 'Komplett privat',
-      pathLocalSub: 'lokales Modell, ohne Konto',
-    },
     recordingVolumeAria: 'Aufnahme-Lautstärke',
     rateLimited: (seconds: number) => `Rate-Limit erreicht — neuer Versuch in ${seconds} s`,
     retrying: 'Versuche erneut…',
@@ -1087,6 +1162,27 @@ const de: Strings = {
     nowAnswering: (question: string) => `Gerade dran: „${question}…“`,
     quoteJumpTitle: 'Zur Quelle dieses Zitats springen',
     sources: 'Quellen',
+    searchWish: {
+      title: 'Ohne Websuche beantwortet',
+      body: (query: string) => `Syflo wollte „${query}" nachsehen.`,
+      offer: 'Ein kostenloser Tavily-Schlüssel schaltet die Websuche frei.',
+      allowance: 'Kostenlos · 1000 im Monat, ~33 am Tag',
+      rejectedTitle: 'Der Such-Schlüssel wurde abgelehnt',
+      rejectedBody: 'Tavily hat den gespeicherten Schlüssel nicht akzeptiert — es hat niemand nachgesehen.',
+      replaceKey: 'Schlüssel ersetzen',
+      quotaTitle: 'Such-Kontingent aufgebraucht',
+      quotaBody: 'Die 1000 Suchen dieses Monats sind weg — Tavily setzt am 1. zurück.',
+      addKey: 'Such-Schlüssel hinzufügen',
+      keyTitle: 'Tavily-Schlüssel einfügen',
+      keyBody: 'wird nur auf diesem Rechner gespeichert',
+      keyEffect: 'Syflo fragt gleich neu und sucht danach, wann immer eine Antwort es braucht.',
+      keyLabel: 'Tavily-API-Schlüssel',
+      keyPlaceholder: 'tvly-xxxxxxxx',
+      save: 'Speichern & neu fragen',
+      saving: 'Wird gespeichert …',
+      getKey: 'Kostenlosen Schlüssel auf tavily.com holen',
+      dismiss: 'Ausblenden',
+    },
     assistantThinking: 'Der Assistent denkt nach',
     tipLabel: 'Tipp: ',
   },
@@ -1342,6 +1438,20 @@ const de: Strings = {
     noFulltextFound: 'Kein frei verfügbarer Volltext gefunden.',
     searchUnreachable: 'Die Websuche ist gerade nicht erreichbar.',
     searchRetryIn: (seconds: number) => `Suche pausiert — weiter in ${seconds} s`,
+    searchSetupTitle: 'Kein freier Volltext gefunden',
+    searchSetupBody: 'Mit einem Such-Schlüssel kann Syflo nach dem PDF suchen.',
+    searchSetupFree: 'Tavily · 1000 Suchen im Monat, kostenlos',
+    searchKeyRejectedTitle: 'Der Such-Schlüssel wurde abgelehnt',
+    searchKeyRejectedBody: 'Tavily hat den gespeicherten Schlüssel nicht akzeptiert.',
+    searchQuotaTitle: 'Such-Kontingent aufgebraucht',
+    searchQuotaBody: 'Die 1000 Suchen dieses Monats sind aufgebraucht — Tavily setzt am 1. zurück.',
+    searchSetupAddKey: 'Such-Schlüssel hinzufügen',
+    searchSetupKeyLabel: 'Tavily-API-Schlüssel',
+    searchSetupKeyPlaceholder: 'tvly-…',
+    searchSetupSave: 'Speichern und suchen',
+    searchSetupSaving: 'Wird gespeichert …',
+    searchSetupGetKey: 'Kostenlosen Schlüssel holen',
+    searchSetupScholar: 'Bei Google Scholar öffnen',
     goToTree: 'Zum Baum',
     searchTheWeb: 'Im Web suchen',
     loadingPaper: 'Paper wird geladen …',

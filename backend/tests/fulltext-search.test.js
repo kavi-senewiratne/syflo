@@ -154,7 +154,7 @@ describe('findFulltext', () => {
   });
 
   it('looks past the first handful of hits', async () => {
-    // Measured against the running SearXNG 2026-08-10: for "Deep Residual
+    // Measured against the search in use 2026-08-10: for "Deep Residual
     // Learning for Image Recognition" the arXiv page is hit number NINE —
     // behind a course slide deck, GitHub and ResearchGate. Trimming to the
     // top 8 (what the LLM search tool does, to save context) threw the only
@@ -204,7 +204,7 @@ describe('findFulltext', () => {
   });
 
   it('says nothing rather than something when the search itself fails', async () => {
-    // SearXNG not running is not "no PDF exists" — but this module's answer
+    // A search that could not run is not "no PDF exists" — but this module's answer
     // is the same either way; the caller distinguishes the two.
     await expect(
       findFulltext(SENNRICH, {
@@ -216,8 +216,8 @@ describe('findFulltext', () => {
   });
 });
 
-describe('when SearXNG has been shut out', () => {
-  // Since the search became optional (Tavily or SearXNG, 2026-08-21), "nothing
+describe('when the search has been shut out', () => {
+  // Since the search can be absent altogether (Tavily key or nothing, ADR-0012), "nothing
   // is set up" arrives as a RETURNED error instead of a throw. Caching that as
   // "this reference has no full text" would be wrong: nobody ever looked.
   it('does not report "nothing found" when no search provider is configured', async () => {
@@ -232,9 +232,54 @@ describe('when SearXNG has been shut out', () => {
     ).rejects.toMatchObject({ suspended: true });
   });
 
+  // W1 (design/mockup-onboarding-flow.html §06): "nobody has set up a search"
+  // and "the search shut us out" both mean nobody looked, but only one of them
+  // is fixed by waiting. The reason travels with the error so the card can ask
+  // for a key instead of counting down a wait that will never help.
+  it('names the reason when no search provider is configured', async () => {
+    const searchFn = async () => ({
+      provider: null,
+      error: 'no-search-provider',
+      results: [],
+    });
+
+    await expect(
+      findFulltext({ title: 'Layer Normalization' }, { searchFn }),
+    ).rejects.toMatchObject({ suspended: true, reason: 'no-search-provider' });
+  });
+
+  // Found in the running app 2026-08-24, after typing a wrong key into the W1
+  // card: the search came back `tavily-invalid-key`, which is not
+  // 'no-search-provider' — so it fell into the countdown branch and the card
+  // said "Search paused — resuming in 80 s". Waiting repairs a bad key exactly
+  // as little as it repairs a missing one. Every named error travels.
+  it('names a rejected key and a spent allowance too', async () => {
+    for (const error of ['tavily-invalid-key', 'tavily-quota-exhausted']) {
+      const err = await findFulltext(
+        { title: 'Layer Normalization' },
+        { searchFn: async () => ({ provider: 'tavily', error, results: [] }) },
+      ).catch((e) => e);
+
+      expect(err.suspended).toBe(true);
+      expect(err.reason).toBe(error);
+    }
+  });
+
+  it('leaves the reason unset when the engines shut us out', async () => {
+    const err = await findFulltext(SENNRICH, {
+      searchFn: async () => ({
+        results: [],
+        unresponsiveEngines: [['brave', 'Suspended: too many requests']],
+      }),
+    }).catch((e) => e);
+
+    expect(err.suspended).toBe(true);
+    expect(err.reason).toBeUndefined();
+  });
+
   it('does not report "nothing found" while every engine is suspended', async () => {
     // Measured in the running app 2026-08-10: twenty serial searches were
-    // enough for SearXNG to answer with zero results and
+    // enough for the search to answer with zero results and
     //   brave: "Suspended: too many requests", duckduckgo: "CAPTCHA",
     //   google cse: "Suspended: too many requests", startpage: "CAPTCHA"
     // — sixteen references were then recorded as "no full text" although

@@ -35,6 +35,7 @@ const ollamaSettings: Settings = {
   anthropic_api_key_set: false,
   custom_instructions: '',
   custom_instructions_enabled: true,
+  tavily_api_key_set: false,
 };
 
 // Frischer Install (ADR-0008): Gemini 2.5 Flash ist der Default, kein Key.
@@ -110,7 +111,7 @@ const usageSummary: UsageSummary = {
     gemini: { requests: 12, requestsToday: 5, promptTokens: 10000, completionTokens: 4000, estimatedUsd: 0.02 },
     openai: { requests: 3, requestsToday: 2, promptTokens: 2000, completionTokens: 800, estimatedUsd: 0.11 },
   },
-  modelsToday: { 'gemini/gemini-2.5-flash': 5 },
+  modelsToday: { 'gemini/gemini-2.5-flash': 5 }, kindsToday: {},
 };
 
 beforeEach(() => {
@@ -333,6 +334,91 @@ describe('SettingsModal – cloud providers (ADR-0008)', () => {
 // ── Ollama model list (frozen fallback, ADR-0008 amendment) ─────────────────
 // No download, no remove, no hardware recommendation: the app only lists the
 // installed vision models and points to `ollama pull` in the terminal.
+
+// W3 (design/mockup-onboarding-flow.html §06): the search is a provider like
+// any other — same mask, same pattern. W1 asks at the point of need, but a
+// reader who has not opened a PDF yet never reaches that point, so the
+// settings carry the same field. The mockup's "own SearXNG" option is gone
+// with ADR-0012: Tavily is the whole of it.
+describe('SettingsModal – web search tab (W3)', () => {
+  // Its OWN tab (user decision 2026-08-24), not a row under the model steps.
+  // The search belongs to no provider and is never "activated", so it does not
+  // share the model tab's Activate button either — like Instructions, it has
+  // its own Save.
+  async function openSearchTab(settings: Settings = geminiSettings) {
+    vi.mocked(api.getSettings).mockResolvedValue(settings);
+    render(<SettingsModal open onClose={vi.fn()} initialTab="search" />);
+    return screen.findByTestId('settings-search-row');
+  }
+
+  it('is reachable as a tab of its own', async () => {
+    vi.mocked(api.getSettings).mockResolvedValue(geminiSettings);
+    render(<SettingsModal open onClose={vi.fn()} />);
+    await screen.findByRole('button', { name: /appearance/i });
+
+    fireEvent.click(screen.getByRole('button', { name: /web search/i }));
+
+    expect(await screen.findByTestId('settings-search-row')).toBeInTheDocument();
+    // And it is NOT hiding under the model steps any more.
+    fireEvent.click(screen.getByRole('button', { name: /^model$/i }));
+    expect(screen.queryByTestId('settings-search-row')).not.toBeInTheDocument();
+  });
+
+  it('offers the search key with its free allowance as a number', async () => {
+    const row = await openSearchTab();
+
+    expect(row).toHaveTextContent('1000 searches a month free');
+    // Numbers and limits, never a recommendation (§07's language rule).
+    expect(row).toHaveTextContent('Not set up');
+  });
+
+  it('says so when a key is already stored, without showing it', async () => {
+    const row = await openSearchTab({ ...geminiSettings, tavily_api_key_set: true });
+
+    expect(row).toHaveTextContent('Key stored');
+    expect(row).not.toHaveTextContent('tvly-');
+  });
+
+  it('saves the typed key with its own Save button', async () => {
+    vi.mocked(api.updateSettings).mockResolvedValue({ ...geminiSettings, tavily_api_key_set: true });
+    await openSearchTab();
+
+    fireEvent.change(screen.getByTestId('settings-search-key-input'), {
+      target: { value: 'tvly-typed-here' },
+    });
+    fireEvent.click(screen.getByTestId('settings-search-save'));
+
+    // ONLY the key — the search tab must not resave the provider or the model.
+    await waitFor(() =>
+      expect(api.updateSettings).toHaveBeenCalledWith({ tavily_api_key: 'tvly-typed-here' }),
+    );
+  });
+
+  it('keeps Save out of reach while the field is empty', async () => {
+    await openSearchTab({ ...geminiSettings, tavily_api_key_set: true });
+
+    // An empty field means "leave it alone" — sending '' would clear a key
+    // the reader never touched.
+    expect(screen.getByTestId('settings-search-save')).toBeDisabled();
+    fireEvent.change(screen.getByTestId('settings-search-key-input'), { target: { value: '  ' } });
+    expect(screen.getByTestId('settings-search-save')).toBeDisabled();
+  });
+
+  it('offers to remove a stored key, and only then sends an empty one', async () => {
+    vi.mocked(api.updateSettings).mockResolvedValue({ ...geminiSettings, tavily_api_key_set: false });
+    await openSearchTab({ ...geminiSettings, tavily_api_key_set: true });
+
+    fireEvent.click(screen.getByTestId('settings-search-remove'));
+
+    await waitFor(() => expect(api.updateSettings).toHaveBeenCalledWith({ tavily_api_key: '' }));
+  });
+
+  it('has nothing to remove when no key is stored', async () => {
+    await openSearchTab();
+
+    expect(screen.queryByTestId('settings-search-remove')).not.toBeInTheDocument();
+  });
+});
 
 describe('SettingsModal – Ollama model list (frozen fallback)', () => {
   it('lists installed models with an Active badge and no download/remove UI', async () => {

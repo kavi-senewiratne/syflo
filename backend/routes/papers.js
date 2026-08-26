@@ -582,14 +582,14 @@ module.exports = (db, uploadsDir, options = {}) => {
   //
   // Two thirds of a paper's references carry no PDF link (96 of 149, measured
   // 2026-08-10) and used to end in "No downloadable PDF available". This asks
-  // the local SearXNG for the full text and, if it finds one it is sure of,
+  // the web search for the full text and, if it finds one it is sure of,
   // hands back a reference that opens like any other — no hit list, no choice
   // to make. One request per reference, ever: hit and miss are both cached.
   router.post('/:id/references/:refId/fulltext', async (req, res, next) => {
     try {
       const reference = await ensureFulltext(db, req.params.refId, {
-        // Bind db so the reference search reaches Tavily as well; without it
-        // this path would keep requiring a running SearXNG (2026-08-21).
+        // Bind db so the reference search can read the Tavily key; without it
+        // this path could not search at all (2026-08-21).
         webSearchFn: options.webSearchFn
           || ((query, depth) => defaultWebSearch(query, { db, max: depth })),
       });

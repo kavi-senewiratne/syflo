@@ -138,6 +138,16 @@ export interface Message {
   // during the streaming session this message was produced in. Populated by
   // the streaming client; lost on page reload.
   sources?: SearchSource[];
+  // Transient (not persisted): the model CALLED web_search and nobody looked —
+  // no key, a rejected one, or the monthly allowance spent (W2,
+  // design/mockup-onboarding-flow.html §06). Carries the query the model
+  // formulated, which is what makes the card's ask answerable: "is a key worth
+  // getting for questions like this one?"
+  //
+  // Transient on purpose. The card belongs to the moment the answer arrived; on
+  // reload the answer is still there and re-asking is the reader's move, not a
+  // note the app keeps nagging with.
+  searchWish?: { query: string; error: string };
   // Transient (not persisted): wie lange das Modell vor dieser Antwort
   // nachgedacht hat (nur bei think=on) — rendert die "Thought for Xs"-Zeile.
   thoughtForSeconds?: number;
@@ -341,11 +351,20 @@ export interface PaperReference {
   // is meant to be invisible.
   fulltextHost?: string | null;
   // Set when the search backend itself failed. Not the same as "no PDF
-  // exists": SearXNG being down says nothing about the paper.
+  // exists": a search that could not run says nothing about the paper.
   fulltextSearchFailed?: boolean;
   // When it is worth asking again, ISO — set only when the failure was a
   // rate limit, which time alone repairs. The card counts it down.
   fulltextRetryAt?: string | null;
+  // No web search is set up at all (W1, design/mockup-onboarding-flow.html
+  // §06). Distinct from `fulltextSearchFailed` because the cures differ: that
+  // one is repaired by waiting, this one only by a key — so the card asks for
+  // one instead of starting a countdown that could never end.
+  fulltextSearchUnavailable?: boolean;
+  // Which named state it was: 'no-search-provider', 'tavily-invalid-key' or
+  // 'tavily-quota-exhausted'. All three need a person, none needs a wait — but
+  // the card says a different sentence for each.
+  fulltextSearchReason?: string | null;
 }
 
 export interface PaperCitation {
@@ -643,7 +662,7 @@ export interface Video {
   transcript?: string;
 }
 
-// Ein Treffer der Video-Suche (GET /api/youtube/search, lokale SearXNG-
+// Ein Treffer der Video-Suche (GET /api/youtube/search, InnerTube-
 // YouTube-Engine). duration kommt vorformatiert ("59:47") oder fehlt.
 // published ist YouTubes relative Datumsangabe ("9 months ago"), per
 // InnerTube beigemischt — fehlt, wenn die Anreicherung fehlschlägt.
@@ -695,6 +714,9 @@ export interface Settings {
   // Prompt; abschaltbar, ohne dass der Text verloren geht. Max. 2000 Zeichen.
   custom_instructions: string;
   custom_instructions_enabled: boolean;
+  // Web search (ADR-0012: Tavily is the only one). Same rule as the LLM keys —
+  // the frontend learns THAT a key is stored, never which.
+  tavily_api_key_set: boolean;
 }
 
 // ─── Model registry (ADR-0008) ───────────────────────────────────────────────
@@ -795,6 +817,11 @@ export interface SettingsUpdate {
   anthropic_api_key?: string;
   custom_instructions?: string;
   custom_instructions_enabled?: boolean;
+  // The web search key (W1, design/mockup-onboarding-flow.html §06). Stored
+  // unvalidated — Tavily has no free "is this key good?" endpoint, so a wrong
+  // key surfaces on first use instead of costing one of the 1000 monthly
+  // requests to check.
+  tavily_api_key?: string;
 }
 
 // ─── Vision gate at attach time (mockup-onboarding-flow §04, V1+V2) ─────────

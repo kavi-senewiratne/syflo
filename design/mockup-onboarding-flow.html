@@ -1252,7 +1252,9 @@
 <div class="section">
   <div class="section-head">
     <h2><span class="num">§08</span> Bauplan — Reihenfolge und Stand</h2>
-    <p>Stand 15.08.2026. Alles unentschieden markierte wartet auf die Durchsicht dieser Seite.</p>
+    <p>Stand 24.08.2026, gegen den Arbeitsbaum abgeglichen — jede Zeile mit einer Datei oder einem
+       <code>grep</code>-Treffer belegt, nicht aus der Erinnerung. Schritte 1–7 sind gebaut; Schritt 8
+       entsteht gerade. Alles unentschieden markierte wartet auf die Durchsicht dieser Seite.</p>
   </div>
   <div class="variant wide">
     <div class="scroll-x">
@@ -1262,52 +1264,55 @@
           <tr>
             <td><b>0 · YouTube-Suche</b></td>
             <td>SearXNG raus, nur noch InnerTube (<code>youtube.js</code>)</td>
-            <td><b style="color:var(--ok)">gebaut</b>, Tests 19/19, live geprüft — nicht committet</td>
+            <td><b style="color:var(--ok)">gebaut</b> — SearXNG ganz entfernt (ADR-0012)</td>
           </tr>
           <tr>
             <td><b>1 · Datenordner</b></td>
             <td><code>~/.syflo/</code> statt Programmordner — verhindert Datenverlust bei <code>npm update</code></td>
-            <td>offen, klein</td>
+            <td><b style="color:var(--ok)">gebaut</b> — <code>backend/paths.js</code>, <code>SYFLO_DATA_DIR</code> überschreibt</td>
           </tr>
           <tr>
             <td><b>2 · Gemini-Fehler auspacken</b></td>
             <td><code>[{error}]</code> normalisieren → Tageslimit, Abrechnung und 404 werden wieder erkannt</td>
-            <td>offen, klein</td>
+            <td><b style="color:var(--ok)">gebaut</b> — <code>quota.js</code>, <code>Array.isArray(details)</code></td>
           </tr>
           <tr>
             <td><b>3 · Reset-Horizont</b></td>
             <td><code>msUntilQuotaReset(provider)</code> — Gemini pazifisch, Groq UTC</td>
-            <td>offen, klein</td>
+            <td><b style="color:var(--ok)">gebaut</b> — <code>quota.js</code>, Mitternacht pazifisch</td>
           </tr>
           <tr>
             <td><b>4 · Zähler ehrlich</b></td>
             <td><code>usage_log</code> mit <code>kind</code>: jeder Aufruf, auch Titel, /btw, Explain <em>und Suchen</em></td>
-            <td>offen, mittel</td>
+            <td><b style="color:var(--ok)">gebaut</b> — <code>usage.js</code> mit <code>kind</code> + <code>outcome</code></td>
           </tr>
           <tr>
             <td><b>5 · Portal-Helfer</b></td>
             <td>Popover per <code>createPortal</code> — behebt das abgeschnittene Modell-Fenster</td>
-            <td>offen, klein</td>
+            <td><b style="color:var(--ok)">gebaut</b> — <code>components/Popover.tsx</code></td>
           </tr>
           <tr>
             <td><b>6 · npm-Paket</b></td>
             <td>Wurzel-<code>package.json</code> mit <code>bin</code>, Pfade im <code>main.js</code>, Backend über <code>process.execPath</code></td>
-            <td>offen, mittel</td>
+            <td><b style="color:var(--ok)">gebaut</b> — <code>bin/syflo.js</code>, <code>bin/lib/launch.js</code>; <code>npm pack</code> sauber</td>
           </tr>
           <tr>
             <td><b>7 · Einbettungen</b></td>
             <td><code>bge-m3</code> über <code>node-llama-cpp</code> — Ollama nicht mehr nötig für Cloud-Nutzer</td>
-            <td>offen, groß</td>
+            <td><b style="color:var(--ok)">gebaut</b> — <code>backend/embeddings.js</code>; 605-MB-GGUF beim Installieren</td>
           </tr>
           <tr>
             <td><b>8 · Websuche</b></td>
             <td>Tavily als Anbieter; SearXNG aus <code>tools.js</code> und <code>references.js</code>; Docker bleibt optional</td>
-            <td>offen, mittel — Entwurf in §06</td>
+            <td><b style="color:var(--warn)">in Arbeit</b> — Backend steht (<code>web-search.js</code>,
+                <code>search-providers.js</code>), die Schlüssel-Oberfläche aus §06 entsteht gerade</td>
           </tr>
           <tr>
             <td><b>9 · Oberfläche</b></td>
             <td>Erster Start (§01/§03), sechs Zustände (§02), Bildfall (§04), Gratis-Anbieter (§07)</td>
-            <td>wartet auf Varianten-Entscheidung</td>
+            <td><b style="color:var(--warn)">teilweise</b> — §02 und §07 gebaut
+                (<code>tests/ModelStates.test.tsx</code>, <code>tests/FreeProviderSetup.test.tsx</code>);
+                §01/§03 und §04 warten weiter auf die Varianten-Entscheidung</td>
           </tr>
         </tbody>
       </table>

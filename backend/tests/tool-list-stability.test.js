@@ -12,7 +12,10 @@
  * diverges and a warm cache is thrown away, which on a 20k-token paper costs
  * roughly a minute of prefill (ADR-0007's benchmark).
  *
- * Hence a short-lived cache, and hence these tests.
+ * Since W2 (2026-08-25) the list no longer depends on the key at all, which
+ * makes it stable by construction — but the cache and these tests stay, both
+ * as the guard for whatever tool comes next and because the stability is the
+ * property worth stating out loud.
  */
 
 const { availableTools, invalidateToolAvailability } = require('../tools');
@@ -31,9 +34,18 @@ describe('availableTools', () => {
     expect(tools.map(t => t.function.name)).toEqual(['web_search']);
   });
 
-  it('offers nothing when neither provider is there, so the model is not tempted', async () => {
-    const fetchImpl = jest.fn().mockRejectedValue(new Error('ECONNREFUSED'));
-    expect(await availableTools({ db: dbWithKey(() => ''), fetchImpl })).toEqual([]);
+  // W2 (design/mockup-onboarding-flow.html §06): the search is offered even
+  // with no key, so the model CALLS it — and the call is the only way anyone
+  // learns that this question wanted the web. Hiding the tool meant the reader
+  // got a confidently stale answer and never found out why.
+  //
+  // The old rule (hide it, or the model apologises for its unreachable search
+  // backend) is kept by routing the failure to the UI instead of into the
+  // answer: the tool result tells the model to answer anyway, and the frontend
+  // turns the same result into a card asking for a key.
+  it('offers the web search with no key too, so the wish becomes visible', async () => {
+    const tools = await availableTools({ db: dbWithKey(() => '') });
+    expect(tools.map(t => t.function.name)).toEqual(['web_search']);
   });
 
   it('answers the same within the cache window, even if the key changes underneath', async () => {
@@ -46,24 +58,13 @@ describe('availableTools', () => {
     expect(second).toBe(first); // the very same array, not just equal
   });
 
-  it('checks again once the availability is invalidated', async () => {
-    let key = 'tvly-abc';
-    const fetchImpl = jest.fn().mockRejectedValue(new Error('ECONNREFUSED'));
-    const db = dbWithKey(() => key);
-    expect(await availableTools({ db, fetchImpl })).toHaveLength(1);
-
-    key = '';
-    invalidateToolAvailability();
-
-    expect(await availableTools({ db, fetchImpl })).toEqual([]);
-  });
-
-  it('does not probe SearXNG again for a cached answer', async () => {
+  it('asks nothing over the network to decide, cached or not', async () => {
+    // Since ADR-0012 the answer is a settings lookup; since W2 it is not even
+    // that — but a probe creeping back in would break the cache's promise.
     const fetchImpl = jest.fn().mockRejectedValue(new Error('ECONNREFUSED'));
     const db = dbWithKey(() => '');
     await availableTools({ db, fetchImpl });
-    const callsAfterFirst = fetchImpl.mock.calls.length;
     await availableTools({ db, fetchImpl });
-    expect(fetchImpl.mock.calls.length).toBe(callsAfterFirst);
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 });

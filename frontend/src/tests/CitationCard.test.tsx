@@ -406,6 +406,68 @@ describe('CitationCard', () => {
     });
   });
 
+  describe('when no web search is set up', () => {
+    // W1 (design/mockup-onboarding-flow.html §06): the card asks for the key
+    // at the point of need, because this is the spot where a search WOULD have
+    // run. Not in the settings, on the off chance the reader goes looking.
+    it('asks for a key instead of counting down a wait that cannot end', () => {
+      setup(PAYWALLED, { searchUnavailable: true });
+
+      // No countdown, no greyed-out door promising a retry: waiting fixes an
+      // engine that shut us out, never a search that was never set up.
+      expect(screen.queryByTestId('citation-search-retry')).not.toBeInTheDocument();
+      expect(screen.getByTestId('citation-search-setup')).toBeInTheDocument();
+      expect(screen.getByTestId('citation-search-setup')).toHaveTextContent(
+        'No freely available full text found',
+      );
+      // The free allowance is the fact that makes the ask answerable — and it
+      // is a number, not a recommendation.
+      expect(screen.getByTestId('citation-search-setup')).toHaveTextContent(
+        '1000 searches a month, free',
+      );
+      // Three short lines, and NOT the paper's title again: the card already
+      // carries it as its own heading (user report 2026-08-24, "it looks like
+      // a lot of text now").
+      expect(screen.getByTestId('citation-search-setup')).not.toHaveTextContent(
+        PAYWALLED.title as string,
+      );
+    });
+
+    it('saves the key and searches again in one gesture', async () => {
+      const onSaveSearchKey = vi.fn().mockResolvedValue(undefined);
+      setup(PAYWALLED, { searchUnavailable: true, onSaveSearchKey });
+
+      await userEvent.click(screen.getByTestId('citation-search-key-open'));
+      await userEvent.type(screen.getByTestId('citation-search-key-input'), 'tvly-abc123');
+      await userEvent.click(screen.getByTestId('citation-search-key-save'));
+
+      // One call, with the key alone: the card knows which reference it is on,
+      // so re-running the search is the caller's business, not the reader's.
+      expect(onSaveSearchKey).toHaveBeenCalledWith('tvly-abc123');
+    });
+
+    it('never saves an empty key', async () => {
+      const onSaveSearchKey = vi.fn();
+      setup(PAYWALLED, { searchUnavailable: true, onSaveSearchKey });
+
+      await userEvent.click(screen.getByTestId('citation-search-key-open'));
+      await userEvent.click(screen.getByTestId('citation-search-key-save'));
+
+      expect(onSaveSearchKey).not.toHaveBeenCalled();
+    });
+
+    it('offers Scholar as the way out for a reader who will not add a key', async () => {
+      // The mockup's second button. Whoever declines the key still came here to
+      // read the paper, and Scholar is where they would have gone by hand.
+      const h = setup(PAYWALLED, { searchUnavailable: true });
+
+      await userEvent.click(screen.getByTestId('citation-search-scholar'));
+
+      expect(h.onOpenInBrowser).toHaveBeenCalledWith(PAYWALLED);
+    });
+
+  });
+
   it('closes on Escape', async () => {
     const h = setup(RESOLVED);
 

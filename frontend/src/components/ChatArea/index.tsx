@@ -138,13 +138,18 @@ interface Props {
   // Retry-Button der '*Failed*'-Fehlerzeile (MessageBubble reicht die
   // Nachricht hoch; App entscheidet zwischen Neu-Senden und Regenerate).
   onRetryMessage?: (message: Message) => void;
+  // W2 (§06): a Tavily key handed over from the card under an answer the model
+  // could not look up. Passed straight through to MessageBubble.
+  onSaveSearchKey?: (key: string, message: Message) => Promise<void> | void;
   // Grows a cut-off answer in place (mockup-truncated-answer §01).
   onContinueMessage?: (message: Message) => void;
-  // Guided empty state (ADR-0008, grill 12b): active cloud provider without
-  // an API key. Arrives fully composed from the owner (App, CloudSetupNotice)
-  // and renders ABOVE the composer row (first run variant O2) — never a silent
-  // block, and never a replacement of the row either.
-  setupNotice?: React.ReactNode;
+  // True while the active cloud provider has no API key (ADR-0008, grill 12b).
+  // The composer stays fully usable and only SENDING is locked (variant O2);
+  // the notice strip above the row carries the way out. Until 2026-08-22 this
+  // arrived as a ReactNode — the old three-path card from CloudSetupNotice —
+  // which kept rendering ABOVE the strip after O2 shipped, so first run showed
+  // the replaced design and its replacement at once.
+  firstRun?: boolean;
   // First run, variant O2 (mockup-onboarding-flow §03, chosen 2026-08-15):
   // opens the path choice. It is the single exit of every locked affordance in
   // the composer — the notice strip, the model pill's stand-in, and the send
@@ -284,14 +289,9 @@ function renderComposerHighlight(text: string): React.ReactNode {
   );
 }
 
-export function ChatArea({ chat, videoYoutubeId, onTimeMarkClick, loading, streaming, onSendMessage, onWordRightClick, onSelectChat, onUploadPdf, onOpenPaperSearch, onOpenYouTubeSearch, videoBanner, transcriptDrawer, chatHighlights, onChatSelection, onHighlightContextMenu, pendingSelection, onBranchedFromClick, parentTitle, onQuoteClick, composerQuote, onClearComposerQuote, onOpenFeedback, onAskAside, onOpenTopicBranch, branchTargets, aside, onDismissAside, onKeepAside, onBranchAside, onToggleHighlights, highlightsOpen, highlightsDrawer, modelPicker, onStopStreaming, streamingMessageIds, onRetryMessage, onContinueMessage, setupNotice, onOpenSetup, modelLabels, onRetryLocalModel, hasLocalModel, billingUrl, billingUrls, onOpenModelPicker, settingsChangedAt, onOpenSettings, providerLabels, localModelName, cloudFallback, onRetryCloudModel, freeFallback, onRetryFreeModel, onResendUnanswered, freeProviderOffer, onAddFreeProvider, visionGate, onSwitchVisionModel, onOpenSettingsForProvider, voiceRecorderFactory, ref }: Props) {
+export function ChatArea({ chat, videoYoutubeId, onTimeMarkClick, loading, streaming, onSendMessage, onWordRightClick, onSelectChat, onUploadPdf, onOpenPaperSearch, onOpenYouTubeSearch, videoBanner, transcriptDrawer, chatHighlights, onChatSelection, onHighlightContextMenu, pendingSelection, onBranchedFromClick, parentTitle, onQuoteClick, composerQuote, onClearComposerQuote, onOpenFeedback, onAskAside, onOpenTopicBranch, branchTargets, aside, onDismissAside, onKeepAside, onBranchAside, onToggleHighlights, highlightsOpen, highlightsDrawer, modelPicker, onStopStreaming, streamingMessageIds, onRetryMessage, onContinueMessage, firstRun = false, onOpenSetup, modelLabels, onRetryLocalModel, hasLocalModel, billingUrl, billingUrls, onOpenModelPicker, settingsChangedAt, onOpenSettings, providerLabels, localModelName, cloudFallback, onRetryCloudModel, freeFallback, onRetryFreeModel, onResendUnanswered, freeProviderOffer, onAddFreeProvider, visionGate, onSwitchVisionModel, onOpenSettingsForProvider, voiceRecorderFactory, onSaveSearchKey, ref }: Props) {
   // UI-Texte in der App language — re-rendert beim Sprachwechsel mit.
   const S = useStrings().chatArea;
-  // First run (O2): a setup card on screen means no model can answer yet. The
-  // card is the owner's signal, so ChatArea needs no second source of truth —
-  // it only decides which affordances lock. Exactly one does: sending.
-  // Declared here, above handleSend, because that is where it is read first.
-  const firstRun = Boolean(setupNotice);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [attachments, setAttachments] = useState<LocalAttachment[]>([]);
@@ -1688,6 +1688,7 @@ export function ChatArea({ chat, videoYoutubeId, onTimeMarkClick, loading, strea
                       streamingMessageIds ? streamingMessageIds.has(msg.id) : isLastAssistant
                     }
                     onRetryMessage={onRetryMessage}
+                    onSaveSearchKey={onSaveSearchKey}
                     onContinueMessage={onContinueMessage}
                     modelLabels={modelLabels}
                     onRetryLocalModel={onRetryLocalModel}
@@ -1844,19 +1845,13 @@ export function ChatArea({ chat, videoYoutubeId, onTimeMarkClick, loading, strea
         )}
         <div className="flex justify-center">
           <div className={`${chatColumnClass} @container`} style={chatColumnStyle} data-testid="chat-input-shell">
-            {/* Guided empty state (ADR-0008), first run variant O2
-                (mockup-onboarding-flow §03, chosen 2026-08-15): the setup card
-                sits ABOVE the composer instead of replacing it. Replacing it
-                sealed the app on the very first start — no text field, no
-                attach button, no dictation — so the user had to buy a key
-                before ever seeing what it was for. Everything except SENDING
-                stays usable now. */}
-            {setupNotice}
-
-            {/* The notice strip of O2 — one thin line between the card and the
-                composer, and the reason a locked send button never reads as a
-                dead end: the way out is already on screen before it is tried.
-                The whole row leads on (chevron), as in the mockup. */}
+            {/* First run, variant O2 (mockup-onboarding-flow §03, chosen
+                2026-08-15): one thin strip above the composer, and the reason a
+                locked send button never reads as a dead end — the way out is on
+                screen before it is tried. The whole row leads on (chevron), as
+                in the mockup. The three-path card that O2 replaced (the old
+                CloudSetupNotice) stood right above this strip until 2026-08-22,
+                showing both designs at once. */}
             {firstRun && (
               <button
                 type="button"

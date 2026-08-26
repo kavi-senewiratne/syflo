@@ -20,7 +20,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   X, Globe, Download, ArrowRight, Search, Loader2, AlertTriangle, Clock,
-  Calendar, BookOpen, Quote, BookMarked, ChevronDown,
+  Calendar, BookOpen, Quote, BookMarked, ChevronDown, KeyRound,
 } from 'lucide-react';
 import type { PaperReference } from '../../types';
 import { useStrings } from '../../strings';
@@ -53,6 +53,18 @@ interface Props {
   // When the search may be tried again, ISO — set when the engines shut us
   // out for asking too often. The card counts it down and retries itself.
   searchRetryAt?: string | null;
+  // No web search is set up at all (W1, design/mockup-onboarding-flow.html
+  // §06). A FOURTH state, deliberately not folded into `searchFailed`: that
+  // one is temporary and its cure is time, this one's cure is a key. The card
+  // asks for it here, where the search would have run.
+  searchUnavailable?: boolean;
+  // WHICH named state it is: no provider, a rejected key, a spent allowance.
+  // All three need a person, none needs a wait — but they need different
+  // sentences, and "add a search key" is wrong when one is already stored.
+  searchReason?: string | null;
+  // Resolves once the key is stored; the caller re-runs the search for THIS
+  // reference, since it is the one that knows which reference is open.
+  onSaveSearchKey?: (key: string) => Promise<void> | void;
   onRetrySearch?: () => void;
   onClose: () => void;
   onOpenInSyflo: (reference: PaperReference) => void;
@@ -128,6 +140,9 @@ export function CitationCard({
   searchDone = false,
   searchFailed = false,
   searchRetryAt = null,
+  searchUnavailable = false,
+  searchReason = null,
+  onSaveSearchKey,
   onRetrySearch,
   onClose,
   onOpenInSyflo,
@@ -148,7 +163,37 @@ export function CitationCard({
   // itself when they run out (user decision 2026-08-11). Same shape as the
   // quota cards in MessageBubble — a disabled button that re-enables itself,
   // never one that can be clicked before it can work.
-  const retryAtMs = searchRetryAt ? new Date(searchRetryAt).getTime() : null;
+  // The W1 ask, and its one input. Collapsed to a button first: the card is
+  // 384px wide and a text field opened by default would push the doors down on
+  // every reference, including the ones the reader only glanced at.
+  const [keyFieldOpen, setKeyFieldOpen] = useState(false);
+  const [keyInput, setKeyInput] = useState('');
+  const [savingKey, setSavingKey] = useState(false);
+  // A new reference means a new decision: nothing typed carries over.
+  useEffect(() => {
+    setKeyFieldOpen(false);
+    setKeyInput('');
+    setSavingKey(false);
+  }, [target?.reference.id]);
+  const askForSearchKey = searchUnavailable;
+
+  const saveSearchKey = async () => {
+    const key = keyInput.trim();
+    // An empty field is not a decision — saving "" would clear a key that a
+    // second window might just have stored.
+    if (!key || savingKey) return;
+    setSavingKey(true);
+    try {
+      await onSaveSearchKey?.(key);
+    } finally {
+      setSavingKey(false);
+    }
+  };
+
+  // A named state outranks any retry time that may still be in flight from the
+  // previous attempt: it is the reader's to fix, and a clock beside the ask
+  // made the card contradict itself (seen in the running app 2026-08-24).
+  const retryAtMs = searchRetryAt && !searchUnavailable ? new Date(searchRetryAt).getTime() : null;
   const [nowMs, setNowMs] = useState(() => Date.now());
   useEffect(() => {
     if (retryAtMs === null) return;
@@ -205,6 +250,17 @@ export function CitationCard({
   const authors = ref.authors.length ? ref.authors : ref.parsedAuthors;
   const year = ref.year ?? ref.parsedYear;
   const canOpenInSyflo = Boolean(ref.pdfUrl);
+
+  // Which of the three sentences the ask carries. The free allowance is only
+  // news to someone who has no key yet; quoting it at a reader whose key was
+  // rejected, or whose 1000 searches are gone, reads as a taunt — and "add a
+  // search key" invites them to type the same wrong key again.
+  const searchAsk =
+    searchReason === 'tavily-invalid-key'
+      ? { askTitle: S.searchKeyRejectedTitle, body: S.searchKeyRejectedBody, showFree: false }
+      : searchReason === 'tavily-quota-exhausted'
+        ? { askTitle: S.searchQuotaTitle, body: S.searchQuotaBody, showFree: false }
+        : { askTitle: S.searchSetupTitle, body: S.searchSetupBody, showFree: true };
 
   // The overline names the state worth naming — and "already a tree" outranks
   // where the metadata came from: a paper the reader has open in Syflo is not
@@ -370,7 +426,7 @@ export function CitationCard({
             {S.searchRetryIn(retryInSeconds)}
           </p>
         )}
-        {!canOpenInSyflo && !existingChatId && !failed && !countingDown && !resuming && !searching && (searchDone || searchFailed) && (
+        {!canOpenInSyflo && !existingChatId && !failed && !countingDown && !resuming && !searching && (searchDone || searchFailed || (searchUnavailable && !askForSearchKey)) && (
           <p
             className="px-1 pb-0.5 text-[11px] text-gray-400 leading-relaxed"
             data-testid="citation-no-pdf-note"
@@ -378,11 +434,104 @@ export function CitationCard({
             {searchFailed ? S.searchUnreachable : S.noFulltextFound}
           </p>
         )}
+        {/* W1 (§06): the ask, at the point where a search would have run. It
+            replaces the door rather than sitting beside it — there is nothing
+            to open, and a greyed-out "Open in Syflo" next to it would promise
+            an arrival that no amount of waiting brings. */}
+        {askForSearchKey && !canOpenInSyflo && !existingChatId && !failed && (
+          <div
+            data-testid="citation-search-setup"
+            className="rounded-lg border border-blue-100 bg-blue-50/60 px-3 py-2.5 space-y-2"
+          >
+            <p className="flex items-center gap-1.5 text-xs font-medium text-gray-700">
+              <Search size={12} className="shrink-0 text-blue-600" />
+              {searchAsk.askTitle}
+            </p>
+            <p className="text-[11px] text-gray-500 leading-relaxed">
+              {searchAsk.body}
+              {searchAsk.showFree && (
+                <>
+                  <br />
+                  <span className="text-gray-400">{S.searchSetupFree}</span>
+                </>
+              )}
+            </p>
+            {keyFieldOpen ? (
+              <div className="space-y-2">
+                <label className="sr-only" htmlFor="citation-search-key-input">
+                  {S.searchSetupKeyLabel}
+                </label>
+                <input
+                  id="citation-search-key-input"
+                  data-testid="citation-search-key-input"
+                  type="password"
+                  autoFocus
+                  value={keyInput}
+                  onChange={(e) => setKeyInput(e.target.value)}
+                  // Enter saves: the field holds one value and there is one
+                  // thing to do with it.
+                  onKeyDown={(e) => { if (e.key === 'Enter') void saveSearchKey(); }}
+                  placeholder={S.searchSetupKeyPlaceholder}
+                  className="w-full px-2.5 py-1.5 rounded-md border border-gray-200 bg-white text-xs text-gray-700 placeholder:text-gray-300 focus:outline-none focus:border-blue-400"
+                />
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => void saveSearchKey()}
+                    disabled={savingKey || keyInput.trim().length === 0}
+                    aria-busy={savingKey || undefined}
+                    data-testid="citation-search-key-save"
+                    // The card's own idiom: one surface, one colour, the order
+                    // alone carries the priority (user decision 2026-07-20).
+                    // A filled blue-600 button was tried first and looked like
+                    // a different app's control sitting inside the card.
+                    className="flex items-center justify-center gap-1.5 flex-1 px-3 py-1.5 rounded-lg text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 transition-colors disabled:opacity-50 disabled:hover:bg-blue-50 disabled:cursor-default"
+                  >
+                    {savingKey && <Loader2 size={12} className="animate-spin" />}
+                    {savingKey ? S.searchSetupSaving : S.searchSetupSave}
+                  </button>
+                  <a
+                    href="https://app.tavily.com/home"
+                    target="_blank"
+                    rel="noreferrer"
+                    data-testid="citation-search-get-key"
+                    className="px-2.5 py-1.5 rounded-lg text-xs font-medium text-blue-700 hover:bg-blue-100 transition-colors"
+                  >
+                    {S.searchSetupGetKey}
+                  </a>
+                </div>
+              </div>
+            ) : (
+              // Stacked, full width, same surface — the card's footer idiom.
+              // Side by side (tried first) wrapped "Such-Schlüssel hinzufügen"
+              // onto three lines inside the 384px shell (seen in the running
+              // app 2026-08-24).
+              <div className="space-y-1.5">
+                <button
+                  onClick={() => setKeyFieldOpen(true)}
+                  data-testid="citation-search-key-open"
+                  className="flex items-center justify-center gap-1.5 w-full px-3 py-1.5 rounded-lg text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 transition-colors"
+                >
+                  <KeyRound size={12} />
+                  {S.searchSetupAddKey}
+                </button>
+                {/* The way out for a reader who will not add a key. They still
+                    came here to read the paper. */}
+                <button
+                  onClick={() => onOpenInBrowser(ref)}
+                  data-testid="citation-search-scholar"
+                  className="flex items-center justify-center w-full px-3 py-1.5 rounded-lg text-xs font-medium text-blue-700 hover:bg-blue-100 transition-colors"
+                >
+                  {S.searchSetupScholar}
+                </button>
+              </div>
+            )}
+          </div>
+        )}
         {/* The door the search is working on — shown from the moment the card
             opens, because a reference without a linked PDF is ALWAYS searched.
             It carries the same shape and place as the real one, so nothing
             moves when the answer arrives. */}
-        {!canOpenInSyflo && !existingChatId && !failed &&
+        {!canOpenInSyflo && !existingChatId && !failed && !searchUnavailable &&
           (countingDown || resuming || searching || (!searchDone && !searchFailed)) && (
             <button
               disabled

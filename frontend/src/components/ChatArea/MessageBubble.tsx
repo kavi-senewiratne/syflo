@@ -18,7 +18,7 @@ import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
-import { AlertCircle, ArrowLeftRight, ArrowRight, Brain, ChevronDown, ChevronRight, Clock, Cloud, CornerUpLeft, Cpu, ExternalLink, Key, RotateCcw, SlidersHorizontal, Square, WifiOff, Zap } from 'lucide-react';
+import { AlertCircle, ArrowLeftRight, ArrowRight, Brain, ChevronDown, ChevronRight, Clock, Cloud, CornerUpLeft, Cpu, ExternalLink, Key, KeyRound, Loader2, RotateCcw, Search, SlidersHorizontal, Square, WifiOff, X, Zap } from 'lucide-react';
 import { ThinkingIndicator } from './ThinkingIndicator';
 import {
   clearFlashChatRange,
@@ -168,6 +168,11 @@ interface Props {
   // (mockup-quote-jump-to-source.html, variant A): jump back to the passage
   // it was taken from. Only offered when the message carries an anchor.
   onQuoteClick?: (message: Message) => void;
+  // W2 (§06): the reader hands over a Tavily key from the card under an answer
+  // the model could not look up. The bubble binds its own message, so the
+  // caller knows WHICH answer to ask again — it owns the chat, the card owns
+  // only the key.
+  onSaveSearchKey?: (key: string, message: Message) => Promise<void> | void;
 }
 
 // "Thought for 1m 42s" / "Thought for 34s".
@@ -288,6 +293,7 @@ export function MessageBubble({
   onQuoteClick,
   freeProviderOffer,
   onAddFreeProvider,
+  onSaveSearchKey,
 }: Props) {
   // UI-Texte in der App language — re-rendert beim Sprachwechsel mit.
   const STR = useStrings();
@@ -1455,6 +1461,16 @@ export function MessageBubble({
           <SourcesList sources={message.sources} />
         )}
 
+        {/* W2 (§06): the model called the search and nobody looked. UNDER the
+            answer, never instead of it — the answer is real, it is just older
+            than the question. */}
+        {message.searchWish && (
+          <SearchWishCard
+            wish={message.searchWish}
+            onSaveSearchKey={onSaveSearchKey && ((key) => onSaveSearchKey(key, message))}
+          />
+        )}
+
         {/* The provider ended this answer mid-thought
             (design/mockup-truncated-answer.html §01). The card sits UNDER the
             text and never replaces it — unlike '*Failed*', there is real
@@ -1590,6 +1606,208 @@ function SourcesList({ sources }: { sources: NonNullable<Message['sources']> }) 
           );
         })}
       </ol>
+    </div>
+  );
+}
+
+/**
+ * W2 (§06): what the model wanted to look up, and why the answer above may be
+ * out of date. Shape and copy: design/mockup-search-wish-card.html, variant C.
+ *
+ * Dismissable, unlike the citation card's ask — there the card IS the way to
+ * the paper, here the answer already arrived and the card is only a caveat.
+ *
+ * The previous card was blue-on-blue: a blue-50/60 surface with a full-width
+ * blue-50 button on it, a 4 % lightness gap that read as a hole rather than as
+ * something to press. This one sits on `white` like every other card, spends
+ * its accent on a 2 px strip and a badge, and sizes the button to its label.
+ * Filled on blue-700, not blue-600: measured against each theme's own `white`,
+ * blue-600 gives 2.89:1 in Hyrule and 4.31:1 in Mushroom Kingdom, while
+ * blue-700 gives 6.70 / 6.70 / 5.65 / 3.92 / 13.83. Hyrule's turquoise ramp has
+ * no pair that clears AA at 12 px — 3.92 is the best the token family allows.
+ */
+function SearchWishCard({
+  wish,
+  onSaveSearchKey,
+}: {
+  wish: NonNullable<Message['searchWish']>;
+  onSaveSearchKey?: (key: string) => Promise<void> | void;
+}) {
+  const S = useStrings().messageBubble.searchWish;
+  const [dismissed, setDismissed] = useState(false);
+  const [keyFieldOpen, setKeyFieldOpen] = useState(false);
+  const [keyInput, setKeyInput] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  if (dismissed) return null;
+
+  // One sentence per named state, and a different ask in each. "Add a search
+  // key" is wrong when one is already stored — the reader would type the same
+  // wrong key again — and wrong when the allowance is gone, where no key helps
+  // until the 1st. Only the wish state names the offer and the allowance.
+  const state =
+    wish.error === 'tavily-invalid-key'
+      ? {
+          title: S.rejectedTitle,
+          body: S.rejectedBody,
+          offer: null,
+          action: S.replaceKey,
+          allowance: null,
+        }
+      : wish.error === 'tavily-quota-exhausted'
+        ? {
+            title: S.quotaTitle,
+            body: S.quotaBody,
+            offer: null,
+            action: null,
+            allowance: null,
+          }
+        : {
+            title: S.title,
+            body: S.body(wish.query),
+            offer: S.offer,
+            action: S.addKey,
+            allowance: S.allowance,
+          };
+
+  const save = async () => {
+    const key = keyInput.trim();
+    // An empty field is not a decision — saving '' would clear a stored key.
+    if (!key || saving) return;
+    setSaving(true);
+    try {
+      await onSaveSearchKey?.(key);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // One head for both faces of the card. `aside` shares the title line in
+  // parentheses; `body` and `second` each get a line of their own.
+  const head = keyFieldOpen
+    ? { title: S.keyTitle, aside: S.keyBody, body: null, second: S.keyEffect }
+    : { title: state.title, aside: null, body: state.body, second: state.offer };
+
+  return (
+    <div
+      data-testid="search-wish"
+      className="mt-3 rounded-lg bg-blue-100/40 px-3 py-2.5"
+    >
+      {/* Placement D (design/mockup-search-wish-placement.html): a footer of
+          the answer bubble, NOT a card of its own. The card sits inside
+          `.prose.select-text`, and in four of five themes that bubble already
+          has a frame plus a hard 4px offset shadow (Mushroom Kingdom 2px
+          #26264f, Ink Blue 1.5px #1c2b4a, Hyrule 1px, Matrix a 2px left edge).
+          Mushroom Kingdom also repaints every border-gray-* as that same ink,
+          so a nested card cannot be quieter than its container — both frames
+          come out identical and it reads as a window inside a window (user
+          report 2026-08-25). index.css:749 records the same bug from the /btw
+          fold-out. Fixed the same way: by dropping the second frame, not by
+          restyling it.
+
+          What marks the footer instead is a wash of the theme's own accent, no
+          border and no shadow — it has to read as its own area while still
+          belonging to the bubble (user request 2026-08-25). blue-100/40 is the
+          only token wash that separates in all five themes; measured as rgb
+          distance from each bubble colour: 16.1 / 9.0 / 17.8 / 14.5 / 13.6.
+          Full blue-50 collapses to 4.6 in Ink Blue, whose bubble IS near
+          blue-50, and gray-50 to 0.0 in Matrix, whose bubble IS gray-50. */}
+      <div>
+        <div className="flex items-start gap-2">
+          <span className="shrink-0 w-[22px] h-[22px] rounded-lg bg-blue-50 text-blue-700 flex items-center justify-center">
+            {keyFieldOpen ? <KeyRound size={12} /> : <Search size={12} />}
+          </span>
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-semibold text-gray-900 leading-snug">
+              {head.title}
+              {head.aside && (
+                <span className="ml-1 font-normal text-[11px] text-gray-500">
+                  ({head.aside})
+                </span>
+              )}
+            </p>
+            {head.body && (
+              <p className="mt-0.5 text-[11px] leading-relaxed text-gray-500">
+                {head.body}
+              </p>
+            )}
+            {/* Never two sentences in one paragraph here: the second one is
+                always a different kind of claim from the first — what could be
+                rather than what happened, what the key does rather than where
+                it lives — so it gets its own line and the darker grey. */}
+            {head.second && (
+              <p className="mt-1 text-[11px] leading-relaxed text-gray-700">
+                {head.second}
+              </p>
+            )}
+          </div>
+          <button
+            onClick={() => setDismissed(true)}
+            aria-label={S.dismiss}
+            data-testid="search-wish-dismiss"
+            className="shrink-0 p-0.5 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+          >
+            <X size={13} />
+          </button>
+        </div>
+
+        {keyFieldOpen ? (
+          <>
+            <div className="mt-2 flex items-center gap-2">
+              <input
+                data-testid="search-wish-key-input"
+                type="password"
+                autoFocus
+                value={keyInput}
+                onChange={e => setKeyInput(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') void save(); }}
+                placeholder={S.keyPlaceholder}
+                aria-label={S.keyLabel}
+                className="flex-1 min-w-0 h-7 px-2.5 rounded-lg border border-gray-200 bg-white font-mono text-[11px] text-gray-700 placeholder:text-gray-400 focus:outline-none focus:border-blue-500"
+              />
+              <button
+                onClick={() => void save()}
+                disabled={saving || keyInput.trim().length === 0}
+                aria-busy={saving || undefined}
+                data-testid="search-wish-key-save"
+                className="shrink-0 inline-flex items-center gap-1.5 h-7 px-3 rounded-lg bg-blue-700 text-white text-xs font-semibold hover:bg-blue-800 transition-colors disabled:opacity-50 disabled:hover:bg-blue-700 disabled:cursor-default"
+              >
+                {saving && <Loader2 size={12} className="animate-spin" />}
+                {saving ? S.saving : S.save}
+              </button>
+            </div>
+            <div className="mt-2.5">
+              <a
+                href="https://app.tavily.com/home"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 text-[11px] font-medium text-blue-700 underline decoration-blue-700/35 underline-offset-2 hover:decoration-blue-700"
+              >
+                {S.getKey}
+                <ExternalLink size={11} />
+              </a>
+            </div>
+          </>
+        ) : (
+          state.action && (
+            <div className="mt-3 flex items-center gap-3 flex-wrap">
+              <button
+                onClick={() => setKeyFieldOpen(true)}
+                data-testid="search-wish-key-open"
+                className="inline-flex items-center gap-1.5 h-7 px-3 rounded-lg bg-blue-700 text-white text-xs font-semibold hover:bg-blue-800 transition-colors"
+              >
+                <KeyRound size={12} />
+                {state.action}
+              </button>
+              {/* Per-day, not per-month: the reader can judge whether ~33 covers
+                  a working day; 1000 a month tells them nothing they can use. */}
+              {state.allowance && (
+                <span className="text-[11px] text-gray-400">{state.allowance}</span>
+              )}
+            </div>
+          )
+        )}
+      </div>
     </div>
   );
 }

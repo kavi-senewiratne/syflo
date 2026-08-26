@@ -127,6 +127,18 @@ describe('custom instructions', () => {
   });
 });
 
+describe('the web search key (W1, design/mockup-onboarding-flow.html §06)', () => {
+  it('stores the Tavily key and admits only THAT one is stored', async () => {
+    const res = await request(app).put('/api/settings').send({ tavily_api_key: 'tvly-abc123' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.tavily_api_key_set).toBe(true);
+    // Same rule as the LLM keys: the plaintext never travels back.
+    expect(JSON.stringify(res.body)).not.toContain('tvly-abc123');
+  });
+
+});
+
 describe('getLLMClient – provider switching', () => {
   it('returns an Ollama-pointed client when local is selected', async () => {
     await request(app).put('/api/settings').send({ llm_provider: 'ollama' });

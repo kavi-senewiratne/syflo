@@ -481,14 +481,16 @@ describe('App — cloud setup notice (ADR-0008)', () => {
     anthropic_api_key_set: false,
     custom_instructions: '',
     custom_instructions_enabled: true,
+    tavily_api_key_set: false,
   };
 
-  it('renders the setup notice above a still-usable composer when gemini has no key', async () => {
+  it('renders the notice strip above a still-usable composer when gemini has no key', async () => {
     vi.mocked(api.getSettings).mockResolvedValue(geminiNoKey);
     await openRootChat();
 
-    expect(await screen.findByTestId('cloud-setup-notice')).toBeInTheDocument();
-    expect(screen.getByTestId('cloud-setup-notice')).toHaveTextContent('Gemini');
+    expect(await screen.findByTestId('first-run-strip')).toBeInTheDocument();
+    // Die ersetzte Drei-Wege-Karte darf nicht mehr daneben stehen (2026-08-22).
+    expect(screen.queryByTestId('cloud-setup-notice')).not.toBeInTheDocument();
     // O2 (2026-08-15): the composer stays usable, only sending is locked.
     expect(screen.getByTestId('chat-textarea')).toBeInTheDocument();
   });
@@ -498,7 +500,7 @@ describe('App — cloud setup notice (ADR-0008)', () => {
     await openRootChat();
 
     await waitFor(() => expect(screen.getByTestId('chat-textarea')).toBeInTheDocument());
-    expect(screen.queryByTestId('cloud-setup-notice')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('first-run-strip')).not.toBeInTheDocument();
   });
 });
 
@@ -809,6 +811,7 @@ describe('App — smooth reveal of streamed text', () => {
     anthropic_api_key_set: false,
     custom_instructions: '',
     custom_instructions_enabled: true,
+    tavily_api_key_set: false,
   };
 
   it('does not show a huge delta burst at once, but shows everything after done', async () => {
@@ -865,6 +868,7 @@ describe('App — provider failover note (ADR-0008)', () => {
     anthropic_api_key_set: false,
     custom_instructions: '',
     custom_instructions_enabled: true,
+    tavily_api_key_set: false,
   };
 
   it('shows the note during streaming and keeps it after done', async () => {
@@ -904,6 +908,104 @@ describe('App — provider failover note (ADR-0008)', () => {
     });
     await waitFor(() => expect(screen.getByText('Answer via groq')).toBeInTheDocument());
     expect(screen.getByTestId('failover-note')).toBeInTheDocument();
+  });
+
+  // W2 (§06), found in the RUNNING app 2026-08-25: the tool event arrived and
+  // the card rendered mid-stream, then vanished the moment the answer
+  // finished. The done handler rebuilds the assistant message from the server
+  // reply plus the transient fields worth keeping — and searchWish was not on
+  // that list, so the finished answer lost the one thing explaining why it
+  // might be out of date. Exactly the failure this feature exists to prevent.
+  it('keeps the search-wish card after the answer finishes', async () => {
+    vi.mocked(api.getSettings).mockResolvedValue(geminiWithKey);
+    let finish!: (v: { userMessage: Message; assistantMessage: Message }) => void;
+    vi.mocked(api.sendMessageStream).mockImplementation(
+      (_chatId, _content, onDelta, _attachments, onToolEvent) => {
+        onToolEvent?.({ phase: 'call', name: 'web_search', args: { query: 'weather in Austin today' } });
+        onToolEvent?.({
+          phase: 'result',
+          name: 'web_search',
+          result: { query: 'weather in Austin today', error: 'no-search-provider' },
+        });
+        onDelta('I cannot check today’s weather.');
+        return new Promise(res => { finish = res; });
+      },
+    );
+
+    await openRootChat();
+    const textarea = screen.getByTestId('chat-textarea');
+    textarea.focus();
+    fireEvent.change(textarea, { target: { value: 'Weather in Austin?' } });
+    fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false });
+
+    // Mid-stream the card is there, naming the query the model formulated.
+    const card = await screen.findByTestId('search-wish');
+    expect(card).toHaveTextContent('weather in Austin today');
+
+    const now = new Date().toISOString();
+    finish({
+      userMessage: { id: 'u-w2', chat_id: 'c1', role: 'user', content: 'Weather in Austin?', created_at: now },
+      assistantMessage: { id: 'a-w2', chat_id: 'c1', role: 'assistant', content: 'I cannot check today’s weather.', created_at: now },
+    });
+
+    await waitFor(() => expect(screen.getByText('I cannot check today’s weather.')).toBeInTheDocument());
+    expect(screen.getByTestId('search-wish')).toHaveTextContent('weather in Austin today');
+  });
+
+  // Found in the RUNNING app 2026-08-25: saving the key from the card called
+  // regenerate, and the backend refused with 409 "nothing to regenerate" —
+  // that endpoint only replaces a *Failed*/*Interrupted* marker, and this
+  // answer SUCCEEDED. It was just older than the question.
+  //
+  // So the gesture is asking again, not regenerating: the stale answer stays
+  // as the record of what the model knew, and the new one arrives beneath it
+  // with a search behind it. "Save and ask again" says exactly that.
+  it('asks the question again after the key is saved, instead of regenerating', async () => {
+    vi.mocked(api.getSettings).mockResolvedValue(geminiWithKey);
+    vi.mocked(api.updateSettings).mockResolvedValue({ ...geminiWithKey, tavily_api_key_set: true });
+    let round = 0;
+    vi.mocked(api.sendMessageStream).mockImplementation(
+      (_chatId, _content, onDelta, _attachments, onToolEvent) => {
+        round += 1;
+        onToolEvent?.({
+          phase: 'result',
+          name: 'web_search',
+          result: { query: 'weather in Austin today', error: 'no-search-provider' },
+        });
+        onDelta('Cannot check.');
+        const now = new Date().toISOString();
+        // PERSISTED ids, not temp-: that is what made the running app take the
+        // regenerate branch, and it is the branch this test has to exercise.
+        return Promise.resolve({
+          userMessage: { id: `u-real-${round}`, chat_id: 'c1', role: 'user', content: 'Weather in Austin?', created_at: now },
+          assistantMessage: { id: `a-real-${round}`, chat_id: 'c1', role: 'assistant', content: 'Cannot check.', created_at: now },
+        });
+      },
+    );
+
+    await openRootChat();
+    const textarea = screen.getByTestId('chat-textarea');
+    textarea.focus();
+    fireEvent.change(textarea, { target: { value: 'Weather in Austin?' } });
+    fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false });
+    await screen.findByTestId('search-wish');
+    // Wait for the finished, persisted answer before touching the card.
+    await waitFor(() => expect(screen.getByText('Cannot check.')).toBeInTheDocument());
+
+    const sendsBefore = vi.mocked(api.sendMessageStream).mock.calls.length;
+    fireEvent.click(screen.getByTestId('search-wish-key-open'));
+    fireEvent.change(screen.getByTestId('search-wish-key-input'), { target: { value: 'tvly-real' } });
+    fireEvent.click(screen.getByTestId('search-wish-key-save'));
+
+    await waitFor(() =>
+      expect(api.updateSettings).toHaveBeenCalledWith({ tavily_api_key: 'tvly-real' }),
+    );
+    // The same question goes out again — and regenerate is never touched.
+    await waitFor(() =>
+      expect(vi.mocked(api.sendMessageStream).mock.calls.length).toBe(sendsBefore + 1),
+    );
+    expect(vi.mocked(api.sendMessageStream).mock.calls.at(-1)?.[1]).toBe('Weather in Austin?');
+    expect(api.regenerateMessage).not.toHaveBeenCalled();
   });
 });
 

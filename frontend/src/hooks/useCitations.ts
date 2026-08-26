@@ -119,11 +119,15 @@ export function useCitations(paperId: string | null) {
       askedRef.current.add(referenceId);
       setFulltextState((prev) => ({ ...prev, [referenceId]: 'searching' }));
       const filled = await api.ensureFulltext(paperId, referenceId);
+      // Two ways for nobody to have looked: the engines shut us out, or no
+      // search is set up at all (W1, §06). Different cures, same conclusion
+      // here — neither is an answer about the paper.
+      const nobodyLooked = Boolean(filled?.fulltextSearchFailed || filled?.fulltextSearchUnavailable);
       // 'done' means "the web was asked and answered". A search that could
       // not run must NOT land here: the card would then say "no full text
       // found" about a paper nobody looked for (seen in the running app
       // 2026-08-10, with every engine behind SearXNG serving CAPTCHAs).
-      if (!filled?.fulltextSearchFailed) {
+      if (!nobodyLooked) {
         setFulltextState((prev) => ({ ...prev, [referenceId]: 'done' }));
       } else {
         setFulltextState((prev) => {
@@ -141,7 +145,7 @@ export function useCitations(paperId: string | null) {
       // tell the caller, because the prefetch queue has to stop. SearXNG
       // answers a blocked search with an empty list (measured 2026-08-10), so
       // carrying on would record every remaining reference as hopeless.
-      if (filled.fulltextSearchFailed) {
+      if (nobodyLooked) {
         askedRef.current.delete(referenceId);
         throw Object.assign(new Error('Full-text search unavailable'), { suspended: true });
       }

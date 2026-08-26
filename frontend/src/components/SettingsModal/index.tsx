@@ -14,7 +14,7 @@
  */
 
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { X, Loader2, Eye, EyeOff, Check, ExternalLink, Info, RefreshCw, Palette, Cpu, ScrollText, Languages, Mic } from 'lucide-react';
+import { X, Loader2, Eye, EyeOff, Check, ExternalLink, Info, RefreshCw, Palette, Cpu, ScrollText, Languages, Mic, Search } from 'lucide-react';
 import { api } from '../../api';
 import { ModelTierList, type TierCooldown } from './ModelTierList';
 import { THEMES, applyTheme, getStoredTheme, type ThemeId } from '../../theme';
@@ -28,7 +28,7 @@ function formatSize(bytes?: number): string {
   return gb >= 1 ? `${gb.toFixed(1)} GB` : `${(bytes / 1024 ** 2).toFixed(0)} MB`;
 }
 
-export type SettingsTab = 'appearance' | 'model' | 'language' | 'instructions';
+export type SettingsTab = 'appearance' | 'model' | 'search' | 'language' | 'instructions';
 
 // Deckel der Custom instructions — muss mit MAX_CUSTOM_INSTRUCTIONS_CHARS im
 // Backend (routes/settings.js) übereinstimmen.
@@ -89,6 +89,11 @@ export function SettingsModal({ open, onClose, onSaved, initialTab = 'appearance
     gemini: '', groq: '', openai: '', anthropic: '',
   });
   const [showKey, setShowKey] = useState(false);
+  // The web search key (W3, design/mockup-onboarding-flow.html §06). Its own
+  // input rather than a fifth entry in `keyInputs`: Tavily is not an LLM
+  // provider, has no model to pick, and is never "activated" — it is one key
+  // that either exists or does not.
+  const [searchKeyInput, setSearchKeyInput] = useState('');
 
   // Model registry + usage summary (ADR-0008) — both non-fatal: without
   // the registry the model dropdown falls back to the stored model, without
@@ -154,6 +159,7 @@ export function SettingsModal({ open, onClose, onSaved, initialTab = 'appearance
     if (!open) return;
     setError(null);
     setKeyInputs({ gemini: '', groq: '', openai: '', anthropic: '' });
+    setSearchKeyInput('');
     setShowKey(false);
     setTab(initialTab);
     setLoading(true);
@@ -239,10 +245,10 @@ export function SettingsModal({ open, onClose, onSaved, initialTab = 'appearance
         // string = explicit delete — only "Remove key" sends that).
         if (keyInputs[provider].length > 0) patch[`${provider}_api_key`] = keyInputs[provider];
       }
-
       const result = await api.updateSettings(patch);
       applySettings(result);   // setzt `original` neu → dirty wird false → Button deaktiviert sich
       setKeyInputs({ gemini: '', groq: '', openai: '', anthropic: '' });
+      setSearchKeyInput('');
       setSavedFlash(true);
       setTimeout(() => setSavedFlash(false), 1500);
       onSaved?.(result);
@@ -272,6 +278,44 @@ export function SettingsModal({ open, onClose, onSaved, initialTab = 'appearance
     }
   };
 
+  // The search tab's own Save — it sends the key ALONE, never the provider or
+  // the model alongside it. A tab that resaves things the reader did not touch
+  // is a tab that can undo their last change by accident.
+  const handleSaveSearchKey = async () => {
+    const key = searchKeyInput.trim();
+    if (!key) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const result = await api.updateSettings({ tavily_api_key: key });
+      applySettings(result);
+      setSearchKeyInput('');
+      setSavedFlash(true);
+      setTimeout(() => setSavedFlash(false), 1500);
+      onSaved?.(result);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : S.errors.saveFailed);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // The one caller allowed to send an empty key: an explicit removal.
+  const handleClearSearchKey = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      const result = await api.updateSettings({ tavily_api_key: '' });
+      applySettings(result);
+      setSearchKeyInput('');
+      onSaved?.(result);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : S.errors.removeKeyFailed);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleClearKey = async (p: CloudProvider) => {
     setSaving(true);
     setError(null);
@@ -292,6 +336,8 @@ export function SettingsModal({ open, onClose, onSaved, initialTab = 'appearance
   const tabs: { id: SettingsTab; label: string; icon: typeof Palette }[] = [
     { id: 'appearance', label: S.tabs.appearance, icon: Palette },
     { id: 'model', label: S.tabs.model, icon: Cpu },
+    // Right after Model: both answer "where do Syflo's answers come from?".
+    { id: 'search', label: S.tabs.search, icon: Search },
     { id: 'language', label: S.tabs.language, icon: Languages },
     { id: 'instructions', label: S.tabs.instructions, icon: ScrollText },
   ];
@@ -510,6 +556,83 @@ export function SettingsModal({ open, onClose, onSaved, initialTab = 'appearance
                     </div>
                     <p className="mt-1.5 text-[11px] text-gray-500 leading-relaxed">
                       {S.instructions.note}
+                    </p>
+                  </div>
+                ) : tab === 'search' ? (
+                  /* W3 (design/mockup-onboarding-flow.html §06) as a tab of
+                     its own (user decision 2026-08-24). It was first built as
+                     a row under the model steps, which was wrong twice over:
+                     the search belongs to no provider, and it is never
+                     "activated" — so it does not share the model tab's
+                     Activate button either. Like Instructions, it has its own
+                     Save. The mockup's second option ("own SearXNG") is gone
+                     with ADR-0012: Tavily is the whole of it. */
+                  <div data-testid="settings-search-row" className="space-y-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="flex items-center gap-2 text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                        <Search size={13} className="shrink-0 text-gray-400" />
+                        {S.search.label}
+                      </p>
+                      <span
+                        className={`shrink-0 text-[11px] font-medium rounded-full px-2 py-0.5 ${
+                          original?.tavily_api_key_set
+                            ? 'text-green-700 bg-green-50'
+                            : 'text-gray-500 bg-gray-100'
+                        }`}
+                      >
+                        {original?.tavily_api_key_set ? S.search.keyStored : S.search.notSetUp}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-gray-500 leading-relaxed">
+                      {S.search.allowance}
+                    </p>
+                    <div>
+                      <label
+                        htmlFor="settings-tavily-key"
+                        className="block mb-1 text-[11px] font-medium text-gray-600"
+                      >
+                        {S.search.keyLabel}
+                      </label>
+                      <input
+                        id="settings-tavily-key"
+                        data-testid="settings-search-key-input"
+                        type="password"
+                        value={searchKeyInput}
+                        onChange={e => setSearchKeyInput(e.target.value)}
+                        placeholder={
+                          original?.tavily_api_key_set
+                            ? S.search.replacePlaceholder
+                            : S.search.keyPlaceholder
+                        }
+                        className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100 transition"
+                      />
+                      <div className="mt-1.5 flex items-center gap-3">
+                        <a
+                          href="https://app.tavily.com/home"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-[11px] font-medium text-blue-700 hover:underline inline-flex items-center gap-0.5"
+                        >
+                          {S.search.getKey}
+                          <ExternalLink size={10} />
+                        </a>
+                        {/* Only offered when there IS one — a "remove" for
+                            nothing is a button that cannot work. */}
+                        {original?.tavily_api_key_set && (
+                          <button
+                            onClick={handleClearSearchKey}
+                            disabled={saving}
+                            data-testid="settings-search-remove"
+                            className="text-[11px] font-medium text-gray-400 hover:text-red-600 transition-colors disabled:opacity-50"
+                          >
+                            {S.search.removeKey}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    {/* What is lost without it — a fact, not a nudge. */}
+                    <p className="text-[11px] text-gray-500 leading-relaxed pt-1 border-t border-gray-100">
+                      {S.search.withoutNote}
                     </p>
                   </div>
                 ) : (
@@ -882,6 +1005,19 @@ export function SettingsModal({ open, onClose, onSaved, initialTab = 'appearance
               onClick={handleSaveInstructions}
               disabled={saving || loading || !instructionsDirty}
               title={instructionsDirty ? S.footer.saveTitleDirty : S.footer.saveTitleClean}
+              className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {saving ? S.footer.saving : S.footer.save}
+            </button>
+          )}
+          {tab === 'search' && (
+            <button
+              onClick={handleSaveSearchKey}
+              // Empty means "leave it alone", so there is nothing to save —
+              // clearing a stored key is the Remove button's job, not this
+              // one's.
+              disabled={saving || loading || searchKeyInput.trim().length === 0}
+              data-testid="settings-search-save"
               className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {saving ? S.footer.saving : S.footer.save}

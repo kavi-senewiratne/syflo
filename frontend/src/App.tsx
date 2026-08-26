@@ -23,7 +23,6 @@ import { findItem } from './keyboard/readScreen';
 import { MatrixRain } from './components/MatrixRain';
 import { ChatArea, type ChatAreaHandle } from './components/ChatArea';
 import { ModelPicker } from './components/ChatArea/ModelPicker';
-import { CloudSetupNotice } from './components/ChatArea/CloudSetupNotice';
 import { SettingsModal, type SettingsTab } from './components/SettingsModal';
 import { FeedbackDialog } from './components/FeedbackDialog';
 import { MindMap, findRoot } from './components/MindMap';
@@ -79,6 +78,10 @@ interface ActiveStream {
   content: string;
   reasoning: string;
   sources: SearchSource[];
+  // W2 (§06): the model called web_search and nobody looked. Held on the
+  // stream so it survives the re-renders between the tool event and the end of
+  // the answer.
+  searchWish?: { query: string; error: string };
   createdAt: string;
   // Warteschlangen-Status des Backends: Zahl der Jobs davor, null = läuft
   // (oder war nie eingereiht). started kippt mit dem started-Event.
@@ -495,12 +498,12 @@ export default function App() {
   // The silent full-text search, prefetched by proximity
   // (design/mockup-citation-card-standard.html § 05): the citations of the
   // page on screen, and whatever the mouse points at, ahead of them. One
-  // request at a time — a burst of them gets SearXNG's engines to serve
+  // request at a time — a burst of them gets the search engines to serve
   // captchas instead of results.
   const ensureFulltext = citationsData.ensureFulltext;
   const fulltextQueue = useMemo(
     // Two seconds apart: twenty back-to-back searches got every engine behind
-    // SearXNG to answer with a CAPTCHA (measured in the running app
+    // the search to answer with a CAPTCHA (measured in the running app
     // 2026-08-10), and a blocked search looks exactly like "nothing found".
     () => createFulltextQueue((referenceId) => ensureFulltext(referenceId), { spacingMs: 2000 }),
     [ensureFulltext],
@@ -995,6 +998,7 @@ export default function App() {
       content: s.content,
       created_at: s.createdAt,
       ...(s.sources.length > 0 ? { sources: [...s.sources] } : null),
+      ...(s.searchWish ? { searchWish: s.searchWish } : null),
       ...(s.reasoning ? { reasoning: s.reasoning } : null),
       ...(!s.started && s.queuedAhead !== null
         ? {
@@ -1463,6 +1467,9 @@ export default function App() {
         ) => void;
         onStarted: (userMessage: Message) => void;
         onRateLimit: (info: { retryInSeconds: number; attempt: number; scope?: 'requests' | 'tokens'; model?: string }) => void;
+        // Visible retry on the SAME model after a 503 (mockup-truncated-answer
+        // §02): the shape the SSE event carries, mirroring api.sendMessage.
+        onOverloaded: (info: { retryInSeconds: number; attempt: number; maxAttempts: number; provider?: string }) => void;
         onFailover: (info: FailoverInfo) => void;
       };
     }) => Promise<{ userMessage: Message; assistantMessage: Message }>,
@@ -1512,8 +1519,17 @@ export default function App() {
         },
         onToolEvent: (evt) => {
           // Tool-event from the LLM. Phase 'result' for web_search carries
-          // the sources we want to display under the assistant's answer.
-          if (evt.phase !== 'result' || evt.name !== 'web_search' || !evt.result?.results) return;
+          // either the sources we display under the answer, or — since W2
+          // (§06) — the news that the model WANTED to search and nobody
+          // looked. The second case is the whole point of offering the tool
+          // without a key: the wish is only visible because the call happened.
+          if (evt.phase !== 'result' || evt.name !== 'web_search') return;
+          if (evt.result?.error) {
+            stream.searchWish = { query: evt.result.query ?? '', error: evt.result.error };
+            patchAssistant({ searchWish: stream.searchWish });
+            return;
+          }
+          if (!evt.result?.results) return;
           stream.sources = [...stream.sources, ...evt.result.results];
           patchAssistant({ sources: stream.sources });
         },
@@ -1626,6 +1642,10 @@ export default function App() {
         const finalAssistant: Message = {
           ...assistantMessage,
           ...(stream.sources.length > 0 ? { sources: stream.sources } : null),
+          // W2 (§06): the reason the finished answer may be out of date. Found
+          // in the running app 2026-08-25 — without this line the card
+          // rendered mid-stream and vanished the moment the answer landed.
+          ...(stream.searchWish ? { searchWish: stream.searchWish } : null),
           ...(thoughtForSeconds !== undefined ? { thoughtForSeconds } : null),
           ...(stream.reasoning ? { reasoning: stream.reasoning } : null),
           ...(stream.failover !== null ? { failover: stream.failover } : null),
@@ -2714,10 +2734,12 @@ export default function App() {
     if (item.kind === 'pdf') {
       const { kind: _kind, ...highlight } = item;
       setHighlightMenu({ highlight, x, y });
-    } else {
+    } else if (item.kind === 'chat') {
       const { kind: _kind, chatTitle: _title, ...highlight } = item;
       setChatHighlightMenu({ highlight, x, y });
     }
+    // Video marks (transcript/chapter, since 2026-08-16) have no chatId and no
+    // messageId, so neither menu can act on them — they carry no menu yet.
   };
 
   // Klick auf eine Drawer-Karte (Grill-Entscheidungen 1+8): PDF-Karten
@@ -2731,8 +2753,11 @@ export default function App() {
       return;
     }
     // A video mark lives in the pane, not in a chat: the pane opens the right
-    // view, seeks the player and lets it glow (2026-08-16).
-    if (item.kind === 'transcript' || item.kind === 'chapter') {
+    // view, seeks the player and lets it glow (2026-08-16). Asked as "not a
+    // chat mark" rather than kind-by-kind so everything below is narrowed to
+    // TreeChatHighlight — a two-value discriminant ('transcript' | 'chapter')
+    // does not narrow the union away on its own.
+    if (item.kind !== 'chat') {
       videoPaneRef.current?.showHighlight(item.id);
       return;
     }
@@ -3301,6 +3326,29 @@ export default function App() {
               onAddFreeProvider={(provider) => openSettings('model', provider)}
               onRetryFreeModel={(m) => void handleRetryFreeModel(m)}
               onResendUnanswered={handleResendUnanswered}
+              // W2 (§06): the key arrives from the card under an answer the
+              // model could not look up — so storing it is only half the
+              // gesture. The other half is ASKING AGAIN.
+              //
+              // Asking, not regenerating: handleRetryMessage was tried first
+              // and the running app answered 409 "nothing to regenerate"
+              // (2026-08-25). That endpoint replaces a *Failed*/*Interrupted*
+              // marker, and this answer succeeded — it was only older than the
+              // question. So the stale answer stays as the record of what the
+              // model knew, and the new one arrives beneath it with a search
+              // behind it.
+              onSaveSearchKey={async (key, message) => {
+                const s = await api.updateSettings({ tavily_api_key: key });
+                setSettings(s);
+                const chat = activeChat;
+                if (!chat) return;
+                const ordered = orderMessages(chat.messages);
+                const idx = ordered.findIndex(m => m.id === message.id);
+                const question = idx === -1
+                  ? null
+                  : ordered.slice(0, idx).reverse().find(m => m.role === 'user');
+                if (question) void handleSendMessage(question.content, [], chat.id);
+              }}
               modelLabels={modelLabels}
               onWordRightClick={handleWordRightClick}
               onSelectChat={handleSelectChat}
@@ -3323,15 +3371,15 @@ export default function App() {
               // locked affordances — send button, Enter, model pill — all lead
               // here, to the path choice, with the typed question left standing.
               onOpenSetup={() => openSettings('model')}
-              setupNotice={
-                // Guided empty state (ADR-0008, grill decision 12b): active
-                // cloud provider without a key. Since O2 the card sits ABOVE
-                // the composer rather than replacing it — the app is usable
-                // before the user has paid for anything.
-                settings && settings.llm_provider !== 'ollama' &&
-                !settings[`${settings.llm_provider}_api_key_set`] ? (
-                  <CloudSetupNotice onOpenSettings={(p) => openSettings('model', p)} />
-                ) : undefined
+              firstRun={
+                // Active cloud provider without a key (ADR-0008, grill 12b).
+                // Since O2 this only locks sending and shows the notice strip —
+                // the app is usable before the user has paid for anything. The
+                // three-path card it replaced is gone (2026-08-22).
+                Boolean(
+                  settings && settings.llm_provider !== 'ollama' &&
+                  !settings[`${settings.llm_provider}_api_key_set`]
+                )
               }
               modelPicker={
                 settings && activeChatId ? (
@@ -3559,6 +3607,19 @@ export default function App() {
         }
         searchFailed={Boolean(citationReference?.fulltextSearchFailed)}
         searchRetryAt={citationReference?.fulltextRetryAt ?? null}
+        // W1 (§06): no search is set up at all. The card asks for the key
+        // here, where a search would have run.
+        searchUnavailable={Boolean(citationReference?.fulltextSearchUnavailable)}
+        searchReason={citationReference?.fulltextSearchReason ?? null}
+        onSaveSearchKey={async (key) => {
+          const s = await api.updateSettings({ tavily_api_key: key });
+          setSettings(s);
+          // The miss was never recorded (references.js returns early without
+          // setting fulltext_done), so asking again actually asks.
+          if (citationReference) {
+            await citationsData.ensureFulltext(citationReference.id).catch(() => {});
+          }
+        }}
         onRetrySearch={() => {
           if (citationReference) void citationsData.ensureFulltext(citationReference.id).catch(() => {});
         }}
@@ -3600,7 +3661,7 @@ export default function App() {
         />
       )}
 
-      {/* Video-Such-Modal (ADR-0005): YouTube über die lokale SearXNG-
+      {/* Video-Such-Modal (ADR-0005): YouTube über die InnerTube-
           Instanz durchsuchen und das Transkript an den aktiven Baum binden. */}
       {youtubeSearchOpen && activeChatId && (
         <YouTubeSearchModal

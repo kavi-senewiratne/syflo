@@ -32,9 +32,9 @@ function buildResponse(db) {
     custom_instructions: s.custom_instructions,
     custom_instructions_enabled: s.custom_instructions_enabled === 'true',
   };
-  // Web search (step 9, 2026-08-15): Tavily is the search provider an npm
-  // install can reach — SearXNG needs Docker and is optional. Same rule as
-  // the LLM keys: the frontend learns THAT there is a key, never which.
+  // Web search (2026-08-15, sole provider since ADR-0012): Tavily is the
+  // search an npm install can reach on every platform. Same rule as the LLM
+  // keys: the frontend learns THAT there is a key, never which.
   out.tavily_api_key_set = Boolean(getSetting(db, 'tavily_api_key'));
   // Per cloud provider: model choice + whether a key is stored. The
   // plaintext key never leaves the backend.
