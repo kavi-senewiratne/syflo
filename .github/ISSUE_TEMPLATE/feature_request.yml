@@ -1,0 +1,115 @@
+name: Feature request
+description: Propose something Syflo should be able to do.
+title: "[feature] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this for a **concrete** proposal. If you are still thinking out loud,
+        [Discussions → Ideas](https://github.com/kavi-senewiratne/syflo/discussions)
+        is the better place, and it is where most features start.
+
+        Two things worth knowing before you write:
+
+        - Syflo is a nights-and-weekends project. An accepted idea has no
+          delivery date, and there is no roadmap to add it to.
+        - A lot of the obvious ideas have already been decided one way or the
+          other, with reasons, in [`docs/adr/`](https://github.com/kavi-senewiratne/syflo/tree/main/docs/adr).
+          Contradicting an ADR is allowed — say which one, and why it should change.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: >
+        What were you trying to do when you wanted this? Describe the situation,
+        not the solution — that is the part nobody else can reconstruct later.
+      placeholder: |
+        I keep three branches open on the same paper and lose track of which one
+        already covers a question, so I re-ask it in the wrong branch.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What Syflo should do
+      description: The behaviour you want, in terms of what you would see and click.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you tried or considered instead
+      description: >
+        Including workarounds that nearly work. A feature that only saves two
+        clicks over something that already exists is a hard sell, and saying so
+        yourself saves a round trip.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part of Syflo?
+      options:
+        - Branching / chat tree
+        - Mind map
+        - PDFs and papers
+        - YouTube transcripts
+        - Retrieval and long sources
+        - Providers, models, quota
+        - Web search
+        - Dictation / voice
+        - Keyboard navigation
+        - Themes and visual design
+        - Install, CLI, desktop shell
+        - Something else / more than one
+    validations:
+      required: true
+
+  - type: dropdown
+    id: provider
+    attributes:
+      label: Which LLM provider do you use?
+      description: >
+        Some features are only affordable on a cloud provider, others only make
+        sense on the fully local route — so this changes the answer.
+      options:
+        - Gemini
+        - Groq
+        - OpenAI
+        - Anthropic
+        - Ollama (local)
+        - Several
+        - Not using Syflo yet
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating system and Node version
+      description: Only needed if the request is platform- or install-related.
+      placeholder: "macOS 15.3, Node v22.11.0"
+
+  - type: textarea
+    id: mockup
+    attributes:
+      label: Mockup or sketch (for anything visual)
+      description: >
+        UI changes in Syflo follow `design/mockup-*.html` as the source of truth,
+        so a visual proposal eventually needs a mockup. A screenshot, a scribble
+        or a link is a fine start — nothing polished required.
+
+  - type: checkboxes
+    id: hygiene
+    attributes:
+      label: Before filing
+      options:
+        - label: I checked the open issues and Discussions for the same idea.
+          required: true
+        - label: >
+            I understand this is a one-maintainer project and that filing this is
+            not a commitment that it will be built.
+          required: true

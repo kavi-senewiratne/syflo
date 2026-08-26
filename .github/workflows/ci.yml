@@ -1,0 +1,90 @@
+# Full test suite on every pull request and every push to main.
+#
+# The matrix is the point: ADR-0009 promises the same `npm install -g syflo` on
+# macOS, Linux and Windows from day one, and the only way that promise stays
+# honest is to run the suites on all three. Node 20 is the floor declared in
+# `engines`; Node 22 is what most people actually have.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  # The release workflow gates the npm publish on exactly this matrix rather
+  # than a copy of it that can drift.
+  workflow_call:
+
+# A new push supersedes the previous run on the same ref — nothing is learned
+# from finishing a matrix for code that has already been replaced.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # The 605 MB embedding model must never be downloaded in CI. Actions sets
+  # `CI=true`, which scripts/download-embedding-model.js already honours; this
+  # is the belt to that braces, and it is what the script documents as the
+  # explicit opt-out.
+  SYFLO_SKIP_MODEL: '1'
+  # Electron's own postinstall pulls ~100 MB of binary that no test needs: the
+  # CLI tests inject a fake path instead of resolving the real one.
+  ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+
+jobs:
+  test:
+    name: ${{ matrix.os }} · Node ${{ matrix.node }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # One red platform should not hide the state of the other two.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node: [20, 22]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      # Four packages, three lockfiles. The root has no lockfile yet, so it gets
+      # `npm install`; backend and frontend get `npm ci` from their own.
+      # --ignore-scripts on purpose: the root suite only needs Jest, while the
+      # root dependencies carry three native/binary postinstalls (electron,
+      # node-llama-cpp, better-sqlite3) that no test here touches — the CLI
+      # tests inject a fake Electron path, and backend/embeddings.js imports
+      # node-llama-cpp lazily. Downloading them would add minutes per matrix
+      # cell and a failure mode unrelated to the change under test.
+      - name: Install root (the `syflo` CLI and the install script)
+        run: npm install --ignore-scripts --no-audit --no-fund
+
+      - name: Install backend
+        run: npm ci --no-audit --no-fund
+        working-directory: backend
+
+      - name: Install frontend
+        run: npm ci --no-audit --no-fund
+        working-directory: frontend
+
+      - name: Backend suite (Jest + Supertest)
+        run: npm test
+        working-directory: backend
+
+      - name: Frontend typecheck
+        # Both tsconfigs are noEmit, so the project build IS the typecheck.
+        run: npx tsc -b
+        working-directory: frontend
+
+      - name: Frontend suite (vitest)
+        run: npm test
+        working-directory: frontend
+
+      - name: CLI and install-script suite (repo root)
+        run: npm test
+
+      - name: Frontend production build
+        # The build is what `prepack` runs before publishing, so a break here
+        # would only surface at release time otherwise.
+        run: npm run build
+        working-directory: frontend

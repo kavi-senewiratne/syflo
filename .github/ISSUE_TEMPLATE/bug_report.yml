@@ -1,0 +1,141 @@
+name: Bug report
+description: Something in Syflo does not work the way it should.
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file this.
+
+        **Not a bug report?** Questions and half-formed ideas belong in
+        [Discussions](https://github.com/kavi-senewiratne/syflo/discussions).
+        **Security problem?** Please do not file it here — use
+        [private vulnerability reporting](https://github.com/kavi-senewiratne/syflo/security/advisories/new)
+        instead (see `SECURITY.md`).
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you saw, and what you expected instead.
+      placeholder: |
+        I selected a phrase in an assistant answer and pressed /branch. The child
+        chat opened but the parent context was empty — the model asked "what do
+        you mean by that?".
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: >
+        The smallest sequence that shows the problem. Name the actual gesture
+        (which text you selected, which button you clicked), not just the intent.
+      placeholder: |
+        1. Open a chat with a PDF attached
+        2. Select a sentence in the assistant's answer
+        3. Type /branch and press Enter
+        4. The child chat opens without the selected passage
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Syflo version
+      description: "`syflo --help` prints nothing useful for this — use `npm ls -g syflo`, or the commit if you run from a clone."
+      placeholder: "0.1.0 (npm) / commit abc1234"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - macOS (Apple Silicon)
+        - macOS (Intel)
+        - Linux
+        - Windows
+        - Other / more than one
+    validations:
+      required: true
+
+  - type: input
+    id: os-detail
+    attributes:
+      label: OS version
+      placeholder: "macOS 15.3, Ubuntu 24.04, Windows 11 23H2 …"
+    validations:
+      required: true
+
+  - type: input
+    id: node
+    attributes:
+      label: Node version
+      description: Output of `node --version`. Syflo needs 20 or newer.
+      placeholder: "v22.11.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: provider
+    attributes:
+      label: Which LLM provider was configured?
+      description: >
+        The provider decides which half of the code ran — the cloud ladder and
+        its quota handling, or the local Ollama path with its warm-up and
+        KV-cache machinery. Bugs almost never cross that line.
+      options:
+        - Gemini
+        - Groq
+        - OpenAI
+        - Anthropic
+        - Ollama (local)
+        - None configured yet
+        - Several / not sure
+    validations:
+      required: true
+
+  - type: input
+    id: model
+    attributes:
+      label: Model
+      description: The model shown in the composer pill, if the bug involves an answer.
+      placeholder: "gemini-2.5-flash / qwen3.5:9b"
+
+  - type: dropdown
+    id: surface
+    attributes:
+      label: How were you running Syflo?
+      options:
+        - Desktop window (default `syflo`)
+        - Browser (`syflo --browser`)
+        - Dev servers from a clone
+        - Locally built Electron app
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Terminal output
+      description: >
+        The lines the `syflo` terminal printed around the failure, and anything
+        red in the browser console (View → Developer → Toggle Developer Tools in
+        the desktop window).
+      render: shell
+
+  - type: checkboxes
+    id: hygiene
+    attributes:
+      label: Before filing
+      options:
+        - label: I checked that no open issue already describes this.
+          required: true
+        - label: >
+            I removed any API key, personal data or private paper content from
+            the text and logs above.
+          required: true

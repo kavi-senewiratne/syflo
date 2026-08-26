@@ -1,0 +1,105 @@
+# Publish to npm when a version tag is pushed.
+#
+# The tag is the trigger and the only trigger: nothing here runs on a branch
+# push, so a release is always a deliberate act.
+#
+#   npm version patch          # bumps package.json and creates the tag
+#   git push --follow-tags     # this workflow takes it from there
+#
+# Order matters. Tests first on all three platforms (ADR-0009 promises the same
+# install everywhere), then the publish, then the GitHub Release. A tag that
+# fails its tests is never published — and because the Release is written last,
+# a green Release page always means a real npm version exists.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  # The same matrix CI runs on every pull request, reused rather than copied.
+  test:
+    uses: ./.github/workflows/ci.yml
+
+  publish:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      # Provenance is signed with a short-lived OIDC token from this run; npm
+      # then shows the tarball's origin (this repo, this workflow, this commit)
+      # on the package page. Without this permission `--provenance` fails.
+      id-token: write
+      # Publishing reads the tree and writes nothing back to the repository.
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    env:
+      SYFLO_SKIP_MODEL: '1'
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          # Writes the .npmrc that makes NODE_AUTH_TOKEN work below.
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Check the tag matches package.json
+        # A mismatch here is the one release mistake that cannot be undone:
+        # npm would happily publish 0.1.3 under a v0.1.4 tag, and versions are
+        # not republishable. Cheaper to fail before the publish than after.
+        id: version
+        shell: bash
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          pkg="$(node -p "require('./package.json').version")"
+          if [ "$tag" != "$pkg" ]; then
+            echo "Tag v$tag does not match package.json version $pkg." >&2
+            exit 1
+          fi
+          echo "version=$pkg" >> "$GITHUB_OUTPUT"
+
+      # Same reasoning as in ci.yml: nothing in the publish path runs the root
+      # dependencies' native postinstalls. `prepack` still fires on publish.
+      - name: Install root
+        run: npm install --ignore-scripts --no-audit --no-fund
+
+      # `prepack` builds the frontend into frontend/dist, which the `files`
+      # field ships. Its dependencies have to be there before npm publish runs.
+      - name: Install frontend (prepack builds it)
+        run: npm ci --no-audit --no-fund
+        working-directory: frontend
+
+      - name: Show what would be published
+        # Printed into the log so the tarball's contents are auditable after the
+        # fact — the check that keeps a database file or an .env out of a release.
+        run: npm pack --dry-run
+
+      - name: Publish to npm
+        run: npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  github-release:
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      # Creating a Release writes to the repository — the one step that needs
+      # more than read, which is why it is a job of its own.
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Auto-generated notes are built from the commits since the previous
+          # tag, so the full history has to be there.
+          fetch-depth: 0
+
+      - name: Create the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release create "$GITHUB_REF_NAME"
+          --title "$GITHUB_REF_NAME"
+          --generate-notes
+          --verify-tag

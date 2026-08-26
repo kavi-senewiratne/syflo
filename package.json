@@ -1,7 +1,7 @@
 {
   "name": "syflo",
   "version": "0.1.0",
-  "description": "Branching research chats over papers, PDFs and videos — local-first, bring your own model keys",
+  "description": "Branching research chats over papers, PDFs and videos \u2014 local-first, bring your own model keys",
   "license": "MIT",
   "author": "Kavi Senewiratne",
   "homepage": "https://github.com/kavi-senewiratne/syflo",
@@ -30,8 +30,16 @@
     "bin/",
     "backend/",
     "!backend/tests/",
-    "!backend/*.db*",
+    "!backend/scripts/",
     "!backend/package-lock.json",
+    "!backend/.env",
+    "!backend/*.db*",
+    "!backend/**/*.db*",
+    "!backend/**/*.sqlite",
+    "!backend/**/*.sqlite3",
+    "!backend/**/*.log",
+    "!backend/uploads/",
+    "!backend/logs/",
     "frontend/dist/",
     "electron/main.js",
     "electron/preload.js",
@@ -57,7 +65,8 @@
   },
   "scripts": {
     "postinstall": "node scripts/download-embedding-model.js",
-    "test": "jest"
+    "test": "jest",
+    "prepack": "npm --prefix frontend run build"
   },
   "jest": {
     "testEnvironment": "node",

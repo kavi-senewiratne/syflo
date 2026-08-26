@@ -167,6 +167,17 @@ describe('root package.json', () => {
     expect(files.filter((entry) => entry.startsWith('scripts/')))
       .toEqual(['scripts/download-embedding-model.js']);
   });
+
+  // Found by installing the packed tarball and opening it (2026-08-21):
+  // frontend/dist was FIVE DAYS old, so the package shipped a stale UI with a
+  // current backend — the first-run screen still replaced the composer instead
+  // of keeping it usable. `npm pack` copies dist, it never builds it, and
+  // nothing forced a build. prepack does.
+  it('builds the frontend before packing, so the tarball can never ship a stale UI', () => {
+    expect(pkg.scripts.prepack).toBeTruthy();
+    expect(pkg.scripts.prepack).toMatch(/frontend/);
+    expect(pkg.scripts.prepack).toMatch(/build/);
+  });
 });
 
 describe('electron/main.js', () => {

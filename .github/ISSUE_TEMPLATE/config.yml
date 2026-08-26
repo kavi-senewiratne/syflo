@@ -1,0 +1,16 @@
+# Issues are for bugs and concrete feature requests. Everything else has a
+# better home, and these links are how people find it before opening an issue.
+blank_issues_enabled: false
+contact_links:
+  - name: Question — how do I do X?
+    url: https://github.com/kavi-senewiratne/syflo/discussions/categories/q-a
+    about: Ask in Discussions → Q&A. Setup, provider keys, "is this supposed to happen" — all of it belongs there, and the answer stays findable for the next person.
+  - name: Idea — thinking out loud
+    url: https://github.com/kavi-senewiratne/syflo/discussions/categories/ideas
+    about: Discussions → Ideas is where features start. Bring the finished proposal back here as a feature request once it has taken shape.
+  - name: Security vulnerability
+    url: https://github.com/kavi-senewiratne/syflo/security/advisories/new
+    about: Never report a security problem in a public issue. Use private vulnerability reporting; see SECURITY.md for scope and response times.
+  - name: Contributing guide
+    url: https://github.com/kavi-senewiratne/syflo/blob/main/CONTRIBUTING.md
+    about: Dev setup in five commands, plus the house rules a pull request is most likely to trip over.

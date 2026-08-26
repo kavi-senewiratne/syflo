@@ -1,5 +1,15 @@
 # Open-source release checklist
 
+> **Reconciled 2026-08-24.** Every box below was re-checked against the working
+> tree, not against memory. Evidence per item is named inline — a file that
+> exists, a `grep` hit, or a command's output. What was still open on the
+> previous pass and is now closed: `LICENSE`, all four community documents, the
+> issue templates, the README restructure, and both GitHub Actions workflows
+> (authored, never triggered — no tag has been pushed and nothing has been
+> published). What is still genuinely open is unticked, and most of it is
+> outside the repo: commits, untracking `design/`+`article/`, the GitHub
+> settings, the first publish, and the name reservations.
+
 All decisions from the grill session 2026-07-31. Goal: **community project**,
 MIT-licensed, published from `kavi-senewiratne/syflo`, distributed via npm
 (ADR-0009). Naming rule: plain **`syflo`** wherever free; **`syfloapp`** as the
@@ -29,50 +39,131 @@ a DNS-rebinding Host guard beyond the original list). Suites green: backend
 - [x] Hardening: serve `/uploads` with `Content-Disposition: attachment` +
       `X-Content-Type-Options: nosniff` so an uploaded HTML file can never
       execute same-origin with the app.
-- [ ] Commit the ~128 pending files (model flow, cost tiers, branch header …).
+- [ ] Commit the pending files. `git status --porcelain | wc -l` = **71** on
+      2026-08-24 (the earlier "~128" is stale). Includes the web-search work in
+      flight and everything added by this pass.
 - [ ] Untrack `article/` and `design/`: `git rm -r --cached` + `.gitignore`
-      entries. Files stay on disk; **no history rewrite** (decided — nothing
-      secret in history, verified 2026-07-31: no uploads/dbs/PDFs/.env ever
-      committed).
-- [ ] Add `LICENSE` (MIT).
-- [ ] Translate `searxng/README.md` to English; drop remaining "FlowTalk"
-      mentions.
+      entries. Still open — `git ls-files design | wc -l` = 85,
+      `git ls-files article | wc -l` = 9, and `.gitignore` mentions neither.
+      Files stay on disk; **no history rewrite** (decided — nothing secret in
+      history, verified 2026-07-31: no uploads/dbs/PDFs/.env ever committed).
+- [x] Add `LICENSE` (MIT). `LICENSE` at the repo root, MIT, © 2026 Kavi
+      Senewiratne; `package.json` already declared `"license": "MIT"`.
+- [x] `searxng/` removed entirely (ADR-0012, 2026-08-23) — with it the last
+      "FlowTalk" name in a shipped file (the container was `flowtalk-searxng`)
+      and the README that needed translating.
+- [x] **Nothing sensitive in the published tarball.** `npm pack --dry-run`
+      (2026-08-24): 296 files, 5.6 MB packed / 9.1 MB unpacked. No `*.db`, no
+      `.env` (only `backend/.env.example`, deliberately), no `uploads/`, no
+      `design/`, no `article/`, no `logs/`. The `files` field grew explicit
+      negations for `.env`, `**/*.db*`, `**/*.sqlite*`, `**/*.log`, `uploads/`,
+      `logs/` and `backend/scripts/` — the old single `!backend/*.db*` did catch
+      `backend/syflo.db.backup-…` (it stays, `tests/cli.test.js:159` pins it),
+      but one pattern standing between a release and a user's database is one too
+      few. Re-verified after the change: same 296 files, nothing sensitive; only
+      `backend/.env.example` matches `.env`, and it holds placeholders.
 
 ## Community documents
 
-- [ ] `CONTRIBUTING.md` — dev setup in ~5 commands, plus the two house rules:
-      mockup-first for UI changes, tests required for every feature.
-- [ ] `SECURITY.md` — report vulnerabilities privately via GitHub's private
-      vulnerability reporting, not public issues.
-- [ ] `CODE_OF_CONDUCT.md` — Contributor Covenant, unmodified.
-- [ ] Issue templates (bug/feature) asking for OS, Node version, provider.
-- [ ] README: lead with the npm install story; add the expectations line
-      ("nights-and-weekends project, no roadmap promises"); questions →
-      Discussions, bugs → Issues.
-- [ ] Enable GitHub Discussions with categories "Q&A" and "Ideas".
-      No Discord at launch (revisit when there are regulars).
+- [x] `CONTRIBUTING.md` — dev setup in 5 commands (root/backend/frontend
+      install, `.env`, both dev servers), the Electron mirror via
+      `bash scripts/sync-electron-resources.sh`, and three house rules:
+      mockup-first for UI, tests required **plus** verification in the running
+      app, and English-only code.
+- [x] `SECURITY.md` — private vulnerability reporting only, supported version
+      0.1.x, and an explicitly nights-and-weekends response expectation
+      (acknowledgement within a week or two), with scope and out-of-scope.
+- [x] `CODE_OF_CONDUCT.md` — Contributor Covenant v2.1, text unmodified except
+      the enforcement contact, which points at private vulnerability reporting
+      and the issue tracker. No personal email address anywhere in it.
+- [x] Issue templates (bug/feature) asking for OS, Node version, provider.
+      `.github/ISSUE_TEMPLATE/bug_report.yml` and `feature_request.yml` (GitHub
+      form schema), plus `config.yml` with `blank_issues_enabled: false` and
+      contact links to Discussions Q&A / Ideas, the advisory form and
+      `CONTRIBUTING.md`.
+- [x] README: leads with `npm install -g syflo` + `syflo` in the first screen,
+      `--browser` as the documented fallback, the 605 MB `bge-m3-q8_0.gguf`
+      postinstall with `SYFLO_SKIP_MODEL=1` (and the automatic `CI` /
+      git-checkout skips), an explicit "nights-and-weekends, no roadmap" section,
+      questions → Discussions, bugs → Issues. Stale claims removed on the way:
+      the mind map is top-down, not radial; dictation is local whisper.cpp
+      (ADR-0004), not the browser's `SpeechRecognition`; the tech-stack table no
+      longer says Ollama is the model layer.
+- [ ] Enable GitHub Discussions with categories "Q&A" and "Ideas". Repository
+      setting, cannot be done from the tree — and `config.yml` already links to
+      `/discussions/categories/q-a` and `/ideas`, so those two categories have to
+      exist under exactly those slugs or the links 404.
+- [ ] Enable private vulnerability reporting in the repository's Security
+      settings — `SECURITY.md`, `CODE_OF_CONDUCT.md` and `config.yml` all point
+      at `/security/advisories/new`.
+- [ ] No Discord at launch (revisit when there are regulars). Nothing to do;
+      kept here so the decision is not silently reversed.
 
 ## npm-first distribution (ADR-0009)
 
-- [ ] `syflo` CLI entry point: start backend, open Electron window by default,
-      `--browser` fallback.
-- [ ] `electron/main.js`: resolve frontend/backend from the npm package instead
-      of `extraResources`.
-- [ ] First publish: `syflo@0.1.0` with npm provenance.
+- [x] `syflo` CLI entry point: start backend, open Electron window by default,
+      `--browser` fallback. `bin/syflo.js` + `bin/lib/launch.js` (pure plan,
+      spawns separated); `package.json` `"bin": { "syflo": "./bin/syflo.js" }`;
+      covered by `tests/cli.test.js`.
+- [x] `electron/main.js`: resolve frontend/backend from the npm package instead
+      of `extraResources`. It takes both layouts through
+      `resolvePaths({ packageRoot: PACKAGE_ROOT, resourcesPath })` and honours
+      `SYFLO_BACKEND_EXTERNAL=1` when the CLI already owns the backend.
+- [x] Data directory outside the program folder: `backend/paths.js` resolves
+      `~/.syflo` (`SYFLO_DATA_DIR` override), so `npm update` cannot take the
+      database with it.
+- [x] Embedding model as an install step: `scripts/download-embedding-model.js`
+      (`postinstall`), 605 MB bge-m3 GGUF, four opt-outs — already present,
+      `SYFLO_SKIP_MODEL`, `CI`, non-global git checkout — and it never fails the
+      install. Covered by `tests/download-model.test.js`.
+- [ ] Commit a root `package-lock.json`. There is none, so CI has to use
+      `npm install` at the root while `backend/` and `frontend/` get `npm ci`
+      from their own (both verified in sync with their `package.json` on
+      2026-08-24).
+- [ ] First publish: `syflo@0.1.0` with npm provenance. Deliberately not done —
+      the release workflow exists but has never been triggered.
+- [ ] Create the `NPM_TOKEN` repository secret (automation token) before the
+      first tag; `release.yml` reads it as `NODE_AUTH_TOKEN`.
 
 ## CI & releases
 
-- [ ] GitHub Actions on every PR: full test suite as a **matrix on
+- [x] GitHub Actions on every PR: full test suite as a **matrix on
       macOS / Linux / Windows** (keeps the cross-platform promise honest).
-- [ ] Tag-triggered release workflow: tests → npm publish → GitHub Release with
-      auto-generated notes.
-- [ ] Versioning: SemVer from 0.1.0; 1.0 only when the SQLite schema is stable.
-      No release cadence promises.
+      `.github/workflows/ci.yml` — `pull_request` + push to `main`, matrix
+      `ubuntu-latest`/`macos-latest`/`windows-latest` × Node 20/22,
+      `fail-fast: false`. Runs the backend Jest suite, the frontend typecheck
+      (`npx tsc -b`), the frontend vitest suite, the root CLI suite and the
+      frontend production build. `SYFLO_SKIP_MODEL=1` and
+      `ELECTRON_SKIP_BINARY_DOWNLOAD=1` at workflow level so no run pays for the
+      605 MB model or Electron's binary.
+- [x] Tag-triggered release workflow: tests → npm publish → GitHub Release with
+      auto-generated notes. `.github/workflows/release.yml` — on `push: tags:
+      ['v*']`; calls `ci.yml` via `workflow_call` (one matrix, not a copy),
+      refuses a tag that disagrees with `package.json`, prints
+      `npm pack --dry-run` into the log, then
+      `npm publish --access public --provenance` with `id-token: write` +
+      `contents: read`, and finally `gh release create --generate-notes
+      --verify-tag` in a separate job holding `contents: write`.
+      **Authored only — never triggered.**
+- [x] Versioning: SemVer from 0.1.0; 1.0 only when the SQLite schema is stable.
+      No release cadence promises. Written down where users see it (README
+      "What to expect") and enforced by the tag/version check in `release.yml`.
+- [ ] Watch the first real CI run. The workflows have never executed, and the
+      frontend typecheck was red while this pass ran (2026-08-24): the web-search
+      UI was mid-change, so `Settings` gained `tavily_api_key_set` and
+      `search_setup_dismissed` while the fixtures in `App.test.tsx`,
+      `ModelFlowApp.test.tsx` and `CitationCard.test.tsx` had not caught up.
+      Because `tsc -b` is what `prepack` runs, this also breaks
+      `npm pack` — the tarball verdict above was taken with `--ignore-scripts`
+      against the `frontend/dist` from the last successful build. Re-run a plain
+      `npm pack --dry-run` once the web-search work lands, before the first tag.
 
 ## Name reservations (outside the repo)
 
 - [x] GitHub username renamed to `kavi-senewiratne`; syflo remote updated
-      (2026-07-31). Update any CV/LinkedIn links still pointing at `kavinda14`.
+      (2026-07-31; `git remote -v` still shows
+      `git@github.com:kavi-senewiratne/syflo.git`). Update any CV/LinkedIn links
+      still pointing at `kavinda14`.
 - [ ] GitHub org `syfloapp` (name-holding only; repo stays personal — transfer
       later only if the project outgrows one maintainer; GitHub redirects on
       transfer).
