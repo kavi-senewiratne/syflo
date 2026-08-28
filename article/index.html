@@ -3,16 +3,15 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Dear Frontier Labs, Linear Chat Is the Wrong Shape for Research</title>
+<title>Syflo: turn one long chat into a tree of branches</title>
 <style>
   :root {
     --paper: #fdfdfb;
     --ink: #1c1c1a;
     --muted: #6b6b66;
-    --accent: #3b5bdb;
+    --accent: #2563eb;
     --rule: #e6e4de;
     --slot-bg: #f4f3ef;
-    --board-bg: #fbfaf7;
     --mono: ui-monospace, "SF Mono", Menlo, monospace;
     --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
   }
@@ -21,10 +20,9 @@
       --paper: #191917;
       --ink: #e8e6e1;
       --muted: #9a9891;
-      --accent: #91a7ff;
+      --accent: #8faaff;
       --rule: #33322e;
       --slot-bg: #22211e;
-      --board-bg: #1e1d1a;
     }
   }
   * { box-sizing: border-box; }
@@ -36,189 +34,338 @@
     font-size: 1.125rem;
     line-height: 1.65;
   }
-  .page { max-width: 42rem; margin: 0 auto; padding: 4rem 1.25rem 6rem; }
+  .page { max-width: 44rem; margin: 0 auto; padding: 4rem 1.25rem 6rem; }
 
-  .kicker {
-    font-family: var(--sans); font-size: .78rem; letter-spacing: .14em;
-    text-transform: uppercase; color: var(--accent); font-weight: 600;
-  }
-  h1 { font-size: 2.3rem; line-height: 1.15; margin: .6rem 0 1rem; letter-spacing: -.01em; }
-  .subtitle { font-size: 1.2rem; color: var(--muted); font-style: italic; margin: 0 0 1.5rem; }
+  h1 { font-size: 2.3rem; line-height: 1.15; margin: 0 0 1.2rem; letter-spacing: -.01em; }
   .byline {
     font-family: var(--sans); font-size: .85rem; color: var(--muted);
     border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule);
-    padding: .6rem 0; margin-bottom: 3rem;
+    padding: .6rem 0; margin: 1.6rem 0 2.6rem;
     display: flex; gap: 1rem; flex-wrap: wrap;
   }
   .byline a { color: var(--accent); text-decoration: none; }
 
-  h2 { font-size: 1.45rem; margin: 3rem 0 .8rem; line-height: 1.25; }
+  h2 { font-size: 1.5rem; margin: 3.2rem 0 .9rem; line-height: 1.25; }
+  h3 { font-size: 1.15rem; margin: 2.2rem 0 .6rem; font-family: var(--sans); }
   p { margin: 0 0 1.1rem; }
-  em { font-style: italic; }
-  .salutation { margin-bottom: 1.4rem; }
-  .aside { color: var(--muted); font-size: 1rem; }
-  code { font-family: var(--mono); font-size: .85em; background: var(--slot-bg); padding: .1em .35em; border-radius: 4px; }
+  a { color: var(--accent); }
+  strong { font-weight: 600; }
+  ul { padding-left: 1.2rem; }
+  li { margin-bottom: .4rem; }
 
-  /* ---- GIF figures ---- */
-  figure.gif { margin: 1.8rem 0 2.2rem; }
-  figure.gif img { width: 100%; display: block; border-radius: 10px; border: 1px solid var(--rule); }
-  /* ---- Diagram ---- */
-  .diagram { margin: 1.8rem 0 2.2rem; overflow-x: auto; }
+  code {
+    font-family: var(--mono); font-size: .85em;
+    background: var(--slot-bg); padding: .1em .35em; border-radius: 4px;
+  }
+  pre {
+    font-family: var(--mono); font-size: .82rem; line-height: 1.55;
+    background: var(--slot-bg); border: 1px solid var(--rule);
+    border-radius: 10px; padding: 1rem 1.1rem; overflow-x: auto;
+    margin: 1.4rem 0;
+  }
+  pre code { background: none; padding: 0; font-size: inherit; }
+
+  figure { margin: 1.8rem 0 2.4rem; }
+  figure img {
+    width: 100%; display: block;
+    border-radius: 10px; border: 1px solid var(--rule);
+  }
+  figcaption {
+    font-family: var(--sans); font-size: .85rem; color: var(--muted);
+    margin-top: .6rem; line-height: 1.5;
+  }
+  .todo {
+    font-family: var(--sans); font-size: .85rem; color: var(--muted);
+    border: 1px dashed var(--rule); border-radius: 10px;
+    padding: 1.4rem 1.1rem; text-align: center; margin: 1.8rem 0 2.4rem;
+  }
+  .diagram { margin: 1.8rem 0 2.4rem; overflow-x: auto; }
   .diagram svg { display: block; margin: 0 auto; max-width: 100%; height: auto; }
 
-  .signature { margin-top: 3rem; }
-  .signature .name { font-size: 1.15rem; }
   hr { border: none; border-top: 1px solid var(--rule); margin: 3rem 0; }
+  .closing { color: var(--muted); font-style: italic; }
 </style>
 </head>
 <body>
 <div class="page">
 
-  <p class="kicker">An open letter</p>
-  <h1>Dear Frontier Labs, Linear Chat Is the Wrong Shape for Research</h1>
-  <p class="subtitle">An open letter with GIFs &mdash; and an open-source app you're welcome to borrow from.</p>
+  <h1>Syflo: turn one long chat into a tree of branches</h1>
   <div class="byline">
     <span>Kavi Senewiratne</span>
-    <span>July 2026</span>
-    <span><a href="#">Syflo on GitHub</a></span><!-- TODO: real repo URL before publishing -->
+    <span>August 2026</span>
+    <span><a href="https://github.com/kavi-senewiratne/syflo">Syflo on GitHub</a></span>
+    <span>MIT</span>
   </div>
 
-  <p class="salutation">Dear OpenAI, Anthropic, and Google,</p>
+  <p>An AI chat app &mdash; ChatGPT, Claude, any of them &mdash; gives you one long scroll. Learning something doesn't work like that. You need what you're reading to stay in view the whole time, and you need somewhere to put the five questions it raised along the way.</p>
 
-  <p>I love your models. I have a complaint about your apps.</p>
+  <p>Syflo does those two things.</p>
 
-  <p>Every serious reading session I run in a chat app dies the same death. I paste in a paper, ask a question, and the answer contains three things I don't understand. Now I have a choice: chase all three in sequence and turn the conversation into soup, or pick one and quietly abandon the other two. Either way, by message forty the transcript is half attention mechanisms, half positional encodings, half a tangent about GPUs &mdash; and completely impossible to revisit.</p>
+  <p><strong>You keep one main chat, and open a branch for every side question.</strong> A branch is a separate chat, hanging off the word or the answer it came from. Ask about attention heads in a branch and the main chat is untouched &mdash; the question has its own place, and you can still find it next week. The branch is not starting from nothing, though: it is handed the main chat as background, so you never have to explain yourself twice. What it is <em>not</em> handed is the four other branches. Each conversation carries only what it needs. This works in any chat, about anything; no document required.</p>
 
-  <p>The problem isn't your models. It's the shape of the container. Curiosity branches; your apps only scroll.</p>
+  <p><strong>And when there is a document, it stays visible.</strong> Start a tree around a PDF or a YouTube video and it keeps the centre of the window for as long as that tree exists &mdash; because it belongs to the conversation, not to a message. You can see it, and so can the model: it never scrolls out of memory.</p>
 
-  <p>So I built the app I wanted. It's called <strong>Syflo</strong>, it's open source, and this letter is a tour of the features I'd like you to borrow &mdash; each one demonstrated on the paper your own products are built on.</p>
+  <p>It is open source under MIT, it runs on your own machine, and the install is one line &mdash; but that comes later. First, what those two things look like in practice.</p>
 
-  <h2>1. Every tangent becomes its own chat</h2>
+  <hr>
 
-  <p>In Syflo, any word or passage the model writes can be spun off into a <em>branch</em> &mdash; a fresh, focused chat that knows where it came from. The root conversation stays clean. The tangents each get their own room. And the whole thing is navigable as a mind map, so a week later I can <em>see</em> how my thinking branched instead of scrolling through an archaeology dig.</p>
+  <h2>Why I built it</h2>
 
-  <figure class="gif">
-    <img src="gifs/01-branching.gif" alt="Selecting 'Multi-Head Attention' in an answer, opening it as a new chat, asking a follow-up, then the mind map showing the tree." loading="lazy">
-    <figcaption>One paper, one root question, two branches &mdash; none of them stepping on each other. Right-click even gets you a definition for free.</figcaption>
+  <p>I was reading <em>Attention Is All You Need</em>. I asked what a key-value pair was. The answer mentioned dot-product scaling, so I asked about that. That answer mentioned why the gradients vanish without it. Twenty messages later I wanted to go back to my original question about heads, and I couldn't find it.</p>
+
+  <p>Worse: the paper was gone. Not deleted &mdash; just far enough up the transcript that the model had stopped seeing it. I re-uploaded the PDF to ask a question I could have asked in message two.</p>
+
+  <p>Two separate things had broken. The <strong>context</strong> &mdash; what the model can still see. And the <strong>organisation</strong> &mdash; what I can still find. Every feature below exists to fix one of those.</p>
+
+  <hr>
+
+  <h2>1. Every question gets its own chat</h2>
+
+  <p>Right-click a word in an answer, select a phrase, or type <code>/branch &lt;topic&gt;</code>. You get a new chat dedicated to that one thing. The conversation you were in stays exactly as it was. Nothing about this needs a document &mdash; a tree can grow out of a plain question just as well.</p>
+
+  <figure>
+    <img src="gifs/01-branching.gif" alt="Selecting a passage in an answer; a popup shows a one-line definition, five highlight colours, 'Ask in chat' and 'Open as new chat'. The passage becomes its own chat, which answers a follow-up." loading="lazy">
+    <figcaption>Select a passage and the popup offers everything at once: what it means, five colours to mark it in, a question right here, or a chat of its own.</figcaption>
   </figure>
 
-  <p>And that mind map is not a poster &mdash; it's the navigation. Every node is a chat; click one and you're standing in it, with the conversation right below. Walking an old research tree this way beats scrolling a 200-message transcript in every way I can measure.</p>
+  <p>Half of the benefit is that the questions now have somewhere to live. A week later I can still find the one about heads, because it is its own chat and not message 34 of 90.</p>
 
-  <figure class="gif">
-    <img src="gifs/08-mindmap.gif" alt="Switching to the mind map and clicking through three nodes; each click opens that branch's chat below the map." loading="lazy">
-    <figcaption>Click a node, land in that chat. The map is how you come back to a tree a week later.</figcaption>
-  </figure>
+  <p>The other half is what the model receives. Say my tree looks like this:</p>
 
-  <h2>2. Branching is context engineering, not a mind-map gimmick</h2>
+<pre><code>main chat: the paper
+  └── attention
+        └── why several heads?      ← I'm typing here
+  └── GPU memory</code></pre>
 
-  <p>This is the part I care about most &mdash; and the part I'd honestly love someone at a lab to poke holes in. The win isn't visual; it's what each branch sends to the model.</p>
+  <p>When I ask my question in <em>why several heads?</em>, Syflo sends the model three things: the <strong>attention</strong> chat in full, a short summary of the <strong>main chat</strong>, and the words I branched on. That's it.</p>
 
-  <p>A branch in Syflo inherits <em>exactly its path to the root</em>: the direct parent chat verbatim, grandparents compressed to cached ~120-word summaries, plus the chain of words it was spawned from. Sibling branches are never included &mdash; my tangent about GPU efficiency has no business polluting the context of my question about positional encodings. A linear chat pays for every message ever sent, on every turn, and the model has to find the needle itself. A branch pays for a curated spine.</p>
-
-  <p>The result: deeper follow-up chains at a fraction of the tokens, answers that stop drifting, and a KV-cache-friendly prefix that stays stable per branch. This one feature is why I stopped fighting my chat history and started trusting it.</p>
+  <p>The <strong>GPU memory</strong> branch is not sent. It has nothing to do with the question, so it stays out &mdash; even though it is part of the same tree.</p>
 
   <div class="diagram">
-    <svg viewBox="0 0 640 300" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="13">
-      <!-- Linear side -->
-      <text x="140" y="24" text-anchor="middle" font-weight="600" fill="currentColor">Linear chat</text>
-      <text x="140" y="42" text-anchor="middle" fill="#888">context = everything, always</text>
+    <svg viewBox="0 0 660 300" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="12.5">
+      <text x="140" y="22" text-anchor="middle" font-weight="600" fill="currentColor">One long chat</text>
+      <text x="140" y="40" text-anchor="middle" fill="#8a8a85">every message, every turn</text>
       <g>
-        <rect x="80" y="56" width="120" height="26" rx="6" fill="#e03131" opacity="0.28"/>
-        <rect x="80" y="88" width="120" height="26" rx="6" fill="#e03131" opacity="0.28"/>
-        <rect x="80" y="120" width="120" height="26" rx="6" fill="#e03131" opacity="0.28"/>
-        <rect x="80" y="152" width="120" height="26" rx="6" fill="#e03131" opacity="0.28"/>
-        <rect x="80" y="184" width="120" height="26" rx="6" fill="#e03131" opacity="0.28"/>
-        <rect x="80" y="216" width="120" height="26" rx="6" fill="#e03131" opacity="0.28"/>
-        <text x="140" y="73" text-anchor="middle" fill="currentColor">paper Q&amp;A</text>
-        <text x="140" y="105" text-anchor="middle" fill="currentColor">attention tangent</text>
-        <text x="140" y="137" text-anchor="middle" fill="currentColor">GPU tangent</text>
-        <text x="140" y="169" text-anchor="middle" fill="currentColor">encoding tangent</text>
-        <text x="140" y="201" text-anchor="middle" fill="currentColor">back to attention?</text>
-        <text x="140" y="233" text-anchor="middle" fill="currentColor">&hellip;soup</text>
+        <rect x="72" y="56" width="136" height="24" rx="6" fill="#d94a3d" opacity="0.26"/>
+        <rect x="72" y="86" width="136" height="24" rx="6" fill="#d94a3d" opacity="0.26"/>
+        <rect x="72" y="116" width="136" height="24" rx="6" fill="#d94a3d" opacity="0.26"/>
+        <rect x="72" y="146" width="136" height="24" rx="6" fill="#d94a3d" opacity="0.26"/>
+        <rect x="72" y="176" width="136" height="24" rx="6" fill="#d94a3d" opacity="0.26"/>
+        <rect x="72" y="206" width="136" height="24" rx="6" fill="#d94a3d" opacity="0.26"/>
+        <text x="140" y="72" text-anchor="middle" fill="currentColor">the paper</text>
+        <text x="140" y="102" text-anchor="middle" fill="currentColor">attention</text>
+        <text x="140" y="132" text-anchor="middle" fill="currentColor">GPU memory</text>
+        <text x="140" y="162" text-anchor="middle" fill="currentColor">positional encodings</text>
+        <text x="140" y="192" text-anchor="middle" fill="currentColor">back to attention?</text>
+        <text x="140" y="222" text-anchor="middle" fill="currentColor">why several heads?</text>
       </g>
-      <text x="140" y="272" text-anchor="middle" fill="#e03131" font-weight="600">every turn pays for all of it</text>
+      <text x="140" y="262" text-anchor="middle" fill="#d94a3d" font-weight="600">all six are sent, every time</text>
 
-      <!-- Divider -->
-      <line x1="320" y1="30" x2="320" y2="270" stroke="#bbb" stroke-dasharray="4 4"/>
+      <line x1="330" y1="28" x2="330" y2="272" stroke="#bbb" stroke-dasharray="4 4"/>
 
-      <!-- Tree side -->
-      <text x="490" y="24" text-anchor="middle" font-weight="600" fill="currentColor">Chat tree</text>
-      <text x="490" y="42" text-anchor="middle" fill="#888">context = the branch&rsquo;s own path</text>
-      <g stroke="#999" fill="none">
-        <path d="M490 92 V 120 M490 120 H 410 M490 120 H 570 M410 120 V 150 M570 120 V 150"/>
-        <path d="M410 176 V 204 M410 204 H 360 M360 204 V 224" />
+      <text x="500" y="22" text-anchor="middle" font-weight="600" fill="currentColor">A tree of branches</text>
+      <text x="500" y="40" text-anchor="middle" fill="#8a8a85">only the path back to the root</text>
+      <g stroke="#9a9a95" fill="none">
+        <path d="M500 88 V 112 M420 112 H 580 M420 112 V 138 M580 112 V 138"/>
+        <path d="M420 164 V 190 M420 190 H 420 M420 190 V 196"/>
       </g>
-      <rect x="430" y="62" width="120" height="30" rx="6" fill="#2f9e44" opacity="0.3"/>
-      <text x="490" y="81" text-anchor="middle" fill="currentColor">root: the paper</text>
-      <rect x="352" y="150" width="116" height="28" rx="6" fill="#2f9e44" opacity="0.3"/>
-      <text x="410" y="168" text-anchor="middle" fill="currentColor">attention</text>
-      <rect x="512" y="150" width="116" height="28" rx="6" fill="#adb5bd" opacity="0.25"/>
-      <text x="570" y="168" text-anchor="middle" fill="#888">GPUs (excluded)</text>
-      <rect x="302" y="224" width="116" height="28" rx="6" fill="#2f9e44" opacity="0.45"/>
-      <text x="360" y="242" text-anchor="middle" fill="currentColor" font-weight="600">why heads?</text>
-      <text x="490" y="284" text-anchor="middle" fill="#2f9e44" font-weight="600">parent verbatim + ancestors as summaries</text>
+      <rect x="440" y="58" width="120" height="30" rx="6" fill="#2f9e44" opacity="0.28"/>
+      <text x="500" y="77" text-anchor="middle" fill="currentColor">the paper</text>
+      <text x="500" y="103" text-anchor="middle" font-size="10.5" fill="#2f9e44">sent as a summary</text>
+
+      <rect x="362" y="138" width="116" height="26" rx="6" fill="#2f9e44" opacity="0.28"/>
+      <text x="420" y="155" text-anchor="middle" fill="currentColor">attention</text>
+      <text x="420" y="178" text-anchor="middle" font-size="10.5" fill="#2f9e44">sent in full</text>
+
+      <rect x="522" y="138" width="116" height="26" rx="6" fill="#adb5bd" opacity="0.28"/>
+      <text x="580" y="155" text-anchor="middle" fill="#8a8a85">GPU memory</text>
+      <text x="580" y="178" text-anchor="middle" font-size="10.5" fill="#8a8a85">not sent</text>
+
+      <rect x="358" y="196" width="124" height="30" rx="6" fill="#2f9e44" opacity="0.45"/>
+      <text x="420" y="215" text-anchor="middle" fill="currentColor" font-weight="600">why several heads?</text>
+      <text x="500" y="262" text-anchor="middle" fill="#2f9e44" font-weight="600">three pieces, not six</text>
     </svg>
   </div>
 
-  <h2>3. A tree grows around a source</h2>
+  <p>Compare that with one long chat, where every message ever sent is re-sent on every turn and the model has to work out for itself which part matters.</p>
 
-  <p>Research starts from <em>something</em> &mdash; so in Syflo every tree can be grounded in one source, bound to its root. Search for a paper by name and get the PDF fetched for you; drop in a PDF you already have; or paste a YouTube link and get its transcript as the source.</p>
+  <p>So the deeper you go, the <em>shorter</em> the context gets &mdash; not longer. A question five branches down might send a couple of thousand tokens, while the same conversation as one scroll would be sending forty thousand by then, most of it about something else. Three things follow from that, and I notice all three daily: answers come back faster, they wander off topic much less often, and a free daily allowance lasts far longer than it does in a normal chat app.</p>
 
-  <p>And here's the difference that matters day to day: the source is not an attachment to a message &mdash; it belongs to the tree. In most chat apps, an uploaded PDF quietly ages out of the context window, and the next conversation starts from zero, re-upload and all. In Syflo the paper stays put: it keeps the center pane, side by side with whatever chat you're in, and every branch &mdash; however deep &mdash; can ask it questions. If the paper is longer than the context window, retrieval quietly keeps the relevant sections in play instead of letting the source fall out of the conversation.</p>
+  <p>That last one is not a small point. Long chats burn through free quotas because you pay for the whole history on every single message.</p>
 
-  <figure class="gif">
-    <img src="gifs/02-paper-search.gif" alt="Searching 'attention is all you need', importing the arXiv result, the PDF loading in the center pane; then a branch two levels deep asks the paper a question." loading="lazy">
-    <figcaption>Search, click, and the paper takes the center pane &mdash; then a branch two levels down asks it a question, no re-upload in sight.</figcaption>
+  <p>You don't have to take my word for what was sent. A panel in the child chat shows you exactly what it received.</p>
+
+  <hr>
+
+  <h2>2. The source stays visible</h2>
+
+  <p>A source is optional. Plenty of my trees are plain conversations with nothing attached &mdash; a question about an algorithm, a bug I'm thinking through &mdash; and they branch exactly the same way. But when there <em>is</em> something to read, this is the part that changed my day-to-day most.</p>
+
+  <figure>
+    <img src="gifs/02-plain-chat.gif" alt="A chat with no document at all: a question about PPO, then two branches opened from words in the answer. The centre of the window stays empty." loading="lazy">
+    <figcaption>No PDF, no video, no attachment &mdash; and the branching works exactly the same.</figcaption>
   </figure>
 
-  <figure class="gif">
-    <img src="gifs/03-youtube.gif" alt="Searching for a 3Blue1Brown video, importing its transcript as the tree's source, then asking what analogy the video uses for attention." loading="lazy">
-    <figcaption>The transcript becomes the tree&rsquo;s source &mdash; complete with a timestamped overview &mdash; and answers arrive grounded in what the video actually said.</figcaption>
+  <p>In Syflo a source is attached to the <strong>tree</strong>, not to a message. Search for a paper by name and it arrives from arXiv or OpenAlex. Or drop in a PDF. Or paste a YouTube link and the transcript becomes the source.</p>
+
+  <p>It then sits in the centre pane. Message ninety can still ask it questions. So can a branch four levels deep. There is no re-upload, because nothing was ever uploaded to a message.</p>
+
+  <p>If the source is longer than the context window, Syflo doesn't cut out the middle and hope. It searches the source and sends the passages your question is about. That search runs locally, on your machine, even when the answer comes from a cloud model.</p>
+
+  <h3>Papers</h3>
+
+  <p>You can read a PDF the way you'd read it on paper. Select a passage, highlight it in one of five colours, ask about it in the chat you're already in.</p>
+
+  <p>The part I use most: when the model quotes the paper, the quote is clickable. It scrolls the PDF to that exact line and lights it up. You can check, in one click, whether the model read what it claims to have read. It is a small thing that changed how much I trust the answers.</p>
+
+  <figure>
+    <img src="gifs/03-paper.gif" alt="Searching for 'attention is all you need', importing the arXiv result, the PDF taking the centre pane, then asking it a question." loading="lazy">
+    <figcaption>Search by title, import, and the paper takes the centre of the window &mdash; where it stays for the whole tree.</figcaption>
   </figure>
 
-  <p>And for everything smaller than the source &mdash; a figure screenshot, a results table, a stray JSON log &mdash; messages take attachments too. Each one lands in the composer as a chip with an <code>@alias</code> you can rename, and then you can point at it mid-sentence: <em>&ldquo;Does the diagram in @architecture match the numbers in @results?&rdquo;</em> &mdash; with autocomplete, like mentioning a person. If the active model can't read images, Syflo says so up front instead of silently dropping them.</p>
+  <h3>YouTube lectures</h3>
 
-  <figure class="gif">
-    <img src="gifs/04-mentions.gif" alt="Two screenshots from the paper become chips in the composer, get renamed to @architecture and @results, and a question mentions both via autocomplete; then the vision answer." loading="lazy">
-    <figcaption>Two screenshots in, both renamed, both mentioned mid-sentence &mdash; and the model reads them side by side.</figcaption>
-  </figure>
+  <p>Paste a link and you get the transcript as the tree's source, plus a structured overview with clickable timestamps. You can decide what is worth watching before you watch it, and jump straight there.</p>
 
-  <h2>4. Highlights that talk back</h2>
+  <p>After that the transcript behaves like the paper: select a sentence, ask what it means, branch off it. A two-hour lecture becomes something you can interrogate instead of something you have to sit through.</p>
 
-  <p>Marking up the PDF isn't decoration here. Highlight a passage in one of five labeled colors and it persists with the tree; select any passage and either <em>ask about it in the current chat</em> &mdash; it lands as a quoted block above your question &mdash; or open it as a brand-new branch. A highlights drawer lists every mark across the tree and jumps you back to the exact spot in the PDF. The paper and the conversation stop being two separate places.</p>
+  <div class="todo">GIF to record: pasting a YouTube link, the timestamped overview, selecting a transcript line and asking about it.</div>
 
-  <figure class="gif">
-    <img src="gifs/05-highlights.gif" alt="Selecting the scaling sentence in the PDF, highlighting it yellow, asking about it in chat with a quoted block, then the highlights drawer jumping back to the mark." loading="lazy">
-    <figcaption>Highlight it, ask about it, find it again later &mdash; the drawer lists every mark in the tree, PDF and chat alike.</figcaption>
-  </figure>
+  <hr>
 
-  <h2>5. My model, my key, my hardware</h2>
+  <h2>The Mushroom Kingdom</h2>
 
-  <p>Syflo ships with no API key and no proxy. Bring your own free Gemini key (the default), or Groq, OpenAI, Anthropic &mdash; or flip to local models via Ollama and nothing ever leaves the machine. A privacy guard tells you exactly which of the two worlds a message is about to enter. I don't think a research tool gets to phone home with my library.</p>
+  <p>Syflo ships with five themes, and the default is Mushroom Kingdom: sky, clouds, question blocks. There's also a Matrix terminal, Hyrule, and a quiet ink-on-paper theme for when you need to look like an adult.</p>
 
-  <figure class="gif">
-    <img src="gifs/06-model-picker.gif" alt="The model picker opens from the composer: Gemini models grouped under cloud, qwen3.5:9b under local Ollama; switching to the local model mid-tree." loading="lazy">
-    <figcaption>Cloud on top, local below, switchable mid-conversation &mdash; the footer quietly confirms what runs where.</figcaption>
-  </figure>
+  <p>They change more than the colours &mdash; the thinking indicator, the app icon and the logo all follow the theme.</p>
 
-  <h2>6. And then there's the Mushroom Kingdom</h2>
+  <p>This is not a serious feature. Reading a reinforcement-learning paper about Super Mario inside the Mushroom Kingdom theme made me happier than it should have, and I left it in.</p>
 
-  <p>None of this had to look like a spreadsheet. Syflo ships with themes &mdash; a Matrix terminal, Hyrule, ink-and-paper &mdash; and yes, a Mushroom Kingdom. Is that a feature frontier labs need? No. Did reading an RL paper about Super Mario inside the Mushroom Kingdom theme make me irrationally happy? Absolutely.</p>
-
-  <figure class="gif">
-    <img src="gifs/07-themes.gif" alt="Cycling themes on the RAMario paper tree: Matrix, Hyrule, and finally Mushroom Kingdom with sky, clouds and a red question bubble." loading="lazy">
-    <figcaption>Same tree, three more coats of paint. The last one is load-bearing for morale.</figcaption>
+  <figure>
+    <img src="gifs/05-themes.gif" alt="The same tree in Mushroom Kingdom, Simply Blue, Hyrule and Matrix." loading="lazy">
+    <figcaption>One tree, four coats of paint. The last one is load-bearing for morale.</figcaption>
   </figure>
 
   <hr>
 
-  <p>Everything above is one person, evenings, and an open repository &mdash; nowhere near as polished as your apps, and it doesn't need to be. It only needs to show that a conversation doesn't have to be a straight line. You have the models and the engineers to do all of this properly; I mostly have a proof of concept and a strong opinion about the shape of chat.</p>
+  <h2>Try it</h2>
 
-  <p>So: please borrow whatever is useful. Branching, path-scoped context, source-grounded trees, highlights that answer back. These ideas would be far better in your hands than in mine, and I'll happily retire this letter the day one of you ships a chat tree.</p>
+<pre><code>npm install -g syflo
+syflo</code></pre>
 
-  <p>Until then, Syflo is what I use every day &mdash; and it's open source, if you'd like to look around.</p>
+  <p>Node 20+ is the only hard requirement. On first start, add a provider key in Settings.</p>
 
-  <p class="signature">Yours, still scrolling,<br><span class="name">&mdash; Kavi Senewiratne</span><br><a href="#">github.com/&hellip;/syflo</a><!-- TODO: real repo URL --></p>
+  <p><strong>You should not have to pay for this.</strong> Syflo works with Gemini, Groq, OpenAI, Anthropic and local Ollama models, and you pick which one answers each message. Gemini and Groq both hand out free keys with a daily allowance, and for a normal evening of reading that allowance has been enough for me &mdash; I have never paid for a Syflo session. When you do run out, Syflo says so plainly and shows you when the limit resets, instead of failing with a red error. The model picker also labels which models are free and which cost money, so a paid one is never one misclick away.</p>
+
+  <p>If you want no provider at all, point Syflo at a local <a href="https://ollama.com">Ollama</a> model. Then nothing leaves your machine, and there is nothing to pay for by definition.</p>
+
+  <p>The key is yours in every case. Syflo ships without one, never proxies your traffic, and keeps everything in <code>~/.syflo</code>.</p>
+
+  <p><strong>Repository:</strong> <a href="https://github.com/kavi-senewiratne/syflo">github.com/kavi-senewiratne/syflo</a></p>
+
+  <p>Honest expectations: this is a nights-and-weekends project by one person. It is useful to me daily and it is not a product. There is no roadmap, no release cadence, and the SQLite schema still moves. Issues and pull requests are welcome; a promise that your idea gets built is not.</p>
+
+  <hr>
+
+  <h2>The smaller things</h2>
+
+  <p>None of these are a reason to install Syflo. They are the reasons it stays pleasant once you have.</p>
+
+  <h3>Reading and marking up</h3>
+
+  <p>The cheapest gesture in the app: right-click a word in an answer, or select a phrase, and a one-line definition appears where you are looking. No new chat, no message in the transcript &mdash; you read it and close it again. It is what I use twenty times an evening, and it is often enough on its own; the branch is there for when it isn't.</p>
+
+  <figure>
+    <img src="gifs/15-definition.gif" alt="Right-clicking a word in an answer; a one-line definition appears in a popup and is closed again." loading="lazy">
+    <figcaption>A definition where you are looking, gone again in one click.</figcaption>
+  </figure>
+
+  <p>Highlights in five labelled colours work in the PDF, in the transcript <strong>and</strong> in the chat. A drawer lists every mark in the tree; click one to jump back to it, wherever it lives.</p>
+
+  <figure>
+    <img src="gifs/06-highlights.gif" alt="Highlighting a passage in the PDF, then a sentence in a chat answer, then the highlights drawer listing both and jumping back to one." loading="lazy">
+    <figcaption>Mark the paper, mark the answer, and the drawer takes you back to either one.</figcaption>
+  </figure>
+
+  <p>Words you have branched on turn into coloured links inside the original answer, so you can always get back to a side chat from the sentence that started it.</p>
+
+  <figure>
+    <img src="gifs/07-branch-links.gif" alt="An answer with coloured branch links; clicking one opens that child chat." loading="lazy">
+    <figcaption>The branch you opened last week is still a coloured link in the sentence that caused it.</figcaption>
+  </figure>
+
+  <p>The same gesture works straight from the source. Select any passage in the PDF and you get two choices: ask about it <strong>in the chat you are already in</strong> &mdash; the passage arrives as a quote above your question &mdash; or <strong>open it as its own branch</strong>, which starts a chat that already knows which sentence it came from.</p>
+
+  <figure>
+    <img src="gifs/14-pdf-select.gif" alt="Selecting a sentence in the attention paper and asking about it as a quote, then selecting another passage and opening it as its own branch." loading="lazy">
+    <figcaption>Two ways out of one selection: a quoted question here, or a whole chat of its own.</figcaption>
+  </figure>
+
+  <h3>The mind map</h3>
+
+  <p>The whole tree can be drawn as a map: top-down, root on top, one row per depth, with the trunk in reserved lanes so the lines never cross.</p>
+
+  <p>It is not a poster. Every node is a chat &mdash; click one and you land in it, with the conversation right below the map. Panning, zooming and dragging nodes work as you'd expect. This is how I come back to a tree a week later, and it is the only view where the shape of a reading session is visible at all.</p>
+
+  <figure>
+    <img src="gifs/08-mindmap.gif" alt="A nine-node mind map of a reading session; clicking three nodes opens each chat under the map." loading="lazy">
+    <figcaption>Each node carries its title and a line on what that conversation established.</figcaption>
+  </figure>
+
+  <h3>Moving around</h3>
+
+  <p>The whole app is reachable from the keyboard &mdash; tree, highlights, composer &mdash; and there is no modal &ldquo;navigation mode&rdquo; to enter or forget. Chats can be pinned to the top of the sidebar. When a side conversation splits off, a trace line in the parent chat shows you where.</p>
+
+  <figure>
+    <img src="gifs/09-keyboard.gif" alt="Walking the tree with arrow keys, opening a chat with Enter, then typing straight into the composer." loading="lazy">
+    <figcaption>Arrow keys walk the tree; typing a letter puts you in the composer with that letter already there.</figcaption>
+  </figure>
+
+  <h3>Asking</h3>
+
+  <p><code>/btw</code> asks a throwaway side question without cluttering the chat. <code>/branch &lt;topic&gt;</code> starts a branch on something the model never said.</p>
+
+  <figure>
+    <img src="gifs/10-btw-branch.gif" alt="Typing /btw and getting an answer in a side panel, then /branch on a typed topic opening a new chat." loading="lazy">
+    <figcaption>A question you want answered but not kept, and a branch on a word nobody wrote.</figcaption>
+  </figure>
+
+  <p>Attachments get an <code>@alias</code>. Rename a screenshot to <code>@results</code> and mention it mid-sentence, with autocomplete &mdash; <em>&ldquo;does the diagram in @architecture match the numbers in @results?&rdquo;</em></p>
+
+  <figure>
+    <img src="gifs/11-mentions.gif" alt="Two figures from the paper attached to the composer, renamed to @architecture and @results, then both mentioned inside one question." loading="lazy">
+    <figcaption>Rename an attachment once, then point at it mid-sentence like you would at a person.</figcaption>
+  </figure>
+
+  <p>There is also web search (Tavily, your key) and custom instructions you set once in Settings.</p>
+
+  <h3>Models</h3>
+
+  <p>Gemini, Groq, OpenAI, Anthropic, or local Ollama. Your key, your choice, switchable mid-conversation from the composer. A privacy guard tells you whether the next message is about to leave the machine, and the picker shows cost tiers so a free model is never one misclick away from a paid one. Each provider comes with a step-by-step guide inside the app for getting its key.</p>
+
+  <figure>
+    <img src="gifs/12-model-picker.gif" alt="The model picker: models grouped by what is usable now, with free badges and daily quota bars, and the local Ollama section below." loading="lazy">
+    <figcaption>Free models on top with what is left of today's allowance; local models at the bottom.</figcaption>
+  </figure>
+
+  <h3>Running it fully offline</h3>
+
+  <p>The local route is not an afterthought. Point Syflo at <a href="https://ollama.com">Ollama</a> and every part of the app that touches a model runs on your machine: the answers, the search over long papers, the dictation. Nothing leaves the laptop, and there is no key and no bill.</p>
+
+  <p>Picking a local model is usually the hard part, so Syflo does it for you. It reads your RAM and VRAM and recommends one of three vision models &mdash; small, medium or large &mdash; sized for the machine you actually have. You can download it from Settings without touching a terminal. A manual choice always wins over the recommendation.</p>
+
+  <p>Honest limitation: a small local model is noticeably weaker than Gemini at reading a dense paper. I use local models when I don't want a document to leave the machine, and cloud models when I want the best answer. Syflo is built so that choice is one click, per message.</p>
+
+  <figure>
+    <img src="gifs/13-local-model.gif" alt="Settings showing every provider side by side, switching to the local Ollama provider, then an answer produced on the machine itself." loading="lazy">
+    <figcaption>One switch in Settings and the same app runs without a key, a bill, or a network.</figcaption>
+  </figure>
+
+  <p>Failures are handled honestly. A rate limit shows a real countdown from the provider, not a guess. A truncated answer can be continued. A failed one can be retried without losing the thread.</p>
+
+  <hr>
+
+  <p class="closing">Syflo is maintained by one person in the evenings. There is no roadmap. But it is open, and it is what I use every day.</p>
 
 </div>
 </body>
