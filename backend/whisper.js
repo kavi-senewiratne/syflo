@@ -151,7 +151,14 @@ function createWhisperManager({
       const form = new FormData();
       form.append('file', new Blob([wavBuffer], { type: 'audio/wav' }), 'audio.wav');
       form.append('language', 'auto');
-      form.append('response_format', 'json');
+      // verbose_json instead of json for ONE extra field: the language whisper
+      // decided on. A user reported German coming back as English (2026-08-28)
+      // and nothing in the log could tell the two possible causes apart —
+      // whisper detecting 'english' and translating, or whisper detecting
+      // 'german' and something downstream replacing the text. The line below
+      // separates them at the moment it happens. `text` is identical in both
+      // formats, so nothing else changes.
+      form.append('response_format', 'verbose_json');
 
       const res = await fetch(`http://127.0.0.1:${port}/inference`, {
         method: 'POST',
@@ -162,7 +169,12 @@ function createWhisperManager({
         throw new Error(`whisper-server answered ${res.status}: ${detail.slice(0, 200)}`);
       }
       const json = await res.json();
-      return cleanTranscript(json.text);
+      const text = cleanTranscript(json.text);
+      console.log(
+        `[whisper] detected=${json.language || 'unknown'} ` +
+        `audio=${Number(json.duration || 0).toFixed(1)}s chars=${text.length}`
+      );
+      return text;
     } finally {
       armIdleTimer();
     }

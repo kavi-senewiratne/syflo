@@ -130,13 +130,32 @@ const VARIANTS: Record<ThemeId, React.ReactNode> = {
 
           One blue, not two: "flo" takes #2563EB, the exact ink of the mark, so
           mark and syllable are the same colour rather than a near-match. */}
+      {/* Round 16 (user choice 2026-08-28, design/mockup-logo-round16.html
+          §02 variant B + §04 variant 2) lowers weight and blackness — the two
+          things that made the wordmark the heaviest and darkest text on the
+          empty state, where it sits right above the 32 px serif headline.
+
+          Weight 700 -> 600. The 700 was inherited from round 9's Plus Jakarta
+          Sans and carried over unexamined when round 15 went back to the system
+          face, which builds heavier at the same number. Measured (canvas, stem
+          width over cap height — the usual "how bold does this read" ratio):
+          700 = 20.9 %, 600 = 18.6 %, and the serif headline it sits above is
+          12.4 %. At 700 the name out-weighted the actual headline.
+
+          Colour #101828 (gray-900) -> #1E2939 (gray-800), the exact ink of that
+          headline; the name was the only text in the view on gray-900 (contrast
+          on white 17.75:1 vs the headline's 14.67:1), which read as a different
+          black rather than as emphasis.
+
+          Cap height is 10.75 px at 700, 600 and 500 alike, so the mark's
+          `top: 0.58` offset above is unaffected by this change. */}
       <span
         style={{
           fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif",
-          fontWeight: 700,
+          fontWeight: 600,
           fontSize: 15,
           letterSpacing: '-0.02em',
-          color: '#101828',
+          color: '#1E2939',
         }}
       >
         Sy<span style={{ color: '#2563EB' }}>flo</span>
@@ -183,7 +202,12 @@ const VARIANTS: Record<ThemeId, React.ReactNode> = {
           stays sharp at any scale. */}
       <svg width="20" height="20" viewBox="0 0 48 48" aria-hidden="true">
         <g shapeRendering="crispEdges">
-          <g fill="#26264F">
+          {/* Die Äste tragen exakt die Tinte der Wortmarke (#23234A), nicht
+              mehr das Rahmen-Dunkelviolett #26264F des Themes (Nutzer­korrektur
+              2026-08-28): "Sy" und der Stamm sollen dieselbe Farbe sein. Die
+              beiden Werte lagen nur 3 Einheiten pro Kanal auseinander — nah
+              genug, um wie ein Fehler auszusehen, statt wie eine Absicht. */}
+          <g fill="#23234A">
             <rect x="4" y="20" width="16" height="8" />
             <rect x="16" y="12" width="10" height="8" />
             <rect x="16" y="28" width="10" height="8" />

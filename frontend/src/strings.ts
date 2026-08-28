@@ -373,7 +373,6 @@ const en = {
     firstRunBannerAction: 'set up in 1 minute',
     firstRunPillLabel: 'Set up model',
     firstRunSendTip: 'Answering needs a model — pick a path first',
-    firstRunAnswerNote: 'Answering needs a model.',
     failNetwork: 'No connection to the Syflo backend.',
     networkFootnote: 'Is Syflo still running? If in doubt, restart the app.',
     failLocalMissing: (modelName: string) => `The local model ${modelName} is not installed.`,
@@ -542,22 +541,10 @@ const en = {
     errorIssueLink: 'Open a GitHub issue instead',
     close: 'Close',
   },
-  videoBanner: {
-    transcriptAttached: ' · transcript attached',
-    viewTranscript: 'View transcript',
-    openOnYouTube: 'Open on YouTube',
-  },
-  transcriptDrawer: {
-    title: 'Transcript',
-    close: 'Close transcript',
-    sourceNote: 'This is the source text the model reads.',
-    languageNote: (lang: string) => ` Language: ${lang}.`,
-  },
   videoPane: {
     chapters: 'Chapters',
     transcript: 'Transcript',
     watchOnYouTube: 'Watch on YouTube',
-    readTranscript: 'Read the transcript',
     noChaptersTitle: 'No chapters yet',
     noChaptersBody:
       'The chapters are the sections of the video overview. Ask for the overview and they appear here.',
@@ -658,11 +645,9 @@ const en = {
     ollamaRunning: 'Ollama · running locally',
     ollamaNotReachable: 'Ollama not reachable',
     // Footer status for cloud providers (ADR-0008).
-    cloudStatus: (label: string) => `${label} · Cloud`,
     // Quota-cooldown badges (mockup-quota-states §06): the model stays
     // selectable (the backend skips it and fails over), the badge says when
     // it is expected back — clock time for daily limits, seconds otherwise.
-    coolingUntilTime: (time: string) => `back ~${time}`,
     coolingInSeconds: (seconds: number) => `back in ${seconds} s`,
     // Grouped picker (mockup-model-flow §02–§04).
     localGroup: 'Local · Ollama',
@@ -736,22 +721,18 @@ const en = {
     referenceGeneric: 'Reference',
     notIdentified: 'from the page',
     alreadyATree: 'already a tree',
-    lookingItUp: 'Looking it up…',
-    notFound: 'Read off the printed row.',
     // Bare number for the icon row — the icon and its label say what it is.
     citationCount: (n: number) => n.toLocaleString('en-US'),
     // Spelled out for the folded summary line, which has no icon beside it.
     citationCountLong: (n: number) => `${n.toLocaleString('en-US')} citations`,
     etAl: 'et al.',
     // Screen-reader labels for the icons that replace the "·" separators.
-    authorsLabel: 'Authors',
     yearLabel: 'Year',
     venueLabel: 'Published in',
     citationsLabel: 'Citations',
     openedAgo: 'already open in Syflo',
     openInSyflo: 'Open in Syflo',
     openInBrowser: 'Open in browser',
-    noFreePdf: 'No downloadable PDF available.',
     // The silent web search (design/mockup-citation-card-standard.html § 04).
     // Only three sentences exist for it, and two of them are apologies —
     // when it works, the reader is meant to notice nothing at all.
@@ -1134,7 +1115,6 @@ const de: Strings = {
     firstRunBannerAction: 'in 1 Minute einrichten',
     firstRunPillLabel: 'Modell einrichten',
     firstRunSendTip: 'Zum Antworten fehlt noch ein Modell — wähle zuerst einen Weg',
-    firstRunAnswerNote: 'Zum Antworten fehlt noch ein Modell.',
     failNetwork: 'Keine Verbindung zum Syflo-Backend.',
     networkFootnote: 'Läuft Syflo noch? Im Zweifel die App neu starten.',
     failLocalMissing: (modelName: string) => `Das lokale Modell ${modelName} ist nicht installiert.`,
@@ -1268,22 +1248,10 @@ const de: Strings = {
     errorIssueLink: 'Stattdessen ein GitHub-Issue öffnen',
     close: 'Schließen',
   },
-  videoBanner: {
-    transcriptAttached: ' · Transcript angehängt',
-    viewTranscript: 'Transcript ansehen',
-    openOnYouTube: 'Auf YouTube öffnen',
-  },
-  transcriptDrawer: {
-    title: 'Transcript',
-    close: 'Transcript schließen',
-    sourceNote: 'Das ist der Quelltext, den das Modell liest.',
-    languageNote: (lang: string) => ` Sprache: ${lang}.`,
-  },
   videoPane: {
     chapters: 'Kapitel',
     transcript: 'Transcript',
     watchOnYouTube: 'Auf YouTube ansehen',
-    readTranscript: 'Transcript lesen',
     noChaptersTitle: 'Noch keine Kapitel',
     noChaptersBody:
       'Die Kapitel sind die Abschnitte der Video overview. Sie entstehen aus der Antwort — sobald sie da ist, stehen sie hier.',
@@ -1363,8 +1331,6 @@ const de: Strings = {
     manageModels: 'Modelle verwalten',
     ollamaRunning: 'Ollama · läuft lokal',
     ollamaNotReachable: 'Ollama nicht erreichbar',
-    cloudStatus: (label: string) => `${label} · Cloud`,
-    coolingUntilTime: (time: string) => `ab ca. ${time}`,
     coolingInSeconds: (seconds: number) => `in ${seconds} s`,
     localGroup: 'Lokal · Ollama',
     setupGroup: 'Noch einzurichten',
@@ -1421,19 +1387,15 @@ const de: Strings = {
     referenceGeneric: 'Referenz',
     notIdentified: 'aus dem Text',
     alreadyATree: 'bereits ein Baum',
-    lookingItUp: 'Wird nachgeschlagen …',
-    notFound: 'Aus der gedruckten Zeile gelesen.',
     citationCount: (n: number) => n.toLocaleString('de-DE'),
     citationCountLong: (n: number) => `${n.toLocaleString('de-DE')} Zitationen`,
     etAl: 'u.\u202fa.',
-    authorsLabel: 'Autoren',
     yearLabel: 'Jahr',
     venueLabel: 'Erschienen in',
     citationsLabel: 'Zitationen',
     openedAgo: 'bereits in Syflo geöffnet',
     openInSyflo: 'In Syflo öffnen',
     openInBrowser: 'Im Browser öffnen',
-    noFreePdf: 'Kein herunterladbares PDF verfügbar.',
     searchingFulltext: 'Volltext wird gesucht …',
     noFulltextFound: 'Kein frei verfügbarer Volltext gefunden.',
     searchUnreachable: 'Die Websuche ist gerade nicht erreichbar.',

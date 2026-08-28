@@ -26,7 +26,7 @@ import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState 
 import { ArrowRight, ExternalLink, FileText, List, MonitorOff, TvMinimalPlay } from 'lucide-react';
 import { useStrings } from '../../strings';
 import type { HighlightColor, TranscriptHighlight, Video } from '../../types';
-import { formatDuration } from '../VideoBanner';
+import { formatDuration } from '../../video/format';
 import { activeChapterIndex, parseChapters } from '../../markdown/chapters';
 import { lastTimeMark } from '../../markdown/timeLinks';
 import { activeBlockIndex, parseTranscriptBlocks } from '../../markdown/transcriptBlocks';

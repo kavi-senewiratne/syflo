@@ -2211,6 +2211,130 @@ describe('overloaded provider (503)', () => {
   });
 });
 
+// ─── A cloud provider that stops answering (measured 2026-08-26) ────────────
+// Google's gemini-flash-latest did not only answer 503 that day: a second
+// request produced NOTHING AT ALL — no headers, no error, no chunk, still
+// open after 60 s. The SDK is built with maxRetries 0 and the stream had no
+// deadline, so the whole answer waited forever: no text, no error card, just
+// a spinner. A silence is the same event as a 503 from where the user sits,
+// so it is fed into the SAME ladder instead of a mechanism of its own.
+describe('a cloud provider that goes silent', () => {
+  function useGemini() {
+    const { setSetting } = require('../llm');
+    setSetting(db, 'llm_provider', 'gemini');
+    setSetting(db, 'gemini_api_key', 'AIza-test');
+  }
+
+  // Never resolves on its own — only the stall deadline can end it, exactly
+  // like the socket that hung open against Google.
+  const silent = () => (_payload, opts) => new Promise((_resolve, reject) => {
+    opts.signal.addEventListener('abort', () => {
+      const e = new Error('Request was aborted.');
+      e.name = 'AbortError';
+      reject(e);
+    }, { once: true });
+  });
+
+  // Alive, just unhurried: a gap between chunks must re-arm the deadline,
+  // otherwise a long answer would be cut off mid-sentence.
+  function makeSlowStream(words, gapMs) {
+    return {
+      [Symbol.asyncIterator]: async function* () {
+        for (const word of words) {
+          await new Promise((r) => setTimeout(r, gapMs));
+          yield { choices: [{ delta: { content: word } }] };
+        }
+        yield { choices: [{ delta: {} }] };
+      },
+    };
+  }
+
+  // Milliseconds instead of the production 60 s, and no pauses between the
+  // overload retries — this suite asserts the wiring, not the clock.
+  const watchedApp = (stallMs) =>
+    createApp(db, { messages: { stallMs, overloadBackoffSeconds: [0, 0, 0] } });
+
+  async function send(appUnderTest) {
+    const chat = await request(app).post('/api/chats').send({ title: 'Silent' });
+    const res = await request(appUnderTest)
+      .post(`/api/chats/${chat.body.id}/messages`)
+      .send({ content: 'hello' });
+    return parseSSE(res.text);
+  }
+
+  it('treats silence as an overload: same model, announced wait, then the answer', async () => {
+    useGemini();
+    mockCreate
+      .mockImplementationOnce(silent())
+      .mockResolvedValueOnce(makeStream(['Recovered.']))
+      .mockResolvedValueOnce({ choices: [{ message: { content: 'Title' } }] });
+
+    const events = await send(watchedApp(120));
+
+    const ol = events.find((e) => e.overloaded);
+    expect(ol).toBeDefined();
+    expect(ol.overloaded).toMatchObject({ attempt: 1, provider: 'gemini' });
+    // The model is not at fault, so it keeps its place: no ladder move.
+    expect(events.find((e) => e.failover)).toBeUndefined();
+    expect(events.find((e) => e.error)).toBeUndefined();
+    expect(events.filter((e) => e.delta).map((e) => e.delta).join('')).toBe('Recovered.');
+  });
+
+  it('gives up with a named cause instead of hanging forever', async () => {
+    useGemini();
+    mockCreate.mockImplementation(silent());
+
+    const events = await send(watchedApp(60));
+
+    const err = events.find((e) => e.error);
+    expect(err).toBeDefined();
+    expect(err.failReason).toBe('overloaded');
+    expect(mockCreate).toHaveBeenCalledTimes(4);
+  });
+
+  it('never puts a silent model on cooldown — the silence passes on its own', async () => {
+    useGemini();
+    mockCreate.mockImplementation(silent());
+
+    await send(watchedApp(60));
+
+    const res = await request(app).get('/api/quota-cooldowns');
+    const list = Array.isArray(res.body) ? res.body : res.body.cooldowns ?? [];
+    expect(list.filter((c) => c.model === 'gemini-flash-latest')).toEqual([]);
+  });
+
+  it('every chunk re-arms the deadline — a slow answer is not cut off', async () => {
+    useGemini();
+    mockCreate
+      .mockResolvedValueOnce(makeSlowStream(['One ', 'two ', 'three ', 'four.'], 40))
+      .mockResolvedValueOnce({ choices: [{ message: { content: 'Title' } }] });
+
+    const events = await send(watchedApp(120));
+
+    expect(events.find((e) => e.error)).toBeUndefined();
+    expect(events.find((e) => e.overloaded)).toBeUndefined();
+    expect(events.filter((e) => e.delta).map((e) => e.delta).join('')).toBe('One two three four.');
+  });
+
+  // The local provider keeps the unwatched path (CLAUDE.md: no complexity on
+  // the local path). Ingesting a whole paper legitimately sits silent for a
+  // minute or more on the 24 GB Mac, and a deadline tuned to the cloud would
+  // kill exactly the calls that are working hardest.
+  it('leaves Ollama unwatched — a long local prefill still gets through', async () => {
+    const { setSetting } = require('../llm');
+    setSetting(db, 'llm_provider', 'ollama');
+    mockCreate
+      .mockResolvedValueOnce(makeSlowStream(['Local.'], 120))
+      .mockResolvedValueOnce({ choices: [{ message: { content: 'Title' } }] });
+
+    const events = await send(watchedApp(30));
+
+    expect(events.find((e) => e.error)).toBeUndefined();
+    expect(events.find((e) => e.overloaded)).toBeUndefined();
+    expect(events.filter((e) => e.delta).map((e) => e.delta).join('')).toBe('Local.');
+  });
+});
+
 // ─── Automatic provider failover (user requests 2026-07-25, two rounds) ─────
 // Limits are PER MODEL, so failover first tries the other models of the SAME
 // provider (same key), then other providers. Models that reported a daily

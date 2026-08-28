@@ -1,4 +1,17 @@
 import '@testing-library/jest-dom';
+import { beforeEach } from 'vitest';
+
+// The sidebar folds the older history sections away ONCE per browser and
+// records that in localStorage (Sidebar/index.tsx). jsdom hands every test a
+// fresh browser, so without this the default would fire in all of them, and
+// the two dozen suites whose fixtures carry real dates from months ago would
+// suddenly be asserting against a folded-up list they never meant to test.
+// Pre-setting the flag puts every test in the position of a browser that has
+// already seen the default; the suites that test the default itself clear
+// localStorage in their own beforeEach and get it back.
+beforeEach(() => {
+  localStorage.setItem('syflo.sidebarOlderGroupsCollapsed', '1');
+});
 
 // jsdom does not implement scrollIntoView
 window.HTMLElement.prototype.scrollIntoView = () => {};

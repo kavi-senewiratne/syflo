@@ -96,6 +96,26 @@ module.exports = (db, options = {}) => {
             'YouTube offers no captions for this video — not even auto-generated ones. Pick a different video.',
         });
       }
+      // The captions exist but YouTube stayed silent through every attempt
+      // (youtube.js explains the measurement). Say that it is temporary —
+      // the modal used to show Node's raw "The operation was aborted due to
+      // timeout", which reads like a broken app rather than a retry.
+      if (err?.code === 'captions-unavailable') {
+        return res.status(502).json({
+          error: 'captions-unavailable',
+          message:
+            'YouTube did not hand over the captions this time. That is usually temporary — press Add again.',
+        });
+      }
+      // Google's throttle, not our bug: retrying now makes it worse, so the
+      // message asks for a wait instead of another press.
+      if (err?.code === 'captions-rate-limited') {
+        return res.status(429).json({
+          error: 'captions-rate-limited',
+          message:
+            'YouTube is currently blocking transcript requests from this computer. Wait a few minutes and try again.',
+        });
+      }
       return res.status(502).json({ error: err.message || 'Transcript fetch failed' });
     }
 

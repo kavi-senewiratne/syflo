@@ -450,6 +450,50 @@ describe('dragging a chat into a category', () => {
   });
 });
 
+describe('which history sections start open', () => {
+  // Only Today and Yesterday (user decision 2026-08-26). The four older
+  // sections carry the whole backlog and pushed the recent chats off screen.
+  const dated = (id: string, title: string, daysAgo: number): Chat => {
+    const d = new Date();
+    d.setDate(d.getDate() - daysAgo);
+    return chat(id, title, { created_at: d.toISOString() });
+  };
+
+  const spread = [
+    dated('t', 'from today', 0),
+    dated('y', 'from yesterday', 1),
+    dated('w', 'from this week', 3),
+    dated('o', 'from long ago', 200),
+  ];
+
+  it('opens Today and Yesterday, and starts the older sections closed', () => {
+    render(<Sidebar {...baseProps} chats={spread} />);
+
+    expect(screen.getByText('from today')).toBeInTheDocument();
+    expect(screen.getByText('from yesterday')).toBeInTheDocument();
+    // The headings stay — only their contents are folded away.
+    expect(screen.getByText('Older')).toBeInTheDocument();
+    expect(screen.queryByText('from long ago')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('date-section-Older')).not.toBeInTheDocument();
+  });
+
+  it('leaves an older section the user opened open on the next mount', () => {
+    const { unmount } = render(<Sidebar {...baseProps} chats={spread} />);
+    fireEvent.click(screen.getByText('Older'));
+    expect(screen.getByText('from long ago')).toBeInTheDocument();
+
+    unmount();
+    render(<Sidebar {...baseProps} chats={spread} />);
+    // The default is applied ONCE — a reload must not fold it away again.
+    expect(screen.getByText('from long ago')).toBeInTheDocument();
+  });
+
+  it('does not touch the pinned section', () => {
+    render(<Sidebar {...baseProps} chats={[chat('p', 'pinned one', { pinned_at: '2026-08-16T10:00:00Z' })]} />);
+    expect(screen.getByText('pinned one')).toBeInTheDocument();
+  });
+});
+
 describe('collapsing the sections the system owns', () => {
   const props = {
     ...baseProps,

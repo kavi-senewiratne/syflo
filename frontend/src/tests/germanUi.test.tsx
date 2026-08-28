@@ -11,12 +11,11 @@
 import { render, screen } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { api } from '../api';
-import { VideoBanner } from '../components/VideoBanner';
 import { HighlightsDrawer } from '../components/HighlightsDrawer';
 import { HighlightActionsMenu } from '../components/PdfView/HighlightActionsMenu';
 import { _resetTreeHighlightsCacheForTests } from '../hooks/useTreeHighlights';
 import { _resetLabelsCacheForTests } from '../hooks/useLabels';
-import type { TreeHighlight, Video } from '../types';
+import type { TreeHighlight } from '../types';
 
 vi.mock('../api', () => ({
   api: {
@@ -24,17 +23,6 @@ vi.mock('../api', () => ({
     getHighlightLabels: vi.fn(),
   },
 }));
-
-const video: Video = {
-  id: 'v1',
-  youtube_id: 'zjkBMFhNj_g',
-  title: 'Intro to Large Language Models',
-  channel: 'Andrej Karpathy',
-  duration_seconds: 3587,
-  language: 'en',
-  url: 'https://www.youtube.com/watch?v=zjkBMFhNj_g',
-  transcript: '[00:00] Hi everyone.',
-};
 
 // 5. März: Monat, dessen deutsche Kurzform ('März') sich klar von der
 // englischen ('Mar') unterscheidet — 10:00Z liegt in jeder üblichen
@@ -63,14 +51,6 @@ afterEach(() => {
 });
 
 describe('App language Deutsch (syflo.appLanguage=de)', () => {
-  it('VideoBanner rendert die deutschen Texte', () => {
-    render(<VideoBanner video={video} onOpenTranscript={vi.fn()} />);
-
-    expect(screen.getByText(/Transcript angehängt/)).toBeInTheDocument();
-    expect(screen.getByTestId('video-banner-view-transcript')).toHaveTextContent('Transcript ansehen');
-    expect(screen.getByTestId('video-banner-open-youtube')).toHaveTextContent('Auf YouTube öffnen');
-  });
-
   it('HighlightActionsMenu rendert die deutschen Texte (Bug-Report 2026-07-25)', () => {
     render(
       <HighlightActionsMenu

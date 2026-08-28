@@ -77,6 +77,19 @@ const SIDE_CALL_MS = 6000;
 // while the user is still watching.
 const OVERLOAD_BACKOFF_SECONDS = [2, 4, 8];
 
+// How long a CLOUD answer may stay completely silent before the attempt is
+// given up on. Measured 2026-08-26 against gemini-flash-latest: besides its
+// 503s, one request produced nothing whatsoever — no headers, no error, no
+// chunk, the socket still open after 60 s. With maxRetries 0 in the SDK and no
+// deadline on the stream, that waited forever and the user saw a spinner and
+// no card. The clock is re-armed by every chunk, so this bounds the SILENCE,
+// not the answer: a long answer that keeps arriving is never cut off. 60 s
+// because Google's own 503 takes 20-30 s to come back — a shorter budget
+// would call an answer dead while the provider is still forming its refusal.
+// Local (Ollama) is deliberately exempt: a whole-paper prefill legitimately
+// sits silent for a minute or more on the 24 GB Mac.
+const CLOUD_STALL_MS = 60000;
+
 module.exports = (db, UPLOADS_DIR, options = {}) => {
   // Injectable for tests: (pdfPath) => Promise<string>.
   const extractPdfTextFn = options.extractPdfTextFn;
@@ -85,6 +98,9 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
   // Injectable for tests: the growing pauses between overload retries. Real
   // seconds would make the 503 suite wait 14 s for what it asserts in code.
   const overloadBackoffSeconds = options.overloadBackoffSeconds || OVERLOAD_BACKOFF_SECONDS;
+  // Injectable for tests: the silence a cloud answer may keep. Real seconds
+  // would make the stall suite sit through a minute per assertion.
+  const stallMs = options.stallMs ?? CLOUD_STALL_MS;
   const router = express.Router({ mergeParams: true });
 
   // Place attachments in the chat-specific directory so cleanup can happen
@@ -1452,10 +1468,15 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
       // is the one whose text is kept.
       let searchWish = null;
 
+      // Re-armed by every sign of life from upstream — text, a thought, a
+      // tool event, the closing perf chunk. Replaced by the stall guard for
+      // the duration of a watched attempt and reset to a no-op afterwards.
+      let noteUpstreamActivity = () => {};
+
       // Tool-use loop: the LLM may call web_search on its own. On a tool
       // call we stream special SSE events to the frontend so it can show
       // "Searching the web…" and list the sources under the answer.
-      const runStream = () => streamWithTools({
+      const runStream = (signal) => streamWithTools({
         client,
         model,
         messages: contextMessages,
@@ -1464,12 +1485,14 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
         // Tavily key); otherwise the model would call a tool that can only
         // fail. searchDeps also binds the tool's implementation to db.
         searchDeps: { db },
-        signal: upstreamAbort.signal,
+        signal,
         onText: (delta) => {
+          noteUpstreamActivity();
           streamedAnything = true;
           res.write(`data: ${JSON.stringify({ delta })}\n\n`);
         },
         onToolEvent: (evt) => {
+          noteUpstreamActivity();
           res.write(`data: ${JSON.stringify({ tool: evt })}\n\n`);
           // The model wanted to search and nobody looked. Kept for the row
           // below, not just for the stream: the card would otherwise vanish on
@@ -1483,12 +1506,15 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
           }
         },
         onThinking: () => {
+          noteUpstreamActivity();
           res.write(`data: ${JSON.stringify({ thinking: true })}\n\n`);
         },
         onReasoning: (delta) => {
+          noteUpstreamActivity();
           res.write(`data: ${JSON.stringify({ reasoning: delta })}\n\n`);
         },
         onPerf: (perf) => {
+          noteUpstreamActivity();
           // The provider's own verdict on how this answer ended. 'stop' and
           // 'tool_calls' are clean; anything else (length, content_filter,
           // Gemini's MAX_TOKENS/RECITATION, or a missing finish chunk) means
@@ -1545,10 +1571,61 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
         },
       });
 
+      /**
+       * The same stream, but with a deadline on SILENCE (see CLOUD_STALL_MS).
+       *
+       * The stall gets its OWN controller, combined with the stop button's:
+       * `upstreamAbort` is what the catch below reads to tell a user's stop
+       * from a provider's failure, and it must stay untouched — an aborted
+       * signal never un-aborts, so retrying on it would abort instantly.
+       */
+      const runStreamWatched = async () => {
+        // The local path stays as it was (CLAUDE.md: no complexity on Ollama).
+        if (provider === 'ollama' || !stallMs) return runStream(upstreamAbort.signal);
+
+        const stall = new AbortController();
+        let timedOut = false;
+        const fire = () => { timedOut = true; stall.abort(); };
+        let timer = setTimeout(fire, stallMs);
+        noteUpstreamActivity = () => {
+          if (timedOut) return;
+          clearTimeout(timer);
+          timer = setTimeout(fire, stallMs);
+        };
+        // A user's stop wins over the deadline: they aborted the same combined
+        // signal, and their own click must not come back to them as a provider
+        // fault. And a silence that begins mid-answer is NOT a dead attempt —
+        // the text that did arrive is kept and read as the cut-off answer it
+        // is, which the truncation machinery already knows how to continue.
+        const deadAttempt = () =>
+          timedOut && !streamedAnything && !upstreamAbort.signal.aborted;
+        const stalled = () => {
+          const out = new Error(
+            `${model} on ${provider} sent nothing for ${Math.round(stallMs / 1000)} s.`
+          );
+          out.stalled = true;
+          return out;
+        };
+        try {
+          // streamWithTools reads any abort as the stop button and RETURNS the
+          // text so far rather than throwing (tools.js), so the deadline has to
+          // be checked on the way out as well, not only in the catch.
+          const text = await runStream(AbortSignal.any([upstreamAbort.signal, stall.signal]));
+          if (deadAttempt()) throw stalled();
+          return text;
+        } catch (err) {
+          if (err.stalled || !deadAttempt()) throw err;
+          throw stalled();
+        } finally {
+          clearTimeout(timer);
+          noteUpstreamActivity = () => {};
+        }
+      };
+
       let fullContent;
       for (let attempt = 1; ; attempt++) {
         try {
-          fullContent = await runStream();
+          fullContent = await runStreamWatched();
           // Proof of life for the model that answered (provider/model may
           // have moved down the failover ladder above): its quota memory is
           // dropped here and nowhere else. Anything short of a real answer —
@@ -1596,7 +1673,11 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
           // exhausted budget) and no ladder move (the model itself is fine).
           // The wait is announced over SSE like the 429 countdown — the user
           // learns the provider is busy instead of watching nothing happen.
-          if (isOverloaded(err)) {
+          // A silence that ran out its deadline joins the 503s here: from the
+          // user's seat both are the same event — the provider is not
+          // answering right now — and both pass on their own, so both are
+          // retried in place and neither earns a cooldown.
+          if (isOverloaded(err) || err.stalled) {
             if (overloadAttempt >= overloadBackoffSeconds.length) {
               err.failReason = 'overloaded';
               err.failProvider = provider;

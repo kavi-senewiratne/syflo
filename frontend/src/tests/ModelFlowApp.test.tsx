@@ -223,9 +223,12 @@ describe('App — overloaded provider announces the retry', () => {
   });
 });
 
-// ─── Truncated answer · continue writing in place ──────────────────────────
-// design/mockup-truncated-answer.html §01: the card grows the answer instead
-// of replacing it, so the chapters already parsed survive.
+// ─── Truncated answer · continue writing in place, by itself ───────────────
+// design/mockup-truncated-answer.html §01: the continuation grows the answer
+// instead of replacing it, so the chapters already parsed survive. Since
+// 2026-08-26 (user request) no click is asked for: a cut answer in ANY chat
+// continues on its own, and the card is only what is left when the automat
+// gives up.
 
 describe('App — continuing an answer the provider cut short', () => {
   const cutDetail: ChatDetail = {
@@ -242,7 +245,7 @@ describe('App — continuing an answer the provider cut short', () => {
     ],
   };
 
-  it('streams the continuation into the SAME bubble and drops the card', async () => {
+  it('streams the continuation into the SAME bubble without a click', async () => {
     vi.mocked(api.getChat).mockResolvedValue(cutDetail);
     vi.mocked(api.continueMessage).mockImplementation((_chatId, _messageId, onDelta) => {
       onDelta(' Binärcode.');
@@ -258,14 +261,60 @@ describe('App — continuing an answer the provider cut short', () => {
 
     await openRootChat();
 
-    fireEvent.click(await screen.findByTestId('continue-button'));
-
     await waitFor(() => expect(api.continueMessage).toHaveBeenCalledWith(
       'c1', 'a1', expect.any(Function), expect.anything(),
     ));
     // One answer bubble, now finished — no second bubble starting mid-sentence.
     await waitFor(() => expect(screen.queryByTestId('truncated-note')).not.toBeInTheDocument());
     expect(screen.getByText(/Die Gewichte entsprechen dem Binärcode\./)).toBeInTheDocument();
+    expect(api.continueMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps going round after round until the answer is whole', async () => {
+    vi.mocked(api.getChat).mockResolvedValue(cutDetail);
+    let round = 0;
+    let grown = cutDetail.messages[1].content;
+    vi.mocked(api.continueMessage).mockImplementation(async () => {
+      round += 1;
+      grown += ' und weiter';
+      const done = round === 3;
+      return {
+        userMessage: cutDetail.messages[0],
+        assistantMessage: { ...cutDetail.messages[1], content: grown, truncated: done ? 0 : 1 },
+      };
+    });
+
+    await openRootChat();
+
+    await waitFor(() => expect(api.continueMessage).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(screen.queryByTestId('truncated-note')).not.toBeInTheDocument());
+  });
+
+  it('hands the decision back with the card once a round appends nothing', async () => {
+    // A round that adds no text would repeat forever — one is enough to know.
+    vi.mocked(api.getChat).mockResolvedValue(cutDetail);
+    vi.mocked(api.continueMessage).mockResolvedValue({
+      userMessage: cutDetail.messages[0],
+      assistantMessage: { ...cutDetail.messages[1] },
+    });
+
+    await openRootChat();
+
+    expect(await screen.findByTestId('truncated-note')).toBeInTheDocument();
+    expect(api.continueMessage).toHaveBeenCalledTimes(1);
+    // The manual exit still works after the automat gave up.
+    fireEvent.click(screen.getByTestId('continue-button'));
+    await waitFor(() => expect(api.continueMessage).toHaveBeenCalledTimes(2));
+  });
+
+  it('puts the card back when the continuation fails', async () => {
+    vi.mocked(api.getChat).mockResolvedValue(cutDetail);
+    vi.mocked(api.continueMessage).mockRejectedValue(new Error('offline'));
+
+    await openRootChat();
+
+    expect(await screen.findByTestId('truncated-note')).toBeInTheDocument();
+    expect(api.continueMessage).toHaveBeenCalledTimes(1);
   });
 });
 

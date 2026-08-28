@@ -28,7 +28,7 @@ import { useTreeHighlights } from '../../hooks/useTreeHighlights';
 import { useLabels } from '../../hooks/useLabels';
 import { useStrings } from '../../strings';
 import { MathText, hasMath } from '../MathText';
-import { formatDuration } from '../VideoBanner';
+import { formatDuration } from '../../video/format';
 import { HIGHLIGHT_COLORS } from '../../types';
 import type { HighlightColor, TreeHighlight } from '../../types';
 

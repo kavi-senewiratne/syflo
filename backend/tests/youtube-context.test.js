@@ -54,7 +54,13 @@ function makeApp(segments, meta = {}) {
     segments,
     ...meta,
   });
-  return createApp(db, { youtube: { fetchTranscriptFn } });
+  // Importing a video schedules background chunking/embedding (ADR-0006).
+  // Without a stub that reaches the real embedding model: node-llama-cpp is
+  // loaded into the worker, the setImmediate outlives the test and warns
+  // "database connection is not open" on the closed db, and the memory
+  // pressure was enough to time pdf-text.test.js out beside it.
+  const embedTextsFn = jest.fn(async (texts) => texts.map(() => [0, 0, 0]));
+  return createApp(db, { youtube: { fetchTranscriptFn, embedTextsFn } });
 }
 
 async function chatWithVideo(app, segments) {
@@ -130,7 +136,16 @@ describe('YouTube transcript in the chat context', () => {
     expect(system).not.toMatch(/truncated at/i);
   });
 
-  it('appends an explicit truncation note when the budget trims the transcript', async () => {
+  // Probed through a real Video overview request, NOT through warm-up: since
+  // ADR-0006 a transcript over the budget goes to retrieval and the prompt
+  // carries a skeleton, so the truncation note is unreachable that way. The
+  // overview is the one question that stays full text (user decision
+  // 2026-08-20, overviewOverLongVideo in buildSystemAndHistory) — which is
+  // exactly the branch the note belongs to. Probing it through warm-up made
+  // this test assert a path the product no longer takes, and dragged the real
+  // embedding model into the suite (13 s, and enough memory pressure to time
+  // out pdf-text.test.js running beside it).
+  it('appends an explicit truncation note when the budget trims the overview transcript', async () => {
     // ~64k chars of transcript — far over MAX_SYSTEM_CONTEXT_CHARS (~40k).
     const segments = [];
     for (let i = 0; i < 3200; i++) {
@@ -139,8 +154,21 @@ describe('YouTube transcript in the chat context', () => {
     const app = makeApp(segments);
     const chat = await chatWithVideo(app);
 
-    const system = await warmupSystemPrompt(app, chat.id);
+    mockCreate.mockResolvedValue({
+      [Symbol.asyncIterator]: async function* () {
+        yield { choices: [{ delta: { content: '[00:00 - 01:00] Opening' } }] };
+        yield { choices: [{ delta: {} }] };
+      },
+    });
+    const res = await request(app)
+      .post(`/api/chats/${chat.id}/messages`)
+      .send({ content: 'Structure the entire content of this video in detail.', overview: 'true' });
+    expect(res.status).toBe(200);
 
+    const system = mockCreate.mock.calls[0][0].messages[0].content;
+    // Full text, not the retrieval skeleton — the overview needs the video in order.
+    expect(system).toContain('--- VIDEO TRANSCRIPT START ---');
+    expect(system).not.toContain('TRANSCRIPT SKELETON');
     // The tail is gone…
     expect(system).not.toContain('Segment number 3199');
     // …and the model is told so, with the minute where the cut happened.

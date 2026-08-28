@@ -140,44 +140,111 @@ function parseTimedText(xml) {
   return segments;
 }
 
+// The timedtext endpoint answers in ~100 ms or not at all. Measured live on
+// 2026-08-28 over 20 calls: every success landed between 90 ms and 10 s
+// (median well under 1 s), and about a third of the calls never answered at
+// all — the same URL then kept hanging while a freshly signed one went
+// through. get_transcript is no alternative: it 400s on every client
+// (WEB/IOS/ANDROID/MWEB, re-verified the same day).
+//
+// So the failure is not slowness, it is silence, and waiting longer buys
+// nothing — a short window with several attempts does. Four attempts at 8 s
+// leave the worst case where the old single 30 s attempt was, but turn a
+// ~1-in-3 import failure into a ~1-in-100 one.
+const CAPTION_ATTEMPTS = 4;
+const CAPTION_ATTEMPT_TIMEOUT_MS = 8_000;
+const CAPTION_RETRY_DELAY_MS = 400;
+
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 /**
  * Fetch title, channel, duration, caption language and the full caption
- * track of one video. Throws an Error with code 'no-transcript' when the
- * video has no caption track at all (not even auto-generated).
+ * track of one video.
+ *
+ * Throws an Error with code 'no-transcript' when the video carries no
+ * caption track at all (not even auto-generated), and 'captions-unavailable'
+ * when the track exists but YouTube would not hand it over — the retryable
+ * failure above, which the modal must phrase as "try again", not as "this
+ * video has no captions".
  *
  * The fetch runs via the ANDROID client and the caption track's base_url:
  * the WEB routes are dead — get_transcript answers HTTP 400, and WEB
  * timedtext URLs deliver an empty 200 body without a POT token
  * (both verified live on 2026-07-24).
+ *
+ * `options` exists for the tests: `innertube` injects a fake client,
+ * `retryDelayMs` takes the backoff out of the test runtime.
  */
-async function fetchTranscript(youtubeId) {
-  const yt = await getInnertube();
-  const info = await yt.getBasicInfo(youtubeId, { client: 'ANDROID' });
-  const basic = info.basic_info || {};
+async function fetchTranscript(youtubeId, options = {}) {
+  const yt = options.innertube || (await getInnertube());
+  const retryDelayMs = options.retryDelayMs ?? CAPTION_RETRY_DELAY_MS;
 
   const noTranscript = () => {
     const err = new Error('This video has no transcript');
     err.code = 'no-transcript';
     return err;
   };
-
-  const tracks = info.captions?.caption_tracks || [];
-  if (tracks.length === 0) throw noTranscript();
-  // Prefer a manually maintained track over auto captions ('asr').
-  const track = tracks.find((t) => t.kind !== 'asr') || tracks[0];
-
-  const r = await fetch(track.base_url, { signal: AbortSignal.timeout(30_000) });
-  if (!r.ok) throw new Error(`Caption fetch failed with HTTP ${r.status}`);
-  const segments = parseTimedText(await r.text());
-  if (segments.length === 0) throw noTranscript();
-
-  return {
-    title: basic.title || youtubeId,
-    channel: basic.author || '',
-    durationSeconds: Number(basic.duration) || null,
-    language: track.language_code || null,
-    segments,
+  const captionsUnavailable = (cause) => {
+    const err = new Error('YouTube did not hand over the captions for this video');
+    err.code = 'captions-unavailable';
+    if (cause) err.cause = cause;
+    return err;
   };
+  const rateLimited = (status) => {
+    const err = new Error(`YouTube is rate-limiting caption requests (HTTP ${status})`);
+    err.code = 'captions-rate-limited';
+    return err;
+  };
+
+  let lastError = null;
+  for (let attempt = 0; attempt < CAPTION_ATTEMPTS; attempt += 1) {
+    if (attempt > 0) await delay(retryDelayMs * attempt);
+
+    // Re-read the track on every attempt: base_url carries a signature with
+    // its own `ei`/`expire`, and a URL that just timed out stayed dead in
+    // the measurements while a freshly issued one went through.
+    const info = await yt.getBasicInfo(youtubeId, { client: 'ANDROID' });
+    const basic = info.basic_info || {};
+    const tracks = info.captions?.caption_tracks || [];
+    // A video without captions has none a second later either — the only
+    // failure here that retrying cannot help.
+    if (tracks.length === 0) throw noTranscript();
+    // Prefer a manually maintained track over auto captions ('asr').
+    const track = tracks.find((t) => t.kind !== 'asr') || tracks[0];
+
+    let segments;
+    try {
+      const r = await fetch(track.base_url, { signal: AbortSignal.timeout(CAPTION_ATTEMPT_TIMEOUT_MS) });
+      // 429 is Google's throttle page ("Sorry…", 1 kB of HTML where the
+      // track is 250 kB), measured 2026-08-28 after a burst of requests.
+      // Retrying INTO a throttle only deepens it, so this one leaves the
+      // loop immediately — the opposite of the silent failure above.
+      if (r.status === 429 || r.status === 403) throw rateLimited(r.status);
+      if (!r.ok) throw new Error(`Caption fetch failed with HTTP ${r.status}`);
+      segments = parseTimedText(await r.text());
+    } catch (err) {
+      if (err?.code === 'captions-rate-limited') throw err;
+      lastError = err;
+      continue;
+    }
+    // An empty body is the endpoint's other way of saying "not now": the
+    // track is listed, so this is not a video without captions (one live
+    // response carried 1 kB where the full track is 250 kB).
+    if (segments.length === 0) {
+      lastError = captionsUnavailable();
+      continue;
+    }
+
+    return {
+      title: basic.title || youtubeId,
+      channel: basic.author || '',
+      durationSeconds: Number(basic.duration) || null,
+      language: track.language_code || null,
+      segments,
+    };
+  }
+
+  throw captionsUnavailable(lastError);
 }
 
 // ─── Minute marks ────────────────────────────────────────────────────────────

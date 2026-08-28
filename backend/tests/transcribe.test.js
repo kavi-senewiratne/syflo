@@ -135,6 +135,46 @@ describe('POST /api/transcribe', () => {
     expect(res.body.text).toContain(`bytes=${wav.length}`);
   });
 
+  it('logs the language whisper actually detected, not the one we asked for', async () => {
+    // The request always says 'auto'; the answer names a concrete language.
+    // A user reported German dictation coming back as English (2026-08-28)
+    // and the log could not tell whether whisper had detected 'english' and
+    // translated, or detected 'german' and something later replaced the text.
+    // Asking for verbose_json is what makes that distinction visible.
+    manager = makeManager();
+    app = createApp(db, { transcribe: { manager } });
+    const logged = [];
+    const realLog = console.log;
+    console.log = (...args) => logged.push(args.join(' '));
+
+    try {
+      await request(app)
+        .post('/api/transcribe')
+        .set('Content-Type', 'audio/wav')
+        .send(tinyWav());
+    } finally {
+      console.log = realLog;
+    }
+
+    const line = logged.find(l => l.startsWith('[whisper]'));
+    expect(line).toContain('detected=german');
+    expect(line).toContain('audio=1.9s');
+  });
+
+  it('asks whisper for verbose_json — plain json carries no detected language', async () => {
+    manager = makeManager();
+    app = createApp(db, { transcribe: { manager } });
+
+    const res = await request(app)
+      .post('/api/transcribe')
+      .set('Content-Type', 'audio/wav')
+      .send(tinyWav());
+
+    // The fake mirrors the received fields into the text, so the request
+    // format is observable from the response.
+    expect(res.body.text).toContain('language=auto');
+  });
+
   it('collapses whisper segment line breaks into single spaces', async () => {
     // whisper-server separates segments with \n — in the composer, however,
     // the dictation should land as ONE flowing text block.

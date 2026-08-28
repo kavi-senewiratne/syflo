@@ -9,7 +9,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { parseChapters, activeChapterIndex, pickOverviewContent, pickOverviewMessage, overviewStopsShort } from '../markdown/chapters';
+import { parseChapters, activeChapterIndex, pickOverviewMessage, overviewStopsShort } from '../markdown/chapters';
 import type { Message } from '../types';
 
 const overview = `## An LLM is two files [0:00 - 7:30]
@@ -81,36 +81,6 @@ const msg = (role: 'user' | 'assistant', content: string, id: string): Message =
   role,
   content,
   created_at: new Date().toISOString(),
-});
-
-describe('pickOverviewContent', () => {
-  it('nimmt die Video overview aus dem Verlauf', () => {
-    const messages = [
-      msg('user', 'Gliedere das ganze Video…', 'm1'),
-      msg('assistant', overview, 'm2'),
-      msg('user', 'Und was heißt lossy?', 'm3'),
-      msg('assistant', 'Der Wortlaut geht verloren, nicht das Wissen.', 'm4'),
-    ];
-
-    expect(pickOverviewContent(messages)).toBe(overview);
-  });
-
-  it('nimmt die neueste Gliederung, wenn erneut gegliedert wurde', () => {
-    const neuer = '## Anders geschnitten [0:00 - 5:00]\n\n**Zweiter Versuch.**\n';
-    const messages = [msg('assistant', overview, 'm1'), msg('assistant', neuer, 'm2')];
-
-    expect(pickOverviewContent(messages)).toBe(neuer);
-  });
-
-  it('liefert null, wenn im Chat nichts gegliedert wurde', () => {
-    expect(pickOverviewContent([msg('assistant', 'Nur eine Antwort.', 'm1')])).toBeNull();
-    expect(pickOverviewContent([])).toBeNull();
-  });
-
-  it('nimmt keine Nutzerfrage, auch wenn sie Überschriften zitiert', () => {
-    const messages = [msg('user', overview, 'm1')];
-    expect(pickOverviewContent(messages)).toBeNull();
-  });
 });
 
 describe('Unterabschnitte (im laufenden Chat gefunden, 2026-08-15)', () => {
@@ -192,10 +162,6 @@ describe('pickOverviewMessage', () => {
     expect(picked?.truncated).toBe(1);
   });
 
-  it('bleibt einig mit pickOverviewContent', () => {
-    const messages = [msg('assistant', overview, 'm1'), msg('assistant', 'Kein Schnitt.', 'm2')];
-    expect(pickOverviewMessage(messages)?.content).toBe(pickOverviewContent(messages));
-  });
 });
 
 // ─── Offsets der Kapitel im Übersichtstext ─────────────────────────────────

@@ -23,6 +23,14 @@ import { useStrings } from '../../strings';
 import { Logo } from '../Logo';
 import type { SettingsTab } from '../SettingsModal';
 import type { Category, Chat } from '../../types';
+import type { ChatGroupLabel } from './groupChatsByDate';
+
+// Date sections of the history that start CLOSED — everything except Today and
+// Yesterday (user decision 2026-08-26). Only a default: `COLLAPSE_DEFAULT_FLAG`
+// records that it has been applied, so it never overrides what the user opened
+// later. The pinned section and the categories are untouched by this.
+const DEFAULT_CLOSED_GROUPS: ChatGroupLabel[] = ['This week', 'Last week', 'This month', 'Older'];
+const COLLAPSE_DEFAULT_FLAG = 'syflo.sidebarOlderGroupsCollapsed';
 
 // Recursively look up a chat by id so the delete confirmation can show its title.
 function findChatById(chats: Chat[], id: string): Chat | null {
@@ -151,7 +159,20 @@ export function Sidebar({ chats, activeChatId, categories, onCreateCategory, onR
   const [closedSections, setClosedSections] = useState<Set<string>>(() => {
     try {
       const raw = localStorage.getItem('syflo.sidebarClosedSections');
-      return new Set<string>(raw ? JSON.parse(raw) : []);
+      const closed = new Set<string>(raw ? JSON.parse(raw) : []);
+      // Only Today and Yesterday start open (user decision 2026-08-26): the
+      // four older date sections carry the whole backlog and pushed the recent
+      // chats off screen. Applied ONCE per browser, not on every load — after
+      // that the user's own toggles are the only thing that decides, and an
+      // opened "This week" must not close itself again on the next reload.
+      // The flag is separate from the set: an empty set is a legitimate state
+      // ("I opened everything") and must not be mistaken for a fresh install.
+      if (!localStorage.getItem(COLLAPSE_DEFAULT_FLAG)) {
+        for (const label of DEFAULT_CLOSED_GROUPS) closed.add(`date:${label}`);
+        localStorage.setItem(COLLAPSE_DEFAULT_FLAG, '1');
+        localStorage.setItem('syflo.sidebarClosedSections', JSON.stringify([...closed]));
+      }
+      return closed;
     } catch {
       return new Set<string>();
     }

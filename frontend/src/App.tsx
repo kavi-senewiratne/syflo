@@ -18,6 +18,8 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { FileText, TvMinimalPlay, ArrowDown } from 'lucide-react';
 import { Sidebar } from './components/Sidebar';
 import { useKeyboardNavigation } from './hooks/useKeyboardNavigation';
+import { usePaneResize } from './hooks/usePaneResize';
+import { useStreamRegistry, type ActiveStream } from './hooks/useStreamRegistry';
 import type { FocusPosition } from './keyboard/focusMap';
 import { findItem } from './keyboard/readScreen';
 import { MatrixRain } from './components/MatrixRain';
@@ -38,7 +40,7 @@ import { getAppLanguage } from './appLanguage';
 import { useStrings } from './strings';
 import { VideoPane, type VideoPaneHandle } from './components/VideoPane';
 import { pickOverviewMessage, overviewStopsShort } from './markdown/chapters';
-import { formatDuration } from './components/VideoBanner';
+import { formatDuration } from './video/format';
 import { FloatingPopup } from './components/FloatingPopup';
 import { HighlightsDrawer } from './components/HighlightsDrawer';
 import { api, StreamFailedError, TreeHasSourceError } from './api';
@@ -56,67 +58,7 @@ import { useChatHighlights } from './hooks/useChatHighlights';
 import { invalidateTreeHighlights } from './hooks/useTreeHighlights';
 import { contextAroundSelection } from './pdf/selection';
 import { CLOUD_PROVIDERS, FAILED_MARKER, INTERRUPTED_MARKER } from './types';
-import type { Aside, Category, Chat, ChatDetail, ChatSelection, ComposerQuote, FailoverInfo, Highlight, HighlightColor, LLMProvider, LocalAttachment, Message, MessageHighlight, OllamaModelInfo, Paper, PaperReference, Registry, SearchResult, SearchSource, Settings, ToolEvent, TranscriptHighlight, TreeHighlight, Video, VideoSearchResult, WordPopup } from './types';
-
-// Ein laufender Antwort-Stream. Antworten laufen beim Chat-Wechsel im
-// Hintergrund weiter (Nutzerkorrektur 2026-07-22) — der Puffer hält den
-// bisher gestreamten Stand außerhalb des React-States, damit Deltas auch
-// ankommen, während ein anderer Chat angezeigt wird, und der Teilstand beim
-// Zurückwechseln sofort wieder erscheint. Es kann MEHRERE Streams pro Chat
-// geben (das Backend beantwortet sie FIFO): die Registry ist deshalb nach
-// tempAssistantId geschlüsselt, nicht nach Chat — der frühere Chat-Schlüssel
-// ließ ein zweites Senden den ersten Eintrag überschreiben und das finally
-// des ersten den zweiten löschen (Bug 2026-07-24).
-interface ActiveStream {
-  chatId: string;
-  tempUserId: string;
-  tempAssistantId: string;
-  // Inhalt der optimistischen User-Frage — für die Wiederherstellung beim
-  // Chat-Wechsel, solange der Job wartet (die Frage wird erst beim Job-Start
-  // serverseitig persistiert und fehlt bis dahin in der GET-Antwort).
-  userContent: string;
-  content: string;
-  reasoning: string;
-  sources: SearchSource[];
-  // W2 (§06): the model called web_search and nobody looked. Held on the
-  // stream so it survives the re-renders between the tool event and the end of
-  // the answer.
-  searchWish?: { query: string; error: string };
-  createdAt: string;
-  // Warteschlangen-Status des Backends: Zahl der Jobs davor, null = läuft
-  // (oder war nie eingereiht). started kippt mit dem started-Event.
-  queuedAhead: number | null;
-  // Queue transparency (mockup-model-flow §07): the local model that will
-  // answer this waiting question (chip on the queued note) and the chat +
-  // question the queue is answering RIGHT NOW (jump link when it is another
-  // chat). Both live only while queuedAhead does.
-  queuedModel: string | null;
-  queuedCurrent: { chatId: string; question: string } | null;
-  started: boolean;
-  // Visible auto-retry after a cloud provider 429 (ADR-0008) — null as soon
-  // as the next attempt delivers tokens.
-  rateLimit: { retryInSeconds: number; attempt: number; scope?: 'requests' | 'tokens'; model?: string } | null;
-  // The provider's servers are busy (503) and the backend retries the same
-  // model — like rateLimit, gone as soon as tokens arrive.
-  overloaded: { retryInSeconds: number; attempt: number; maxAttempts: number; provider?: string } | null;
-  // Another provider stepped in for this answer (ADR-0008 failover). Unlike
-  // rateLimit this STAYS for the whole answer — it explains who it is from.
-  failover: FailoverInfo | null;
-  // Smooth reveal of the streamed answer text (fast cloud models would make
-  // paragraphs "pop"). Lives on the stream, not in a component, so a chat
-  // switch mid-stream loses nothing; `content` above always holds the
-  // REVEALED prefix — the persisted final text comes from the backend.
-  smoother: TextSmoother | null;
-  // Retry eines persistierten '*Failed*'-Markers: es gibt keine optimistische
-  // User-Blase, und ein Abbruch im Wartezustand stellt die Fehlerzeile wieder
-  // her, statt Blasen zu entfernen.
-  isRegenerate: boolean;
-  // Die id des ersetzten *Failed*-Markers (anchored retry). Die Restore-Pfade
-  // stellen den Marker unter DIESER id wieder her — eine Temp-id würde den
-  // nächsten Retry mit einer dem Backend unbekannten messageId losschicken.
-  regenerateOfId: string | null;
-  abort: AbortController;
-}
+import type { Aside, Category, Chat, ChatDetail, ChatSelection, ComposerQuote, FailoverInfo, Highlight, HighlightColor, LLMProvider, LocalAttachment, Message, MessageHighlight, OllamaModelInfo, Paper, PaperReference, Registry, SearchResult, Settings, ToolEvent, TranscriptHighlight, TreeHighlight, Video, VideoSearchResult, WordPopup } from './types';
 
 /**
  * Every chat id in a node's subtree, the node itself included. Deleting a chat
@@ -303,56 +245,22 @@ export default function App() {
   // bis er wieder ausgeschaltet wird — nicht global, nicht pro Nachricht.
   const [thinkByChat, setThinkByChat] = useState<Record<string, boolean>>({});
 
-  // Laufende Streams, geschlüsselt nach tempAssistantId — mehrere pro Chat
-  // möglich (Backend-FIFO). Der Stop-Button bricht alle Streams des gerade
-  // sichtbaren Chats ab.
-  const activeStreamsRef = useRef<Map<string, ActiveStream>>(new Map());
-  // Spiegel für die UI: Punkte in der Sidebar für antwortende Chats, Uhr für
-  // Chats, deren Fragen nur in der Warteschlange stehen, und die IDs der
-  // Assistant-Platzhalter (pro Nachricht statt "letzte Nachricht" — bei
-  // mehreren Streams in einem Chat ist der Platzhalter nicht mehr zwingend
-  // die letzte Nachricht).
-  const [streamingChatIds, setStreamingChatIds] = useState<Set<string>>(new Set());
-  const [queuedChatIds, setQueuedChatIds] = useState<Set<string>>(new Set());
-  const [streamingMessageIds, setStreamingMessageIds] = useState<Set<string>>(new Set());
-  // Chats whose answer is being CONTINUED right now. Kept apart from
-  // streamingChatIds because that set is derived from the stream registry on
-  // every sync and would drop a flag written into it by hand — but it means
-  // the same thing to the reader, and is merged wherever the UI asks "is this
-  // chat still answering?" (user report 2026-08-18: the bubble looked finished
-  // while rounds were still running).
-  const [continuingChatIds, setContinuingChatIds] = useState<Set<string>>(new Set());
-  const markAnswering = (chatId: string, on: boolean) =>
-    setContinuingChatIds(prev => {
-      if (prev.has(chatId) === on) return prev;
-      const next = new Set(prev);
-      if (on) next.add(chatId);
-      else next.delete(chatId);
-      return next;
-    });
+  // Registry of the running streams plus the UI mirrors derived from it —
+  // see hooks/useStreamRegistry.ts for the invariant they share.
+  const {
+    streams: activeStreamsRef,
+    streamingChatIds,
+    queuedChatIds,
+    streamingMessageIds,
+    continuingChatIds,
+    streamsForChat,
+    syncIndicators: syncStreamIndicators,
+    markAnswering,
+  } = useStreamRegistry();
+
   // Live-Spiegel der aktiven Chat-ID für Stream-Callbacks (der State im
   // Closure wäre veraltet, sobald der Nutzer den Chat wechselt).
   const activeChatIdRef = useRef<string | null>(null);
-
-  const streamsForChat = (chatId: string): ActiveStream[] =>
-    [...activeStreamsRef.current.values()].filter(s => s.chatId === chatId);
-
-  // Leitet alle UI-Spiegel aus der Registry ab — nach JEDER Mutation aufrufen.
-  // Ein Chat mit generierendem UND wartendem Stream zeigt die Punkte.
-  const syncStreamIndicators = () => {
-    const streaming = new Set<string>();
-    const queued = new Set<string>();
-    const messageIds = new Set<string>();
-    for (const s of activeStreamsRef.current.values()) {
-      messageIds.add(s.tempAssistantId);
-      if (!s.started && s.queuedAhead !== null) queued.add(s.chatId);
-      else streaming.add(s.chatId);
-    }
-    for (const id of streaming) queued.delete(id);
-    setStreamingChatIds(streaming);
-    setQueuedChatIds(queued);
-    setStreamingMessageIds(messageIds);
-  };
 
   // treePaper: the PDF bound to the active chat's tree (ADR-0002: one per
   // tree). Non-null switches the app into the three-column layout — tree in
@@ -405,67 +313,37 @@ export default function App() {
   // Width the center pane (PDF desk or parent context) keeps no matter how wide
   // the chat column is dragged — see the maxWidth on the chat column below.
   const CENTER_PANE_MIN = 320;
-  const [chatPaneWidth, setChatPaneWidth] = useState<number>(() => {
-    const stored = Number(localStorage.getItem('syflo.chatPaneWidth'));
-    return Number.isFinite(stored) && stored >= CHAT_PANE_MIN && stored <= CHAT_PANE_MAX
-      ? stored
-      : 340;
-  });
-  // Live drag state — kept in a ref so pointermove doesn't fight React state.
-  const chatPaneResizeRef = useRef<{ startX: number; startWidth: number; last: number } | null>(null);
-  const handleChatPaneResizeStart = (e: React.PointerEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    chatPaneResizeRef.current = { startX: e.clientX, startWidth: chatPaneWidth, last: chatPaneWidth };
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-  };
-  const handleChatPaneResizeMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    const drag = chatPaneResizeRef.current;
-    if (!drag) return;
+  const [chatPaneWidth, chatPaneResize] = usePaneResize({
+    storageKey: 'syflo.chatPaneWidth',
+    fallback: 340,
+    min: CHAT_PANE_MIN,
+    max: CHAT_PANE_MAX,
+    startDrag: (e, width) => ({ startX: e.clientX, startWidth: width }),
     // The chat pane sits at the right window edge, so dragging the divider
     // left widens it by exactly the pointer delta.
-    const next = Math.min(CHAT_PANE_MAX, Math.max(CHAT_PANE_MIN, drag.startWidth + (drag.startX - e.clientX)));
-    drag.last = next;
-    setChatPaneWidth(next);
-  };
-  const handleChatPaneResizeEnd = () => {
-    const drag = chatPaneResizeRef.current;
-    if (!drag) return;
-    chatPaneResizeRef.current = null;
-    localStorage.setItem('syflo.chatPaneWidth', String(drag.last));
-  };
+    nextValue: (e, start) => start.startWidth + (start.startX - e.clientX),
+  });
 
   // Height of the mind-map pane (as % of the column), when the mind-map view
   // is open above the chat. Same drag pattern as the chat column divider;
   // stored as a percentage so it adapts to window resizes.
   const MAP_PANE_MIN_PCT = 20;
   const MAP_PANE_MAX_PCT = 80;
-  const [mapPaneHeightPct, setMapPaneHeightPct] = useState<number>(() => {
-    const stored = Number(localStorage.getItem('syflo.mapPaneHeight'));
-    return Number.isFinite(stored) && stored >= MAP_PANE_MIN_PCT && stored <= MAP_PANE_MAX_PCT
-      ? stored
-      : 50;
+  const [mapPaneHeightPct, mapPaneResize] = usePaneResize({
+    storageKey: 'syflo.mapPaneHeight',
+    fallback: 50,
+    min: MAP_PANE_MIN_PCT,
+    max: MAP_PANE_MAX_PCT,
+    // The container height must be read at pointerdown: once the drag starts,
+    // the pane it belongs to is the thing being resized.
+    startDrag: (e, pct) => ({
+      startY: e.clientY,
+      startPct: pct,
+      containerH: (e.currentTarget.parentElement as HTMLElement).clientHeight || 1,
+    }),
+    nextValue: (e, start) =>
+      start.startPct + ((e.clientY - start.startY) / start.containerH) * 100,
   });
-  const mapPaneResizeRef = useRef<{ startY: number; startPct: number; containerH: number; last: number } | null>(null);
-  const handleMapPaneResizeStart = (e: React.PointerEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    const containerH = (e.currentTarget.parentElement as HTMLElement).clientHeight || 1;
-    mapPaneResizeRef.current = { startY: e.clientY, startPct: mapPaneHeightPct, containerH, last: mapPaneHeightPct };
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-  };
-  const handleMapPaneResizeMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    const drag = mapPaneResizeRef.current;
-    if (!drag) return;
-    const deltaPct = ((e.clientY - drag.startY) / drag.containerH) * 100;
-    const next = Math.min(MAP_PANE_MAX_PCT, Math.max(MAP_PANE_MIN_PCT, drag.startPct + deltaPct));
-    drag.last = next;
-    setMapPaneHeightPct(next);
-  };
-  const handleMapPaneResizeEnd = () => {
-    const drag = mapPaneResizeRef.current;
-    if (!drag) return;
-    mapPaneResizeRef.current = null;
-    localStorage.setItem('syflo.mapPaneHeight', String(drag.last));
-  };
 
   // popup: the word the user right-clicked on, plus its screen coordinates
   const [popup, setPopup] = useState<WordPopup | null>(null);
@@ -1982,44 +1860,40 @@ export default function App() {
   );
 
   /**
-   * The Video overview writes itself to the end (mockup-video-overview-progress
-   * §01, variant A, user decision 2026-08-18). A provider that stops mid-
+   * A cut-off answer writes itself to the end (mockup-video-overview-progress
+   * §01, variant A, user decision 2026-08-18; extended from the overview to
+   * EVERY answer on user request 2026-08-26). A provider that stops mid-
    * sentence used to leave a card and wait for a click that is always the same
-   * answer — "yes, carry on". The app now appends by itself and the list simply
-   * keeps growing; the spinner row under it already says that writing is going
-   * on.
+   * answer — "yes, carry on". The app now appends by itself; the answering
+   * spinner already says that writing is going on.
    *
-   * It runs until the answer is WHOLE (user decision 2026-08-18: "es sollte
-   * das automatisch machen bis zum Ende") — the provider dropping the
-   * `truncated` flag is the stop. Three things end it early, because a
-   * continuation is a paid call carrying the whole text so far:
+   * It runs until the answer is WHOLE — the provider dropping the `truncated`
+   * flag is the stop. Three things end it early, because a continuation is a
+   * paid call carrying the whole text so far:
    * - A round that appends NOTHING. Repeating it would buy the same nothing
    *   over and over.
    * - A failed round — the card comes back and the reader decides.
    * - AUTO_CONTINUE_MAX as a runaway guard, never as a budget.
    *
-   * Only the overview, deliberately: a cut answer in the chat is a different
-   * question ("is this enough for me?") and keeps its card.
+   * The card in the bubble is therefore the FALLBACK, not the normal path: it
+   * is what the reader sees once the automat has given up.
    */
   useEffect(() => {
-    if (!treeVideo || autoContinueBusy.current) return;
+    if (autoContinueBusy.current) return;
 
     // The overview the pane already knows — it has chapters, so it parsed.
-    // Unfinished means two things now: the provider CUT it, or it reads as
+    // Unfinished means two things here: the provider CUT it, or it reads as
     // finished and stops well before the video ends. The second is the case
     // that has no flag at all (Flash Lite, 16:16 of 1:06:31, `finish=stop`,
     // user report 2026-08-18) — the overview's own time marks are the witness.
-    const known = videoOverview && (videoOverview.message.truncated || overviewStoppedEarly)
+    const known = treeVideo && videoOverview && (videoOverview.message.truncated || overviewStoppedEarly)
       ? videoOverview
       : null;
-    // …or a cut answer in the tree's ROOT chat before a single time mark has
-    // been written. That answer IS the overview being born: hanging the
-    // automat on the parsed overview alone left exactly the case the user hit
-    // (2026-08-18) untouched — the answer broke off after its first heading,
-    // no chapter parsed, and the card sat there waiting for a click. Branch
-    // answers keep their card: only the root chat writes the overview.
-    const root = activeChatId ? findRoot(chats, activeChatId) : null;
-    const fresh = !known && root?.id === activeChatId
+    // …or a cut answer in the OPEN chat, overview or not. Hanging the automat
+    // on the parsed overview alone left the case the user hit (2026-08-18)
+    // untouched — the answer broke off after its first heading, no chapter
+    // parsed, and the card sat there waiting for a click.
+    const fresh = !known
       ? [...(activeChat?.messages ?? [])].reverse().find(m => m.role === 'assistant' && m.truncated)
       : undefined;
 
@@ -2051,7 +1925,7 @@ export default function App() {
         autoContinueBusy.current = false;
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [treeVideo, videoOverview, overviewStoppedEarly, activeChat?.messages, chats, activeChatId, streamingChatIds, queuedChatIds]);
+  }, [treeVideo, videoOverview, overviewStoppedEarly, activeChat?.messages, activeChatId, streamingChatIds, queuedChatIds]);
 
   // Named cloud exit of the local_missing card (mockup-model-flow §11):
   // switch the settings to the keyed cloud provider + its model (same write
@@ -3106,10 +2980,7 @@ export default function App() {
               aria-orientation="horizontal"
               aria-label={S.resizeMindMap}
               data-testid="mindmap-pane-resizer"
-              onPointerDown={handleMapPaneResizeStart}
-              onPointerMove={handleMapPaneResizeMove}
-              onPointerUp={handleMapPaneResizeEnd}
-              onPointerCancel={handleMapPaneResizeEnd}
+              {...mapPaneResize}
               className="h-1.5 shrink-0 cursor-row-resize bg-gray-200 hover:bg-blue-300 active:bg-blue-400 transition-colors"
             />
           </>
@@ -3239,10 +3110,7 @@ export default function App() {
               aria-orientation="vertical"
               aria-label={S.resizeChatColumn}
               data-testid="chat-pane-resizer"
-              onPointerDown={handleChatPaneResizeStart}
-              onPointerMove={handleChatPaneResizeMove}
-              onPointerUp={handleChatPaneResizeEnd}
-              onPointerCancel={handleChatPaneResizeEnd}
+              {...chatPaneResize}
               className="w-1.5 shrink-0 cursor-col-resize bg-gray-200 hover:bg-blue-300 active:bg-blue-400 transition-colors"
             />
           )}

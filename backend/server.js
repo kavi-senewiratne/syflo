@@ -156,6 +156,8 @@ if (require.main === module) {
   const { moved } = migrateLegacyData({
     legacyDir,
     legacyUploadsDir: path.join(legacyDir, '..', 'uploads'),
+    // whisper.js read the model from <repo>/models before the move.
+    legacyModelsDir: path.join(legacyDir, '..', 'models'),
     dataDir: DATA_DIR,
   });
   if (moved.length > 0) {

@@ -62,7 +62,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
-  delete (navigator as any).mediaDevices;
+  delete (navigator as { mediaDevices?: MediaDevices }).mediaDevices;
   vi.restoreAllMocks();
 });
 

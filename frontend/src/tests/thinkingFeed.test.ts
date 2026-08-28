@@ -59,7 +59,6 @@ describe('thinking feed', () => {
   });
 
   it('shows every quote exactly `showsPerQuote` times before the cycle restarts', () => {
-    let call = 0;
     // Immer 0.9: Münzwurf → Zitat, Pool-Pick → letzter Eintrag.
     const feed = createThinkingFeed({
       tips: ['tip'],
@@ -67,7 +66,7 @@ describe('thinking feed', () => {
       poolSize: 2,
       showsPerQuote: 2,
       storage: memStorage(),
-      random: () => (call++, 0.9),
+      random: () => 0.9,
     });
 
     const counts = new Map<string, number>();
@@ -83,14 +82,13 @@ describe('thinking feed', () => {
 
   it('persists its progress: a new feed on the same storage continues the cycle', () => {
     const storage = memStorage();
-    let call = 0;
     const deps = {
       tips: ['tip'],
       quotes: mkQuotes(5),
       poolSize: 2,
       showsPerQuote: 2,
       storage,
-      random: () => (call++, 0.9),
+      random: () => 0.9,
     };
 
     const counts = new Map<string, number>();
@@ -109,14 +107,13 @@ describe('thinking feed', () => {
   });
 
   it('starts a fresh cycle after every quote has been retired', () => {
-    let call = 0;
     const feed = createThinkingFeed({
       tips: ['tip'],
       quotes: mkQuotes(2),
       poolSize: 2,
       showsPerQuote: 1,
       storage: memStorage(),
-      random: () => (call++, 0.9),
+      random: () => 0.9,
     });
 
     const counts = new Map<string, number>();

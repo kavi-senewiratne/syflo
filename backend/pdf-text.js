@@ -21,16 +21,9 @@ const path = require('path');
 // are incomplete and get re-extracted on the next access.
 const LEGACY_TRUNCATION_MARKER = '[… paper text truncated]';
 
-// pdf.js is ESM-only; require() can't load it from this CommonJS module, so
-// the import is dynamic and cached across calls. The `new Function` wrapper
-// keeps babel-jest from transpiling `import()` into `require()` — the import
-// must run through Node's real ESM loader, also under Jest.
-const importEsm = new Function('specifier', 'return import(specifier)');
-let pdfjsPromise = null;
-function loadPdfjs() {
-  if (!pdfjsPromise) pdfjsPromise = importEsm('pdfjs-dist/legacy/build/pdf.mjs');
-  return pdfjsPromise;
-}
+// pdf.js comes from the shared loader (pdfjs.js) — see there for why the
+// import is dynamic and why exactly one memo is allowed to exist.
+const { loadPdfjs } = require('./pdfjs');
 
 /**
  * Extract the full plain text of a PDF file, page by page. Throws on

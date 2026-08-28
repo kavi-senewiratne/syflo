@@ -29,27 +29,11 @@
  * in front of it costs nothing. Precision belongs in the matcher, not here.
  */
 
-// pdf.js is ESM-only; require() can't load it from CommonJS, so the import is
-// dynamic and cached. The `new Function` wrapper keeps babel-jest from
-// rewriting `import()` into `require()` (same trick as pdf-text.js).
 const fs = require('fs');
 
-const importEsm = new Function('specifier', 'return import(specifier)');
-let pdfjsPromise = null;
-function loadPdfjs() {
-  if (!pdfjsPromise) {
-    // A FAILED import must not be cached: one bad moment would poison the
-    // module for the life of the process. Under Jest that moment is real —
-    // a sibling suite tearing down mid-import makes the ESM loader throw
-    // "Provided module is not an instance of Module", and every later call
-    // would inherit the rejection.
-    pdfjsPromise = importEsm('pdfjs-dist/legacy/build/pdf.mjs').catch((err) => {
-      pdfjsPromise = null;
-      throw err;
-    });
-  }
-  return pdfjsPromise;
-}
+// pdf.js comes from the shared loader (pdfjs.js) — see there for why the
+// import is dynamic and why exactly one memo is allowed to exist.
+const { loadPdfjs } = require('./pdfjs');
 
 // hyperref names its citation anchors `cite.<bibtexkey>`; other producers use
 // `cite:<key>` or plain `bib<n>`. Anything else (section links, figure refs,

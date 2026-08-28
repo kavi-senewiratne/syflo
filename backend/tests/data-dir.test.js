@@ -87,6 +87,62 @@ describe('migrateLegacyData', () => {
     expect(fs.readFileSync(path.join(legacyDir, 'syflo.db'), 'utf8')).toBe('old');
   });
 
+  it('moves the whisper/embedding models along — dictation looks for them under the data dir', () => {
+    const legacyRoot = tempDir('legacy-root');
+    const legacyDir = path.join(legacyRoot, 'backend');
+    fs.mkdirSync(legacyDir);
+    fs.writeFileSync(path.join(legacyDir, 'syflo.db'), 'db');
+    const models = path.join(legacyRoot, 'models');
+    fs.mkdirSync(models);
+    fs.writeFileSync(path.join(models, 'ggml-small.bin'), 'whisper');
+    const dataDir = path.join(tempDir('data'), '.syflo');
+
+    const result = migrateLegacyData({ legacyDir, legacyModelsDir: models, dataDir });
+
+    expect(result.moved).toContain(path.join('models', 'ggml-small.bin'));
+    expect(fs.readFileSync(path.join(dataDir, 'models', 'ggml-small.bin'), 'utf8')).toBe('whisper');
+  });
+
+  it('still moves the models when the database has already arrived — that is the broken install', () => {
+    // The 2026-08-21 move took the database and left the 487 MB whisper model
+    // behind, so dictation answered 503 while the file sat on disk. Everyone
+    // hit by that has a data dir WITH a database, which is exactly the case
+    // the database gate skips — so the models must not be behind it.
+    const legacyRoot = tempDir('legacy-root');
+    const legacyDir = path.join(legacyRoot, 'backend');
+    fs.mkdirSync(legacyDir);
+    const models = path.join(legacyRoot, 'models');
+    fs.mkdirSync(models);
+    fs.writeFileSync(path.join(models, 'ggml-small.bin'), 'whisper');
+    const dataDir = path.join(tempDir('data'), '.syflo');
+    fs.mkdirSync(dataDir, { recursive: true });
+    fs.writeFileSync(path.join(dataDir, 'syflo.db'), 'already here');
+
+    const result = migrateLegacyData({ legacyDir, legacyModelsDir: models, dataDir });
+
+    expect(result.moved).toEqual([path.join('models', 'ggml-small.bin')]);
+    expect(fs.readFileSync(path.join(dataDir, 'models', 'ggml-small.bin'), 'utf8')).toBe('whisper');
+    // …and the database it found there is untouched.
+    expect(fs.readFileSync(path.join(dataDir, 'syflo.db'), 'utf8')).toBe('already here');
+  });
+
+  it('keeps a model already downloaded into the new folder', () => {
+    const legacyRoot = tempDir('legacy-root');
+    const legacyDir = path.join(legacyRoot, 'backend');
+    fs.mkdirSync(legacyDir);
+    const models = path.join(legacyRoot, 'models');
+    fs.mkdirSync(models);
+    fs.writeFileSync(path.join(models, 'bge-m3-q8_0.gguf'), 'stale copy');
+    const dataDir = path.join(tempDir('data'), '.syflo');
+    fs.mkdirSync(path.join(dataDir, 'models'), { recursive: true });
+    fs.writeFileSync(path.join(dataDir, 'models', 'bge-m3-q8_0.gguf'), 'the one in use');
+
+    const result = migrateLegacyData({ legacyDir, legacyModelsDir: models, dataDir });
+
+    expect(result.moved).toEqual([]);
+    expect(fs.readFileSync(path.join(dataDir, 'models', 'bge-m3-q8_0.gguf'), 'utf8')).toBe('the one in use');
+  });
+
   it('refuses to run without both paths, so no default can point at a real install', () => {
     expect(() => migrateLegacyData({ legacyDir: '/a' })).toThrow(/dataDir/);
     expect(() => migrateLegacyData({ dataDir: '/b' })).toThrow(/legacyDir/);

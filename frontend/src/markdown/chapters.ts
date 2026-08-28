@@ -134,16 +134,6 @@ export function pickOverviewMessage(messages: Message[]): Message | null {
 }
 
 /**
- * The overview's TEXT — the chapter list's only input. Kept next to
- * pickOverviewMessage and defined through it, so the pane's state (was this
- * overview cut short? which message does "continue" mean?) can never point at
- * a different message than the chapters on screen.
- */
-export function pickOverviewContent(messages: Message[]): string | null {
-  return pickOverviewMessage(messages)?.content ?? null;
-}
-
-/**
  * Index of the chapter that `seconds` falls into, or -1. A chapter runs until
  * the next chapter starts — the model's own `endSeconds` is ignored for this,
  * because a gap between two ranges would otherwise leave the list with no

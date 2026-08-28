@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vite
 import { createRef } from 'react';
 import { ChatArea, type ChatAreaHandle } from '../components/ChatArea';
 import type { ChatDetail } from '../types';
+import type { PcmRecorder } from '../audio/recorder';
 
 const mockChat: ChatDetail = {
   id: '1',
@@ -592,7 +593,7 @@ describe('ChatArea', () => {
     let fetchMock: ReturnType<typeof vi.fn>;
 
     // Gleiches Fake-Recorder-Muster wie in useVoiceInput.test.ts.
-    const recorderFactory = () => ({
+    const recorderFactory: () => PcmRecorder = () => ({
       start: vi.fn(async () => {}),
       stop: vi.fn(async () => ({
         samples: new Float32Array([0.1, 0.2, 0.3]),
@@ -615,7 +616,7 @@ describe('ChatArea', () => {
     afterEach(() => {
       vi.useRealTimers();
       vi.unstubAllGlobals();
-      delete (navigator as any).mediaDevices;
+      delete (navigator as { mediaDevices?: MediaDevices }).mediaDevices;
     });
 
     const renderWithVoice = () =>
@@ -624,7 +625,7 @@ describe('ChatArea', () => {
           chat={mockChat}
           loading={false}
           {...defaultProps}
-          voiceRecorderFactory={recorderFactory as any}
+          voiceRecorderFactory={recorderFactory}
         />
       );
 
@@ -736,19 +737,6 @@ describe('ChatArea', () => {
       expect(screen.queryByTestId('attach-menu-youtube-transcript')).not.toBeInTheDocument();
     });
 
-    it('rendert Quellen-Banner und Transkript-Drawer über die Slot-Props', () => {
-      render(
-        <ChatArea
-          chat={mockChat}
-          loading={false}
-          {...defaultProps}
-          videoBanner={<div data-testid="video-banner-slot" />}
-          transcriptDrawer={<div data-testid="transcript-drawer-slot" />}
-        />,
-      );
-      expect(screen.getByTestId('video-banner-slot')).toBeInTheDocument();
-      expect(screen.getByTestId('transcript-drawer-slot')).toBeInTheDocument();
-    });
   });
 });
 
@@ -862,6 +850,107 @@ describe('Composer in schmaler Spalte (Variante A)', () => {
     expect(textBlock).toHaveClass('@max-[30rem]:order-first');
   });
 
+  // Seit 2026-08-26 löst auch mehrzeiliger Text den Umbruch aus — die Breite
+  // der Spalte allein reichte nicht: in einer 672 px breiten Spalte lief der
+  // umgebrochene Text bis an Mikrofon und Senden-Knopf heran (Nutzerreport mit
+  // Screenshot). jsdom rechnet kein Layout, also wird scrollHeight gesetzt —
+  // genau der Wert, den autosizeTextarea misst.
+  const typeWithHeight = (textarea: HTMLTextAreaElement, value: string, scrollHeight: number) => {
+    Object.defineProperty(textarea, 'scrollHeight', { configurable: true, value: scrollHeight });
+    fireEvent.change(textarea, { target: { value } });
+  };
+
+  // jsdom rechnet kein Layout: clientWidth ist überall 0. Ohne messbare
+  // Referenzbreite behält der Composer bewusst seine letzte Entscheidung
+  // (sonst wäre er zurück in der Rückkopplung), also müssen die Tests, die
+  // den Wechsel prüfen, dem Block eine Breite geben.
+  const giveLayout = (textBlockWidth: number, rowWidth: number) => {
+    const textBlock = screen.getByTestId('composer-text-block');
+    Object.defineProperty(textBlock, 'clientWidth', { configurable: true, value: textBlockWidth });
+    if (textBlock.parentElement) {
+      Object.defineProperty(textBlock.parentElement, 'clientWidth', { configurable: true, value: rowWidth });
+    }
+  };
+
+  it('bricht auch in einer breiten Spalte um, sobald der Text zweizeilig wird', () => {
+    render(<ChatArea {...props} />);
+    const textarea = screen.getByPlaceholderText(/Ask anything/i) as HTMLTextAreaElement;
+    const box = screen.getByTestId('composer-box');
+    const textBlock = screen.getByTestId('composer-text-block');
+
+    // Einzeilig: die Pille bleibt rund, die Steuerung steht daneben.
+    expect(box).toHaveClass('rounded-full');
+    expect(box).not.toHaveClass('flex-wrap');
+
+    typeWithHeight(textarea, 'Eine Frage, die über zwei Zeilen läuft.', 92);
+
+    expect(box).toHaveAttribute('data-multiline', 'true');
+    expect(box).toHaveClass('flex-wrap');
+    expect(box).toHaveClass('rounded-3xl');
+    expect(box).not.toHaveClass('rounded-full');
+    // Der Text nimmt die ganze Zeile, die Symbole rutschen darunter.
+    expect(textBlock).toHaveClass('basis-full');
+    expect(textBlock).toHaveClass('order-first');
+  });
+
+  it('schwingt nicht, wenn der Text bei breitem Feld einzeilig und bei schmalem zweizeilig wäre', () => {
+    // Der ausgelieferte Fehler vom 2026-08-26 (Nutzerreport: "Eingabefeld
+    // vergrößert und verkleinert sehr schnell"): gemessen wurde die Höhe bei
+    // der AKTUELLEN Breite. Umbruch verbreitert das Feld 518 → 650, der Text
+    // passt dann in eine Zeile, der Umbruch fällt weg, bei 518 braucht er
+    // wieder zwei — endlos. jsdom rechnet kein Layout, also wird hier genau
+    // diese Breitenabhängigkeit nachgebaut: unter 600 px zweizeilig, darüber
+    // einzeilig. Genau der Text, der vorher nie zur Ruhe kam.
+    render(<ChatArea {...props} />);
+    const textarea = screen.getByPlaceholderText(/Ask anything/i) as HTMLTextAreaElement;
+    const box = screen.getByTestId('composer-box');
+
+    Object.defineProperty(textarea, 'scrollHeight', {
+      configurable: true,
+      get() {
+        const forced = parseFloat(this.style.width || '');
+        // Ohne erzwungene Messbreite gilt die Breite des Blocks: umgebrochen
+        // ist er breit, sonst schmal.
+        const width = Number.isFinite(forced)
+          ? forced
+          : (box.getAttribute('data-multiline') === 'true' ? 650 : 518);
+        return width < 600 ? 92 : 44;
+      },
+    });
+
+    let flips = 0;
+    const observer = new MutationObserver(() => { flips++; });
+    observer.observe(box, { attributes: true, attributeFilter: ['data-multiline'] });
+    fireEvent.change(textarea, { target: { value: 'genau die kritische Länge' } });
+    observer.disconnect();
+
+    // Einmal umbrechen ist richtig — und dann Ruhe. Vorher lief das endlos.
+    expect(flips).toBeLessThanOrEqual(1);
+    expect(box).toHaveAttribute('data-multiline', 'true');
+    expect(box).toHaveClass('flex-wrap');
+  });
+
+  it('nimmt den Umbruch zurück, wenn der Text wieder auf eine Zeile schrumpft', () => {
+    render(<ChatArea {...props} />);
+    const textarea = screen.getByPlaceholderText(/Ask anything/i) as HTMLTextAreaElement;
+    const box = screen.getByTestId('composer-box');
+
+    // Einzeilig sind 518 von 650 px für den Text da — die 132 px Differenz
+    // sind die Steuerung, und genau die ist die Referenz für später.
+    giveLayout(518, 650);
+
+    typeWithHeight(textarea, 'lang genug für zwei Zeilen', 92);
+    expect(box).toHaveClass('flex-wrap');
+
+    // Umgebrochen nimmt der Block die ganze Reihe; gemessen wird trotzdem
+    // gegen 650 - 132 = 518.
+    giveLayout(650, 650);
+    typeWithHeight(textarea, 'kurz', 44);
+    expect(box).not.toHaveAttribute('data-multiline');
+    expect(box).toHaveClass('rounded-full');
+    expect(box).not.toHaveClass('flex-wrap');
+  });
+
   it('rundet die Box im zweizeiligen Zustand ab statt voll (rounded-full passt nur zu einer Zeile)', () => {
     render(<ChatArea {...props} />);
     expect(screen.getByTestId('composer-box')).toHaveClass('@max-[30rem]:rounded-3xl');
@@ -878,7 +967,7 @@ describe('Composer in schmaler Spalte (Variante A)', () => {
       render(<ChatArea {...props} />);
       expect(screen.getByTestId('mic-button').className).not.toMatch(/@max-\[24rem\]:hidden/);
     } finally {
-      delete (navigator as any).mediaDevices;
+      delete (navigator as { mediaDevices?: MediaDevices }).mediaDevices;
     }
   });
 

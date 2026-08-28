@@ -127,7 +127,8 @@ export function useVoiceInput({
     // Nach dem async getUserMedia gilt der Klick nicht mehr als Gesture und
     // der Context startet "suspended" — der Analyser liefert dann nur Stille.
     const AudioCtx: typeof AudioContext | undefined =
-      (window as any).AudioContext || (window as any).webkitAudioContext;
+      window.AudioContext ||
+      (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
     if (AudioCtx && !audioContextRef.current) {
       try {
         const ctx = new AudioCtx();

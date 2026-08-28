@@ -114,6 +114,19 @@ describe('getTreePaperContext', () => {
 });
 
 describe('extractPdfText', () => {
+  // A transient loader failure used to be memoised and replayed forever: the
+  // first extraction to fail took every later one in the same backend process
+  // down with it, with no way back short of a restart. A second attempt must
+  // therefore reach a fresh import.
+  it('does not cache a failed pdf.js import — the next call tries again', async () => {
+    const missing = path.join(os.tmpdir(), `syflo-pdftext-missing-${process.pid}.pdf`);
+    // Two failures for the same reason (no such file) rather than one failure
+    // and one silent success: if the rejected import were still memoised, the
+    // second call would come back with the loader's error, not the file's.
+    await expect(extractPdfText(missing)).rejects.toThrow(/ENOENT/);
+    await expect(extractPdfText(missing)).rejects.toThrow(/ENOENT/);
+  });
+
   it('extracts long PDFs in full — no 40k-char truncation', async () => {
     // Retrieval-mode foundation: the DB holds the FULL TEXT; budgets apply
     // only at prompt-build time (messages.js), not at extraction.

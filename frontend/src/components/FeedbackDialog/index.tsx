@@ -53,7 +53,6 @@ export function FeedbackDialog({ open, onClose, initialText = '' }: Props) {
     setSent(false);
     setError(null);
     setIssuesUrl(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, initialText]);
 
   if (!open) return null;

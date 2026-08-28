@@ -57,12 +57,6 @@ interface Props {
   // "YouTube Transcript" im Plus-Menü: öffnet das Video-Such-Modal
   // (ADR-0005). Ohne Handler wird der Menüeintrag nicht angeboten.
   onOpenYouTubeSearch?: () => void;
-  // Quellen-Banner für Bäume mit YouTube transcript — sitzt fest unter dem
-  // Header, kommt fertig komponiert vom Owner (App).
-  videoBanner?: React.ReactNode;
-  // Roh-Transkript-Drawer über dem Chat-Inhalt — gleicher Slot-Mechanismus
-  // wie highlightsDrawer.
-  transcriptDrawer?: React.ReactNode;
   // Chat-Text-Highlights dieses Chats — MessageBubble malt die zur jeweiligen
   // Nachricht gehörenden (mockup-chat-highlights-ask-in-chat.html).
   chatHighlights?: MessageHighlight[];
@@ -293,7 +287,7 @@ function renderComposerHighlight(text: string): React.ReactNode {
   );
 }
 
-export function ChatArea({ chat, videoYoutubeId, onTimeMarkClick, loading, streaming, onSendMessage, onWordRightClick, onSelectChat, onUploadPdf, onOpenPaperSearch, onOpenYouTubeSearch, videoBanner, transcriptDrawer, chatHighlights, onChatSelection, onHighlightContextMenu, pendingSelection, onBranchedFromClick, parentTitle, onQuoteClick, composerQuote, onClearComposerQuote, onOpenFeedback, onAskAside, onOpenTopicBranch, branchTargets, aside, onDismissAside, onKeepAside, onBranchAside, onToggleHighlights, highlightsOpen, highlightsDrawer, modelPicker, onStopStreaming, streamingMessageIds, onRetryMessage, onContinueMessage, firstRun = false, onOpenSetup, modelLabels, onRetryLocalModel, hasLocalModel, billingUrl, billingUrls, onOpenModelPicker, settingsChangedAt, onOpenSettings, providerLabels, localModelName, cloudFallback, onRetryCloudModel, freeFallback, onRetryFreeModel, onResendUnanswered, freeProviderOffer, onAddFreeProvider, visionGate, onSwitchVisionModel, onOpenSettingsForProvider, voiceRecorderFactory, onSaveSearchKey, searchKeyStored, ref }: Props) {
+export function ChatArea({ chat, videoYoutubeId, onTimeMarkClick, loading, streaming, onSendMessage, onWordRightClick, onSelectChat, onUploadPdf, onOpenPaperSearch, onOpenYouTubeSearch, chatHighlights, onChatSelection, onHighlightContextMenu, pendingSelection, onBranchedFromClick, parentTitle, onQuoteClick, composerQuote, onClearComposerQuote, onOpenFeedback, onAskAside, onOpenTopicBranch, branchTargets, aside, onDismissAside, onKeepAside, onBranchAside, onToggleHighlights, highlightsOpen, highlightsDrawer, modelPicker, onStopStreaming, streamingMessageIds, onRetryMessage, onContinueMessage, firstRun = false, onOpenSetup, modelLabels, onRetryLocalModel, hasLocalModel, billingUrl, billingUrls, onOpenModelPicker, settingsChangedAt, onOpenSettings, providerLabels, localModelName, cloudFallback, onRetryCloudModel, freeFallback, onRetryFreeModel, onResendUnanswered, freeProviderOffer, onAddFreeProvider, visionGate, onSwitchVisionModel, onOpenSettingsForProvider, voiceRecorderFactory, onSaveSearchKey, searchKeyStored, ref }: Props) {
   // UI-Texte in der App language — re-rendert beim Sprachwechsel mit.
   const S = useStrings().chatArea;
   const [input, setInput] = useState('');
@@ -600,18 +594,75 @@ export function ChatArea({ chat, videoYoutubeId, onTimeMarkClick, loading, strea
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
+  // Whether the typed text has grown past one line. Variante A
+  // (design/mockup-composer-narrow.html §02) already gives the text the full
+  // width and drops the controls onto a second row — but only below 30rem.
+  // A WIDE column with a long question hit the same problem the narrow one
+  // did: mic, model chip and send button sit beside the text and the wrapped
+  // lines run right up against them (user report 2026-08-26, screenshot). The
+  // trigger is the text's height, not just the column's width.
+  const [composerMultiline, setComposerMultiline] = useState(false);
+  // Width the controls take away from the text when they sit BESIDE it. The
+  // decision below has to be made against one fixed reference width, and this
+  // is what makes that possible while the column stays resizable.
+  //
+  // Measuring the text at its CURRENT width instead is a feedback loop, and it
+  // shipped as one on 2026-08-26 (user report: "the input field grows and
+  // shrinks very fast"): wrapping widened the textarea from 518 to 650 px, the
+  // text then fitted on one line, the wrap was withdrawn, at 518 px it needed
+  // two lines again — forever, for every text whose length falls in that
+  // ~130 px window. The trigger must not depend on its own effect.
+  const controlsReserveRef = useRef(0);
+
   // Expand the textarea vertically as the user types, capped at 144px.
   const autosizeTextarea = () => {
     const ta = textareaRef.current;
     if (!ta) return;
+
+    // While the controls are beside the text, the current width IS the
+    // reference width — keep it up to date, so dragging the column wider or
+    // narrower is picked up.
+    const textBlock = ta.closest('[data-testid="composer-text-block"]') as HTMLElement | null;
+    const row = textBlock?.parentElement;
+    if (!composerMultiline && textBlock && row) {
+      controlsReserveRef.current = Math.max(0, row.clientWidth - textBlock.clientWidth);
+    }
+
     ta.style.height = 'auto';
-    const h = `${Math.min(Math.max(ta.scrollHeight, 44), 144)}px`;
+
+    // Measure at the single-row width whatever the current state is. When the
+    // text block already spans the full row we narrow it for the measurement
+    // and put it straight back — one forced reflow on one small element.
+    let needsTwoLines: boolean | null = null;
+    if (!composerMultiline) {
+      needsTwoLines = ta.scrollHeight > 44;
+    } else if (textBlock) {
+      const singleRow = textBlock.clientWidth - controlsReserveRef.current;
+      // No usable reference width — the composer is not laid out (hidden tab,
+      // jsdom, a measurement before first paint). Deciding from the CURRENT
+      // width here is what the oscillation was; keeping the last decision is
+      // the only safe answer, and the next keystroke measures again.
+      if (singleRow > 0) {
+        const restoreWidth = ta.style.width;
+        ta.style.width = `${singleRow}px`;
+        needsTwoLines = ta.scrollHeight > 44;
+        ta.style.width = restoreWidth;
+      }
+    }
+
+    const grown = Math.min(Math.max(ta.scrollHeight, 44), 144);
+    const h = `${grown}px`;
     ta.style.height = h;
     // Highlight-Overlay bekommt exakt dieselbe Höhe — beide Layer scrollen
     // sonst unabhängig voneinander aus dem Deckungsgleichen.
     if (highlightRef.current) highlightRef.current.style.height = h;
+    if (needsTwoLines !== null) setComposerMultiline(needsTwoLines);
   };
-  useEffect(autosizeTextarea, [input]);
+  // Also after the wrap itself: the textarea is a different width then, so its
+  // height has to be taken again. Safe as a dependency only because the
+  // measurement above no longer depends on the current width — otherwise this
+  // is exactly the line that would spin.
+  useEffect(autosizeTextarea, [input, composerMultiline]);
   // Scroll-Sync: sobald die textarea intern scrollt (Inhalt > 144px-Deckel),
   // muss der Highlight-Layer im selben Moment mitscrollen.
   const syncHighlightScroll = () => {
@@ -1598,10 +1649,6 @@ export function ChatArea({ chat, videoYoutubeId, onTimeMarkClick, loading, strea
         )}
       </div>
 
-      {/* Quellen-Banner für Bäume mit YouTube transcript (ADR-0005): sitzt
-          fest unter dem Header und bleibt auch bei offenem Drawer sichtbar. */}
-      {videoBanner}
-
       {/* Alles unterhalb des Headers in einem relativen Container, damit der
           Highlights-Drawer sich exakt darüberlegen kann — der Header (und
           damit sein Toggle-Knopf) bleibt frei. */}
@@ -2146,10 +2193,17 @@ export function ChatArea({ chat, videoYoutubeId, onTimeMarkClick, loading, strea
                 statt der ~4 Zeichen, die zwischen Mikro, Modell-Chip und
                 Senden-Knopf übrig blieben (Nutzerreport 2026-08-10).
                 rounded-full passt nur zu einer Zeile; zweizeilig wird daraus
-                ein Rechteck mit großem Radius. */}
+                ein Rechteck mit großem Radius.
+                Seit 2026-08-26 löst auch mehrzeiliger Text denselben Umbruch
+                aus — in einer breiten Spalte klebten die gebrochenen Zeilen
+                sonst an Mikro und Senden-Knopf. Gleiche Klassen, gleiche
+                Darstellung, nur ein zweiter Auslöser. */}
             <div
               data-testid="composer-box"
-              className={`flex items-center gap-2 bg-white border border-gray-300 rounded-full @max-[30rem]:flex-wrap @max-[30rem]:rounded-3xl @max-[30rem]:px-3 pl-2 pr-3 py-2 shadow-sm transition-all ${
+              data-multiline={composerMultiline ? 'true' : undefined}
+              className={`flex items-center gap-2 bg-white border border-gray-300 pl-2 pr-3 py-2 shadow-sm transition-all @max-[30rem]:flex-wrap @max-[30rem]:rounded-3xl @max-[30rem]:px-3 ${
+                composerMultiline ? 'flex-wrap rounded-3xl px-3' : 'rounded-full'
+              } ${
                 isListening
                   ? 'border-blue-300 ring-2 ring-blue-100'
                   : 'focus-within:border-gray-400'
@@ -2288,7 +2342,7 @@ export function ChatArea({ chat, videoYoutubeId, onTimeMarkClick, loading, strea
                   gespiegelt (autosizeTextarea/syncHighlightScroll oben). */}
               <div
                 data-testid="composer-text-block"
-                className="relative flex-1 min-w-0 flex @max-[30rem]:order-first @max-[30rem]:basis-full"
+                className={`relative flex-1 min-w-0 flex @max-[30rem]:order-first @max-[30rem]:basis-full ${composerMultiline ? 'order-first basis-full' : ''}`}
               >
                 <div
                   ref={highlightRef}
@@ -2385,7 +2439,7 @@ export function ChatArea({ chat, videoYoutubeId, onTimeMarkClick, loading, strea
                   data-testid="stop-button"
                   /* ml-auto: in der zweizeiligen Steuerzeile (Variante A) sitzt
                      der Knopf rechts, wie einzeilig am Zeilenende. */
-                  className="shrink-0 w-9 h-9 @max-[30rem]:ml-auto flex items-center justify-center rounded-full bg-blue-600 text-white transition-all hover:bg-blue-700"
+                  className={`shrink-0 w-9 h-9 @max-[30rem]:ml-auto flex items-center justify-center rounded-full bg-blue-600 text-white transition-all hover:bg-blue-700 ${composerMultiline ? 'ml-auto' : ''}`}
                 >
                   <Square size={13} fill="currentColor" strokeWidth={0} />
                 </button>
@@ -2402,7 +2456,7 @@ export function ChatArea({ chat, videoYoutubeId, onTimeMarkClick, loading, strea
                   aria-label={firstRun ? S.firstRunSendTip : S.send}
                   data-focus-item="composer-send"
                   data-testid="send-button"
-                  className="shrink-0 w-9 h-9 @max-[30rem]:ml-auto flex items-center justify-center rounded-full bg-blue-600 text-white transition-all hover:bg-blue-700 disabled:opacity-30 disabled:cursor-not-allowed"
+                  className={`shrink-0 w-9 h-9 @max-[30rem]:ml-auto flex items-center justify-center rounded-full bg-blue-600 text-white transition-all hover:bg-blue-700 disabled:opacity-30 disabled:cursor-not-allowed ${composerMultiline ? 'ml-auto' : ''}`}
                 >
                   <ArrowUp size={20} strokeWidth={2.25} />
                 </button>
@@ -2415,9 +2469,6 @@ export function ChatArea({ chat, videoYoutubeId, onTimeMarkClick, loading, strea
       {/* Highlights-Drawer über Nachrichtenliste + Composer (Slot vom Owner).
           Innerhalb des relativen Containers, damit der Header sichtbar bleibt. */}
       {highlightsDrawer}
-
-      {/* Roh-Transkript-Drawer (ADR-0005) — gleicher Slot-Mechanismus. */}
-      {transcriptDrawer}
 
       </div>
     </div>
