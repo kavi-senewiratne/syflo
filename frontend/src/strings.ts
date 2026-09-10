@@ -241,6 +241,8 @@ const en = {
     menuPdf: 'PDF',
     menuResearchPaper: 'Research paper',
     menuYouTubeTranscript: 'YouTube Transcript',
+    uploadingPdf: 'Uploading PDF…',
+    warmingUpLocalModel: 'Warming up the local model…',
     placeholderAsk: 'Ask anything',
     placeholderAskQuote: 'Ask about this…',
     transcribing: 'Transcribing…',
@@ -278,6 +280,10 @@ const en = {
     // stop here?" — without scrolling.
     truncated: 'The answer broke off mid-sentence.',
     truncatedAtMark: (mark: string) => `The answer broke off mid-sentence — last at ${mark}.`,
+    // A continued answer whose seam could not be verified
+    // (mockup-truncated-answer §04): part of the text may be missing.
+    seamSuspect: 'This answer was stitched together from two parts — something may be missing at the seam.',
+    seamRegenerate: 'Regenerate answer',
     continueWriting: 'Continue',
     // Another provider stepped in for this answer (limit on the active one).
     failover: (fromLabel: string, toLabel: string, modelLabel: string) =>
@@ -299,6 +305,13 @@ const en = {
       `${fromLabel} is no longer available — this answer comes from ${toLabel} (${modelLabel}).`,
     failoverUnavailableSameProvider: (fromModelLabel: string, toModelLabel: string) =>
       `${fromModelLabel} is no longer available — this answer comes from ${toModelLabel}.`,
+    // The model went silent before its first word and the ladder moved on
+    // rather than sit out the deadline (2026-09-01). Deliberately not
+    // "Quota reached": nothing was refused, nothing was used up.
+    failoverStalled: (fromLabel: string, toLabel: string, modelLabel: string) =>
+      `${fromLabel} was not answering — this answer comes from ${toLabel} (${modelLabel}).`,
+    failoverStalledSameProvider: (fromModelLabel: string, toModelLabel: string) =>
+      `${fromModelLabel} was not answering — this answer comes from ${toModelLabel}.`,
     // The failover exhausted ALL candidate models — the error row explains
     // why and (with an installed local model) offers the emergency path.
     quotaExhausted: 'All cloud quotas are used up for now.',
@@ -467,7 +480,11 @@ const en = {
     rename: 'Rename',
     delete: 'Delete',
     deleteChatTitle: 'Delete chat?',
-    deleteChatBody: (title: string) => `"${title}" and all its branched chats will be permanently removed.`,
+    // Split from one run-on sentence (design/mockup-delete-confirm-restructure.html,
+    // variant A, decided 2026-08-29): the title sits in its own clamped quote
+    // card, the consequence is a short separate line.
+    deleteChatSubject: (title: string) => `"${title}"`,
+    deleteChatConsequence: 'Will be permanently removed, along with all its branched chats.',
     deleteFailed: 'Could not delete the chat. Is the backend running?',
     cancel: 'Cancel',
     deleting: 'Deleting…',
@@ -498,11 +515,12 @@ const en = {
     // The confirmation repeats that promise, because the modal is where the
     // deletion actually happens and "delete" reads as "delete the chats too".
     deleteCategoryTitle: 'Delete category?',
-    deleteCategoryBody: (name: string, count: number) => count === 0
-      ? `"${name}" will be removed. It holds no chats.`
+    deleteCategorySubject: (name: string) => `"${name}"`,
+    deleteCategoryConsequence: (count: number) => count === 0
+      ? 'Will be permanently removed. It holds no chats.'
       : count === 1
-        ? `"${name}" will be removed. The chat in it stays and returns to its date section.`
-        : `"${name}" will be removed. The ${count} chats in it stay and return to their date sections.`,
+        ? 'Will be permanently removed. The chat in it stays and returns to its date section.'
+        : `Will be permanently removed. The ${count} chats in it stay and return to their date sections.`,
     categoryOptions: 'Category options',
     categoryNamePlaceholder: 'Category name',
     moveToCategory: 'Move to category',
@@ -599,6 +617,7 @@ const en = {
     noResults: 'No results.',
     add: 'Add',
     fetching: 'Fetching…',
+    fetchingAttempt: (attempt: number, max: number) => `Attempt ${attempt} of ${max}…`,
     searchFailed: 'Search failed',
     importFailed: 'Import failed',
   },
@@ -1031,6 +1050,8 @@ const de: Strings = {
     menuPdf: 'PDF',
     menuResearchPaper: 'Research paper',
     menuYouTubeTranscript: 'YouTube Transcript',
+    uploadingPdf: 'PDF wird hochgeladen …',
+    warmingUpLocalModel: 'Lokales Modell wird aufgewärmt …',
     placeholderAsk: 'Frag irgendetwas',
     placeholderAskQuote: 'Frag etwas dazu…',
     transcribing: 'Transkribiert…',
@@ -1054,6 +1075,8 @@ const de: Strings = {
       `${provider} ist überlastet — drei Versuche blieben ohne Antwort.`,
     truncated: 'Die Antwort brach mitten im Satz ab.',
     truncatedAtMark: (mark: string) => `Die Antwort brach mitten im Satz ab — zuletzt bei ${mark}.`,
+    seamSuspect: 'Diese Antwort wurde aus zwei Teilen zusammengesetzt — an der Nahtstelle könnte etwas fehlen.',
+    seamRegenerate: 'Antwort neu generieren',
     continueWriting: 'Weiterschreiben',
     failover: (fromLabel: string, toLabel: string, modelLabel: string) =>
       `Kontingent bei ${fromLabel} erschöpft — diese Antwort kommt von ${toLabel} (${modelLabel}).`,
@@ -1067,6 +1090,10 @@ const de: Strings = {
       `${fromLabel} ist nicht mehr verfügbar — diese Antwort kommt von ${toLabel} (${modelLabel}).`,
     failoverUnavailableSameProvider: (fromModelLabel: string, toModelLabel: string) =>
       `${fromModelLabel} ist nicht mehr verfügbar — diese Antwort kommt von ${toModelLabel}.`,
+    failoverStalled: (fromLabel: string, toLabel: string, modelLabel: string) =>
+      `${fromLabel} hat nicht geantwortet — diese Antwort kommt von ${toLabel} (${modelLabel}).`,
+    failoverStalledSameProvider: (fromModelLabel: string, toModelLabel: string) =>
+      `${fromModelLabel} hat nicht geantwortet — diese Antwort kommt von ${toModelLabel}.`,
     quotaExhausted: 'Alle Cloud-Kontingente sind vorerst aufgebraucht.',
     retryLocal: 'Mit lokalem Modell antworten',
     retryLocalNote: 'Das lokale Modell kann deutlich langsamer sein.',
@@ -1191,7 +1218,8 @@ const de: Strings = {
     rename: 'Umbenennen',
     delete: 'Löschen',
     deleteChatTitle: 'Chat löschen?',
-    deleteChatBody: (title: string) => `„${title}" und alle daraus entstandenen Branches werden endgültig entfernt.`,
+    deleteChatSubject: (title: string) => `„${title}"`,
+    deleteChatConsequence: 'Wird endgültig entfernt, zusammen mit allen daraus entstandenen Branches.',
     deleteFailed: 'Der Chat konnte nicht gelöscht werden. Läuft das Backend?',
     cancel: 'Abbrechen',
     deleting: 'Wird gelöscht…',
@@ -1210,11 +1238,12 @@ const de: Strings = {
       ? 'Der Chat bleibt und kehrt in seinen Datums-Abschnitt zurück.'
       : `Die ${count} Chats bleiben und kehren in ihre Datums-Abschnitte zurück.`,
     deleteCategoryTitle: 'Kategorie löschen?',
-    deleteCategoryBody: (name: string, count: number) => count === 0
-      ? `„${name}" wird entfernt. Sie enthält keine Chats.`
+    deleteCategorySubject: (name: string) => `„${name}"`,
+    deleteCategoryConsequence: (count: number) => count === 0
+      ? 'Wird endgültig entfernt. Sie enthält keine Chats.'
       : count === 1
-        ? `„${name}" wird entfernt. Der Chat darin bleibt und kehrt in seinen Datums-Abschnitt zurück.`
-        : `„${name}" wird entfernt. Die ${count} Chats darin bleiben und kehren in ihre Datums-Abschnitte zurück.`,
+        ? 'Wird endgültig entfernt. Der Chat darin bleibt und kehrt in seinen Datums-Abschnitt zurück.'
+        : `Wird endgültig entfernt. Die ${count} Chats darin bleiben und kehren in ihre Datums-Abschnitte zurück.`,
     categoryOptions: 'Kategorie-Optionen',
     categoryNamePlaceholder: 'Name der Kategorie',
     moveToCategory: 'In Kategorie verschieben',
@@ -1299,6 +1328,7 @@ const de: Strings = {
     noResults: 'Keine Treffer.',
     add: 'Hinzufügen',
     fetching: 'Wird geholt…',
+    fetchingAttempt: (attempt: number, max: number) => `Versuch ${attempt} von ${max} …`,
     searchFailed: 'Suche fehlgeschlagen',
     importFailed: 'Import fehlgeschlagen',
   },

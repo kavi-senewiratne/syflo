@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Syflo · Delete confirmation — restructuring the body text</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --brand-blue: #3B82F6;
+    --bg-app: #F8FAFC;
+    --surface: #FFFFFF;
+    --text-strong: #0F172A;
+    --text-default: #334155;
+    --text-muted: #64748B;
+    --border: #E2E8F0;
+    --blue-50: #EFF6FF; --blue-100: #DBEAFE; --blue-600: #2563EB; --blue-700: #1D4ED8;
+    --gray-50: #F9FAFB; --gray-100: #F3F4F6; --gray-200: #E5E7EB; --gray-400: #9CA3AF; --gray-500: #6B7280; --gray-700: #374151;
+    --red-50: #FEF2F2; --red-100: #FEE2E2; --red-600: #DC2626; --red-700: #B91C1C;
+    --shadow: 0 1px 3px rgba(15,23,42,0.06), 0 1px 2px rgba(15,23,42,0.04);
+    --shadow-lg: 0 20px 25px -5px rgba(15,23,42,0.12), 0 8px 10px -6px rgba(15,23,42,0.08);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Inter', -apple-system, sans-serif; background: var(--bg-app);
+    color: var(--text-default); -webkit-font-smoothing: antialiased;
+    min-height: 100vh; padding: 48px 32px 96px;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; }
+  .intro { margin-bottom: 40px; }
+  .intro h1 { font-size: 24px; font-weight: 700; color: var(--text-strong); letter-spacing: -0.015em; margin-bottom: 8px; }
+  .intro p { font-size: 14px; color: var(--text-muted); line-height: 1.6; max-width: 820px; }
+  .intro p + p { margin-top: 8px; }
+
+  .section { margin-bottom: 56px; }
+  .section-label {
+    font-size: 12px; font-weight: 600; color: var(--text-muted);
+    letter-spacing: 0.06em; text-transform: uppercase;
+    display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px;
+  }
+  .section-label .num { color: var(--brand-blue); font-weight: 700; }
+  .section-desc { font-size: 13px; color: var(--text-muted); line-height: 1.55; margin-bottom: 18px; max-width: 820px; }
+  .section-desc strong { color: var(--text-default); }
+
+  .stage {
+    background: #E2E8F0; border-radius: 14px; padding: 40px 24px;
+    display: flex; justify-content: center; gap: 32px; align-items: flex-start; flex-wrap: wrap;
+  }
+  .state-label {
+    text-align: center; font-size: 10.5px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.06em; color: var(--text-muted); margin-bottom: 10px;
+  }
+  .col { display: flex; flex-direction: column; }
+
+  /* ── Modal card ── */
+  .modal {
+    background: var(--surface); border-radius: 16px; box-shadow: var(--shadow-lg);
+    width: 340px; overflow: hidden;
+  }
+  .modal-body { padding: 24px 24px 8px; }
+  .modal-title { font-size: 16px; font-weight: 600; color: var(--text-strong); margin-bottom: 6px; }
+  .modal-actions { display: flex; gap: 8px; padding: 16px 24px 20px; justify-content: flex-end; }
+  .btn {
+    padding: 8px 16px; border-radius: 8px; font-size: 13.5px; font-weight: 500;
+    border: none; cursor: default; font-family: inherit;
+  }
+  .btn-cancel { background: transparent; color: var(--gray-700); }
+  .btn-delete { background: var(--red-600); color: white; }
+
+  /* current (baseline) — single run-on paragraph */
+  .body-plain p { font-size: 13.5px; color: var(--text-muted); line-height: 1.6; }
+
+  /* Variant A — quoted card, title visually separated from consequence */
+  .quote-card {
+    background: var(--gray-50); border: 1px solid var(--gray-200); border-radius: 10px;
+    padding: 10px 12px; margin-bottom: 12px;
+  }
+  .quote-card .q {
+    font-size: 13px; color: var(--text-default); line-height: 1.45;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  }
+  .consequence { font-size: 13px; color: var(--text-muted); line-height: 1.55; }
+  .consequence b { color: var(--text-default); font-weight: 600; }
+
+  /* Variant B — labeled row + explicit irreversibility line */
+  .field-row { display: flex; gap: 10px; margin-bottom: 12px; align-items: baseline; }
+  .field-row .k {
+    font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;
+    color: var(--gray-400); flex-shrink: 0; padding-top: 2px;
+  }
+  .field-row .v {
+    font-size: 13.5px; color: var(--text-strong); font-weight: 500; line-height: 1.4;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  }
+  .irreversible {
+    display: flex; align-items: flex-start; gap: 6px;
+    font-size: 12.5px; color: var(--red-700); background: var(--red-50);
+    border-radius: 8px; padding: 7px 10px; line-height: 1.4;
+  }
+  .irreversible svg { flex-shrink: 0; margin-top: 1px; }
+
+  /* Variant C — typographic hierarchy, no boxes */
+  .subject-line {
+    font-size: 14.5px; font-weight: 500; color: var(--text-strong); line-height: 1.4;
+    margin-bottom: 10px;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  }
+  .subject-line .quote-mark { color: var(--gray-400); }
+  .action-line { font-size: 13px; color: var(--text-muted); line-height: 1.55; }
+  .action-line b { color: var(--text-default); font-weight: 600; }
+
+  .icon-trash {
+    width: 32px; height: 32px; border-radius: 9px; background: var(--red-50);
+    display: flex; align-items: center; justify-content: center; margin-bottom: 12px;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="intro">
+    <h1>Delete confirmation — restructuring the body text</h1>
+    <p>Chat titles are often generated from long or messy source text (a paper abstract, a video transcript line). Quoted inline inside one run-on sentence, the modal turns into a wall of text and the actual question — what happens if I click delete — gets buried. This affects one shared modal (chat delete and category delete both render through it), so a fix here covers every delete confirmation in the app.</p>
+    <p>Three ways to restructure the same information. All keep the same two facts: <strong>what</strong> gets deleted and <strong>what happens</strong> to it — just organized differently.</p>
+  </div>
+
+  <div class="section">
+    <div class="section-label"><span class="num">0</span> CURRENT — baseline for comparison</div>
+    <div class="section-desc">The title is quoted inline inside a single flowing sentence. With a short chat title this reads fine; with a long or garbled one (as in the reported case) the quote and the consequence blur into one unbroken block.</div>
+    <div class="stage">
+      <div class="col">
+        <div class="state-label">Chat löschen — langer Titel</div>
+        <div class="modal">
+          <div class="modal-body">
+            <div class="modal-title">Chat löschen?</div>
+            <div class="body-plain">
+              <p>„…ind closed doors, and this is exactly why we openly publish our safety data and our uh safety ongoing safety research. So, then that earned trust becomes your ultimate business advantage. All right? Your your models can be leaked, algorithms can be replicated, but hundreds of millions of miles of fully autonomous operations in" und alle daraus entstandenen Branches werden endgültig entfernt.</p>
+            </div>
+          </div>
+          <div class="modal-actions">
+            <button class="btn btn-cancel">Abbrechen</button>
+            <button class="btn btn-delete">Löschen</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-label"><span class="num">A</span> Variante A — Zitat-Karte, Titel von Folge getrennt</div>
+    <div class="section-desc">The title moves into its own light card, clamped to two lines with an ellipsis. The consequence sentence sits below as its own short line, with <b>„endgültig"</b> as the one bolded word.</div>
+    <div class="stage">
+      <div class="col">
+        <div class="state-label">Chat löschen — langer Titel</div>
+        <div class="modal">
+          <div class="modal-body">
+            <div class="modal-title">Chat löschen?</div>
+            <div class="quote-card">
+              <div class="q">„…ind closed doors, and this is exactly why we openly publish our safety data and our uh safety ongoing safety research. So, then that earned trust becomes your ultimate business advantage…"</div>
+            </div>
+            <div class="consequence">Wird zusammen mit allen daraus entstandenen Branches <b>endgültig</b> entfernt.</div>
+          </div>
+          <div class="modal-actions">
+            <button class="btn btn-cancel">Abbrechen</button>
+            <button class="btn btn-delete">Löschen</button>
+          </div>
+        </div>
+      </div>
+      <div class="col">
+        <div class="state-label">Kategorie löschen</div>
+        <div class="modal">
+          <div class="modal-body">
+            <div class="modal-title">Kategorie löschen?</div>
+            <div class="quote-card">
+              <div class="q">„Sicherheitsforschung"</div>
+            </div>
+            <div class="consequence">3 Chats bleiben erhalten und fallen zurück auf ihr Datum. Die Kategorie selbst wird <b>endgültig</b> entfernt.</div>
+          </div>
+          <div class="modal-actions">
+            <button class="btn btn-cancel">Abbrechen</button>
+            <button class="btn btn-delete">Löschen</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-label"><span class="num">B</span> Variante B — Label-Zeile + eigene Unwiderruflich-Zeile</div>
+    <div class="section-desc">A small labeled row (<code style="font-family:'JetBrains Mono',monospace;font-size:11.5px;background:var(--gray-100);border-radius:4px;padding:1px 5px;">Chat</code> / value) replaces the quote, more like a form field than a sentence. The irreversibility itself becomes its own small red-tinted line with an icon, instead of one word buried mid-sentence.</div>
+    <div class="stage">
+      <div class="col">
+        <div class="state-label">Chat löschen — langer Titel</div>
+        <div class="modal">
+          <div class="modal-body">
+            <div class="modal-title">Chat löschen?</div>
+            <div class="field-row">
+              <div class="k">Chat</div>
+              <div class="v">„…ind closed doors, and this is exactly why we openly publish our safety data and our uh safety ongoing…"</div>
+            </div>
+            <div class="irreversible">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4M12 17h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/></svg>
+              <span>Endgültig — alle daraus entstandenen Branches werden mitentfernt.</span>
+            </div>
+          </div>
+          <div class="modal-actions">
+            <button class="btn btn-cancel">Abbrechen</button>
+            <button class="btn btn-delete">Löschen</button>
+          </div>
+        </div>
+      </div>
+      <div class="col">
+        <div class="state-label">Kategorie löschen</div>
+        <div class="modal">
+          <div class="modal-body">
+            <div class="modal-title">Kategorie löschen?</div>
+            <div class="field-row">
+              <div class="k">Kategorie</div>
+              <div class="v">Sicherheitsforschung</div>
+            </div>
+            <div class="irreversible">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4M12 17h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/></svg>
+              <span>Nur die Kategorie — 3 Chats bleiben erhalten.</span>
+            </div>
+          </div>
+          <div class="modal-actions">
+            <button class="btn btn-cancel">Abbrechen</button>
+            <button class="btn btn-delete">Löschen</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-label"><span class="num">C</span> Variante C — Typografische Hierarchie, ohne Box</div>
+    <div class="section-desc">No card or background at all — just a small trash icon, a clamped subject line set larger and darker than the current body text (reads as a subtitle under the question), and a shorter muted line beneath it. The lightest-weight fix: same layout as today, just re-weighted and clamped.</div>
+    <div class="stage">
+      <div class="col">
+        <div class="state-label">Chat löschen — langer Titel</div>
+        <div class="modal">
+          <div class="modal-body">
+            <div class="icon-trash">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--red-600)" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0-1 14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2L4 6h16Z"/></svg>
+            </div>
+            <div class="modal-title">Chat löschen?</div>
+            <div class="subject-line"><span class="quote-mark">„</span>…ind closed doors, and this is exactly why we openly publish our safety data and our uh safety ongoing safety research<span class="quote-mark">"</span></div>
+            <div class="action-line">Chat und alle daraus entstandenen Branches werden <b>endgültig</b> entfernt.</div>
+          </div>
+          <div class="modal-actions">
+            <button class="btn btn-cancel">Abbrechen</button>
+            <button class="btn btn-delete">Löschen</button>
+          </div>
+        </div>
+      </div>
+      <div class="col">
+        <div class="state-label">Kategorie löschen</div>
+        <div class="modal">
+          <div class="modal-body">
+            <div class="icon-trash">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--red-600)" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0-1 14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2L4 6h16Z"/></svg>
+            </div>
+            <div class="modal-title">Kategorie löschen?</div>
+            <div class="subject-line"><span class="quote-mark">„</span>Sicherheitsforschung<span class="quote-mark">"</span></div>
+            <div class="action-line">Kategorie wird <b>endgültig</b> entfernt, ihre 3 Chats bleiben erhalten.</div>
+          </div>
+          <div class="modal-actions">
+            <button class="btn btn-cancel">Abbrechen</button>
+            <button class="btn btn-delete">Löschen</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

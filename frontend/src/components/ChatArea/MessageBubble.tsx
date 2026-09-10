@@ -959,7 +959,9 @@ export function MessageBubble({
             ? [STR.chatArea.failoverNoVisionSameProvider, STR.chatArea.failoverNoVision]
             : f.reason === 'model_unavailable'
               ? [STR.chatArea.failoverUnavailableSameProvider, STR.chatArea.failoverUnavailable]
-              : [STR.chatArea.failoverSameProvider, STR.chatArea.failover];
+              : f.reason === 'stalled'
+                ? [STR.chatArea.failoverStalledSameProvider, STR.chatArea.failoverStalled]
+                : [STR.chatArea.failoverSameProvider, STR.chatArea.failover];
         return (
           <div
             data-testid="failover-note"
@@ -1456,7 +1458,10 @@ export function MessageBubble({
         )}
 
         {isStreaming && processedContent && (
-          <span className="inline-block w-2 h-4 bg-gray-400 animate-pulse rounded-sm ml-0.5" />
+          <span
+            data-testid="streaming-cursor"
+            className="inline-block w-2 h-4 bg-gray-400 animate-pulse rounded-sm ml-0.5"
+          />
         )}
 
         {message.sources && message.sources.length > 0 && (
@@ -1506,6 +1511,37 @@ export function MessageBubble({
               >
                 <ArrowRight size={11} className="shrink-0" />
                 {STR.chatArea.continueWriting}
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* The seam of a continued answer could not be verified
+            (mockup-truncated-answer §04): the model twice skipped the
+            repeat-your-last-words instruction, so the join may hide a gap in
+            the middle of the text. The card mirrors the truncated one — same
+            place, same tone — but its exit is REGENERATE: continuing cannot
+            repair text that is already welded together wrong. Hidden while
+            truncated is still set: the automat is not done growing the answer,
+            and two cards under one bubble would fight for the same click. */}
+        {Boolean(message.seam_suspect) && !message.truncated && !isStreaming && !isFailed && !isInterrupted && (
+          <div
+            data-testid="seam-suspect-note"
+            className="mt-2 flex flex-col items-start gap-2 text-[12.5px] text-gray-400"
+          >
+            <div className="flex items-center gap-2">
+              <AlertCircle size={13} className="shrink-0" />
+              <span className="italic">{STR.chatArea.seamSuspect}</span>
+            </div>
+            {onRetryMessage && (
+              <button
+                type="button"
+                data-testid="seam-regenerate-button"
+                onClick={() => onRetryMessage(message)}
+                className="inline-flex items-center gap-1 rounded-md border border-blue-100 bg-blue-50 px-2 py-0.5 text-[12px] font-semibold text-blue-700 transition-colors hover:bg-blue-100"
+              >
+                <RotateCcw size={11} className="shrink-0" />
+                {STR.chatArea.seamRegenerate}
               </button>
             )}
           </div>

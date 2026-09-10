@@ -15,7 +15,7 @@
  * not a time (`[99:99]`) is rejected in both places by the same rule.
  */
 
-import { lastTimeMark, parseTimestamp } from './timeLinks';
+import { lastTimeMark, parseChapterHeading, parseTimestamp } from './timeLinks';
 import type { Message } from '../types';
 
 export interface Chapter {
@@ -43,23 +43,28 @@ export interface Chapter {
   keyPointOffset: number | null;
 }
 
-/**
- * A heading line: one to four hashes, the topic, and the time range at the
- * end. The range may already have been linkified (`[0:00](t:0)`) if the text
- * passed through insertTimeLinks — accepted so a chapter list can also be
- * built from rendered content.
- *
- * `#` counts too (widened 2026-08-20): the rule asks for "##", but a model
- * that opens its sections one level higher has still delivered the sections —
- * dropping them costs the reader the whole list over a hash. Flash Lite did
- * exactly that on 2026-08-20. The time mark stays mandatory; it is what
- * separates a chapter from any other heading.
- */
-const HEADING_RE =
-  /^(#{1,4})\s+(.*?)\s*\[(\d{1,2}:\d{2}(?::\d{2})?)(?:\s*[–—−-]\s*(\d{1,2}:\d{2}(?::\d{2})?))?\](?:\([^)]*\))?\s*$/;
+// A heading line is recognized by timeLinks.ts's parseChapterHeading, which
+// knows every shape models actually write: the canonical `## Topic [range]`
+// (possibly already linkified — accepted so a chapter list can also be built
+// from rendered content), `#` one level high (Flash Lite, 2026-08-20), and a
+// BARE range with no brackets, range-first (`## 0:04 – 0:34 – Topic`, Groq
+// gpt-oss-120b 2026-09-01) or range-last. The time mark stays mandatory; it
+// is what separates a chapter from any other heading.
 
 /** The bold sentence right under a heading: `**…**` alone on its line. */
 const KEY_POINT_RE = /^\*\*(.+?)\*\*[.!?]?$/;
+
+/**
+ * A key point half-bolded as a labeled bullet instead of a plain bold
+ * sentence — `**Kernaussage:** the rest, unbolded.` The bullet-list rule
+ * right below the key-point rule in the system prompt (backend/routes/
+ * messages.js) asks for exactly this "**label:** detail" shape, and a model
+ * sometimes carries it up one line (measured 2026-08-30, Groq gpt-oss-120b,
+ * every chapter of an otherwise well-formed overview). The label itself is
+ * discarded; only the sentence after it becomes the key point — it is still
+ * the model's own claim, just formatted with a label instead of full bold.
+ */
+const LABELED_KEY_POINT_RE = /^\*\*[^*:]{1,40}:\*\*\s*(.+?)[.!?]?$/;
 
 export function parseChapters(content: string): Chapter[] {
   if (!content) return [];
@@ -76,12 +81,10 @@ export function parseChapters(content: string): Chapter[] {
   }
 
   lines.forEach((line, i) => {
-    const head = line.match(HEADING_RE);
+    const head = parseChapterHeading(line);
     if (!head) return;
 
-    const startSeconds = parseTimestamp(head[3]);
-    if (startSeconds === null) return;
-    const endSeconds = head[4] ? parseTimestamp(head[4]) : null;
+    const { startSeconds, endSeconds } = head;
 
     // The key point is the first non-empty line below the heading, and only
     // when it is entirely bold. Anything else (a bullet, prose) means the
@@ -93,20 +96,22 @@ export function parseChapters(content: string): Chapter[] {
       const next = lines[j].trim();
       if (!next) continue;
       const m = next.match(KEY_POINT_RE);
-      if (m && !m[1].includes('**')) {
-        keyPoint = m[1].trim();
+      const labeled = !m ? next.match(LABELED_KEY_POINT_RE) : null;
+      const found = m && !m[1].includes('**') ? m[1] : labeled ? labeled[1] : null;
+      if (found) {
+        keyPoint = found.trim();
         const inLine = lines[j].indexOf(keyPoint);
         keyPointOffset = inLine >= 0 ? lineStart[j] + inLine : null;
       }
       break;
     }
 
-    const title = head[2].trim();
-    const titleInLine = line.indexOf(title);
+    const title = head.title;
+    const titleInLine = title ? line.indexOf(title) : -1;
 
     chapters.push({
       title,
-      level: head[1].length,
+      level: head.level,
       startSeconds,
       endSeconds,
       keyPoint,
@@ -175,10 +180,22 @@ const TAIL_TOLERANCE_MIN_SECONDS = 60;
  * An unknown duration means "no opinion": this drives a paid call, so it is
  * measured or it is not claimed.
  */
-export function overviewStopsShort(content: string, durationSeconds?: number | null): boolean {
+export function overviewStopsShort(
+  content: string,
+  durationSeconds?: number | null,
+  // How far the transcript the model saw actually reached (messages
+  // .covered_until_seconds). A mark past it is the truncation note's own
+  // number coming back out, not coverage — measured 2026-09-02 on a 3:57:44
+  // video whose overview closed at "[1:41:43 - 3:57:44]" and therefore looked
+  // finished at 43 %.
+  coveredUntilSeconds?: number | null,
+): boolean {
   if (!durationSeconds) return false;
   const mark = lastTimeMark(content);
-  const covered = mark ? parseTimestamp(mark) : null;
+  const marked = mark ? parseTimestamp(mark) : null;
+  const covered = marked !== null && coveredUntilSeconds != null
+    ? Math.min(marked, coveredUntilSeconds)
+    : marked;
   if (covered === null) return false;
   const tolerance = Math.max(TAIL_TOLERANCE_MIN_SECONDS, durationSeconds * TAIL_TOLERANCE_RATIO);
   return covered < durationSeconds - tolerance;

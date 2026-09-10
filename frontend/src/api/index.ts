@@ -481,17 +481,27 @@ export const api = {
     chatId: string,
     messageId: string,
     onDelta: (delta: string) => void,
-    opts?: { think?: boolean; onThinking?: () => void; onReasoning?: (delta: string) => void; onQueued?: (ahead: number, info?: { model?: string; current?: { chatId: string; question: string } }) => void; onRateLimit?: (info: { retryInSeconds: number; attempt: number }) => void; onOverloaded?: (info: { retryInSeconds: number; attempt: number; maxAttempts: number; provider?: string }) => void; onFailover?: (info: FailoverInfo) => void; signal?: AbortSignal },
+    // seamRetry: the immediate second attempt after the server discarded a
+    // round whose seam it could not verify (mockup-truncated-answer §04) —
+    // that round is appended even with a dubious seam, flagged seam_suspect.
+    opts?: { think?: boolean; seamRetry?: boolean; onThinking?: () => void; onReasoning?: (delta: string) => void; onQueued?: (ahead: number, info?: { model?: string; current?: { chatId: string; question: string } }) => void; onRateLimit?: (info: { retryInSeconds: number; attempt: number }) => void; onOverloaded?: (info: { retryInSeconds: number; attempt: number; maxAttempts: number; provider?: string }) => void; onFailover?: (info: FailoverInfo) => void; signal?: AbortSignal },
   ): Promise<{ userMessage: Message; assistantMessage: Message }> {
     const res = await fetch(`${BASE}/chats/${chatId}/messages/continue`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messageId, think: opts?.think }),
+      body: JSON.stringify({ messageId, think: opts?.think, ...(opts?.seamRetry ? { seamRetry: true } : {}) }),
       signal: opts?.signal,
     });
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
-      throw new Error(body.error || 'Failed to continue message');
+      const err = new Error(body.error || 'Failed to continue message');
+      // 409 means the server looked and found nothing to write on: the answer
+      // is WHOLE. Marked so the caller can tell it apart from a round that
+      // really failed — those two deserve opposite reactions, and treating
+      // this one as a failure put the "answer breaks off mid-sentence" card
+      // under a finished 27-chapter overview (measured 2026-09-03).
+      if (res.status === 409) (err as Error & { alreadyComplete?: boolean }).alreadyComplete = true;
+      throw err;
     }
     return readMessageStream(res, {
       onDelta,

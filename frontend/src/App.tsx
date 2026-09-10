@@ -85,6 +85,46 @@ function subtreeIds(chat: Chat): string[] {
  */
 export const AUTO_CONTINUE_MAX = 20;
 
+/** Never more rounds than this, however long the video — still a runaway guard. */
+export const AUTO_CONTINUE_CEILING = 80;
+
+/**
+ * The same guard, but measured against the video instead of a flat count
+ * (user decision 2026-09-04).
+ *
+ * Twenty rounds are plenty when a round can see an hour of transcript. They
+ * are not when it can see eight minutes: Groq's free gpt-oss-120b meters
+ * 8 000 tokens per MINUTE, so its whole context budget is ~10 500 characters
+ * however high the cap is set — measured 2026-09-04, `covered_until_seconds`
+ * came back as 500 for a 22:47 video. A 3:42:37 talk then needs some 28
+ * rounds, the flat twenty ran out at 27:05, and the reader was told nothing.
+ *
+ * Raising the budget cap for the overview (backend, same day) fixes this for
+ * every model with room to spare — but a user may have exactly ONE model, and
+ * if that one is metered per minute no cap can buy it a bigger window. Then
+ * the only currency left is rounds, so the guard has to scale with the work.
+ *
+ * MINUTES_PER_ROUND is the pessimistic case above, and the 1.5 covers rounds
+ * a provider ends early. The floor keeps short videos exactly as they were.
+ */
+export function autoContinueMaxRounds(durationSeconds?: number | null): number {
+  if (!durationSeconds || durationSeconds <= 0) return AUTO_CONTINUE_MAX;
+  const MINUTES_PER_ROUND = 8;
+  const needed = Math.ceil((durationSeconds / 60 / MINUTES_PER_ROUND) * 1.5);
+  return Math.min(AUTO_CONTINUE_CEILING, Math.max(AUTO_CONTINUE_MAX, needed));
+}
+
+/**
+ * A round that errors outright (provider quota, network, both ladder
+ * candidates down) used to hand the reader the fallback card on the very
+ * first failure — but that failure is often transient (user incident
+ * 2026-08-30: Groq quota then a second model failing within 0.2s, both
+ * providers healthy again moments later). A few automatic retries before
+ * giving up spends at most this many extra paid calls per cut answer; it
+ * does not touch AUTO_CONTINUE_MAX, which still bounds total rounds.
+ */
+export const AUTO_CONTINUE_ERROR_RETRIES = 3;
+
 /** What a continuation round ended with — null when it failed outright. */
 type ContinueResult = { content: string; truncated: boolean } | null;
 
@@ -253,10 +293,22 @@ export default function App() {
     queuedChatIds,
     streamingMessageIds,
     continuingChatIds,
+    continuingMessageIds,
     streamsForChat,
     syncIndicators: syncStreamIndicators,
     markAnswering,
   } = useStreamRegistry();
+
+  // Every answer whose text is growing right now — a fresh stream or a
+  // continuation round. MessageBubble knows one state, "being written", and
+  // both of these are it; splitting them was what left a continuing bubble
+  // looking idle for minutes (user report 2026-08-29).
+  const writingMessageIds = useMemo(
+    () => (continuingMessageIds.size === 0
+      ? streamingMessageIds
+      : new Set([...streamingMessageIds, ...continuingMessageIds])),
+    [streamingMessageIds, continuingMessageIds],
+  );
 
   // Live-Spiegel der aktiven Chat-ID für Stream-Callbacks (der State im
   // Closure wäre veraltet, sobald der Nutzer den Chat wechselt).
@@ -1777,7 +1829,7 @@ export default function App() {
     // Without this the bubble looked finished while rounds were still running
     // in the background, and the composer invited a question that would have
     // queued behind them (user report 2026-08-18).
-    markAnswering(chatId, true);
+    markAnswering(chatId, true, cut.id);
     const patch = (fields: Partial<Message>) =>
       setActiveChat(prev =>
         prev && prev.id === chatId
@@ -1790,29 +1842,53 @@ export default function App() {
     let grown = cut.content;
     patch({ truncated: 0 });
 
-    return api
-      .continueMessage(
+    // One round of /continue. When the server cannot verify the seam it
+    // DISCARDS the round and answers with seam_retry (mockup-truncated-answer
+    // §04) — then whatever the round drew on screen is wiped back to the cut
+    // text and exactly one more round runs, marked so the server knows it is
+    // the second attempt and appends even a dubious seam (flagged).
+    const round = (seamRetry: boolean) => {
+      grown = cut.content;
+      patch({ content: grown });
+      return api.continueMessage(
         chatId,
         cut.id,
         (delta) => {
           grown += delta;
           patch({ content: grown });
         },
-        { think: thinkByChat[chatId] || undefined },
-      )
+        { think: thinkByChat[chatId] || undefined, seamRetry },
+      );
+    };
+
+    return round(false)
+      .then((res) => (res.assistantMessage.seam_retry ? round(true) : res))
       .then(({ assistantMessage }) => {
         // The server's version wins: it knows whether THIS round finished or
         // was cut short again.
-        patch({ content: assistantMessage.content, truncated: assistantMessage.truncated ?? 0 });
+        patch({
+          content: assistantMessage.content,
+          truncated: assistantMessage.truncated ?? 0,
+          ...(assistantMessage.seam_suspect ? { seam_suspect: 1 } : {}),
+        });
         return { content: assistantMessage.content, truncated: Boolean(assistantMessage.truncated) };
       })
       .catch((err) => {
+        // 409: the server has a FINISHED answer and nothing to write on —
+        // usually because this round's trigger read a copy of the message
+        // from one render before the previous round landed. Putting the card
+        // back here stamped "breaks off mid-sentence" onto a complete
+        // overview (measured 2026-09-03, 27 chapters through to 3:57:44).
+        if ((err as Error & { alreadyComplete?: boolean }).alreadyComplete) {
+          patch({ truncated: 0 });
+          return { content: cut.content, truncated: false };
+        }
         // Nothing was appended — put the card back, the answer is still cut.
         patch({ content: cut.content, truncated: 1 });
         console.error('Failed to continue message:', err);
         return null;
       })
-      .finally(() => markAnswering(chatId, false));
+      .finally(() => markAnswering(chatId, false, cut.id));
   };
 
   // Continue from the chapter list. Usually the same click as the card in the
@@ -1828,22 +1904,40 @@ export default function App() {
     const patchPane = (fields: Partial<Message>) =>
       setVideoOverview(v => (v && v.message.id === message.id ? { ...v, message: { ...v.message, ...fields } } : v));
     patchPane({ truncated: 0 });
-    markAnswering(chatId, true);
-    return api
-      .continueMessage(chatId, message.id, (delta) => {
+    // The id too, even though this branch has no bubble on screen: switching
+    // into that chat mid-round must find the answer visibly being written.
+    markAnswering(chatId, true, message.id);
+    // Same seam-retry dance as handleContinueMessage: a discarded round is
+    // wiped from the pane and rerun exactly once (mockup-truncated-answer §04).
+    const round = (seamRetry: boolean) => {
+      grown = message.content;
+      patchPane({ content: grown });
+      return api.continueMessage(chatId, message.id, (delta) => {
         grown += delta;
         patchPane({ content: grown });
-      }, {})
+      }, { seamRetry });
+    };
+    return round(false)
+      .then((res) => (res.assistantMessage.seam_retry ? round(true) : res))
       .then(({ assistantMessage }) => {
-        patchPane({ content: assistantMessage.content, truncated: assistantMessage.truncated ?? 0 });
+        patchPane({
+          content: assistantMessage.content,
+          truncated: assistantMessage.truncated ?? 0,
+          ...(assistantMessage.seam_suspect ? { seam_suspect: 1 } : {}),
+        });
         return { content: assistantMessage.content, truncated: Boolean(assistantMessage.truncated) };
       })
       .catch((err) => {
+        // See handleContinueMessage: a 409 says the answer is already whole.
+        if ((err as Error & { alreadyComplete?: boolean }).alreadyComplete) {
+          patchPane({ truncated: 0 });
+          return { content: message.content, truncated: false };
+        }
         patchPane({ content: message.content, truncated: 1 });
         console.error('Failed to continue the overview:', err);
         return null;
       })
-      .finally(() => markAnswering(chatId, false));
+      .finally(() => markAnswering(chatId, false, message.id));
   };
 
   /**
@@ -1856,7 +1950,11 @@ export default function App() {
   const overviewStoppedEarly = Boolean(
     videoOverview
     && !videoOverview.message.truncated
-    && overviewStopsShort(videoOverview.message.content, treeVideo?.duration_seconds),
+    && overviewStopsShort(
+      videoOverview.message.content,
+      treeVideo?.duration_seconds,
+      videoOverview.message.covered_until_seconds,
+    ),
   );
 
   /**
@@ -1873,10 +1971,16 @@ export default function App() {
    * - A round that appends NOTHING. Repeating it would buy the same nothing
    *   over and over.
    * - A failed round — the card comes back and the reader decides.
-   * - AUTO_CONTINUE_MAX as a runaway guard, never as a budget.
+   * - autoContinueMaxRounds() as a runaway guard, never as a budget — the
+   *   flat twenty for a cut answer, video-length-aware for an overview.
    *
    * The card in the bubble is therefore the FALLBACK, not the normal path: it
-   * is what the reader sees once the automat has given up.
+   * is what the reader sees once the automat has given up. A round that
+   * errors outright is retried in place up to AUTO_CONTINUE_ERROR_RETRIES
+   * times before that — the failure is usually the ladder's candidates being
+   * briefly unavailable together, not the answer itself being unrecoverable
+   * (user incident 2026-08-30: Groq quota then a second model failing within
+   * 0.2s, both providers healthy again moments later).
    */
   useEffect(() => {
     if (autoContinueBusy.current) return;
@@ -1908,22 +2012,39 @@ export default function App() {
     // Already asked from exactly this point. Two things wear that disguise:
     // a state copy that has not caught up with the round just finished (the
     // pane and the chat learn of it one render apart), and a round that
-    // appended nothing at all. Both must not spend another call.
+    // appended nothing at all. Both must not spend another call — retries
+    // for an errored round happen INSIDE the round below, in place, never by
+    // letting the effect fire again from a stale render.
     if (seen && before <= seen.from) return;
-    if ((seen?.rounds ?? 0) >= AUTO_CONTINUE_MAX) return;
-    autoContinueRounds.current.set(id, { rounds: (seen?.rounds ?? 0) + 1, from: before });
+    // The guard scales with the video (2026-09-04): a round of a metered model
+    // sees a few minutes at a time, and a long talk needs more rounds than a
+    // short one — a cut answer outside a video tree keeps the flat twenty.
+    const maxRounds = known ? autoContinueMaxRounds(treeVideo?.duration_seconds) : AUTO_CONTINUE_MAX;
+    if ((seen?.rounds ?? 0) >= maxRounds) return;
     autoContinueBusy.current = true;
-    void (known ? handleContinueOverview() : handleContinueMessage(cut.message))
-      .then((result) => {
-        // Gave up, or wrote nothing: stop asking. Both leave the overview
-        // visibly unfinished, so the card appears and the exit is the reader's.
-        if (!result || result.content.length <= before) {
-          autoContinueRounds.current.set(id, { rounds: AUTO_CONTINUE_MAX, from: before });
-        }
-      })
-      .finally(() => {
-        autoContinueBusy.current = false;
-      });
+    const run = known ? handleContinueOverview : () => handleContinueMessage(cut.message);
+    void (async () => {
+      let rounds = seen?.rounds ?? 0;
+      let result: ContinueResult = null;
+      for (let attempt = 0; attempt < AUTO_CONTINUE_ERROR_RETRIES && rounds < maxRounds; attempt += 1) {
+        rounds += 1;
+        result = await run();
+        if (result) break; // got an answer back — truncated or not, no retry
+      }
+      // Gave up after every retry, or wrote nothing: stop asking. Both leave
+      // the overview visibly unfinished, so the card appears and the exit is
+      // the reader's. `from` stays the checkpoint this attempt STARTED from
+      // (not what it grew to) — the next render's content is then strictly
+      // longer than it, which is what lets the following round fire.
+      autoContinueRounds.current.set(
+        id,
+        !result || result.content.length <= before
+          ? { rounds: maxRounds, from: before }
+          : { rounds, from: before },
+      );
+    })().finally(() => {
+      autoContinueBusy.current = false;
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [treeVideo, videoOverview, overviewStoppedEarly, activeChat?.messages, activeChatId, streamingChatIds, queuedChatIds]);
 
@@ -3141,7 +3262,7 @@ export default function App() {
               onTimeMarkClick={treeVideo ? (seconds) => videoPaneRef.current?.seekTo(seconds) : undefined}
               loading={loadingChat}
               streaming={activeChatId ? streamingChatIds.has(activeChatId) || queuedChatIds.has(activeChatId) || continuingChatIds.has(activeChatId) : false}
-              streamingMessageIds={streamingMessageIds}
+              streamingMessageIds={writingMessageIds}
               onSendMessage={handleSendMessage}
               onOpenFeedback={(initialText) => { setFeedbackInitialText(initialText); setFeedbackOpen(true); }}
               onAskAside={handleAskAside}

@@ -11,10 +11,16 @@
  *      its own, so an unpaired `\[` becomes an unpaired `$$` that the
  *      balance check below can mask).
  *   2. Balance outside code: with an odd number of `$$` tokens the LAST one
- *      is masked to `\$\$`; then, with an odd number of single `$` tokens
- *      (not `\$`, not part of `$$`), the last one is masked to `\$`.
- *   3. Swallow guard: a `$…$` pair whose content spans a paragraph break
- *      (`\n\n`) is no formula — both delimiters are masked.
+ *      is masked to `\$\$`.
+ *   3. Single `$` tokens (not `\$`, not part of `$$`) are paired left to
+ *      right with a self-healing scan: a "pair" whose content spans a
+ *      paragraph break (`\n\n`) is no formula — its OPENER is a stray (a
+ *      price, a typo) and is masked alone, then pairing retries from the
+ *      closer. Masking both delimiters instead used to let one early stray
+ *      (`$0.08 / Million Tokens`, report 2026-09-04) shift every later
+ *      pairing onto the wrong delimiters, so the guard masked the CLOSING
+ *      `$` of real formulas and KaTeX showed `B \times K\` parse errors.
+ *      A trailing unpaired `$` is masked on the final render.
  *
  * Code fences and inline code are carved out first and never touched.
  *
@@ -95,24 +101,30 @@ export function sanitizeMath(md: string, opts: SanitizeMathOptions = {}): string
     masks.push({ part: last.part, pos: last.pos, len: 2, replacement: '\\$\\$' });
   }
 
-  // 2b. Odd single-`$` count → mask the last one (unless still streaming).
-  let singles = tokens.filter(t => t.type === '$');
-  if (singles.length % 2 === 1) {
-    if (!streaming) {
-      const last = singles[singles.length - 1];
-      masks.push({ part: last.part, pos: last.pos, len: 1, replacement: '\\$' });
+  // 3. Pair single `$` tokens left to right, self-healing around strays:
+  // a pair spanning a paragraph break is no formula, so its opener is a
+  // stray dollar — mask it alone and retry pairing from the closer, which
+  // may well open the NEXT real formula. (Masking both used to derail the
+  // pairing for the whole rest of the message after one stray.)
+  const singles = tokens.filter(t => t.type === '$');
+  let i = 0;
+  while (i < singles.length) {
+    if (i + 1 === singles.length) {
+      // Trailing unpaired `$` — while streaming it may be a formula whose
+      // closer has not arrived yet, so only the final render masks it.
+      if (!streaming) {
+        const last = singles[i];
+        masks.push({ part: last.part, pos: last.pos, len: 1, replacement: '\\$' });
+      }
+      break;
     }
-    // The unpaired trailer never takes part in the pair heuristic below.
-    singles = singles.slice(0, -1);
-  }
-
-  // 3. Swallow guard: `$…$` spanning a paragraph break is not a formula.
-  for (let i = 0; i + 1 < singles.length; i += 2) {
     const open = singles[i];
     const close = singles[i + 1];
     if (textBetween(parts, open, close).includes('\n\n')) {
       masks.push({ part: open.part, pos: open.pos, len: 1, replacement: '\\$' });
-      masks.push({ part: close.part, pos: close.pos, len: 1, replacement: '\\$' });
+      i += 1;
+    } else {
+      i += 2;
     }
   }
 

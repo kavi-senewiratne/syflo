@@ -27,6 +27,15 @@ interface Props {
   onImport: (result: VideoSearchResult) => Promise<void>;
 }
 
+// Mirrors backend/youtube.js CAPTION_ATTEMPTS / CAPTION_ATTEMPT_TIMEOUT_MS.
+// There is no shared module between the Node backend and this Vite frontend,
+// and turning /youtube/import into a streaming route just to report real
+// attempt progress would break its existing clean 409/422/429/502 error
+// contract for a cosmetic gain — so this is a client-side approximation of
+// which attempt is likely in flight, not a real signal from the backend.
+const CAPTION_ATTEMPTS = 4;
+const CAPTION_ATTEMPT_WINDOW_MS = 8_400; // 8s timeout + backoff slack
+
 export function YouTubeSearchModal({ onClose, onImport }: Props) {
   // UI-Texte in der App language — re-rendert beim Sprachwechsel mit.
   const S = useStrings().youtubeSearch;
@@ -36,8 +45,17 @@ export function YouTubeSearchModal({ onClose, onImport }: Props) {
   const [error, setError] = useState<string | null>(null);
   // ID der Zeile, deren Import gerade läuft — deaktiviert alle Buttons.
   const [importingId, setImportingId] = useState<string | null>(null);
+  // Welcher Versuch (1-basiert) laut Timer gerade läuft — s. o., Näherung.
+  const [attemptNumber, setAttemptNumber] = useState(1);
+  const attemptTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Läuft der Import beim Schließen des Modals noch, darf der Timer nicht
+  // gegen ein entferntes State-Update feuern.
+  useEffect(() => () => {
+    if (attemptTimer.current) clearInterval(attemptTimer.current);
+  }, []);
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -90,12 +108,17 @@ export function YouTubeSearchModal({ onClose, onImport }: Props) {
 
   const handleImport = async (r: VideoSearchResult) => {
     setImportingId(r.youtube_id);
+    setAttemptNumber(1);
     setError(null);
+    attemptTimer.current = setInterval(() => {
+      setAttemptNumber((n) => Math.min(n + 1, CAPTION_ATTEMPTS));
+    }, CAPTION_ATTEMPT_WINDOW_MS);
     try {
       await onImport(r);
     } catch (e) {
       setError(e instanceof Error ? e.message : S.importFailed);
     } finally {
+      if (attemptTimer.current) clearInterval(attemptTimer.current);
       setImportingId(null);
     }
   };
@@ -224,7 +247,9 @@ export function YouTubeSearchModal({ onClose, onImport }: Props) {
                       className="inline-flex items-center gap-1.5 text-[12px] font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors shrink-0"
                     >
                       {importing ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} strokeWidth={2.5} />}
-                      {importing ? S.fetching : S.add}
+                      {importing
+                        ? (attemptNumber > 1 ? S.fetchingAttempt(attemptNumber, CAPTION_ATTEMPTS) : S.fetching)
+                        : S.add}
                     </button>
                   </li>
                 );

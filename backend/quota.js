@@ -315,7 +315,7 @@ async function callCloudLadder(db, {
       try {
         const completion = await client.chat.completions.create({
           model: cand.model,
-          ...(plain ? {} : noThinkExtras(cand.provider)),
+          ...(plain ? {} : noThinkExtras(cand.provider, cand.model)),
           messages,
           ...(onDelta ? { stream: true } : {}),
           ...extraBody(cand),

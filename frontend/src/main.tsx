@@ -29,10 +29,14 @@ import '@fontsource/space-grotesk/700.css'
 import '@fontsource/plus-jakarta-sans/700.css' // Basic — logo wordmark only
 import App from './App.tsx'
 import { applyTheme, getStoredTheme } from './theme'
+import { applyDocumentLanguage } from './appLanguage'
 
 // Apply the saved color theme before the first render to avoid a flash of
 // the default palette.
 applyTheme(getStoredTheme())
+
+// Mirror the app language onto <html lang> (index.html hardcodes "en").
+applyDocumentLanguage()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

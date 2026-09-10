@@ -413,8 +413,19 @@ const MAX_SYSTEM_CONTEXT_CHARS = Math.floor(
  * ({provider, model}) when a different model answers — failover candidates
  * and the one-off local regenerate must get a prompt sized to THEIR budget
  * (fix 2026-07-29), never the active model's.
+ *
+ * `overview: true` lifts the cap for the Video overview (user decision
+ * 2026-09-04). The cap is there so an ordinary question does not drag a whole
+ * paper through the window turn after turn — but the overview is asked ONCE
+ * per video and is the one question that genuinely wants the whole source.
+ * Lifting it costs nothing when the source is smaller than the ceiling: a cap
+ * only ever TRUNCATES, it never pads. What replaces it is what the model can
+ * really take — its context window, and on a free tier that meters tokens per
+ * MINUTE, that limit, because a prompt above it comes back as a 429 rather
+ * than as a longer answer (Groq's free gpt-oss-120b: 8 000 TPM, so its
+ * overview budget is unchanged and only more rounds help there).
  */
-function contextBudget(db, forModel = null) {
+function contextBudget(db, forModel = null, { overview = false } = {}) {
   const { getSetting } = require('./llm');
   const { getModelInfo } = require('./registry');
   const provider = forModel ? forModel.provider : getSetting(db, 'llm_provider');
@@ -422,10 +433,11 @@ function contextBudget(db, forModel = null) {
     ? forModel.model
     : getSetting(db, provider === 'ollama' ? 'ollama_model' : `${provider}_model`);
   const info = getModelInfo(db, provider, model);
-  const budgetTokens = Math.min(
-    info.contextWindowTokens,
-    info.budgetCapTokens || info.contextWindowTokens
-  );
+  const perMinuteTokens = info.freeQuota && info.freeQuota.tokensPerMinute;
+  const capTokens = overview
+    ? (perMinuteTokens || info.contextWindowTokens)
+    : (info.budgetCapTokens || info.contextWindowTokens);
+  const budgetTokens = Math.min(info.contextWindowTokens, capTokens);
   return {
     provider,
     model,

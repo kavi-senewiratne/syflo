@@ -12,6 +12,7 @@
 
 const {
   lastCoveredSeconds,
+  capCoverage,
   isShortOfEnd,
   transcriptFrom,
   formatMark,
@@ -36,6 +37,79 @@ describe('lastCoveredSeconds', () => {
   it('sagt nichts, wenn die Antwort abbrach, bevor die erste Marke stand', () => {
     expect(lastCoveredSeconds('Hier ist die vollständige Gliederung:\n\n### Einleitung')).toBeNull();
   });
+
+  it('ignoriert eine nackte Videolänge in Schluss-Prosa (Groq gpt-oss-120b, 2026-08-30)', () => {
+    // Die Fortsetzungs-Anweisung nennt die Videolänge OHNE Klammern
+    // ("…the video runs to 3:57:44"), und ein Modell echot sie manchmal in
+    // seinem eigenen Schlusssatz zurück. Ohne Klammer-Pflicht läse
+    // lastCoveredSeconds das als "bis zum Ende gekommen" — obwohl die
+    // letzte ECHTE Kapitelmarke weit davor liegt.
+    const stalled =
+      OVERVIEW +
+      '\n\n--- End of available transcript. The remainder of the video ' +
+      '(up to 3:57:44) is not included in the provided transcript, so I ' +
+      'cannot continue further.';
+
+    expect(lastCoveredSeconds(stalled)).toBe(16 * 60 + 16);
+  });
+
+  it('liest nackte Spannen in Überschriften (Groq gpt-oss-120b, 2026-09-01)', () => {
+    // Dasselbe Modell, das am 2026-08-30 noch Klammern schrieb, lieferte am
+    // 2026-09-01 "## 0:04 – 0:34 – Titel" — Spanne vorn, keine Klammern.
+    // Ohne diese Lesart blieb die Übersicht still bei 9:55 von 47:40 stehen:
+    // kein Fortschritt lesbar, kein Auto-Weiterschreiben.
+    const bare = [
+      '## 0:04 – 0:34 – Einführung und Kontext',
+      '**Kernaussage.**',
+      '## 9:23 – 9:55 – Entscheidung für Enterprise-Anwendungen',
+      '**Kernaussage.**',
+    ].join('\n\n');
+
+    expect(lastCoveredSeconds(bare)).toBe(9 * 60 + 55);
+  });
+
+  it('liest die nackte Spanne auch am ENDE einer Überschrift', () => {
+    expect(lastCoveredSeconds('## Einführung – 0:04 – 0:34')).toBe(34);
+  });
+
+  it('ignoriert eine nackte Marke MITTEN in einer Überschrift', () => {
+    // Auch eine Überschrift kann die vorgesagte Videolänge echoen — nur eine
+    // Spanne am Anfang oder Ende der Überschrift ist eine Kapitelmarke.
+    expect(lastCoveredSeconds('## Der Rest bis 3:57:44 fehlt im Transkript')).toBeNull();
+  });
+
+  it('ignoriert eine einzelne nackte Marke am Überschriften-Ende („um 10:30")', () => {
+    expect(lastCoveredSeconds('## Treffen um 10:30')).toBeNull();
+  });
+});
+
+describe('capCoverage', () => {
+  // Gemessen am 2026-09-02 (Neel Nanda, 3:57:44 = 14 264 s): Das Transkript
+  // war bei 1:41:43 (6 103 s) abgeschnitten, der Kürzungshinweis nannte die
+  // volle Videolänge, und das Modell schloss mit "[1:41:43 - 3:57:44]" ab —
+  // ein Kapitel von 2 h 16 min über Material, das es nie gesehen hat.
+  const CUT = 6103;
+  const DURATION = 14264;
+
+  it('deckelt die abgeschriebene Videolänge auf das, was das Modell sehen konnte', () => {
+    expect(capCoverage(DURATION, CUT)).toBe(CUT);
+    // …und erst dadurch wird der Rest wieder als fehlend erkannt.
+    expect(isShortOfEnd(DURATION, DURATION)).toBe(false);
+    expect(isShortOfEnd(capCoverage(DURATION, CUT), DURATION)).toBe(true);
+  });
+
+  it('lässt eine ehrliche Marke unter der Schnittstelle unangetastet', () => {
+    expect(capCoverage(5000, CUT)).toBe(5000);
+  });
+
+  it('deckelt nichts, wenn nichts abgeschnitten wurde', () => {
+    expect(capCoverage(DURATION, null)).toBe(DURATION);
+    expect(capCoverage(DURATION, undefined)).toBe(DURATION);
+  });
+
+  it('reicht "keine Marke" unverändert durch', () => {
+    expect(capCoverage(null, CUT)).toBe(null);
+  });
 });
 
 describe('isShortOfEnd', () => {
@@ -52,6 +126,20 @@ describe('isShortOfEnd', () => {
     // Eine Behauptung, die einen bezahlten Aufruf auslöst, wird gemessen —
     // nicht geraten.
     expect(isShortOfEnd(60, null)).toBe(false);
+  });
+
+  it('lässt sich von einer echoten Videolänge in Schluss-Prosa nicht täuschen', () => {
+    // Vorher: lastCoveredSeconds las die nackte "3:57:44" aus dem Schlusssatz
+    // als erreichtes Ende, isShortOfEnd(14264, 14264) wurde false, und
+    // POST /continue gab 409 "nothing to continue" zurück — bei einem 4-Std.-
+    // Video, dessen Übersicht bei Minute 16 stehen geblieben war.
+    const stalled =
+      OVERVIEW +
+      '\n\n--- End of available transcript. The remainder of the video ' +
+      '(up to 3:57:44) is not included in the provided transcript, so I ' +
+      'cannot continue further.';
+
+    expect(isShortOfEnd(lastCoveredSeconds(stalled), 14264)).toBe(true);
   });
 });
 
@@ -119,6 +207,25 @@ describe('trimTrailingClosing', () => {
     expect(trimTrailingClosing(withNote)).toBe(overview);
   });
 
+  // Nutzerbericht mit Bild 2026-09-04: Jede Runde endete mit dieser Zeile,
+  // und weil die Runden zu EINER Antwort zusammenwachsen, stand am Ende eine
+  // Reihe davon zwischen den Kapiteln.
+  it('schneidet auch die Transkript-Schlusszeile ohne "Hinweis:" weg', () => {
+    const withEnd = `${overview}\n\n*Ende des verfügbaren Transkripts bei [36:30].*`;
+    expect(trimTrailingClosing(withEnd)).toBe(overview);
+
+    const otherWording = `${overview}\n\nEnde des transkribierten Abschnitts bei [27:05].`;
+    expect(trimTrailingClosing(otherWording)).toBe(overview);
+
+    const english = `${overview}\n\n*The available transcript ends at [36:30].*`;
+    expect(trimTrailingClosing(english)).toBe(overview);
+  });
+
+  it('lässt einen Stichpunkt stehen, der das Transkript erwähnt', () => {
+    const bullet = `${overview}\n\n- **Quelle**: Er verweist auf das Transkript des Vortrags.`;
+    expect(trimTrailingClosing(bullet)).toBe(bullet);
+  });
+
   it('lässt eine Übersicht ohne Schluss-Abschnitte unangetastet', () => {
     expect(trimTrailingClosing(overview)).toBe(overview);
   });
@@ -127,5 +234,151 @@ describe('trimTrailingClosing', () => {
     const withBullets = `${overview}\n\n* **Punkt**: Detail.\n* **Punkt**: Detail.`;
 
     expect(trimTrailingClosing(withBullets)).toBe(withBullets);
+  });
+
+  it('erkennt auch Kapitel mit nackter Spanne vorn (Groq gpt-oss-120b, 2026-09-01)', () => {
+    const bare = [
+      '## 0:04 – 0:34 – Einführung',
+      '**Kernaussage.**',
+      '## 9:23 – 9:55 – Entscheidung',
+      '**Kernaussage.**',
+    ].join('\n\n');
+    const withClosing = `${bare}\n\n*(Hinweis: Ich höre hier auf.)*\n\n### Mentales Modell\nDas Denkmuster …`;
+
+    expect(trimTrailingClosing(withClosing)).toBe(bare);
+  });
+});
+
+// ─── Die Transkript-Schlusszeile erreicht den Leser nie ─────────────────────
+// Nutzerbericht 2026-09-04, zweimal: erst „Ende des verfügbaren Transkripts
+// bei [36:30]", und nachdem der Prompt es verboten hatte, erneut „…bei 15:54"
+// — auf einem Transkript, das in Wahrheit bis 30:44 reichte. Eine Prompt-Regel
+// ist eine Bitte; das hier ist die Garantie.
+const { stripRoundSignOff } = require('../overview-progress');
+
+describe('stripRoundSignOff', () => {
+  const overview = [
+    '## Einführung [00:00 - 03:34]',
+    '**Kernaussage.**',
+    '## Refaktorierung [12:56 - 15:54]',
+    '**Kernaussage.**',
+  ].join('\n\n');
+
+  it('entfernt die Schlusszeile in ihren verschiedenen Formulierungen', () => {
+    expect(stripRoundSignOff(`${overview}\n\n*Ende des verfügbaren Transkripts bei 15:54.*`)).toBe(overview);
+    expect(stripRoundSignOff(`${overview}\n\nEnde des transkribierten Abschnitts bei [27:05].`)).toBe(overview);
+    expect(stripRoundSignOff(`${overview}\n\n*The available transcript ends at 15:54.*`)).toBe(overview);
+  });
+
+  it('lässt einen Stichpunkt stehen, der das Transkript erwähnt', () => {
+    const withBullet = `${overview}\n\n- **Super-Variante:** (Erwähnt, aber Detail nicht im Transkript enthalten).`;
+    expect(stripRoundSignOff(withBullet)).toBe(withBullet);
+  });
+
+  it('lässt die Schluss-Abschnitte einer fertigen Übersicht in Ruhe', () => {
+    const withClosing = `${overview}\n\n### Mentales Modell\nDas Denkmuster …`;
+    expect(stripRoundSignOff(withClosing)).toBe(withClosing);
+  });
+
+  // Dritte Formulierung, 2026-09-04 — und diese hatte der Prompt selbst
+  // verlangt ("say which minute you reached").
+  it('entfernt auch die Fortschritts-Notiz in eckigen Klammern', () => {
+    const withNote = `${overview}\n\n[Ich habe Minute 40:39 erreicht und setze im nächsten Schritt ab hier fort.]`;
+    expect(stripRoundSignOff(withNote)).toBe(overview);
+  });
+
+  it('entfernt eine kursive Fortschritts-Notiz ohne Transkript-Wort', () => {
+    const withNote = `${overview}\n\n*Fortsetzung folgt im nächsten Schritt.*`;
+    expect(stripRoundSignOff(withNote)).toBe(overview);
+  });
+
+  it('lässt einen normalen Schlusssatz stehen', () => {
+    const prose = `${overview}\n\nDamit ist der erste Teil des Vortrags abgedeckt.`;
+    expect(stripRoundSignOff(prose)).toBe(prose);
+  });
+
+  it('lässt eine Übersicht ohne die Zeile unangetastet', () => {
+    expect(stripRoundSignOff(overview)).toBe(overview);
+    expect(stripRoundSignOff('')).toBe('');
+  });
+});
+
+// ─── Die fette Kernaussage wird zu Ende gefettet ────────────────────────────
+// Nutzerbericht mit Bild 2026-09-04: Das Modell öffnet die Kernaussage mit **
+// und vergisst das Schließen — Markdown zeigt dann die Sternchen als Text.
+const { closeUnbalancedBold } = require('../overview-progress');
+
+describe('closeUnbalancedBold', () => {
+  it('schließt die offene Kernaussage am Zeilenende', () => {
+    const broken = '## Fine-Tuning [33:26 - 41:10]\n\n**NVIDIA stellt mit Cosmos eine offene Plattform bereit';
+    expect(closeUnbalancedBold(broken)).toBe(
+      '## Fine-Tuning [33:26 - 41:10]\n\n**NVIDIA stellt mit Cosmos eine offene Plattform bereit**'
+    );
+  });
+
+  it('lässt eine korrekt gefettete Zeile in Ruhe', () => {
+    const fine = '**Die Kernaussage steht ganz in Sternchen.**';
+    expect(closeUnbalancedBold(fine)).toBe(fine);
+  });
+
+  it('fasst Stichpunkte mit fettem Kopf nicht an', () => {
+    const bullet = '- **Cosmos**: offene Plattform für physische KI.';
+    expect(closeUnbalancedBold(bullet)).toBe(bullet);
+  });
+
+  it('greift nur bei Zeilen, die MIT ** beginnen', () => {
+    const mid = 'Er nennt **Cosmos als Beispiel und redet weiter';
+    expect(closeUnbalancedBold(mid)).toBe(mid);
+  });
+
+  it('kommt mit leerem Text klar', () => {
+    expect(closeUnbalancedBold('')).toBe('');
+    expect(closeUnbalancedBold(null)).toBe(null);
+  });
+});
+
+// Ein Meta-Kommentar, der VOR der ersten Überschrift einer Runde steht (eine
+// Entschuldigung, das Transkript sei gekappt, ein „ich ergänze jetzt die
+// Abschnitte"), landet nach dem Zusammenfügen mitten in der Übersicht zwischen
+// zwei Kapiteln (Nutzer-Report 2026-09-06, Steve-Jobs-Video, Schnitt bei 19:48).
+const { stripLeadingNarration } = require('../overview-progress');
+
+describe('stripLeadingNarration', () => {
+  const round = [
+    '## 10:25 – 11:26',
+    '**Das Logo als Prestigeprojekt.**',
+    '- Detail eins.',
+    '## 11:26 – 12:30',
+    '**Der Cube als perfekte Form.**',
+  ].join('\n\n');
+
+  it('entfernt die Entschuldigung vor der ersten Überschrift', () => {
+    const withPreamble =
+      'Die Fortsetzung ist leider nicht möglich: Das Transkript liegt nur bis [19:48] vor.\n\n' +
+      'Ich ergänze die vorhandenen Abschnitte hier im geforderten Format:\n\n' +
+      round;
+    expect(stripLeadingNarration(withPreamble)).toBe(round);
+  });
+
+  it('lässt eine Runde, die sauber mit einer Überschrift beginnt, in Ruhe', () => {
+    expect(stripLeadingNarration(round)).toBe(round);
+  });
+
+  it('rührt einen Naht-Text ohne Überschrift NICHT an (seam-Fortsetzung)', () => {
+    // Eine seam-Runde beginnt mitten im Satz — kein „##" davor. Nichts strippen.
+    const seam = 'die Aktivierungen dem Arbeitsspeicher entsprechen, und das Modell rechnet weiter.';
+    expect(stripLeadingNarration(seam)).toBe(seam);
+  });
+
+  it('rührt nichts an, wenn vor der Überschrift ein Stichpunkt steht', () => {
+    // Ein Bullet vor der ersten Überschrift ist Inhalt, keine Narration —
+    // konservativ nichts entfernen.
+    const withBullet = '- ein hängengebliebener Stichpunkt\n\n' + round;
+    expect(stripLeadingNarration(withBullet)).toBe(withBullet);
+  });
+
+  it('kommt mit leerem Text klar', () => {
+    expect(stripLeadingNarration('')).toBe('');
+    expect(stripLeadingNarration(null)).toBe(null);
   });
 });

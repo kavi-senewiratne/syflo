@@ -297,3 +297,41 @@ describe('the day belongs to the provider, not to UTC', () => {
     }
   });
 });
+
+// ─── Der Zähler des Modell-Menüs zählt nur beantwortete Aufrufe ─────────────
+// Nutzerbericht mit Bild 2026-09-04: „28/20" bei Gemini Flash — eine Zahl, die
+// ein Limit von zwanzig nicht hergeben kann. Die Zeilen des Tages: 20 ok,
+// 4 quota, 4 failed. Die zwanzig SIND das Limit; die vier 429er sind die
+// Absage, weil es erreicht war — eine Absage verbraucht keine Anfrage.
+describe('answeredToday', () => {
+  const TEST_DB_PATH2 = path.join(__dirname, 'usage-answered-test.db');
+  afterEach(() => {
+    if (fs.existsSync(TEST_DB_PATH2)) fs.unlinkSync(TEST_DB_PATH2);
+  });
+
+  it('zählt abgelehnte und fehlgeschlagene Aufrufe NICHT mit', async () => {
+    if (fs.existsSync(TEST_DB_PATH2)) fs.unlinkSync(TEST_DB_PATH2);
+    const db = createDb(TEST_DB_PATH2);
+    try {
+      const app = createApp(db);
+      for (let i = 0; i < 20; i++) {
+        recordUsage(db, { provider: 'gemini', model: 'gemini-flash-latest', kind: 'chat' });
+      }
+      for (let i = 0; i < 4; i++) {
+        recordUsage(db, { provider: 'gemini', model: 'gemini-flash-latest', kind: 'chat', outcome: 'quota' });
+      }
+      for (let i = 0; i < 4; i++) {
+        recordUsage(db, { provider: 'gemini', model: 'gemini-flash-latest', kind: 'chat', outcome: 'failed' });
+      }
+
+      const res = await request(app).get('/api/usage/summary');
+      expect(res.status).toBe(200);
+      // Der Zähler des Menüs: genau am Limit, nicht darüber.
+      expect(res.body.answeredToday['gemini/gemini-flash-latest']).toBe(20);
+      // Die Aktivitäts-Zahl bleibt, was sie war — alle Versuche.
+      expect(res.body.modelsToday['gemini/gemini-flash-latest']).toBe(28);
+    } finally {
+      db.close();
+    }
+  });
+});

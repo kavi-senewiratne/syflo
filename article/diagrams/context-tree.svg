@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 400" width="700" height="400" role="img" aria-labelledby="t d">
+  <title id="t">What a branch sends to the model</title>
+  <desc id="d">A tree of four chats. The main chat about the paper is sent as a summary. Its child, the attention chat, is sent in full. The grandchild, why several heads, is where you are typing. The sibling branch GPU memory is not sent at all.</desc>
+
+  <style>
+    /* Mushroom Kingdom palette, sampled from the GIFs: cream #fefcf3,
+       sky #77abfb, deep blue #282855, green #84c471. No black anywhere. */
+    .plate  { fill: #fefcf3; }
+    .line   { stroke: #c8c3ad; stroke-width: 1.5; fill: none; }
+    .box    { fill: #fffdf6; stroke: #c8c3ad; stroke-width: 1.5; }
+    .box-on { fill: #e6effe; stroke: #77abfb; stroke-width: 2; }
+    .box-off{ fill: none;    stroke: #cfcabb; stroke-width: 1.5; stroke-dasharray: 5 4; }
+    .label  { fill: #282855; font: 500 15px ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+    .label-off { fill: #8d88a0; font: 500 15px ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+    .tag    { fill: #5a86d8; font: 600 12.5px ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; letter-spacing: .02em; }
+    .tag-mut{ fill: #9c97a8; font: 600 12.5px ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; letter-spacing: .02em; }
+    .foot   { fill: #6f6a80; font: 400 13px ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+    .rule   { stroke: #e4e0cd; stroke-width: 1; }
+
+    @media (prefers-color-scheme: dark) {
+      .plate   { fill: #20224f; }
+      .line    { stroke: #464a80; }
+      .box     { fill: #282855; stroke: #464a80; }
+      .box-on  { fill: #2f3d75; stroke: #77abfb; }
+      .box-off { stroke: #43476f; }
+      .label   { fill: #f3f0e0; }
+      .label-off { fill: #8b8fb4; }
+      .tag     { fill: #9cc4ff; }
+      .tag-mut { fill: #8b8fb4; }
+      .foot    { fill: #b4b1c8; }
+      .rule    { stroke: #3a3d68; }
+    }
+  </style>
+
+  <rect class="plate" x="0" y="0" width="700" height="400" rx="14"/>
+
+  <!-- trunk from root down to GPU memory -->
+  <path class="line" d="M 62 84 L 62 338"/>
+  <path class="line" d="M 62 154 L 92 154"/>
+  <path class="line" d="M 62 338 L 92 338"/>
+  <!-- branch from attention down to why several heads -->
+  <path class="line" d="M 114 176 L 114 246 L 144 246"/>
+
+  <!-- root -->
+  <rect class="box" x="32" y="30" width="252" height="54" rx="9"/>
+  <text class="label" x="52" y="62">main chat: the paper</text>
+  <text class="tag" x="316" y="62">sent as a short summary</text>
+
+  <!-- attention -->
+  <rect class="box" x="92" y="128" width="216" height="54" rx="9"/>
+  <text class="label" x="112" y="160">attention</text>
+  <text class="tag" x="340" y="160">sent in full</text>
+
+  <!-- why several heads -->
+  <rect class="box-on" x="144" y="220" width="240" height="54" rx="9"/>
+  <text class="label" x="164" y="252">why several heads?</text>
+  <text class="tag" x="416" y="252">you are typing here</text>
+
+  <!-- GPU memory -->
+  <rect class="box-off" x="92" y="312" width="216" height="54" rx="9"/>
+  <text class="label-off" x="112" y="344">GPU memory</text>
+  <text class="tag-mut" x="340" y="344">not sent at all</text>
+
+  <!-- footnote -->
+  <line class="rule" x1="144" y1="288" x2="556" y2="288"/>
+  <text class="foot" x="144" y="306">…plus the words you branched on. The sibling branch stays out.</text>
+</svg>

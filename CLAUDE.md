@@ -43,6 +43,21 @@
   alone: a backend still running the old code, an exhausted provider quota
   (429), a request that hung for minutes because no timeout was set, and a
   weaker fallback model echoing the prompt's own example back as the answer.
+- **NEVER import a YouTube transcript more than once per verification run**
+  (user rule 2026-08-29). YouTube throttles caption requests per IP: a burst
+  of imports while debugging on 2026-08-28 earned an HTTP 429 "Sorry…" page,
+  and from then on NO video could be loaded at all — the block outlasts the
+  session and no code change can work around it. Therefore, when working on
+  the transcript, the Video overview or the chapters:
+  - Import ONE video, then work from the transcript already in the database
+    (`videos` table) or from a fixture. Re-open the existing chat instead of
+    importing the same video again.
+  - Never loop, never "just try it once more", never let a test suite hit the
+    live endpoint — `fetchTranscript` takes an injected `innertube` client
+    precisely so tests never go out to the network.
+  - A `captions-rate-limited` error means STOP for the day, not retry:
+    `backend/youtube.js` deliberately leaves its retry loop on 429/403
+    because retrying into a throttle deepens it.
   None of it was visible to a mock.
 
 ## Shipping to Electron

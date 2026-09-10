@@ -10,11 +10,11 @@
  * and `syncIndicators()` is the only thing that writes them. Call it after
  * every mutation of the registry — nothing watches the ref.
  *
- * `continuingChatIds` is the exception and stays hand-written: `syncIndicators`
- * rebuilds the other three from scratch on every call and would drop a flag
- * poked into them, but to a reader it means the same thing, so the UI merges it
- * wherever it asks "is this chat still answering?" (user report 2026-08-18: the
- * bubble looked finished while rounds were still running).
+ * The two `continuing*` sets are the exception and stay hand-written:
+ * `syncIndicators` rebuilds the others from scratch on every call and would
+ * drop a flag poked into them, but to a reader they mean the same thing, so the
+ * UI merges them wherever it asks "is this still being written?" (user report
+ * 2026-08-18: the bubble looked finished while rounds were still running).
  */
 
 import { useRef, useState, useCallback } from 'react';
@@ -95,6 +95,12 @@ export function useStreamRegistry() {
   const [queuedChatIds, setQueuedChatIds] = useState<Set<string>>(new Set());
   const [streamingMessageIds, setStreamingMessageIds] = useState<Set<string>>(new Set());
   const [continuingChatIds, setContinuingChatIds] = useState<Set<string>>(new Set());
+  // …and the MESSAGE being grown by that round. The chat-level flag alone left
+  // the bubble itself looking finished: MessageBubble reads only
+  // `streamingMessageIds`, so a continuation showed neither cursor nor dots
+  // while it wrote (user report 2026-08-29, an overview that took eight rounds
+  // over 4:50 min and never once said it was working).
+  const [continuingMessageIds, setContinuingMessageIds] = useState<Set<string>>(new Set());
 
   const streamsForChat = useCallback(
     (chatId: string): ActiveStream[] =>
@@ -119,12 +125,22 @@ export function useStreamRegistry() {
     setStreamingMessageIds(messageIds);
   }, []);
 
-  const markAnswering = useCallback((chatId: string, on: boolean) => {
+  // `messageId` is the answer the round is appending to — pass it wherever
+  // there is a bubble, so the text that is growing says so.
+  const markAnswering = useCallback((chatId: string, on: boolean, messageId?: string) => {
     setContinuingChatIds((prev) => {
       if (prev.has(chatId) === on) return prev;
       const next = new Set(prev);
       if (on) next.add(chatId);
       else next.delete(chatId);
+      return next;
+    });
+    if (!messageId) return;
+    setContinuingMessageIds((prev) => {
+      if (prev.has(messageId) === on) return prev;
+      const next = new Set(prev);
+      if (on) next.add(messageId);
+      else next.delete(messageId);
       return next;
     });
   }, []);
@@ -135,6 +151,7 @@ export function useStreamRegistry() {
     queuedChatIds,
     streamingMessageIds,
     continuingChatIds,
+    continuingMessageIds,
     streamsForChat,
     syncIndicators,
     markAnswering,

@@ -45,7 +45,18 @@ export function setAppLanguage(lang: AppLanguage): void {
     // localStorage voll/blockiert — die Wahl gilt trotzdem für diese Session
     // nicht weiter; Subscriber bekommen dennoch den aktuellen Wert.
   }
+  applyDocumentLanguage(lang);
   listeners.forEach(l => l());
+}
+
+/**
+ * Mirrors the app language onto <html lang> — index.html hardcodes "en", so
+ * screen readers and the browser's translation prompt would otherwise see an
+ * English page forever, regardless of the chosen language. Called at startup
+ * (main.tsx) and on every switch.
+ */
+export function applyDocumentLanguage(lang: AppLanguage = getAppLanguage()): void {
+  document.documentElement.lang = lang;
 }
 
 function subscribe(listener: () => void): () => void {

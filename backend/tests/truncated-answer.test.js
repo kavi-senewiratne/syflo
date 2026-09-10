@@ -190,6 +190,106 @@ describe('an answer the provider cut short', () => {
     expect(last.content).toMatch(/continue|fortfahr|weiter/i);
   });
 
+  // The seam the join cannot verify (mockup-truncated-answer §04, live
+  // incident 2026-09-07): the continuation neither repeated the last words it
+  // was told to repeat nor opened with a space, and the old text stops
+  // mid-sentence. Round one is discarded and the client asked to retry;
+  // round two is appended anyway, flagged, and the flag opens regenerate.
+  describe('a continuation whose seam cannot be verified', () => {
+    async function makeCutAnswer() {
+      mockCreate
+        .mockResolvedValueOnce(makeCutStream(['Es gibt drei Gründe: erstens die']))
+        .mockResolvedValueOnce({ choices: [{ message: { content: 'Titel' } }] });
+      const chat = await request(app).post('/api/chats').send({ title: 'T' });
+      await ask(chat.body.id);
+      const detail = await request(app).get(`/api/chats/${chat.body.id}`);
+      return { chatId: chat.body.id, cut: detail.body.messages.find((m) => m.role === 'assistant') };
+    }
+
+    it('discards the first suspect round and asks the client for one retry', async () => {
+      const { chatId, cut } = await makeCutAnswer();
+
+      // No repetition, no leading space, a jump past the middle of the answer.
+      mockCreate.mockResolvedValueOnce(makeStream(['ganz woanders geht es weiter.']));
+      const res = await request(app)
+        .post(`/api/chats/${chatId}/messages/continue`)
+        .send({ messageId: cut.id });
+      const done = parseSSE(res.text).find((e) => e.done);
+
+      // The done event says: discarded, still truncated, please retry once.
+      expect(done.assistantMessage.seam_retry).toBe(1);
+      expect(done.assistantMessage.truncated).toBe(1);
+      expect(done.assistantMessage.content).toBe(cut.content);
+      // And the row is untouched — as if the round had never run.
+      const after = await request(app).get(`/api/chats/${chatId}`);
+      const answer = after.body.messages.find((m) => m.role === 'assistant');
+      expect(answer.content).toBe(cut.content);
+      expect(answer.truncated).toBe(1);
+      expect(answer.seam_suspect).toBe(0);
+    });
+
+    it('appends the second suspect round, but flags the seam', async () => {
+      const { chatId, cut } = await makeCutAnswer();
+
+      mockCreate.mockResolvedValueOnce(makeStream(['ganz woanders geht es weiter.']));
+      const res = await request(app)
+        .post(`/api/chats/${chatId}/messages/continue`)
+        .send({ messageId: cut.id, seamRetry: true });
+      const done = parseSSE(res.text).find((e) => e.done);
+
+      expect(done.assistantMessage.seam_suspect).toBe(1);
+      expect(done.assistantMessage.seam_retry).toBeUndefined();
+      const after = await request(app).get(`/api/chats/${chatId}`);
+      const answer = after.body.messages.find((m) => m.role === 'assistant');
+      // Half the answer is better than none: the text grew…
+      expect(answer.content).toBe('Es gibt drei Gründe: erstens die ganz woanders geht es weiter.');
+      expect(answer.truncated).toBe(0);
+      // …but the reader is told the seam may hide a gap.
+      expect(answer.seam_suspect).toBe(1);
+    });
+
+    it('opens regenerate for a seam-flagged answer — and only then', async () => {
+      const { chatId, cut } = await makeCutAnswer();
+
+      // A real, unflagged answer stays protected from regenerate.
+      let res = await request(app)
+        .post(`/api/chats/${chatId}/messages/regenerate`)
+        .send({ messageId: cut.id });
+      expect(res.status).toBe(409);
+
+      db.prepare('UPDATE messages SET seam_suspect = 1, truncated = 0 WHERE id = ?').run(cut.id);
+      mockCreate.mockResolvedValueOnce(makeStream(['Eine frische, ganze Antwort.']));
+      res = await request(app)
+        .post(`/api/chats/${chatId}/messages/regenerate`)
+        .send({ messageId: cut.id });
+      expect(res.status).toBe(200);
+
+      const after = await request(app).get(`/api/chats/${chatId}`);
+      const answers = after.body.messages.filter((m) => m.role === 'assistant');
+      // The damaged answer is gone; the fresh one took its slot, unflagged.
+      expect(answers).toHaveLength(1);
+      expect(answers[0].content).toBe('Eine frische, ganze Antwort.');
+      expect(answers[0].seam_suspect).toBe(0);
+    });
+
+    it('trusts a continuation that repeats its words — no flag, no retry', async () => {
+      const { chatId, cut } = await makeCutAnswer();
+
+      mockCreate.mockResolvedValueOnce(makeStream(['erstens die Kosten, zweitens die Zeit.']));
+      const res = await request(app)
+        .post(`/api/chats/${chatId}/messages/continue`)
+        .send({ messageId: cut.id });
+      const done = parseSSE(res.text).find((e) => e.done);
+
+      expect(done.assistantMessage.seam_retry).toBeUndefined();
+      expect(done.assistantMessage.seam_suspect).toBeUndefined();
+      const after = await request(app).get(`/api/chats/${chatId}`);
+      const answer = after.body.messages.find((m) => m.role === 'assistant');
+      expect(answer.content).toBe('Es gibt drei Gründe: erstens die Kosten, zweitens die Zeit.');
+      expect(answer.seam_suspect).toBe(0);
+    });
+  });
+
   it('leaves a normal answer untouched', async () => {
     mockCreate
       .mockResolvedValueOnce(makeStream(['Fertige Antwort.']))

@@ -323,8 +323,41 @@ function transcriptTruncationNote(fittedText, fullText, durationSeconds) {
   const total = durationSeconds ? ` of ${formatTimestamp(durationSeconds * 1000)}` : '';
   return (
     `\n[Note: the transcript is truncated at ${lastMark}${total} — ` +
-    'content after this point is NOT included. If asked about it, say you cannot see that part of the video.]'
+    'content after this point is NOT included. If asked about it, say you cannot see that part of the video. ' +
+    // The total above is the number the model reaches for when it needs an
+    // ending. Measured 2026-09-02 (Neel Nanda, 3:57:44): the transcript was cut
+    // at 1:41:43, and the overview closed with "## Superposition and
+    // Polysemanticity [1:41:43 - 3:57:44]" — a 2 h 16 min section over material
+    // it had never seen. That mark then read as full coverage, so nothing asked
+    // to be continued and 57 % of the video silently disappeared.
+    `Never write a time mark past ${lastMark}: your last section must END at or before it, ` +
+    'even if that leaves the video unfinished. Stopping there is correct — the rest is written later. ' +
+    // User report with picture 2026-09-04: every round signed off with
+    // "*Ende des verfügbaren Transkripts bei [36:30].*", and since rounds are
+    // appended into one message the reader ended up with a row of these
+    // between the chapters. The app already knows where the cut is — it put
+    // this note here — so the sentence buys nothing and costs the overview.
+    'Do NOT write a closing sentence saying where the transcript ends: the app knows, ' +
+    'and the rounds are joined into ONE answer, so such a line would sit in the middle of it.]'
   );
+}
+
+/**
+ * The second the fitted transcript reaches, or null when nothing was cut.
+ *
+ * The companion to the note above, and the reason it exists: an instruction
+ * can be ignored, this number cannot. Stored with the answer so the progress
+ * measure knows what the model was actually able to see (see
+ * overview-progress.js — a mark past this second is an echo, not coverage).
+ */
+function transcriptCutSeconds(fittedText, fullText) {
+  if (!fittedText || !fullText || fittedText.length >= fullText.length) return null;
+  const marks = fittedText.match(/\[(\d+):(\d{2})(?::(\d{2}))?\]/g);
+  if (!marks) return null;
+  const m = /\[(\d+):(\d{2})(?::(\d{2}))?\]/.exec(marks[marks.length - 1]);
+  return m[3] === undefined
+    ? Number(m[1]) * 60 + Number(m[2])
+    : Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]);
 }
 
 module.exports = {
@@ -337,4 +370,5 @@ module.exports = {
   extractYoutubeId,
   getTreeVideoContext,
   transcriptTruncationNote,
+  transcriptCutSeconds,
 };

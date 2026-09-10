@@ -275,6 +275,47 @@ describe('MessageBubble — reason-true failover notes (§11)', () => {
     );
   });
 
+  it("stalled, same provider: 'X was not answering' — never 'Quota reached'", () => {
+    // The ladder moves off a model that said nothing before its first token
+    // (2026-09-01). Nothing was refused and nothing was used up, so the quota
+    // wording would be a lie about the reader's own account.
+    render(
+      <MessageBubble
+        message={{
+          ...answered,
+          failover: {
+            from: 'gemini', fromModel: 'gemini-2.5-pro',
+            to: 'gemini', model: 'gemini-2.5-flash', reason: 'stalled',
+          },
+        }}
+        onWordRightClick={vi.fn()}
+        modelLabels={{ ...labels, 'gemini-2.5-pro': 'Gemini Pro' }}
+      />,
+    );
+    expect(screen.getByTestId('failover-note')).toHaveTextContent(
+      'Gemini Pro was not answering — this answer comes from Gemini Flash.',
+    );
+  });
+
+  it('stalled, cross provider: provider labels + model', () => {
+    render(
+      <MessageBubble
+        message={{
+          ...answered,
+          failover: {
+            from: 'gemini', fromModel: 'gemini-2.5-flash',
+            to: 'groq', model: 'llama-3.3-70b-versatile', reason: 'stalled',
+          },
+        }}
+        onWordRightClick={vi.fn()}
+        modelLabels={labels}
+      />,
+    );
+    expect(screen.getByTestId('failover-note')).toHaveTextContent(
+      'Gemini was not answering — this answer comes from Groq (Llama 3.3 70B).',
+    );
+  });
+
   it('quota reasons keep the existing wording (cooldown shares it)', () => {
     render(
       <MessageBubble

@@ -13,7 +13,7 @@
 
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import App from '../App';
+import App, { AUTO_CONTINUE_ERROR_RETRIES } from '../App';
 import { StreamFailedError } from '../api';
 import { FAILED_MARKER } from '../types';
 import type { Chat, ChatDetail, Message, Registry, RegistryModel, Settings } from '../types';
@@ -307,14 +307,44 @@ describe('App — continuing an answer the provider cut short', () => {
     await waitFor(() => expect(api.continueMessage).toHaveBeenCalledTimes(2));
   });
 
-  it('puts the card back when the continuation fails', async () => {
+  it('shows the writing cursor in the bubble while a round is running', async () => {
+    // User report 2026-08-29 (Waymo overview, eight rounds over 4:50 min): the
+    // text grew and the bubble looked idle, so nobody could tell whether the
+    // answer was finished. A continuation never reached `streamingMessageIds`
+    // — the only thing MessageBubble reads — so neither cursor nor dots ran.
+    vi.mocked(api.getChat).mockResolvedValue(cutDetail);
+    let release: (() => void) | undefined;
+    vi.mocked(api.continueMessage).mockImplementation((_chatId, _messageId, onDelta) =>
+      new Promise((resolve) => {
+        onDelta(' Binärcode.');
+        release = () => resolve({
+          userMessage: cutDetail.messages[0],
+          assistantMessage: {
+            ...cutDetail.messages[1],
+            content: '## Teil eins [0:03 - 5:12]\n\nDie Gewichte entsprechen dem Binärcode.',
+            truncated: 0,
+          },
+        });
+      }),
+    );
+
+    await openRootChat();
+
+    // Mid-round: the answer says it is still being written.
+    expect(await screen.findByTestId('streaming-cursor')).toBeInTheDocument();
+    release?.();
+    // …and stops saying so the moment the round is done.
+    await waitFor(() => expect(screen.queryByTestId('streaming-cursor')).not.toBeInTheDocument());
+  });
+
+  it('retries an errored round in place before putting the card back', async () => {
     vi.mocked(api.getChat).mockResolvedValue(cutDetail);
     vi.mocked(api.continueMessage).mockRejectedValue(new Error('offline'));
 
     await openRootChat();
 
     expect(await screen.findByTestId('truncated-note')).toBeInTheDocument();
-    expect(api.continueMessage).toHaveBeenCalledTimes(1);
+    expect(api.continueMessage).toHaveBeenCalledTimes(AUTO_CONTINUE_ERROR_RETRIES);
   });
 });
 
@@ -510,5 +540,40 @@ describe('App — picking a model via the card\'s "Modell wechseln" auto-retries
     fireEvent.click(await screen.findByTestId('model-item-llama-4-scout'));
     await waitFor(() => expect(api.updateSettings).toHaveBeenCalled());
     expect(api.regenerateMessage).not.toHaveBeenCalled();
+  });
+});
+
+// ─── Ein 409 heißt "schon fertig", nicht "fehlgeschlagen" ──────────────────
+// Gemessen am 2026-09-03: Nach der letzten Fortsetzungsrunde feuerte der
+// Automat noch einmal aus einem Render-alten Zustand. Der Server antwortete
+// korrekt mit 409 "nothing to continue" — und die Fehlerbehandlung stempelte
+// die fertige 27-Kapitel-Übersicht als "bricht mitten im Satz ab".
+describe('App — continuation refused with 409', () => {
+  const cutDetail: ChatDetail = {
+    ...rootChat,
+    children: [],
+    messages: [
+      { id: 'u1', chat_id: 'c1', role: 'user', content: 'Gliedere das Video', created_at: '2026-09-03T00:00:01Z' },
+      {
+        id: 'a1', chat_id: 'c1', role: 'assistant',
+        content: '## Schluss [3:55:27 - 3:57:44]\n\n**Ende.**',
+        created_at: '2026-09-03T00:00:02Z',
+        truncated: 1,
+      },
+    ],
+  };
+
+  it('keeps the answer whole instead of stamping the cut-off card on it', async () => {
+    vi.mocked(api.getChat).mockResolvedValue(cutDetail);
+    vi.mocked(api.continueMessage).mockRejectedValue(
+      Object.assign(new Error('nothing to continue'), { alreadyComplete: true }),
+    );
+
+    await openRootChat();
+
+    await waitFor(() => expect(api.continueMessage).toHaveBeenCalled());
+    // No card, and no retry storm on top of it.
+    await waitFor(() => expect(screen.queryByTestId('truncated-note')).not.toBeInTheDocument());
+    expect(screen.getByText(/Ende\./)).toBeInTheDocument();
   });
 });

@@ -156,6 +156,16 @@ function capOutcome(raw) {
 }
 
 /**
+ * Placeholder titles a freshly created chat can carry. The frontend names
+ * new chats in the ACTIVE app language (strings.ts `app.newChatTitle`), so
+ * every localized default must be listed here — a chat still wearing one of
+ * these has never been titled. Checking only the English literal made German
+ * chats skip title generation whenever the message count also missed the
+ * first-exchange window (queued questions, report 2026-09-05).
+ */
+const DEFAULT_CHAT_TITLES = new Set(['New Chat', 'Neuer Chat']);
+
+/**
  * Sanitize whatever the LLM returned: strip wrapping quotes/backticks and
  * trailing punctuation, drop line breaks, enforce both caps. An unbalanced
  * `$` reads as broken math in the UI, so it falls back to plain text.
@@ -422,6 +432,7 @@ function chatTitleInstruction() {
 const MAX_PASSAGE_CHARS = 600;
 
 module.exports = {
+  DEFAULT_CHAT_TITLES,
   MAX_TITLE_WORDS,
   MAX_TITLE_CHARS,
   MAX_OUTCOME_CHARS,

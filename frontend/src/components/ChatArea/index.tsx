@@ -50,7 +50,7 @@ interface Props {
   onSelectChat: (id: string) => void;
   // "Upload file" im Plus-Menü: bindet ein PDF an den Chat tree (ein PDF pro
   // Tree, ADR-0002). Ohne Handler wird der Menüeintrag nicht angeboten.
-  onUploadPdf?: (file: File) => void;
+  onUploadPdf?: (file: File) => void | Promise<void>;
   // "Research paper" im Plus-Menü: öffnet das Paper-Such-Modal (Slice 07).
   // Ohne Handler wird der Menüeintrag nicht angeboten.
   onOpenPaperSearch?: () => void;
@@ -299,6 +299,11 @@ export function ChatArea({ chat, videoYoutubeId, onTimeMarkClick, loading, strea
   const [mentionIndex, setMentionIndex] = useState(0);
   // Steuert das kleine Plus-Popover-Menü ("Files and media", …) — wie bei Claude.
   const [pickerMenuOpen, setPickerMenuOpen] = useState(false);
+  // Läuft, solange der direkte "Upload file"-Pfad (onUploadPdf) noch wartet —
+  // anders als der Paper-Search-Import hat dieser Pfad kein eigenes Modal,
+  // das einen Ladezustand zeigen könnte (Nutzerwunsch: nie ohne Statusanzeige
+  // warten lassen).
+  const [uploadingPdf, setUploadingPdf] = useState(false);
   // /feedback-Vorschlag (ADR-0010, design/mockup-feedback.html §2): zeigt das
   // Menü, solange der Composer noch am Command-Wort tippt (kein Leerzeichen
   // dahinter) — reines Autocomplete, das eigentliche Öffnen übernimmt
@@ -965,7 +970,10 @@ export function ChatArea({ chat, videoYoutubeId, onTimeMarkClick, loading, strea
 
   const handlePdfSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file && onUploadPdf) onUploadPdf(file);
+    if (file && onUploadPdf) {
+      setUploadingPdf(true);
+      void Promise.resolve(onUploadPdf(file)).finally(() => setUploadingPdf(false));
+    }
     if (pdfInputRef.current) pdfInputRef.current.value = '';
   };
 
@@ -1170,8 +1178,9 @@ export function ChatArea({ chat, videoYoutubeId, onTimeMarkClick, loading, strea
 
   // Seit der Backend-Warteschlange blockiert ein laufender Stream den
   // Composer NICHT mehr: weitere Fragen sind erwünscht und reihen sich ein
-  // (FIFO). Nur der kurze Sende-Moment selbst und das Chat-Laden sperren.
-  const isBusy = sending || loading;
+  // (FIFO). Nur der kurze Sende-Moment selbst, das Chat-Laden und ein
+  // laufender PDF-Upload sperren.
+  const isBusy = sending || loading || uploadingPdf;
 
   // Sprung aus dem Highlights-Drawer: Nachricht mittig in den Viewport
   // scrollen und die Zeile kurz aufblinken lassen (Grill-Entscheidung 8).
@@ -2240,12 +2249,14 @@ export function ChatArea({ chat, videoYoutubeId, onTimeMarkClick, loading, strea
                       ? 'text-gray-900 bg-gray-100'
                       : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
                   }`}
-                  data-tip={S.attach}
-                  aria-label={S.attach}
+                  data-tip={uploadingPdf ? S.uploadingPdf : S.attach}
+                  aria-label={uploadingPdf ? S.uploadingPdf : S.attach}
                   data-focus-item="composer-attach"
                   data-testid="attach-plus-button"
                 >
-                  <Plus size={20} strokeWidth={1.75} />
+                  {uploadingPdf
+                    ? <Loader2 size={20} strokeWidth={1.9} className="animate-spin" />
+                    : <Plus size={20} strokeWidth={1.75} />}
                 </button>
                 {pickerMenuOpen && (
                   <div

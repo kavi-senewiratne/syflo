@@ -11,7 +11,12 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
-import { getAppLanguage, setAppLanguage, useAppLanguage } from '../appLanguage';
+import {
+  applyDocumentLanguage,
+  getAppLanguage,
+  setAppLanguage,
+  useAppLanguage,
+} from '../appLanguage';
 
 const mockNavigatorLanguage = (lang: string) =>
   vi.spyOn(window.navigator, 'language', 'get').mockReturnValue(lang);
@@ -49,6 +54,22 @@ describe('appLanguage', () => {
     mockNavigatorLanguage('en-US');
     localStorage.setItem('syflo.appLanguage', 'fr');
     expect(getAppLanguage()).toBe('en');
+  });
+
+  it('mirrors a manual choice onto <html lang>', () => {
+    mockNavigatorLanguage('en-US');
+    document.documentElement.lang = 'en';
+    setAppLanguage('de');
+    expect(document.documentElement.lang).toBe('de');
+    setAppLanguage('en');
+    expect(document.documentElement.lang).toBe('en');
+  });
+
+  it('applyDocumentLanguage stamps the current language onto <html lang> at startup', () => {
+    mockNavigatorLanguage('de-DE');
+    document.documentElement.lang = 'en';
+    applyDocumentLanguage();
+    expect(document.documentElement.lang).toBe('de');
   });
 
   it('useAppLanguage re-renders subscribers when the language changes', () => {

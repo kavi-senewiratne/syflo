@@ -89,6 +89,28 @@ describe('math rendering in chat messages', () => {
     expect(container.textContent).not.toContain('$$');
   });
 
+  it('one stray currency dollar does not derail later formulas (report 2026-09-04)', () => {
+    // A video overview contained `$0.08 / Million Tokens` — ONE unpaired
+    // prose dollar early on. The old swallow guard masked pairs wholesale,
+    // so every later pairing was shifted and real formulas lost their
+    // CLOSING `$`: KaTeX showed `B \times K\` parse errors.
+    const { container } = renderContent(
+      '- **Leistungsdaten:** $0.08 / Million Tokens.\n' +
+        '\n' +
+        '- GPT-2 komprimiert $50.000$ Token in einen Raum.\n' +
+        '\n' +
+        '- Maximalwert ($30$ statt $0$ bis $3$).\n' +
+        '\n' +
+        '- wählt die stärksten $B \\times K$ Aktivierungen.',
+    );
+
+    expect(container.querySelector('.katex-error')).toBeNull();
+    // All five real formulas render; the price stays prose.
+    expect(container.querySelectorAll('.katex').length).toBeGreaterThanOrEqual(5);
+    expect(container.textContent).toContain('$0.08 / Million Tokens');
+    expect(container.textContent).toContain('Aktivierungen');
+  });
+
   it('keeps small inline math inline', () => {
     const { container } = renderContent('Runs in $O(n^2)$ time.');
 

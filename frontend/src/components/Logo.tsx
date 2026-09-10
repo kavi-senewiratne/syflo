@@ -194,26 +194,22 @@ const VARIANTS: Record<ThemeId, React.ReactNode> = {
           and only the sidebar head still showed a mushroom, so the app said
           two different things about what Syflo is.
 
-          Same geometry as the dock icon, different ink: in the dock the branch
-          is cream on red, which would be invisible on this theme's cream
-          sidebar. Variant A keeps the navy trunk and gives the two nodes the
-          theme's own gold and red — the same pair the dock uses, just carrying
-          the contrast instead of the background. crispEdges so the sprite
-          stays sharp at any scale. */}
+          Colors since 2026-09-10 (design/mockup-logo-mushroom-colors.html,
+          §03 variant H3): accent-red trunk, both nodes in question-block
+          gold — the dock icon's own pair, just two inks. This replaces the
+          navy trunk + gold/red nodes of round 15/§05; the user wanted the
+          near-black out of the mark (the wordmark's "Sy" keeps the text ink,
+          that one was not in question). crispEdges so the sprite stays sharp
+          at any scale. */}
       <svg width="20" height="20" viewBox="0 0 48 48" aria-hidden="true">
         <g shapeRendering="crispEdges">
-          {/* Die Äste tragen exakt die Tinte der Wortmarke (#23234A), nicht
-              mehr das Rahmen-Dunkelviolett #26264F des Themes (Nutzer­korrektur
-              2026-08-28): "Sy" und der Stamm sollen dieselbe Farbe sein. Die
-              beiden Werte lagen nur 3 Einheiten pro Kanal auseinander — nah
-              genug, um wie ein Fehler auszusehen, statt wie eine Absicht. */}
-          <g fill="#23234A">
+          <g fill="#D8433B">
             <rect x="4" y="20" width="16" height="8" />
             <rect x="16" y="12" width="10" height="8" />
             <rect x="16" y="28" width="10" height="8" />
           </g>
           <rect x="26" y="4" width="14" height="14" fill="#EFB43A" />
-          <rect x="26" y="30" width="14" height="14" fill="#D8433B" />
+          <rect x="26" y="30" width="14" height="14" fill="#EFB43A" />
         </g>
       </svg>
       {/* Wortmarke in der Pixel-Display-Schrift des Themes (wie die

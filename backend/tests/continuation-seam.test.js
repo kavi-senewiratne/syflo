@@ -13,7 +13,7 @@
  * Regel: das wiederholte Stück legt die Naht offen.
  */
 
-const { joinContinuation } = require('../continuation');
+const { joinContinuation, seamSuspect, endsMidSentence } = require('../continuation');
 
 describe('joinContinuation', () => {
   it('schneidet die wiederholten Wörter weg, statt sie doppelt zu zeigen', () => {
@@ -107,5 +107,104 @@ describe('continuationInstruction', () => {
 
   it('bleibt bei der Naht-Anweisung, wenn wirklich abgeschnitten wurde', () => {
     expect(continuationInstruction({ mode: 'seam' })).toMatch(/cut off mid-sentence/);
+  });
+
+  // Sprach-Drift-Fix (Nutzer-Report 2026-09-05): eine deutsche Video overview
+  // über einem englischen Transkript kippte mittendrin ins Englische, weil die
+  // Anweisung nur „same language" sagte. Jetzt wird die Sprache benannt.
+  it('nennt die Sprache ausdrücklich, wenn sie bekannt ist (append)', () => {
+    const de = continuationInstruction({ mode: 'append', language: 'de' });
+    expect(de).toMatch(/in German/);
+    expect(de).not.toMatch(/same format and language/);
+
+    const en = continuationInstruction({ mode: 'append', language: 'en' });
+    expect(en).toMatch(/in English/);
+  });
+
+  it('nennt die Sprache ausdrücklich, wenn sie bekannt ist (seam)', () => {
+    const de = continuationInstruction({ mode: 'seam', language: 'de' });
+    expect(de).toMatch(/Keep the same format, in German,/);
+  });
+
+  it('fällt ohne Sprachangabe auf „same language" zurück (abwärtskompatibel)', () => {
+    expect(continuationInstruction({ mode: 'seam' })).toMatch(/same format and language/);
+    expect(continuationInstruction({ mode: 'append' })).toMatch(/same format and language/);
+  });
+});
+
+describe('detectLanguage', () => {
+  const { detectLanguage } = require('../continuation');
+
+  it('erkennt Deutsch an Umlauten und Funktionswörtern', () => {
+    expect(detectLanguage('## 0:00 – 0:31\n**Der Einstieg: Karpathy stellt seinen Werdegang vor.**')).toBe('de');
+  });
+
+  it('erkennt Englisch', () => {
+    expect(detectLanguage('Prompt engineering allows language models to break down complex problems into steps.')).toBe('en');
+  });
+
+  it('folgt dem deutschen ANFANG, nicht englischen Fachbegriffen darin', () => {
+    // Der reale Fall: deutscher Overview-Text mit englischen Termini —
+    // die deutsche Bindesprache muss überwiegen.
+    const text = 'Der Daten-Engine-Zyklus bei Tesla: Sammeln, Trainieren, Deployen und Überwachen der Netzwerke.';
+    expect(detectLanguage(text)).toBe('de');
+  });
+
+  it('gibt null zurück, wenn es kein Signal gibt', () => {
+    expect(detectLanguage('')).toBeNull();
+    expect(detectLanguage(null)).toBeNull();
+    expect(detectLanguage('12:34 56:78 —— ##')).toBeNull();
+  });
+});
+
+/**
+ * The seam the join CANNOT verify (live incident 2026-09-07): the answer broke
+ * off at "* Nur " and the continuation opened with "der
+ * Normalverteilungsannahme erfüllt ist" — no repeated words, a jump past the
+ * middle of the answer. Blind concatenation produced a garbled sentence with a
+ * silent gap. `seamSuspect` is the detector; what to do about it (retry once,
+ * then append flagged) lives in routes/messages.js.
+ */
+describe('seamSuspect', () => {
+  it('flags the live incident: mid-sentence cut, no repetition, no leading space', () => {
+    const cut = '* Einige sind etwas kleiner (1,75 m) oder etwas größer (1,85 m).\n* Nur ';
+    const next = 'der Normalverteilungsannahme erfüllt ist, dann gelten die bekannten Verteilungen';
+    expect(seamSuspect(cut, next)).toBe(true);
+  });
+
+  it('trusts a continuation that repeats its last words — the instructed seam', () => {
+    expect(seamSuspect('…während die Aktivierungen dem', 'die Aktivierungen dem Arbeitsspeicher')).toBe(false);
+  });
+
+  it('trusts a continuation that opens with a space or line break', () => {
+    // A leading space is itself evidence of a deliberate mid-sentence
+    // continuation (measured 2026-08-16) — those joins were fine.
+    expect(seamSuspect('Die Gewichte entsprechen dem', ' Binärcode der Anwendung.')).toBe(false);
+    expect(seamSuspect('Ein Absatz endet mit dem', '\nNächste Zeile')).toBe(false);
+  });
+
+  it('trusts any join after a finished sentence', () => {
+    expect(seamSuspect('Der Satz ist zu Ende.', 'Ein neuer Gedanke beginnt.')).toBe(false);
+    expect(seamSuspect('Der Satz ist zu Ende.**', 'Ein neuer Gedanke beginnt.')).toBe(false);
+  });
+
+  it('never flags empty halves', () => {
+    expect(seamSuspect('', 'Text')).toBe(false);
+    expect(seamSuspect('Text', '')).toBe(false);
+  });
+});
+
+describe('endsMidSentence', () => {
+  it('reads a trailing word, comma or dash as an open sentence', () => {
+    expect(endsMidSentence('erstens')).toBe(true);
+    expect(endsMidSentence('erstens, ')).toBe(true);
+    expect(endsMidSentence('erstens –')).toBe(true);
+  });
+
+  it('reads sentence-final punctuation as closed, markdown tails ignored', () => {
+    expect(endsMidSentence('Fertig.')).toBe(false);
+    expect(endsMidSentence('Fertig!**\n\n')).toBe(false);
+    expect(endsMidSentence('Wirklich?')).toBe(false);
+    expect(endsMidSentence('')).toBe(false);
   });
 });

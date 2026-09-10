@@ -270,13 +270,25 @@ async function testOpenAIKey(apiKey) {
  * titles, summaries): suppresses the thinking phase of reasoning models on
  * Ollama (/v1 translates reasoning_effort 'none' → think off).
  */
-function noThinkExtras(provider) {
+function noThinkExtras(provider, model = null) {
   // Ollama /v1 understands 'none' (thinking off). Gemini's NEW alias models
   // (gemini-flash-latest, 2026-07) reject 'none' with a bare 400 — 'low' is
   // the minimum they accept; same for Groq's gpt-oss. If a provider fails on
   // the flag anyway, the degradation ladder in tools.js takes over.
   if (provider === 'ollama') return { reasoning_effort: 'none' };
-  if (provider === 'gemini' || provider === 'groq') return { reasoning_effort: 'low' };
+  // Groq's Qwen models are the exception on their own provider (measured
+  // 2026-09-04, when qwen3.8-27b replaced the retired Llama): they accept
+  // 'none' and then genuinely do not think, whereas 'low' makes them fill a
+  // `reasoning` field — thinking, on a request whose whole point was to turn
+  // thinking off. gpt-oss is the mirror image: 'none' comes back as
+  // "`reasoning_effort` must be one of `low`, `medium`, or `high`". One
+  // provider, two answers, so the model has to decide it.
+  // The model is optional: callers that do not know it keep 'low', which
+  // every Groq model accepts.
+  if (provider === 'groq') {
+    return { reasoning_effort: /^qwen\//i.test(model || '') ? 'none' : 'low' };
+  }
+  if (provider === 'gemini') return { reasoning_effort: 'low' };
   return {};
 }
 

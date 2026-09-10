@@ -217,10 +217,24 @@ export interface Message {
   // design/mockup-truncated-answer.html §01). Persisted, because a cut-off
   // answer is indistinguishable from a finished one by its text alone.
   truncated?: number;
+  // 1 when a continuation was welded on although its seam could not be
+  // verified (mockup-truncated-answer §04): the model twice ignored the
+  // repeat-your-last-words instruction, so the join may hide a gap in the
+  // middle of the text. Persisted; renders the warning card with regenerate.
+  seam_suspect?: number;
+  // Transient, only on the done event of /continue (never a column): the
+  // server DISCARDED this round because the seam looked broken, and asks the
+  // client to call /continue once more with seamRetry=true.
+  seam_retry?: number;
   // Persisted at enqueue, still waiting for its answer (mockup-model-flow
   // §10). 1 while queued server-side; a trailing pending question without a
   // live stream renders the "left without an answer" row.
   pending?: number;
+  // The second the transcript this answer saw reached, when the context
+  // budget cut it (null/absent: nothing was cut). The Video overview's
+  // progress is capped at it — a time mark past this point is the truncation
+  // note's own number echoed back, not video that was covered.
+  covered_until_seconds?: number | null;
 }
 
 // Cause of a quotaExhausted error (SSE `quotaReason`, ADR-0008).
@@ -264,7 +278,9 @@ export interface FailoverInfo {
   fromModel: string;
   to: string;
   model: string;
-  reason: 'daily' | 'rate_limit' | 'too_large' | 'cooldown' | 'no_vision' | 'model_unavailable';
+  // 'stalled': the model said nothing at all within the first-token deadline
+  // and the ladder moved on instead of waiting it out (2026-09-01).
+  reason: 'daily' | 'rate_limit' | 'too_large' | 'cooldown' | 'no_vision' | 'model_unavailable' | 'stalled';
 }
 
 // Prefix warm-up response (fire-and-forget — the UI no longer inspects it;
@@ -789,6 +805,10 @@ export interface UsageSummary {
   // ones, because all of them spend the same allowance. That is what made the
   // picker read "0/20" while the limit was long exhausted.
   modelsToday: Record<string, number>;
+  // Only the calls the provider ANSWERED — what a request-shaped free quota
+  // has really spent. The meter reads this; modelsToday counts attempts, and
+  // counting a 429 as spent made the meter read "28/20" (fix 2026-09-04).
+  answeredToday?: Record<string, number>;
   // What today's calls were FOR, keyed exactly like modelsToday — lets the
   // quota card say "12 answers, 6 titles, 2 x /btw" instead of a bare number.
   kindsToday: Record<string, Partial<Record<UsageKind, number>>>;

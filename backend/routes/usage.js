@@ -84,11 +84,21 @@ module.exports = (db) => {
       .map((r) => r.provider);
 
     const todayByModelKind = db.prepare(
-      `SELECT model, kind, COUNT(*) AS requests
-       FROM usage_log WHERE provider = ? AND created_at >= ? GROUP BY model, kind`
+      `SELECT model, kind, outcome, COUNT(*) AS requests
+       FROM usage_log WHERE provider = ? AND created_at >= ? GROUP BY model, kind, outcome`
     );
 
+    // Every attempt the day made, refused ones included — what the app DID.
     const modelsToday = {};
+    // What is left of a request-shaped free quota: ANSWERED calls only (added
+    // 2026-09-04). The picker's meter used modelsToday and therefore read
+    // "28/20" for gemini-flash-latest — not a number a limit of twenty can
+    // produce. The day's rows said why: 20 ok, 4 quota, 4 failed. The twenty
+    // ARE the limit, exactly; the four 429s are the provider refusing because
+    // that limit was reached, and a refusal spends no request. The meter now
+    // reads this, the usage card keeps reading modelsToday — two questions,
+    // two numbers, instead of one number answering neither.
+    const answeredToday = {};
     // Same key shape as modelsToday, one level deeper: what the day's calls
     // were FOR, so the card can say "12 answers, 6 titles, 2 asides" instead
     // of one number that hides four kinds of call.
@@ -98,6 +108,7 @@ module.exports = (db) => {
       for (const row of todayByModelKind.all(provider, dayStart)) {
         const key = `${provider}/${row.model}`;
         modelsToday[key] = (modelsToday[key] || 0) + row.requests;
+        if (row.outcome === 'ok') answeredToday[key] = (answeredToday[key] || 0) + row.requests;
         (kindsToday[key] ??= {})[row.kind] = (kindsToday[key][row.kind] || 0) + row.requests;
         // A provider whose only rows sit in the current provider-day but
         // before UTC month start still needs its entry.
@@ -110,6 +121,7 @@ module.exports = (db) => {
       month: monthStart.slice(0, 7),
       providers,
       modelsToday,
+      answeredToday,
       kindsToday,
       // Honesty of the estimate: price as-of date visible; the truth is
       // in the provider's billing dashboard.

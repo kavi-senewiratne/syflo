@@ -4,7 +4,7 @@
  * branchLinks am 2026-08-12 in Formeln getappt ist.
  */
 import { describe, it, expect } from 'vitest';
-import { insertTimeLinks, parseTimestamp, youtubeTimeUrl } from '../markdown/timeLinks';
+import { insertTimeLinks, lastTimeMark, parseChapterHeading, parseTimestamp, youtubeTimeUrl } from '../markdown/timeLinks';
 
 describe('parseTimestamp', () => {
   it('rechnet m:ss und h:mm:ss in Sekunden um', () => {
@@ -78,5 +78,118 @@ describe('insertTimeLinks', () => {
     expect(insertTimeLinks('[0:00] Anfang, [10:30] Mitte')).toBe(
       '[0:00](t:0) Anfang, [10:30](t:630) Mitte',
     );
+  });
+});
+
+describe('insertTimeLinks – nackte Überschriften-Spannen (Groq gpt-oss-120b, 2026-09-01)', () => {
+  // Das Modell schrieb "## 0:04 – 0:34 – Titel": Spanne vorn, ohne eckige
+  // Klammern. Ohne diese Behandlung war kein Zeitstempel der Übersicht
+  // klickbar.
+  it('verlinkt die nackte vordere Spanne einer Überschrift', () => {
+    expect(insertTimeLinks('## 0:04 – 0:34 – Einführung und Kontext')).toBe(
+      '## [0:04 – 0:34](t:4) – Einführung und Kontext',
+    );
+  });
+
+  it('verlinkt die nackte Spanne am Ende einer Überschrift', () => {
+    expect(insertTimeLinks('## Einführung – 0:04 – 0:34')).toBe(
+      '## Einführung – [0:04 – 0:34](t:4)',
+    );
+  });
+
+  it('ist idempotent — die schon verlinkte Spanne bleibt, wie sie ist', () => {
+    const einmal = insertTimeLinks('## 0:04 – 0:34 – Einführung');
+    expect(insertTimeLinks(einmal)).toBe(einmal);
+  });
+
+  it('verlinkt nackte Marken in Prosa weiterhin NICHT', () => {
+    // Die Videolänge steht als nackte Zahl im Prompt und wird gern echot
+    // (gemessen 2026-08-30) — Prosa-Marken ohne Klammern bleiben Text.
+    expect(insertTimeLinks('Das Video endet bei 47:40.')).toBe('Das Video endet bei 47:40.');
+  });
+
+  it('lässt eine Überschrift im Codezaun in Ruhe', () => {
+    const zitiert = '```\n## 0:04 – 0:34 – Einführung\n```';
+    expect(insertTimeLinks(zitiert)).toBe(zitiert);
+  });
+});
+
+describe('lastTimeMark', () => {
+  it('liest das Ende der letzten Klammer-Spanne', () => {
+    expect(lastTimeMark('## A [0:03 - 5:12]\n\n## B [5:12 - 9:55]')).toBe('9:55');
+  });
+
+  it('liest auch die nackte Überschriften-Spanne (Groq gpt-oss-120b, 2026-09-01)', () => {
+    expect(lastTimeMark('## 0:04 – 0:34 – Einführung\n\n## 9:23 – 9:55 – Schluss')).toBe('9:55');
+  });
+
+  it('zählt eine nackte Marke in Prosa weiter nicht', () => {
+    expect(lastTimeMark('Der Rest des Videos, bis 3:57:44, fehlt.')).toBeNull();
+  });
+});
+
+// ─── Typografische Bindestriche ───────────────────────────────────────────
+// Gemessen am 2026-09-02: gpt-oss-120b schrieb "[0:01 ‑ 0:39]" mit U+2011
+// (nicht umbrechender Bindestrich) und schmalen geschützten Leerzeichen.
+// Auf dem Bildschirm nicht von einem normalen Bindestrich zu unterscheiden —
+// es entstand aber KEIN einziges Kapitel.
+describe('Bindestrich-Varianten in Kapitelüberschriften', () => {
+  const dashes: [string, string][] = [
+    ['-', 'Bindestrich'],
+    ['‐', 'Trennstrich'],
+    ['‑', 'nicht umbrechender Bindestrich'],
+    ['–', 'Halbgeviertstrich'],
+    ['—', 'Geviertstrich'],
+    ['−', 'Minus'],
+  ];
+
+  it.each(dashes)('erkennt den Bereich mit %s (%s)', (dash) => {
+    const head = parseChapterHeading(`## Einführung [0:01 ${dash} 0:39]`);
+    expect(head?.startSeconds).toBe(1);
+    expect(head?.endSeconds).toBe(39);
+  });
+
+  it('stolpert nicht über schmale geschützte Leerzeichen', () => {
+    const head = parseChapterHeading('## Einführung [0:01 ‑ 0:39]');
+    expect(head?.startSeconds).toBe(1);
+    expect(head?.endSeconds).toBe(39);
+  });
+});
+
+// Ein Kapitel, dessen Überschrift NUR ein Zeitbereich ist (kein Thementitel):
+// `## 10:09 – 13:13`. Ohne eigenen Zweig backtrackte LEADING_HEADING_RE und
+// nahm die ENDZEIT als Titel — in der Kapitelleiste stand dann „13:13" als
+// Kapitelname (Nutzer-Report 2026-09-06, neu importiertes Steve-Jobs-Video).
+describe('reine Zeitbereich-Überschriften (ohne Titel)', () => {
+  it('parst „## 10:09 – 13:13" als Bereich mit leerem Titel', () => {
+    const head = parseChapterHeading('## 10:09 – 13:13');
+    expect(head?.startSeconds).toBe(10 * 60 + 9);
+    expect(head?.endSeconds).toBe(13 * 60 + 13);
+    expect(head?.title).toBe('');
+  });
+
+  it('nimmt die Endzeit NICHT als Titel', () => {
+    const head = parseChapterHeading('## 10:09 – 13:13');
+    expect(head?.title).not.toBe('13:13');
+  });
+
+  it('parst auch mit schmalem geschütztem Leerzeichen und Zeilenumbruch-Leerzeichen', () => {
+    const head = parseChapterHeading('## 00:00 – 00:30  ');
+    expect(head?.startSeconds).toBe(0);
+    expect(head?.endSeconds).toBe(30);
+    expect(head?.title).toBe('');
+  });
+
+  it('parst einen bracketierten reinen Bereich', () => {
+    const head = parseChapterHeading('## [1:00:27 – 1:02:53]');
+    expect(head?.startSeconds).toBe(3627);
+    expect(head?.endSeconds).toBe(3773);
+    expect(head?.title).toBe('');
+  });
+
+  it('fasst eine Überschrift mit nur EINER Uhrzeit nicht als Bereich an', () => {
+    // Nur eine Marke ohne Trenner → gar kein Kapitel (bestehende Regel), und
+    // der range-only-Zweig (zwei Marken nötig) rührt sie nicht an.
+    expect(parseChapterHeading('## 12:30 Uhr Mittagessen')).toBeNull();
   });
 });

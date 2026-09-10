@@ -10,6 +10,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { parseChapters, activeChapterIndex, pickOverviewMessage, overviewStopsShort } from '../markdown/chapters';
+import { insertTimeLinks } from '../markdown/timeLinks';
 import type { Message } from '../types';
 
 const overview = `## An LLM is two files [0:00 - 7:30]
@@ -72,6 +73,17 @@ describe('parseChapters (video pane, variant C)', () => {
     expect(chapters[0].startSeconds).toBe(3753);
     expect(chapters[0].endSeconds).toBeNull();
     expect(chapters[0].keyPoint).toBeNull();
+  });
+
+  it('erkennt die Kernaussage auch mit fett gedrucktem Label statt Ganzzeilen-Fett (Groq gpt-oss-120b, 2026-08-30)', () => {
+    const chapters = parseChapters(
+      '## Introduction [0:01 – 0:39]\n' +
+      '**Kernaussage:** Die äußere, freundliche Fassade verbirgt ein komplexes Innenleben.\n\n' +
+      '- **Meme:** ChatGPT wird als Shoggoth dargestellt.\n',
+    );
+
+    expect(chapters).toHaveLength(1);
+    expect(chapters[0].keyPoint).toBe('Die äußere, freundliche Fassade verbirgt ein komplexes Innenleben');
   });
 });
 
@@ -143,6 +155,92 @@ describe('Überschrift eine Ebene zu hoch (Flash Lite, 2026-08-20)', () => {
 
   it('verlangt weiter eine Zeitmarke — sie unterscheidet Kapitel von Prosa', () => {
     expect(parseChapters('# Einleitung und Motivation\n\n**Ohne Marke.**\n')).toEqual([]);
+  });
+});
+
+describe('Zeitspanne vorn und ohne Klammern (Groq gpt-oss-120b, 2026-09-01)', () => {
+  // Dasselbe Modell, das am 2026-08-30 noch "## Titel [0:01 – 0:39]" schrieb,
+  // lieferte am 2026-09-01 "## 0:04 – 0:34 – Titel": Spanne vorn, keine
+  // eckigen Klammern. Alle Kapitel gingen verloren, und weil auch keine
+  // Fortschritts-Marke lesbar war, blieb die Übersicht still bei 9:55 von
+  // 47:40 stehen — das Auto-Weiterschreiben sprang nie an.
+  const vorn = `## 0:04 – 0:34 – Einführung und Kontext
+**Der Sprecher stellt Anthropic vor und hebt dessen Entwicklung hervor.**
+- **Bibliothek:** Einstieg mit persönlicher Note.
+
+## 9:23 – 9:55 – Entscheidung für Enterprise-Anwendungen
+**Anthropic wählte bewusst den Unternehmens-Markt.**
+- **Strategische Frage:** (Antwort im Video unvollständig, endet bei 9:55).
+`;
+
+  it('liest Kapitel, deren Zeitspanne vorn und ohne Klammern steht', () => {
+    const chapters = parseChapters(vorn);
+
+    expect(chapters).toHaveLength(2);
+    expect(chapters[0]).toMatchObject({
+      title: 'Einführung und Kontext',
+      startSeconds: 4,
+      endSeconds: 34,
+      keyPoint: 'Der Sprecher stellt Anthropic vor und hebt dessen Entwicklung hervor.',
+    });
+    expect(chapters[1].title).toBe('Entscheidung für Enterprise-Anwendungen');
+    expect(chapters[1].startSeconds).toBe(563);
+    expect(chapters[1].endSeconds).toBe(595);
+  });
+
+  it('Offsets zeigen weiter auf den Titel im Originaltext', () => {
+    const [c] = parseChapters(vorn);
+    expect(vorn.slice(c.titleOffset, c.titleOffset + c.title.length)).toBe(c.title);
+  });
+
+  it('overviewStopsShort sieht daran, dass 9:55 von 47:40 erreicht sind', () => {
+    expect(overviewStopsShort(vorn, 2860)).toBe(true);
+  });
+
+  // Gemessen am 2026-09-02 (Neel Nanda, 3:57:44): Das Transkript endete bei
+  // 1:41:43, der Kürzungshinweis nannte die volle Länge, und das Modell schrieb
+  // "## Superposition and Polysemanticity [1:41:43 - 3:57:44]". Ohne Deckel las
+  // sich die Übersicht als fertig — bei 43 % des Videos.
+  it('glaubt einer Schluss-Marke nicht, die über das gesehene Transkript hinausgeht', () => {
+    const gefaelscht = '## Superposition and Polysemanticity [1:41:43 - 3:57:44]\n\n**Ende.**';
+    expect(overviewStopsShort(gefaelscht, 14264)).toBe(false);
+    expect(overviewStopsShort(gefaelscht, 14264, 6103)).toBe(true);
+  });
+
+  it('deckelt nichts, wenn das Transkript ungekürzt war', () => {
+    const ehrlich = '## Schluss [3:50:00 - 3:57:40]\n\n**Ende.**';
+    expect(overviewStopsShort(ehrlich, 14264, null)).toBe(false);
+  });
+
+  it('liest die Kapitel auch aus dem bereits verlinkten Text', () => {
+    const linked = insertTimeLinks(vorn);
+    const chapters = parseChapters(linked);
+    expect(chapters).toHaveLength(2);
+    expect(chapters[0].startSeconds).toBe(4);
+    expect(chapters[0].title).toBe('Einführung und Kontext');
+  });
+
+  it('nimmt eine nackte Spanne auch am ENDE der Überschrift', () => {
+    const chapters = parseChapters('## Einführung – 0:04 – 0:34\n\n**Satz.**\n');
+    expect(chapters).toHaveLength(1);
+    expect(chapters[0]).toMatchObject({ title: 'Einführung', startSeconds: 4, endSeconds: 34 });
+  });
+
+  it('nimmt eine Spanne in runden Klammern', () => {
+    const chapters = parseChapters('## Einführung (0:04 – 0:34)\n');
+    expect(chapters).toHaveLength(1);
+    expect(chapters[0]).toMatchObject({ title: 'Einführung', startSeconds: 4, endSeconds: 34 });
+  });
+
+  it('eine nackte Marke MITTEN in der Überschrift bleibt Prosa (echote Videolänge)', () => {
+    // Dieselbe Vorsicht wie in backend/overview-progress.js (2026-08-30): die
+    // Videolänge wird dem Modell als nackte Zahl vorgesagt, und ein Echo davon
+    // darf nicht als "bis dahin gekommen" zählen.
+    expect(parseChapters('## Restliches Video bis 47:40 nicht enthalten\n')).toEqual([]);
+  });
+
+  it('eine einzelne nackte Marke am Ende ist kein Kapitel („um 10:30")', () => {
+    expect(parseChapters('## Treffen um 10:30\n')).toEqual([]);
   });
 });
 

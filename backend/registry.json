@@ -1,5 +1,5 @@
 {
-  "asOf": "2026-07-30",
+  "asOf": "2026-09-04",
   "sourceUrl": "https://raw.githubusercontent.com/kavisenewiratne/syflo/main/backend/registry.json",
   "providers": {
     "gemini": {
@@ -90,20 +90,21 @@
           }
         },
         {
-          "name": "llama-3.3-70b-versatile",
-          "label": "Llama 3.3 70B",
+          "name": "qwen/qwen3.8-27b",
+          "label": "Qwen 3.8 27B",
           "vision": false,
-          "canThink": false,
+          "canThink": true,
           "contextWindowTokens": 131072,
           "budgetCapTokens": 8000,
           "free": true,
           "pricing": {
-            "inputPerMTok": 0.59,
-            "outputPerMTok": 0.79
+            "inputPerMTok": 0.8,
+            "outputPerMTok": 4.0
           },
           "freeQuota": {
             "requestsPerMinute": 30,
-            "tokensPerDay": 100000,
+            "requestsPerDay": 1000,
+            "tokensPerDay": 200000,
             "tokensPerMinute": 8000
           }
         }

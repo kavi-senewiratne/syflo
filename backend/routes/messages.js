@@ -24,20 +24,25 @@ const multer = require('multer');
 const { getLLMClient, getLLMClientFor, getSetting, noThinkExtras, extendOllamaKeepAlive } = require('../llm');
 const { getModelInfo, getRegistry } = require('../registry');
 const { streamWithTools, availableTools, toolsField, isTruncatedFinish } = require('../tools');
-const { joinContinuation, continuationInstruction } = require('../continuation');
+const { joinContinuation, continuationInstruction, condenseWrittenAnswer, detectLanguage, seamSuspect } = require('../continuation');
 const {
-  MAX_PASSAGE_CHARS, capTitleWords, sanitizeTitle,
+  DEFAULT_CHAT_TITLES, MAX_PASSAGE_CHARS, capTitleWords, sanitizeTitle,
   branchTitleInstruction, chatTitleInstruction, parseBranchTitleReply,
   outcomeInstruction, parseOutcomeReply,
 } = require('../title');
 const { getTreePaperContext } = require('../pdf-text');
-const { getTreeVideoContext, transcriptTruncationNote } = require('../youtube');
+const { getTreeVideoContext, transcriptTruncationNote, transcriptCutSeconds } = require('../youtube');
 const {
   trimTrailingClosing,
   lastCoveredSeconds,
+  capCoverage,
   isShortOfEnd,
   transcriptFrom,
   formatMark,
+  overviewSectionTarget,
+  stripRoundSignOff,
+  stripLeadingNarration,
+  closeUnbalancedBold,
 } = require('../overview-progress');
 const {
   ensureSourceChunks,
@@ -90,6 +95,22 @@ const OVERLOAD_BACKOFF_SECONDS = [2, 4, 8];
 // sits silent for a minute or more on the 24 GB Mac.
 const CLOUD_STALL_MS = 60000;
 
+// How long a cloud answer may stay silent BEFORE its first token, measured
+// separately because the two silences mean different things.
+//
+// Once text is flowing, a gap is a slow model and the 60 s above are right.
+// Before the first token there is nothing to lose by asking someone else, and
+// waiting is what the user actually felt: on 2026-08-29 an overview spent
+// 3 x 60 s of pure silence on one model — the stall was fed into the 503 path,
+// which deliberately retries IN PLACE (2 + 4 + 8 s backoff), so ~194 s could
+// pass before any other model was tried. The ladder existed the whole time.
+//
+// 15 s is not "the model is broken", it is "someone else can start now".
+// Thinking and tool events re-arm the clock like text does, so a model that
+// reasons before it writes is not cut off. And it is only a LADDER move: with
+// no candidate left, the in-place retry below still runs.
+const FIRST_TOKEN_MS = 15000;
+
 module.exports = (db, UPLOADS_DIR, options = {}) => {
   // Injectable for tests: (pdfPath) => Promise<string>.
   const extractPdfTextFn = options.extractPdfTextFn;
@@ -101,6 +122,9 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
   // Injectable for tests: the silence a cloud answer may keep. Real seconds
   // would make the stall suite sit through a minute per assertion.
   const stallMs = options.stallMs ?? CLOUD_STALL_MS;
+  // Injectable for tests, like stallMs. Defaults to the stall itself when a
+  // suite overrides only that one — the old tests then keep their old clock.
+  const firstTokenMs = options.firstTokenMs ?? (options.stallMs ? options.stallMs : FIRST_TOKEN_MS);
   const router = express.Router({ mergeParams: true });
 
   // Place attachments in the chat-specific directory so cleanup can happen
@@ -191,8 +215,12 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
     budgetFor = null,
     resumeFromSeconds = null,
     overview = false,
+    continuedAnswer = null,
   }) {
     const contextMessages = [];
+    // How far the transcript this round shows actually reaches (null: nothing
+    // was cut). Travels out via meta so the answer can be stored with it.
+    let transcriptCutAt = null;
     // Deliberately NO brevity rule (removed 2026-07-26, user decision):
     // answers may be as detailed as the question warrants. The old
     // "be concise by default" was a latency measure for local decoding
@@ -212,9 +240,28 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
     // budget trimming never touches them. The explicit precedence line is
     // needed because small local models otherwise resolve rule conflicts
     // unpredictably.
+    //
+    // The Video overview is the one question they do NOT govern (user
+    // decision 2026-09-04). It is not a question the user typed — the app
+    // sends it by itself when a video is loaded — and its output shape is
+    // fully prescribed below (## heading, time range, bold key point, bullet
+    // list, section after section). Instructions written for ordinary answers
+    // ("close with a mental model", "add a coaching block", "explain in
+    // German first") collide with that shape, and because the overview is
+    // written over many rounds the collision lands in the MIDDLE of the
+    // finished text — the user saw their settings text sitting between two
+    // chapters (report 2026-09-04). Suppressing the block outright is the
+    // honest fix: continuationInstruction() had been reduced to arguing with
+    // instructions round by round ("leave the closing sections out for now"),
+    // and every round was another chance for the model to disagree.
+    // `overview` is true for the first round AND every continuation of it,
+    // so the whole overview is written without them; the next ordinary
+    // question in the same chat gets them back.
     const customInstructions = getSetting(db, 'custom_instructions');
     const customInstructionsActive = Boolean(
-      getSetting(db, 'custom_instructions_enabled') === 'true' && customInstructions.trim()
+      getSetting(db, 'custom_instructions_enabled') === 'true'
+      && customInstructions.trim()
+      && !overview
     );
     if (customInstructionsActive) {
       systemBase +=
@@ -294,7 +341,12 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
     // budgetFor: failover candidates and the one-off local regenerate get a
     // prompt sized to THEIR budget (fix 2026-07-29), default is the active
     // settings model (warm-up contract: same prompt prefix as the real call).
-    const budget = contextBudget(db, budgetFor);
+    // overview lifts the cap to what the model can really take (2026-09-04) —
+    // see contextBudget. sourceRoom follows it, so the if-then rule below
+    // decides full text vs. retrieval against the SAME number the trimming
+    // uses; two different budgets here would put a transcript into retrieval
+    // that the overview then had room for after all.
+    const budget = contextBudget(db, budgetFor, { overview });
     const sourceRoom = budget.maxSystemContextChars;
 
     // The Video overview is the one question retrieval cannot serve (user
@@ -395,9 +447,24 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
       // The time range is not decoration: markdown/timeLinks.ts turns every
       // [m:ss] into a link that opens YouTube at that second, so a missing
       // mark costs a section its jump target.
+      //
+      // Section GRANULARITY added 2026-09-04, user report: the overview of a
+      // 3:42:37 talk arrived as 24 sections covering 27 minutes — one heading
+      // per minute, and the chapter list under the player unusable as an
+      // overview. The old wording invited it: "never merge two topics into one
+      // section" plus "far longer than a summary" reads as an instruction to
+      // cut as finely as possible, and a transcript block is a minute long, so
+      // a minute became a topic. The repair says where the detail belongs
+      // instead — in the bullet list inside a section, not in more sections —
+      // and gives the model a rate it can check itself against.
       const note = transcriptTruncationNote(
         fitted.paperText, videoContext.text, videoContext.durationSeconds
       );
+      transcriptCutAt = transcriptCutSeconds(fitted.paperText, videoContext.text);
+      // A number beats a rate (user decision 2026-09-04): computed here from
+      // the running time, with a floor and a ceiling, so a ten-minute video
+      // does not come back as two sections and a four-hour one not as sixty.
+      const sectionTarget = overviewSectionTarget(videoContext.durationSeconds);
       systemBase +=
         `\n\nA YouTube video is attached to this conversation as its source: ` +
         `"${videoContext.title}"${videoContext.channel ? ` by ${videoContext.channel}` : ''}. ` +
@@ -405,22 +472,44 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
         'about the video on this transcript; if something is not covered by it, say so instead ' +
         'of guessing.\n' +
         'When the user asks you to structure the video, work through the transcript from ' +
-        'beginning to end and divide it into the sections the video itself has. For EACH ' +
-        'section, output in this order:\n' +
+        'beginning to end and divide it into the sections the video itself has. A section is ' +
+        'a TOPIC the video spends time on, never a unit of time. ' +
+        (sectionTarget
+          ? `The FINISHED overview of this video should have about ${sectionTarget} sections ` +
+            'in total — count them as you go, and if you are about to write many more than ' +
+            'that, your sections are too small and belong merged. '
+          : 'Aim for roughly one section per 5 to 10 minutes of video. ') +
+        'Open a section shorter than 3 minutes only where the video really jumps (a sponsor ' +
+        'break, a change of speaker), and NEVER start a new section merely because another ' +
+        'minute has passed. Everything the speaker says inside a section belongs in that ' +
+        'section\'s bullet list, which is where the detail lives; cutting finely does not add ' +
+        'detail, it only takes the overview away. For EACH section, output in this order:\n' +
         '1. a "##" heading naming that section\'s topic, followed by its time range as ' +
         '[m:ss - m:ss] (use [h:mm:ss] past an hour)\n' +
-        '2. one bold sentence stating the section\'s key point\n' +
+        '2. one bold sentence stating the section\'s key point — the ENTIRE sentence must be ' +
+        'inside the ** ** markers, with no unbolded label in front of it (do not write ' +
+        '"**Key point:** the sentence" or "**Kernaussage:** der Satz" — that half-bolds it and ' +
+        'breaks how the app reads this line); this is different from the bulleted list below, ' +
+        'which DOES use a bold label\n' +
         '3. a bullet list carrying the substance — every claim, number, name, example, ' +
         'definition and step the speaker gives, in the speaker\'s own terms. Start EVERY ' +
         'bullet with its own point in bold — the term, the claim or the step it is about — ' +
         'then a colon and the detail, so the list can be skimmed by its bold openings alone\n' +
-        'Keep the video\'s order. Never merge two topics into one section, never write ' +
+        'Keep the video\'s order. Never write ' +
         '"and so on", never skip a passage for being minor, and never replace a concrete ' +
         'figure or name with a general phrase. This is a RE-ORGANIZATION of the transcript, ' +
         'not a summary: it must be far longer than a summary and must let someone who has not ' +
         'watched the video follow every argument. If the material is too long to finish in one ' +
-        'answer, stop at a section boundary and say which minute you reached — never silently ' +
-        'shorten. In that case write NOTHING after that last section: no closing remarks and ' +
+        'answer, simply stop at a section boundary — never silently shorten, and never write a ' +
+        // Asking for the minute was the bug (user report 2026-09-04): the model
+        // obliged with "[Ich habe Minute 40:39 erreicht und setze im nächsten
+        // Schritt ab hier fort.]", the rounds were joined, and the sentence sat
+        // between two chapters. The app never needed it — it reads the reach
+        // from the section time ranges (overview-progress.js).
+        'sentence about where you stopped or what you will do next. The app reads how far you ' +
+        'got from your section time ranges, and the rounds are joined into ONE answer, so such ' +
+        'a sentence would end up in the middle of it. ' +
+        'Write NOTHING after that last section: no closing remarks and ' +
         'none of the closing sections your other instructions ask for (a mental model, a ' +
         'coaching block, a summary). They belong once, after the LAST section of the whole ' +
         'video — put in earlier they end up in the middle of the finished overview.\n' +
@@ -497,7 +586,9 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
         : ' ';
       branchFocus =
         `THE USER'S CURRENT FOCUS — this branch of the tree was opened from a selection. ` +
-        `The user's custom instructions above still apply in full. ${branchIntro}${originBlock}` +
+        // Only claim there ARE instructions above when there are: in an
+        // overview they are deliberately absent (see customInstructionsActive).
+        `${customInstructionsActive ? "The user's custom instructions above still apply in full. " : ''}${branchIntro}${originBlock}` +
         `When the user refers to "this", "that", "it" or "here", or says they did not ` +
         `understand something without naming it, they mean THE SELECTED PASSAGE. Explain ` +
         `that passage, and read its words in the sense the earlier conversation above gave ` +
@@ -516,7 +607,7 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
     // History (text only — old attachments are not re-uploaded in the context,
     // otherwise the prompt gets too big)
     const history = db.prepare(
-      'SELECT role, content, created_at FROM messages WHERE chat_id = ? AND IFNULL(pending, 0) = 0 ORDER BY created_at ASC, id ASC'
+      'SELECT id, role, content, created_at FROM messages WHERE chat_id = ? AND IFNULL(pending, 0) = 0 ORDER BY created_at ASC, id ASC'
     ).all(chat.id);
     // Anchored regenerate: the context is the conversation as it was BEFORE
     // the question being retried — later exchanges must not leak in.
@@ -527,6 +618,9 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
     // not conversation — the model must never see them as prior answers.
     included
       .filter((m) => !(m.role === 'assistant' && isRetryableMarker(m.content)))
+      .map((m) => (continuedAnswer && m.id === continuedAnswer.id
+        ? { ...m, content: condenseWrittenAnswer(continuedAnswer.content) }
+        : m))
       .forEach(m => contextMessages.push({ role: m.role, content: m.content }));
 
     // Instruction sandwich (2026-08-09): the custom instructions are repeated
@@ -569,7 +663,7 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
     // warm KV cache; from the second on the paper prefix is usually warm.
     const cache = included.some((m) => m.role === 'assistant') ? 'warm' : 'cold';
 
-    return { messages: contextMessages, retrieval, meta: { mode, sourceTokens, cache } };
+    return { messages: contextMessages, retrieval, meta: { mode, sourceTokens, cache, transcriptCutAt } };
   }
 
   // Renders the retrieved chunks into the excerpt block after the history.
@@ -902,9 +996,10 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
     const chatId = req.params.chatId;
     const userMsgId = crypto.randomUUID();
     const enqueuedAt = monotonicNow(chatId);
+    const overviewRequest = String(req.body.overview) === 'true';
     db.prepare(
-      'INSERT INTO messages (id, chat_id, role, content, created_at, pending, quote_highlight_id) VALUES (?, ?, ?, ?, ?, 1, ?)'
-    ).run(userMsgId, chatId, 'user', content, enqueuedAt, quoteHighlightId);
+      'INSERT INTO messages (id, chat_id, role, content, created_at, pending, quote_highlight_id, overview_request) VALUES (?, ?, ?, ?, ?, 1, ?, ?)'
+    ).run(userMsgId, chatId, 'user', content, enqueuedAt, quoteHighlightId, overviewRequest ? 1 : 0);
     const files = req.files || [];
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
@@ -928,7 +1023,7 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
       // backend must not guess it from the question text, or the same flag
       // would depend on the app language and on the user rewording the
       // prompt. It only turns retrieval off (see buildSystemAndHistory).
-      overview: String(req.body.overview) === 'true',
+      overview: overviewRequest,
       persisted: { userMsgId },
     });
   });
@@ -993,7 +1088,13 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
     // the continuation grows from the last real chapter; the model writes them
     // again when the overview is genuinely finished (user report 2026-08-18).
     const existing = video ? trimTrailingClosing(target.content) : target?.content;
-    const covered = target ? lastCoveredSeconds(existing) : null;
+    // Capped at what the last round could SEE: a closing section that runs to
+    // the video's end over a transcript that stopped an hour earlier is the
+    // truncation note echoed back, and taking it at face value is what ended
+    // the Neel Nanda overview at 43 % (2026-09-02).
+    const covered = target
+      ? capCoverage(lastCoveredSeconds(existing), target.covered_until_seconds)
+      : null;
     const stoppedEarly = Boolean(video && isShortOfEnd(covered, video.durationSeconds));
     if (!target || target.role !== 'assistant' || (!target.truncated && !stoppedEarly)) {
       return res.status(409).json({ error: 'nothing to continue' });
@@ -1025,6 +1126,12 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
         // A cut answer is picked up mid-word ('seam'); one that merely stopped
         // early starts a new section ('append').
         mode: target.truncated ? 'seam' : 'append',
+        // Second attempt after a round whose seam could not be verified
+        // (mockup-truncated-answer §04). The client sets this on its immediate
+        // retry; a suspect seam is then appended anyway — flagged — instead of
+        // being discarded again, because a third call would buy the same coin
+        // flip at the same price.
+        seamRetry: req.body?.seamRetry === true,
         // Where the answer got to. The transcript before this second is
         // already worked through, and re-sending it is what made a round cost
         // ~19 000 prompt tokens for as few as 15 generated (measured
@@ -1058,7 +1165,13 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
       const marker = db.prepare(
         'SELECT * FROM messages WHERE id = ? AND chat_id = ?'
       ).get(targetId, chatId);
-      if (!marker || marker.role !== 'assistant' || !isRetryableMarker(marker.content)) {
+      // Besides the *Failed*/*Interrupted* markers, a REAL answer may be
+      // regenerated when its seam is flagged (mockup-truncated-answer §04):
+      // the text is damaged in the middle, and the warning card's button is
+      // an explicit reader decision to trade it for a fresh one.
+      const retryable = marker && marker.role === 'assistant'
+        && (isRetryableMarker(marker.content) || Boolean(marker.seam_suspect));
+      if (!retryable) {
         return res.status(409).json({ error: 'nothing to regenerate' });
       }
       const question = db.prepare(
@@ -1080,6 +1193,10 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
         files: [],
         think: String(req.body?.think) === 'true',
         forceProvider: overrideProvider || null,
+        // Retrying a failed Video overview must stay in overview mode
+        // (full text, not retrieval/chunking) — see the messages.overview_request
+        // migration note in database.js.
+        overview: Boolean(question.overview_request),
         regenerate: {
           userMsgId: question.id,
           createdAt: question.created_at,
@@ -1118,6 +1235,8 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
       files: [],
       think: String(req.body?.think) === 'true',
       forceProvider: overrideProvider || null,
+      // See the overview_request note on the targetId branch above.
+      overview: Boolean(userRow.overview_request),
       regenerate: { userMsgId: userRow.id, createdAt: userRow.created_at, attachments },
     });
   });
@@ -1212,9 +1331,14 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
     // sized full-text prompt hit Groq's 8k cap as a deterministic 413 and
     // the card claimed "too large" although a Groq-sized prompt (retrieval
     // mode) would have fit.
+    // Continuing an overview is an overview too: resumeFromSeconds is set
+    // only by the continue endpoint for a Video overview, and its second
+    // half must stay in the same full-text mode — and on the same lifted
+    // budget — as its first.
+    const isOverview = Boolean(job.overview) || job.continueOf?.resumeFromSeconds != null;
     let contextMessages, meta, chunkCount, excerptChars, currentBudgetChars;
     const buildContextFor = async (budgetFor) => {
-      currentBudgetChars = contextBudget(db, budgetFor).maxSystemContextChars;
+      currentBudgetChars = contextBudget(db, budgetFor, { overview: isOverview }).maxSystemContextChars;
       const built = await buildSystemAndHistory(chat, {
         // A continuation needs the FULL history including the cut-off answer:
         // that text is what the model has to pick up mid-sentence.
@@ -1222,10 +1346,13 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
         historyUntil: job.regenerate?.historyUntil ?? null,
         budgetFor,
         resumeFromSeconds: job.continueOf?.resumeFromSeconds ?? null,
-        // Continuing an overview is an overview too: resumeFromSeconds is set
-        // only by the continue endpoint for a Video overview, and its second
-        // half must stay in the same full-text mode as its first.
-        overview: Boolean(job.overview) || job.continueOf?.resumeFromSeconds != null,
+        overview: isOverview,
+        // The answer being written on goes into the prompt condensed, and from
+        // `existingContent` — the version the continuation actually grows from
+        // (trailing closing sections already trimmed), not the raw DB row.
+        continuedAnswer: job.continueOf
+          ? { id: job.continueOf.assistantMsgId, content: job.continueOf.existingContent }
+          : null,
       });
       contextMessages = built.messages;
       meta = built.meta;
@@ -1285,12 +1412,18 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
         // up in the middle of one overview (user report 2026-08-18).
         const from = job.continueOf.resumeFromSeconds;
         const total = job.continueOf.videoDurationSeconds;
+        // Name the language of the text written so far, so a long overview
+        // over an English transcript cannot drift out of German mid-way
+        // (user report 2026-09-05). Derived from what is already on screen,
+        // so the continuation always matches the answer it extends.
+        const priorLanguage = detectLanguage(job.continueOf.existingContent);
         contextMessages.push({
           role: 'user',
           content: continuationInstruction({
             mode: job.continueOf.mode,
             fromMark: from !== null && from !== undefined ? formatMark(from) : null,
             untilMark: total ? formatMark(total) : null,
+            language: priorLanguage,
           }),
         });
       } else if (imageContents.length > 0) {
@@ -1348,7 +1481,7 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
       // think=false; the thoughts stream as separate reasoning events to
       // the UI (collapsible panel), but never into answer text or DB.
       const thinkOn = job.think;
-      let extras = thinkOn ? {} : noThinkExtras(provider);
+      let extras = thinkOn ? {} : noThinkExtras(provider, model);
 
       // Automatic provider failover (user requests 2026-07-25): quotas are
       // per MODEL, so candidates are tried in this order — remaining models
@@ -1399,13 +1532,13 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
         provider = target.provider;
         usedProvider = provider;
         usedModel = model;
-        extras = thinkOn ? {} : noThinkExtras(provider);
+        extras = thinkOn ? {} : noThinkExtras(provider, model);
         // The prompt follows the model (fix 2026-07-29): rebuild when the
         // candidate's budget differs — a prompt sized for the failed model
         // may not fit the candidate (413) or waste most of its window.
         // Same-budget siblings keep the identical prompt (no wasted
         // chunking/embedding work).
-        if (contextBudget(db, target).maxSystemContextChars !== currentBudgetChars) {
+        if (contextBudget(db, target, { overview: isOverview }).maxSystemContextChars !== currentBudgetChars) {
           await buildContextFor(target);
         }
       };
@@ -1487,8 +1620,10 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
         searchDeps: { db },
         signal,
         onText: (delta) => {
-          noteUpstreamActivity();
+          // Order matters: the deadline re-arms itself from this flag, and the
+          // first chunk has to buy the LONG budget, not another short one.
           streamedAnything = true;
+          noteUpstreamActivity();
           res.write(`data: ${JSON.stringify({ delta })}\n\n`);
         },
         onToolEvent: (evt) => {
@@ -1507,10 +1642,18 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
         },
         onThinking: () => {
           noteUpstreamActivity();
+          // Thinking OFF means the user asked not to see it. Some models think
+          // anyway (gpt-oss on Groq rejects reasoning_effort 'none' and takes
+          // 'low', so it produces a little reasoning regardless — user report
+          // 2026-09-06: a "thought for 7s" line over an overview with Thinking
+          // off). Swallow the reasoning stream in that case: it never reaches
+          // the answer or the DB, so hiding the indicator is the whole fix.
+          if (!thinkOn) return;
           res.write(`data: ${JSON.stringify({ thinking: true })}\n\n`);
         },
         onReasoning: (delta) => {
           noteUpstreamActivity();
+          if (!thinkOn) return;
           res.write(`data: ${JSON.stringify({ reasoning: delta })}\n\n`);
         },
         onPerf: (perf) => {
@@ -1586,11 +1729,17 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
         const stall = new AbortController();
         let timedOut = false;
         const fire = () => { timedOut = true; stall.abort(); };
-        let timer = setTimeout(fire, stallMs);
+        // Two clocks, one timer: the short one runs until the first sign of
+        // life, the long one between chunks of an answer already arriving.
+        // `noteUpstreamActivity` fires on text, reasoning, thinking and tool
+        // events, so the switch happens at the first of those — a model that
+        // reasons for twenty seconds before writing is never cut off.
+        const budget = () => (streamedAnything ? stallMs : firstTokenMs);
+        let timer = setTimeout(fire, budget());
         noteUpstreamActivity = () => {
           if (timedOut) return;
           clearTimeout(timer);
-          timer = setTimeout(fire, stallMs);
+          timer = setTimeout(fire, budget());
         };
         // A user's stop wins over the deadline: they aborted the same combined
         // signal, and their own click must not come back to them as a provider
@@ -1601,7 +1750,7 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
           timedOut && !streamedAnything && !upstreamAbort.signal.aborted;
         const stalled = () => {
           const out = new Error(
-            `${model} on ${provider} sent nothing for ${Math.round(stallMs / 1000)} s.`
+            `${model} on ${provider} sent nothing for ${Math.round(firstTokenMs / 1000)} s.`
           );
           out.stalled = true;
           return out;
@@ -1677,6 +1826,24 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
           // user's seat both are the same event — the provider is not
           // answering right now — and both pass on their own, so both are
           // retried in place and neither earns a cooldown.
+          // A model that has not said a word yet is the one case where waiting
+          // buys nothing: nobody has invested anything in this attempt, and
+          // the ladder is standing right there. So a stall asks the next
+          // candidate FIRST and only falls back on the in-place retry when
+          // there is nobody left to ask (user request 2026-09-01 — "the user
+          // should not wait 50 seconds, we should switch models").
+          //
+          // No cooldown either way: silence is weather, and the model is
+          // expected back. It is simply not worth standing in the rain for.
+          if (err.stalled) {
+            const to = pickFallback();
+            if (to) {
+              await failoverTo(to, 'stalled');
+              attempt = 0;
+              overloadAttempt = 0; // a fresh model gets the full retry budget
+              continue;
+            }
+          }
           if (isOverloaded(err) || err.stalled) {
             if (overloadAttempt >= overloadBackoffSeconds.length) {
               err.failReason = 'overloaded';
@@ -1790,15 +1957,40 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
       // frontend renders as a gray "Interrupted" row (same string as
       // INTERRUPTED_MARKER in frontend/src/types).
       const aborted = upstreamAbort.signal.aborted;
-      const assistantContent = aborted ? '*Interrupted*' : fullContent;
+      let assistantContent = aborted ? '*Interrupted*' : fullContent;
 
       // Cut short by the provider? Only for answers that actually carry text:
       // an aborted one is already the *Interrupted* marker, and marking that
       // truncated would offer to continue a text nobody kept.
       const truncated = !aborted && isTruncatedFinish(lastFinishReason) && Boolean(assistantContent);
+      // The sign-off no overview round may keep (user report 2026-09-04). The
+      // prompt asks the model not to write it and the model writes it anyway,
+      // so it is removed here, on the way into the database — before the
+      // rounds are joined and the line would land between two chapters.
+      if (isOverview) {
+        assistantContent = closeUnbalancedBold(stripRoundSignOff(assistantContent));
+        // A preamble before the first heading — an apology that the transcript
+        // was cut, an "I will now add the sections" — is dropped so it cannot
+        // land between two chapters (user report 2026-09-06). NEVER on a seam
+        // continuation, whose prose prefix is real content welded onto a cut
+        // word; only an append/first round opens with a heading.
+        if (!job.continueOf || job.continueOf.mode === 'append') {
+          assistantContent = stripLeadingNarration(assistantContent);
+        }
+      }
       let assistantMsgId;
       let assistantNow;
       let storedContent;
+      // A seam the join cannot verify (mockup-truncated-answer §04): the
+      // continuation neither repeated the last words it was told to repeat
+      // nor opened with a space, and the old text stops mid-sentence. Welding
+      // that on blind is what turned "* Nur " + "der Normalverteilungsannahme
+      // erfüllt ist" into a garbled sentence with a silent gap (live incident
+      // 2026-09-07). First offence: the round is DISCARDED and the client is
+      // asked to try once more. Second offence: appended anyway — half the
+      // answer is better than none — but flagged, so the reader sees the seam.
+      let seamDiscarded = false;
+      let seamFlagged = false;
       if (job.continueOf) {
         // ONE message, not two (mockup-truncated-answer §01): the chapter
         // list parses a single overview, and a second bubble starting
@@ -1807,18 +1999,35 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
         // discards what it did not finish.
         assistantMsgId = job.continueOf.assistantMsgId;
         assistantNow = job.continueOf.assistantCreatedAt;
-        storedContent = aborted
+        const broken = !aborted
+          && job.continueOf.mode === 'seam'
+          && Boolean(assistantContent)
+          && seamSuspect(job.continueOf.existingContent, assistantContent);
+        seamDiscarded = broken && !job.continueOf.seamRetry;
+        seamFlagged = broken && job.continueOf.seamRetry;
+        storedContent = aborted || seamDiscarded
           ? job.continueOf.existingContent
           : joinContinuation(job.continueOf.existingContent, assistantContent, {
               mode: job.continueOf.mode,
             });
-        db.prepare(
-          'UPDATE messages SET content = ?, truncated = ?, '
-          + 'search_wish_query = ?, search_wish_error = ? WHERE id = ?'
-        ).run(
-          storedContent, aborted ? 1 : truncated ? 1 : 0,
-          searchWish?.query ?? null, searchWish?.error ?? null, assistantMsgId,
-        );
+        if (seamDiscarded) {
+          // Nothing is written: the row keeps its text and its truncated flag,
+          // exactly as if this round had never run. The done event says why.
+        } else {
+          db.prepare(
+            'UPDATE messages SET content = ?, truncated = ?, '
+            + 'seam_suspect = MAX(seam_suspect, ?), '
+            + 'search_wish_query = ?, search_wish_error = ?, covered_until_seconds = ? WHERE id = ?'
+          ).run(
+            storedContent, aborted ? 1 : truncated ? 1 : 0,
+            seamFlagged ? 1 : 0,
+            searchWish?.query ?? null, searchWish?.error ?? null,
+            // The LATEST round's reach wins: each one starts further in, so the
+            // newest cut is the furthest the whole answer has been able to see.
+            meta?.transcriptCutAt ?? null,
+            assistantMsgId,
+          );
+        }
       } else {
         assistantMsgId = crypto.randomUUID();
         // Anchored regenerate: the replacement takes the old marker's slot so
@@ -1827,10 +2036,12 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
         storedContent = assistantContent;
         db.prepare(
           'INSERT INTO messages (id, chat_id, role, content, created_at, truncated, '
-          + 'search_wish_query, search_wish_error) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+          + 'search_wish_query, search_wish_error, covered_until_seconds) '
+          + 'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
         ).run(
           assistantMsgId, req.params.chatId, 'assistant', assistantContent, assistantNow,
           truncated ? 1 : 0, searchWish?.query ?? null, searchWish?.error ?? null,
+          meta?.transcriptCutAt ?? null,
         );
       }
       if (truncated) sseWrite(res, { truncated: true, messageId: assistantMsgId });
@@ -1852,8 +2063,13 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
       // That title is settled at birth — rewriting it from the first answer
       // would throw away the words the user chose.
       const isTopicBranch = Boolean(chat.parent_id) && !chat.parent_word;
+      // A chat still wearing its localized placeholder title has never been
+      // titled — regardless of message count. The count window alone missed
+      // queued questions (two user turns before the first answer finishes,
+      // report 2026-09-05), and the old `=== 'New Chat'` literal never
+      // matched the German placeholder.
       const needsTitle = !hasSourceName && !isTopicBranch
-        && (chat.title === 'New Chat' || msgCount.count <= 2);
+        && (DEFAULT_CHAT_TITLES.has(chat.title) || msgCount.count <= 2);
 
       // Fallback: first few words of the passage (branches) or of the
       // user's message, in case the LLM call fails.
@@ -2037,7 +2253,13 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
       const assistantMessage = {
         id: assistantMsgId, chat_id: req.params.chatId, role: 'assistant', content: storedContent, created_at: assistantNow,
         attachments: [],
-        ...(truncated ? { truncated: 1 } : null),
+        // A discarded seam round leaves the row as it was: still truncated.
+        ...(truncated || seamDiscarded ? { truncated: 1 } : null),
+        // `seam_retry` is transient (never a column): it asks the CLIENT to
+        // call /continue once more with seamRetry=true — the server holds no
+        // SSE stream open across rounds, so the retry is the client's move.
+        ...(seamDiscarded ? { seam_retry: 1 } : null),
+        ...(seamFlagged ? { seam_suspect: 1 } : null),
       };
 
       res.write(`data: ${JSON.stringify({ done: true, userMessage, assistantMessage })}\n\n`);

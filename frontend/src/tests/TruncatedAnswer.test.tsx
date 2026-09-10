@@ -74,3 +74,50 @@ describe('MessageBubble – answer cut short by the provider', () => {
     expect(screen.queryByTestId('truncated-note')).not.toBeInTheDocument();
   });
 });
+
+/**
+ * Naht ohne Beleg (mockup-truncated-answer §04, Live-Vorfall 2026-09-07): die
+ * Fortsetzung hat zweimal ihre Wiederhol-Anweisung ignoriert, der Text wurde
+ * trotzdem angefügt — mitten in der Antwort kann ein Stück fehlen. Die Karte
+ * sagt das, und ihr Ausweg ist REGENERATE: Weiterschreiben kann eine falsch
+ * verschweißte Mitte nicht mehr reparieren.
+ */
+describe('MessageBubble – continued answer with an unverified seam', () => {
+  const stitched: Message = {
+    id: 'a-seam',
+    chat_id: 'c1',
+    role: 'assistant',
+    content: '* Nur der Normalverteilungsannahme erfüllt ist, dann gelten die bekannten Verteilungen.',
+    created_at: '2026-09-07T20:05:35.000Z',
+    truncated: 0,
+    seam_suspect: 1,
+  };
+
+  it('warns about the seam and offers regenerate', () => {
+    const onRetry = vi.fn();
+    render(
+      <MessageBubble message={stitched} onWordRightClick={vi.fn()} onRetryMessage={onRetry} />,
+    );
+
+    expect(screen.getByTestId('seam-suspect-note')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('seam-regenerate-button'));
+    expect(onRetry).toHaveBeenCalledWith(stitched);
+  });
+
+  it('waits until the automat is done growing the answer', () => {
+    // While truncated is still set, further continuation rounds are running —
+    // the truncated card owns the bubble until they finish.
+    const stillGrowing: Message = { ...stitched, truncated: 1 };
+    render(
+      <MessageBubble message={stillGrowing} onWordRightClick={vi.fn()} onRetryMessage={vi.fn()} onContinueMessage={vi.fn()} />,
+    );
+    expect(screen.queryByTestId('seam-suspect-note')).not.toBeInTheDocument();
+    expect(screen.getByTestId('truncated-note')).toBeInTheDocument();
+  });
+
+  it('stays quiet on an answer whose seam was verified', () => {
+    const clean: Message = { ...stitched, seam_suspect: 0 };
+    render(<MessageBubble message={clean} onWordRightClick={vi.fn()} onRetryMessage={vi.fn()} />);
+    expect(screen.queryByTestId('seam-suspect-note')).not.toBeInTheDocument();
+  });
+});

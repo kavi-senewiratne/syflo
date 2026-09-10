@@ -233,6 +233,47 @@ describe('POST /api/chats/:chatId/messages – streaming', () => {
     expect(deltas).toEqual(['Hello', ' world']);
   });
 
+  // A model that reasons even with Thinking off (gpt-oss on Groq can't take
+  // reasoning_effort 'none', so it produces a little reasoning regardless —
+  // user report 2026-09-06: a "thought for 7s" line appeared over an overview
+  // with Thinking off). With think=false the reasoning stream is swallowed, so
+  // no indicator reaches the UI.
+  const reasoningStream = (reasoning, words) => ({
+    [Symbol.asyncIterator]: async function* () {
+      yield { choices: [{ delta: { reasoning } }] };
+      for (const w of words) yield { choices: [{ delta: { content: w } }] };
+      yield { choices: [{ delta: {} }] };
+    },
+  });
+
+  it('suppresses reasoning events when Thinking is off', async () => {
+    mockCreate.mockResolvedValueOnce(reasoningStream('secret thoughts', ['Answer']));
+    mockCreate.mockResolvedValueOnce({ choices: [{ message: { content: 'Titel' } }] });
+
+    const res = await request(app)
+      .post(`/api/chats/${chatId}/messages`)
+      .send({ content: 'Hi' }) // no think flag → Thinking off
+      .buffer(true);
+
+    const events = parseSSE(res.text);
+    expect(events.some(e => e.reasoning || e.thinking)).toBe(false);
+    // The answer itself still streams, and the reasoning never leaked into it.
+    expect(events.filter(e => e.delta).map(e => e.delta)).toEqual(['Answer']);
+  });
+
+  it('streams reasoning events when Thinking is on', async () => {
+    mockCreate.mockResolvedValueOnce(reasoningStream('visible thoughts', ['Answer']));
+    mockCreate.mockResolvedValueOnce({ choices: [{ message: { content: 'Titel' } }] });
+
+    const res = await request(app)
+      .post(`/api/chats/${chatId}/messages`)
+      .send({ content: 'Hi', think: true })
+      .buffer(true);
+
+    const events = parseSSE(res.text);
+    expect(events.some(e => e.reasoning === 'visible thoughts')).toBe(true);
+  });
+
   it('ends the stream with a done event containing both messages', async () => {
     mockCreate.mockResolvedValueOnce(makeStream(['Test reply']));
     mockCreate.mockResolvedValueOnce({
@@ -472,6 +513,34 @@ describe('POST /api/chats/:chatId/messages – streaming', () => {
 
     const chatRes = await request(app).get(`/api/chats/${chatId}`);
     expect(chatRes.body.title).toBe('Auto Generated Title');
+  });
+
+  it('titles a queued German chat even after the first-exchange window has passed (2026-09-05)', async () => {
+    // Queued questions: a second user turn lands before the first answer
+    // finishes, so at title time the chat already holds 3 messages and the
+    // old `msgCount <= 2` window is missed. The German placeholder
+    // 'Neuer Chat' also never matched the old `title === 'New Chat'` check —
+    // together the chat kept its placeholder forever.
+    const chat = await request(app).post('/api/chats').send({ title: 'Neuer Chat' });
+    const id = chat.body.id;
+    // The queued second question is already persisted when the first
+    // answer completes.
+    db.prepare(
+      "INSERT INTO messages (id, chat_id, role, content, created_at) VALUES (?, ?, 'user', ?, ?)"
+    ).run('queued-user-turn', id, 'And a queued follow-up', new Date().toISOString());
+
+    mockCreate.mockResolvedValueOnce(makeStream(['Reply']));
+    mockCreate.mockResolvedValueOnce({
+      choices: [{ message: { content: 'Physiker Liste' } }],
+    });
+
+    await request(app)
+      .post(`/api/chats/${id}/messages`)
+      .send({ content: 'List physicists' })
+      .buffer(true);
+
+    const chatRes = await request(app).get(`/api/chats/${id}`);
+    expect(chatRes.body.title).toBe('Physiker Liste');
   });
 
   it('titles a branch chat after the selected passage, not the first question (2026-07-26)', async () => {
@@ -2262,7 +2331,12 @@ describe('a cloud provider that goes silent', () => {
     return parseSSE(res.text);
   }
 
-  it('treats silence as an overload: same model, announced wait, then the answer', async () => {
+  // Changed 2026-09-01 (user request): silence before the first token no
+  // longer waits its turn out on the same model. Nothing has been invested in
+  // the attempt yet, so the question goes to the next candidate immediately —
+  // the 3 x 60 s the user sat through on 2026-08-29 were 3 x 60 s in which the
+  // ladder was standing idle.
+  it('asks the next model instead of waiting out the silence', async () => {
     useGemini();
     mockCreate
       .mockImplementationOnce(silent())
@@ -2271,11 +2345,32 @@ describe('a cloud provider that goes silent', () => {
 
     const events = await send(watchedApp(120));
 
-    const ol = events.find((e) => e.overloaded);
-    expect(ol).toBeDefined();
-    expect(ol.overloaded).toMatchObject({ attempt: 1, provider: 'gemini' });
-    // The model is not at fault, so it keeps its place: no ladder move.
-    expect(events.find((e) => e.failover)).toBeUndefined();
+    const fo = events.find((e) => e.failover);
+    expect(fo).toBeDefined();
+    expect(fo.failover).toMatchObject({ from: 'gemini', fromModel: 'gemini-flash-latest', reason: 'stalled' });
+    expect(fo.failover.model).not.toBe('gemini-flash-latest');
+    // No countdown: nobody is being waited for any more.
+    expect(events.find((e) => e.overloaded)).toBeUndefined();
+    expect(events.find((e) => e.error)).toBeUndefined();
+    expect(events.filter((e) => e.delta).map((e) => e.delta).join('')).toBe('Recovered.');
+  });
+
+  it('still retries in place once the ladder has nobody left', async () => {
+    // The fallback is a ladder move, not a replacement for the in-place
+    // retry: with every candidate spent, waiting is all that is left, and
+    // waiting beats failing.
+    useGemini();
+    mockCreate
+      .mockImplementationOnce(silent())   // the selected model
+      .mockImplementationOnce(silent())   // its only free sibling
+      .mockResolvedValueOnce(makeStream(['Recovered.'])) // the in-place retry
+      .mockResolvedValueOnce({ choices: [{ message: { content: 'Title' } }] });
+
+    const events = await send(watchedApp(120));
+
+    // One ladder move, and then — with nobody left — the announced wait.
+    expect(events.filter((e) => e.failover)).toHaveLength(1);
+    expect(events.find((e) => e.overloaded)).toMatchObject({ overloaded: { attempt: 1 } });
     expect(events.find((e) => e.error)).toBeUndefined();
     expect(events.filter((e) => e.delta).map((e) => e.delta).join('')).toBe('Recovered.');
   });
@@ -2289,7 +2384,9 @@ describe('a cloud provider that goes silent', () => {
     const err = events.find((e) => e.error);
     expect(err).toBeDefined();
     expect(err.failReason).toBe('overloaded');
-    expect(mockCreate).toHaveBeenCalledTimes(4);
+    // Five: the selected model, its one free sibling (the ladder move added
+    // 2026-09-01), then the three in-place retries once nobody is left.
+    expect(mockCreate).toHaveBeenCalledTimes(5);
   });
 
   it('never puts a silent model on cooldown — the silence passes on its own', async () => {
@@ -2372,11 +2469,11 @@ describe('automatic provider failover on quota exhaustion', () => {
     const failover = events.find((e) => e.failover);
     expect(failover.failover).toMatchObject({
       from: 'groq', to: 'groq',
-      fromModel: 'openai/gpt-oss-120b', model: 'llama-3.3-70b-versatile',
+      fromModel: 'openai/gpt-oss-120b', model: 'qwen/qwen3.8-27b',
     });
     expect(events.find((e) => e.done).assistantMessage.content).toBe('From Llama.');
     // The answer call went to the sibling model.
-    expect(mockCreate.mock.calls[1][0].model).toBe('llama-3.3-70b-versatile');
+    expect(mockCreate.mock.calls[1][0].model).toBe('qwen/qwen3.8-27b');
   });
 
   it('remembers exhausted models and skips them proactively on the next message', async () => {
@@ -2396,7 +2493,7 @@ describe('automatic provider failover on quota exhaustion', () => {
       .mockResolvedValueOnce({ choices: [{ message: { content: 'Title' } }] });
     const events = await send('again');
 
-    expect(mockCreate.mock.calls[0][0].model).toBe('llama-3.3-70b-versatile');
+    expect(mockCreate.mock.calls[0][0].model).toBe('qwen/qwen3.8-27b');
     expect(events.find((e) => e.failover)).toBeDefined();
     expect(events.find((e) => e.done).assistantMessage.content).toBe('Still Llama.');
   });
@@ -2411,7 +2508,7 @@ describe('automatic provider failover on quota exhaustion', () => {
     // = 4 calls. Gemini Pro is paid-only and never gambled on (2026-07-30).
     expect(mockCreate.mock.calls.map((c) => c[0].model)).toEqual([
       'openai/gpt-oss-120b',
-      'llama-3.3-70b-versatile',
+      'qwen/qwen3.8-27b',
       'gemini-flash-latest',
       'gemini-flash-lite-latest',
     ]);
@@ -2435,7 +2532,7 @@ describe('automatic provider failover on quota exhaustion', () => {
     const { setSetting } = require('../llm');
     setSetting(db, 'llm_provider', 'groq');
     setSetting(db, 'groq_api_key', 'gsk-test');
-    setSetting(db, 'groq_model', 'llama-3.3-70b-versatile');
+    setSetting(db, 'groq_model', 'qwen/qwen3.8-27b');
     setSetting(db, 'gemini_api_key', 'AIza-test');
     // Active groq model is text-only + image attached → vision gate skips
     // BOTH text-only groq models; the candidate is the free vision-capable
@@ -2463,7 +2560,7 @@ describe('automatic provider failover on quota exhaustion', () => {
     const { setSetting } = require('../llm');
     setSetting(db, 'llm_provider', 'groq');
     setSetting(db, 'groq_api_key', 'gsk-test');
-    setSetting(db, 'groq_model', 'llama-3.3-70b-versatile');
+    setSetting(db, 'groq_model', 'qwen/qwen3.8-27b');
     setSetting(db, 'openai_api_key', 'sk-test');
     // Only paid vision candidates exist (OpenAI). Spending money unasked is
     // worse than a clear card (cost tiers 2026-07-30) — the no-vision hint

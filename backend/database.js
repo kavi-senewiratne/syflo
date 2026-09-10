@@ -325,6 +325,18 @@ function createDb(dbPath = DB_PATH) {
     db.exec('ALTER TABLE messages ADD COLUMN truncated INTEGER NOT NULL DEFAULT 0');
   }
 
+  // Migration: messages.seam_suspect — a continued answer whose seam could not
+  // be verified (live incident 2026-09-07: the continuation ignored its
+  // repeat-your-last-words instruction twice, so the join may hide a gap in
+  // the middle of the text). Persisted for the same reason as `truncated`:
+  // the damaged text reads like a whole answer, and the warning under it must
+  // survive a reload. Cleared by regenerating the message (the row is
+  // replaced), never by further continuation rounds — the dubious seam stays
+  // in the text no matter how much grows after it.
+  if (!messagesCols.some((c) => c.name === 'seam_suspect')) {
+    db.exec('ALTER TABLE messages ADD COLUMN seam_suspect INTEGER NOT NULL DEFAULT 0');
+  }
+
   // Migration: messages.search_wish_query / search_wish_error — the model
   // called web_search and nobody looked (design/mockup-search-wish-card.html).
   // Persisted for the same reason as `truncated`: an answer written without a
@@ -356,6 +368,34 @@ function createDb(dbPath = DB_PATH) {
   // decision 2026-07-21), keep it null and render as plain quotes.
   if (!messagesCols.some((c) => c.name === 'quote_highlight_id')) {
     db.exec('ALTER TABLE messages ADD COLUMN quote_highlight_id TEXT');
+  }
+
+  // Migration: messages.overview_request — whether this user question was
+  // sent as the Video overview (structurePrompt). Persisted instead of
+  // re-derived, because the backend must not guess it from the question
+  // text (the same flag would then depend on the app language and on the
+  // user rewording the prompt, see buildSystemAndHistory). Without this,
+  // regenerating a failed overview answer (the "retry" / "local model"
+  // buttons on the quota-exhausted card) lost the flag and fell into
+  // retrieval/chunking instead of the full-text overview mode it started in.
+  if (!messagesCols.some((c) => c.name === 'overview_request')) {
+    db.exec('ALTER TABLE messages ADD COLUMN overview_request INTEGER NOT NULL DEFAULT 0');
+  }
+
+  // Migration: messages.covered_until_seconds — the second the transcript
+  // handed to THIS answer actually reached, when the context budget cut it.
+  //
+  // The Video overview's progress is read from its own time marks, and that
+  // only works while the marks are evidence. Measured 2026-09-02 (Neel Nanda,
+  // 3:57:44): the transcript was cut at 1:41:43, the truncation note named the
+  // video's full length, and the model closed its last section at 3:57:44 —
+  // a 2 h 16 min chapter over material it had never seen. The overview then
+  // read as complete, nothing asked to be continued, and 57 % of the video
+  // was gone without a trace. This column is the outside measurement that the
+  // answer cannot talk its way past: a mark beyond it is an echo of the
+  // prompt, not coverage.
+  if (!messagesCols.some((c) => c.name === 'covered_until_seconds')) {
+    db.exec('ALTER TABLE messages ADD COLUMN covered_until_seconds INTEGER');
   }
 
   // Migration: papers.extracted_text — lazily filled plain-text cache of the
@@ -649,6 +689,30 @@ function createDb(dbPath = DB_PATH) {
   // 2026-08-16). routes/chats.js keeps this true going forward; this repairs
   // rows written before the rule existed. Idempotent and normally a no-op.
   db.exec('UPDATE chats SET pinned_at = NULL WHERE category_id IS NOT NULL AND pinned_at IS NOT NULL');
+
+  // A model the provider switched off leaves the SETTING behind (user report
+  // 2026-09-04). Groq retired llama-3.3-70b-versatile for free and developer
+  // keys in August 2026, and the picker still had it selected: every answer
+  // began with a 404, the ladder moved on, and the only visible trace was a
+  // "no longer available" badge that a backend restart wiped, because that
+  // state lives in memory. Removing it from the registry is not enough — the
+  // stored choice has to move with it, or it resolves to the unknown-model
+  // fallback and keeps costing a failed call per question.
+  // Written as a list, not a special case: the next retirement is a line here.
+  const RETIRED_MODELS = {
+    groq_model: {
+      'llama-3.3-70b-versatile': 'qwen/qwen3.8-27b',
+      'llama-3.1-8b-instant': 'openai/gpt-oss-20b',
+    },
+  };
+  for (const [key, replacements] of Object.entries(RETIRED_MODELS)) {
+    const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
+    const replacement = row && replacements[row.value];
+    if (replacement) {
+      db.prepare('UPDATE settings SET value = ? WHERE key = ?').run(replacement, key);
+      console.warn(`[settings] ${key}: "${row.value}" was retired by the provider — switched to "${replacement}".`);
+    }
+  }
 
   return db;
 }

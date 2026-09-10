@@ -12,7 +12,7 @@
 
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import App, { AUTO_CONTINUE_MAX } from '../App';
+import App, { AUTO_CONTINUE_MAX, AUTO_CONTINUE_CEILING, AUTO_CONTINUE_ERROR_RETRIES, autoContinueMaxRounds } from '../App';
 import type { Chat, ChatDetail, Message, Video } from '../types';
 
 vi.mock('../pdf/pdfDocument', () => ({
@@ -219,6 +219,33 @@ function openCutOverview() {
   return openVideoChat();
 }
 
+// ─── Der Runaway-Schutz wächst mit dem Video ────────────────────────────────
+// Nutzerentscheidung 2026-09-04: ein Modell, das pro Minute gedrosselt wird,
+// sieht nur wenige Videominuten je Runde — bei einem 3:42:37-Vortrag reichten
+// die festen zwanzig Runden bis 27:05 und nicht weiter. Wer nur EIN solches
+// Modell hat, dem hilft kein größeres Budget, nur mehr Runden.
+
+describe('autoContinueMaxRounds', () => {
+  it('leaves short videos at the flat twenty', () => {
+    expect(autoContinueMaxRounds(860)).toBe(AUTO_CONTINUE_MAX);      // 14:20
+    expect(autoContinueMaxRounds(3991)).toBe(AUTO_CONTINUE_MAX);     // 1:06:31
+  });
+
+  it('grows for a video the flat twenty could not finish', () => {
+    // 3:42:37 — the user's talk. At the measured ~8 minutes a metered round
+    // covers, twenty rounds reach a quarter of it.
+    expect(autoContinueMaxRounds(13357)).toBeGreaterThan(AUTO_CONTINUE_MAX);
+    expect(autoContinueMaxRounds(13357)).toBe(42);
+  });
+
+  it('stays a guard: never past the ceiling, never undefined', () => {
+    expect(autoContinueMaxRounds(60 * 60 * 24)).toBe(AUTO_CONTINUE_CEILING);
+    expect(autoContinueMaxRounds(null)).toBe(AUTO_CONTINUE_MAX);
+    expect(autoContinueMaxRounds(undefined)).toBe(AUTO_CONTINUE_MAX);
+    expect(autoContinueMaxRounds(0)).toBe(AUTO_CONTINUE_MAX);
+  });
+});
+
 describe('App — chapter list mirrors the state of the overview', () => {
   it('keeps quiet when the overview is complete', async () => {
     await openVideoChat();
@@ -305,6 +332,23 @@ describe('App — a cut-off overview continues by itself', () => {
     expect(api.continueMessage).toHaveBeenCalledTimes(1);
   });
 
+  it('recovers when a retry succeeds after transient errors', async () => {
+    // The exact shape of the 2026-08-30 incident: the ladder's first two
+    // candidates fail in quick succession, the third goes through.
+    let attempt = 0;
+    vi.mocked(api.continueMessage).mockImplementation(async () => {
+      attempt += 1;
+      if (attempt < 3) throw new Error('offline');
+      return { userMessage: messages[0], assistantMessage: { ...messages[1], content: OVERVIEW, truncated: 0 } };
+    });
+
+    await openCutOverview();
+
+    await waitFor(() => expect(screen.getAllByTestId('video-chapter')).toHaveLength(2));
+    expect(screen.queryByTestId('video-chapters-truncated')).not.toBeInTheDocument();
+    expect(api.continueMessage).toHaveBeenCalledTimes(3);
+  });
+
   it('continues even before the first time mark exists', async () => {
     // The case from the user's screenshot (2026-08-18): the answer broke off
     // after its very first heading, which carries no [0:00 - …] mark yet. No
@@ -376,13 +420,17 @@ describe('App — a cut-off overview continues by itself', () => {
     expect(card.textContent).not.toContain('brach');
   });
 
-  it('puts the card back when the continuation fails', async () => {
+  it('retries an errored round in place before putting the card back', async () => {
+    // A round that errors outright is often the ladder's candidates being
+    // briefly unavailable together (user incident 2026-08-30: Groq quota
+    // then a second model failing within 0.2s) — worth a few automatic
+    // retries before handing the reader the fallback card.
     vi.mocked(api.continueMessage).mockRejectedValue(new Error('offline'));
 
     await openCutOverview();
 
     expect(await screen.findByTestId('video-chapters-truncated')).toBeInTheDocument();
-    expect(api.continueMessage).toHaveBeenCalledTimes(1);
+    expect(api.continueMessage).toHaveBeenCalledTimes(AUTO_CONTINUE_ERROR_RETRIES);
   });
 });
 

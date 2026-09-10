@@ -191,8 +191,11 @@ export function ModelPicker({ activeProvider, activeModel, groups, ollamaReachab
   // 'provider/model'. A cooling model stays selectable (the backend skips it
   // proactively and fails over) but is dimmed and says when it is back.
   const [cooldowns, setCooldowns] = useState<Record<string, CooldownEntry>>({});
-  // Per-model request counters since UTC midnight for the quota meters
-  // (cost tiers 2026-07-30) — same refresh moments as the cooldowns.
+  // Per-model ANSWERED-call counters since the provider's midnight, for the
+  // quota meters (cost tiers 2026-07-30) — same refresh moments as the
+  // cooldowns. Answered, not attempted: a 429 is the provider refusing
+  // because the limit was reached, and counting it made the meter read
+  // "28/20" on a limit of twenty (user report 2026-09-04).
   const [modelsToday, setModelsToday] = useState<Record<string, number>>({});
   const refreshCooldowns = useCallback(() => {
     api.getQuotaCooldowns()
@@ -203,7 +206,7 @@ export function ModelPicker({ activeProvider, activeModel, groups, ollamaReachab
       })
       .catch(() => { /* badges are best-effort — the menu works without them */ });
     api.getUsageSummary()
-      .then(u => setModelsToday(u.modelsToday ?? {}))
+      .then(u => setModelsToday(u.answeredToday ?? u.modelsToday ?? {}))
       .catch(() => { /* meters are best-effort too */ });
   }, []);
   // Refresh moments: mount + app signal (stream errors), menu open, window
