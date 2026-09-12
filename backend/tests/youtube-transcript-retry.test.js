@@ -134,4 +134,24 @@ describe('fetchTranscript retries the caption fetch', () => {
     expect(global.fetch).toHaveBeenCalledWith('https://yt/manual', expect.anything());
     expect(info.language).toBe('de');
   });
+
+  it('picks the manual track in the spoken language, not the first translation', async () => {
+    // The 3Blue1Brown case (2026-09-10): an English lecture with fan-made
+    // translations listed alphabetically — Arabic first. The ASR track names
+    // the spoken language; the manual track in that language must win.
+    global.fetch = jest.fn().mockResolvedValue(okResponse(SRV3));
+    const yt = fakeInnertube({
+      tracks: [
+        { base_url: 'https://yt/manual-ar', language_code: 'ar' },
+        { base_url: 'https://yt/manual-en', language_code: 'en-US' },
+        { base_url: 'https://yt/manual-fr', language_code: 'fr' },
+        { base_url: 'https://yt/asr', language_code: 'en', kind: 'asr' },
+      ],
+    });
+
+    const info = await fetchTranscript('Gp4zrV3-6N8', { innertube: yt, retryDelayMs: 0 });
+
+    expect(global.fetch).toHaveBeenCalledWith('https://yt/manual-en', expect.anything());
+    expect(info.language).toBe('en-US');
+  });
 });

@@ -96,6 +96,13 @@ function systemPromptOfLastAnswer() {
   return call[0].messages.find(m => m.role === 'system').content;
 }
 
+/** The user turn the model actually answers — the last one of the main call. */
+function userTurnOfLastAnswer() {
+  const call = mockCreate.mock.calls.find(c => (c[0].messages || []).some(m => m.role === 'system'));
+  const users = call[0].messages.filter(m => m.role === 'user');
+  return users[users.length - 1].content;
+}
+
 describe('a transcript too long for the budget', () => {
   it('stays FULL TEXT when the question is the Video overview', async () => {
     const app = makeApp(longSegments(120));
@@ -140,6 +147,68 @@ describe('a transcript too long for the budget', () => {
     expect(system).not.toContain('Never merge two topics into one section');
     // Detail is still mandatory; it just lives in the bullets now.
     expect(system).toContain('never skip a passage for being minor');
+  });
+
+  // User report 2026-09-12: a German overview request over an English
+  // transcript came back English from the very first heading. The mirror rule
+  // sits in the system block above the whole transcript; the first round now
+  // names its language on the user turn, next to where the model answers —
+  // the same lever the continuation rounds got on 2026-09-05.
+  it('names German on the user turn when the overview request is German', async () => {
+    const app = makeApp(longSegments(120));
+    const chatId = await videoChat(app);
+
+    await request(app)
+      .post(`/api/chats/${chatId}/messages`)
+      .send({
+        content:
+          'Gliedere das ganze Video in seine Abschnitte — je Abschnitt eine Überschrift, ' +
+          'die Kernaussage und die Details. Nichts weglassen.',
+        overview: true,
+      })
+      .buffer(true);
+
+    const asked = userTurnOfLastAnswer();
+    // A sandwich, verified live 2026-09-12: the suffix alone was ignored by
+    // gemini-flash-lite on a fresh chat; with the target-language prefix in
+    // front the same request answered German three times out of three.
+    expect(asked).toMatch(/^\[Antworte AUSSCHLIESSLICH auf Deutsch/);
+    expect(asked).toContain('Write the ENTIRE overview in German');
+    expect(asked).toContain('A transcript in another language does NOT change');
+    // Scaffolding only — the stored message keeps the raw question.
+    const stored = db
+      .prepare("SELECT content FROM messages WHERE role = 'user' ORDER BY created_at DESC LIMIT 1")
+      .get();
+    expect(stored.content).not.toContain('ENTIRE overview');
+  });
+
+  it('names English when the overview request is English', async () => {
+    const app = makeApp(longSegments(120));
+    const chatId = await videoChat(app);
+
+    await request(app)
+      .post(`/api/chats/${chatId}/messages`)
+      .send({ content: 'Break the whole video down into its sections.', overview: true })
+      .buffer(true);
+
+    const asked = userTurnOfLastAnswer();
+    expect(asked).toMatch(/^\[Answer ONLY in English/);
+    expect(asked).toContain('Write the ENTIRE overview in English');
+    expect(asked).not.toContain('in German');
+  });
+
+  it('appends NO language line to an ordinary question', async () => {
+    const app = makeApp(longSegments(120));
+    const chatId = await videoChat(app);
+
+    await request(app)
+      .post(`/api/chats/${chatId}/messages`)
+      .send({ content: 'Was sagt er über Batch Norm?' })
+      .buffer(true);
+
+    const asked = userTurnOfLastAnswer();
+    expect(asked).not.toContain('ENTIRE overview');
+    expect(asked).not.toContain('AUSSCHLIESSLICH');
   });
 
   it('still uses RETRIEVAL for an ordinary question about the same video', async () => {
@@ -482,6 +551,82 @@ describe('the Video overview and the custom instructions', () => {
       .buffer(true);
 
     expect(promptText()).toContain(INSTRUCTIONS);
+  });
+});
+
+// ─── The section target is pro-rated to the window a round sees ─────────────
+// User report 2026-09-10: a 2:35:26 talk arrived as 18 half-minute sections
+// for its first 9:37 — Groq's budget had cut the transcript there, and "about
+// 22 sections in total" left the model free to spend 18 of them on the sliver
+// it saw. A cut window now gets its running-time share of the target, named in
+// the prompt next to the window's own time marks.
+describe('the section target and a budget-cut window', () => {
+  const markToSeconds = (mark) => {
+    const p = mark.split(':').map(Number);
+    return p.length === 3 ? p[0] * 3600 + p[1] * 60 + p[2] : p[0] * 60 + p[1];
+  };
+  const WINDOW_SENTENCE =
+    /only a WINDOW of the video: it reaches from \[([\d:]+)\] to \[([\d:]+)\] of the \[([\d:]+)\] running time\. Write about (\d+) section/;
+
+  it('asks a cut first round for its share of the sections, not all of them', async () => {
+    const app = makeApp(longSegments(120));
+    const chatId = await videoChat(app);
+
+    await request(app)
+      .post(`/api/chats/${chatId}/messages`)
+      .send({ content: 'Break the whole video down into its sections.', overview: true })
+      .buffer(true);
+
+    const system = systemPromptOfLastAnswer();
+    // The global target stays; the window sentence narrows it for this round.
+    expect(system).toContain('should have about 16 sections in total');
+    const m = WINDOW_SENTENCE.exec(system);
+    expect(m).not.toBeNull();
+    expect(m[1]).toBe('0:00');
+    expect(markToSeconds(m[3])).toBe(6924);
+    const cut = markToSeconds(m[2]);
+    expect(cut).toBeGreaterThan(0);
+    expect(cut).toBeLessThan(6924);
+    // The share is the target pro-rated by what this round can see.
+    expect(Number(m[4])).toBe(Math.max(1, Math.round(16 * (cut / 6924))));
+    expect(Number(m[4])).toBeLessThan(16);
+  });
+
+  it('starts a continuation round\'s window where it resumes', async () => {
+    const app = makeApp(longSegments(120));
+    const chatId = await videoChat(app);
+
+    const now = Date.now();
+    db.prepare(
+      'INSERT INTO messages (id, chat_id, role, content, created_at, pending, overview_request) VALUES (?, ?, ?, ?, ?, 0, 1)'
+    ).run('q-window', chatId, 'user', 'Break the whole video down into its sections.', now);
+    db.prepare(
+      'INSERT INTO messages (id, chat_id, role, content, created_at, pending, overview_request, covered_until_seconds) VALUES (?, ?, ?, ?, ?, 0, 0, ?)'
+    ).run('a-window', chatId, 'assistant', '## Opening [0:00 - 5:00]\n\n**The speaker starts.**\n', now + 1, 300);
+
+    const res = await request(app)
+      .post(`/api/chats/${chatId}/messages/continue`)
+      .send({ messageId: 'a-window' })
+      .buffer(true);
+    expect(res.status).toBe(200);
+
+    const m = WINDOW_SENTENCE.exec(systemPromptOfLastAnswer());
+    expect(m).not.toBeNull();
+    // The window opens at the resume point, not at 0:00 — the share must not
+    // count the minutes this round will never write about.
+    expect(markToSeconds(m[1])).toBe(300);
+  });
+
+  it('says nothing about a window when the whole transcript fits', async () => {
+    const app = makeApp(longSegments(3));
+    const chatId = await videoChat(app);
+
+    await request(app)
+      .post(`/api/chats/${chatId}/messages`)
+      .send({ content: 'Break the whole video down into its sections.', overview: true })
+      .buffer(true);
+
+    expect(systemPromptOfLastAnswer()).not.toContain('only a WINDOW');
   });
 });
 

@@ -209,8 +209,19 @@ async function fetchTranscript(youtubeId, options = {}) {
     // A video without captions has none a second later either — the only
     // failure here that retrying cannot help.
     if (tracks.length === 0) throw noTranscript();
-    // Prefer a manually maintained track over auto captions ('asr').
-    const track = tracks.find((t) => t.kind !== 'asr') || tracks[0];
+    // Prefer a manually maintained track over auto captions ('asr') — but in
+    // the language the video is SPOKEN in. Popular videos carry dozens of
+    // fan-translated manual tracks listed alphabetically, so "first manual
+    // track" used to hand an English lecture its Arabic translation (live on
+    // 2026-09-10, 3Blue1Brown's attention video). The ASR track is always in
+    // the spoken language, so it names the language to look for even though
+    // it is the last track we want to read.
+    const asrLang = (tracks.find((t) => t.kind === 'asr')?.language_code || '').split('-')[0];
+    const manual = tracks.filter((t) => t.kind !== 'asr');
+    const spoken = asrLang
+      ? manual.find((t) => (t.language_code || '').split('-')[0] === asrLang)
+      : null;
+    const track = spoken || manual[0] || tracks[0];
 
     let segments;
     try {

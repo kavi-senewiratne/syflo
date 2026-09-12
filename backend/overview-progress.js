@@ -388,6 +388,37 @@ function overviewSectionTarget(durationSeconds) {
   return Math.min(MAX_SECTIONS, Math.max(MIN_SECTIONS, fromRate));
 }
 
+/**
+ * The share of the section target that belongs to the transcript WINDOW a
+ * round actually sees — or null when the round sees the whole video and the
+ * global target alone governs.
+ *
+ * A global number only works for a model that sees the whole video (user
+ * report 2026-09-10): a 2:35:26 talk arrived as 18 sections for its first
+ * 9:37. Groq's context budget had cut the transcript at 9:37, the model could
+ * not know that was 6 % of the running time, and "about 22 sections in total"
+ * left it free to spend 18 of them there; the continuation, counting
+ * correctly, then pressed the remaining 2 h 26 min into the 4 that were left.
+ *
+ * So a cut window gets its share of the target, pro-rated by running time,
+ * with a floor of 1 so a round is never asked for zero sections. The window
+ * runs from `fromSeconds` (where a continuation resumes; 0 or null for the
+ * first round) to `cutAtSeconds` (where the budget cut the transcript; null
+ * when nothing was cut).
+ */
+function overviewWindowTarget(durationSeconds, fromSeconds, cutAtSeconds) {
+  const total = overviewSectionTarget(durationSeconds);
+  if (total === null) return null;
+  const start = Math.max(0, fromSeconds || 0);
+  const end = cutAtSeconds === null || cutAtSeconds === undefined
+    ? durationSeconds
+    : Math.min(cutAtSeconds, durationSeconds);
+  if (start <= 0 && end >= durationSeconds) return null;
+  const visible = end - start;
+  if (visible <= 0) return null;
+  return Math.max(1, Math.round(total * (visible / durationSeconds)));
+}
+
 module.exports = {
   trimTrailingClosing,
   lastCoveredSeconds,
@@ -396,6 +427,7 @@ module.exports = {
   transcriptFrom,
   formatMark,
   overviewSectionTarget,
+  overviewWindowTarget,
   stripRoundSignOff,
   stripLeadingNarration,
   closeUnbalancedBold,

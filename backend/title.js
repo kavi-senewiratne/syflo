@@ -232,7 +232,7 @@ function branchTitleInstruction(passage, { withOutcome = false, answer = '' } = 
       (withOutcome
         ? 'OUTCOME: <4 to 8 words stating what the ANSWER below established about the ' +
           'passage — the finding, not the topic. Same language as the answer. Write it ' +
-          'as a statement ("Hält die Varianz bei 1"), never as a question and never as a ' +
+          'as a statement ("Keeps the variance at 1"), never as a question and never as a ' +
           'label. Leave the line empty only if the answer established nothing at all>\n'
         : '') +
       'Use only standard LaTeX that KaTeX understands — never invent macros: ' +
@@ -264,7 +264,7 @@ function outcomeInstruction(passage, answer) {
       'EXACTLY ONE line, starting with the label in capitals, and nothing else:\n' +
       'OUTCOME: <4 to 8 words stating what the ANSWER below established about the passage — ' +
       'the finding, not the topic. Same language as the answer. Write it as a statement ' +
-      '("Hält die Varianz bei 1"), never as a question and never as a label. Use $...$ LaTeX ' +
+      '("Keeps the variance at 1"), never as a question and never as a label. Use $...$ LaTeX ' +
       'for any math, only standard commands KaTeX understands. Leave the line empty only if ' +
       'the answer established nothing at all>\n' +
       'No markdown fences, no commentary, no extra lines, no quotation marks around the value.\n' +

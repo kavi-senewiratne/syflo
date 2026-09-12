@@ -265,5 +265,5 @@ function condenseWrittenAnswer(content) {
 // is safe to forward live (routes/btw.js).
 module.exports = {
   joinContinuation, continuationInstruction, condenseWrittenAnswer, detectLanguage, MAX_OVERLAP,
-  seamSuspect, endsMidSentence,
+  seamSuspect, endsMidSentence, LANGUAGE_NAMES,
 };

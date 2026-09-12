@@ -10,7 +10,7 @@
  * The API client is mocked; App, ChatArea and VideoPane are real.
  */
 
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act, within } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import App, { AUTO_CONTINUE_MAX, AUTO_CONTINUE_CEILING, AUTO_CONTINUE_ERROR_RETRIES, autoContinueMaxRounds } from '../App';
 import type { Chat, ChatDetail, Message, Video } from '../types';
@@ -531,6 +531,37 @@ describe('App — coloring a transcript passage', () => {
     expect(payload.endOffset).toBeGreaterThan(payload.startOffset);
     // The second comes from the block, never from a picker.
     expect(payload.startSeconds).toBe(538);
+  });
+});
+
+describe('App — removing a saved transcript mark', () => {
+  // Nutzer-Report 2026-09-10: eine gespeicherte Markierung ließ sich im
+  // Transcript nicht wieder anklicken und entfernen — Chat und PDF konnten
+  // das längst. Der Klick öffnet jetzt dasselbe Aktionsmenü.
+  it('click on the mark opens the actions menu; delete removes it', async () => {
+    vi.mocked(api.listTranscriptHighlights).mockResolvedValue([
+      {
+        id: 'th9', videoId: 'v1', color: 'green', text: 'kind of zip file',
+        startOffset: 30, endOffset: 46, startSeconds: 538, childChatId: null,
+        source: 'transcript',
+        createdAt: '2026-08-16T00:00:00Z', updatedAt: '2026-08-16T00:00:00Z',
+      },
+    ]);
+    vi.mocked(api.deleteTranscriptHighlight).mockResolvedValue(undefined);
+
+    await openVideoChat();
+    fireEvent.click(await screen.findByTestId('video-view-transcript'));
+
+    const mark = await screen.findByTestId('transcript-highlight');
+    fireEvent.click(mark, { clientX: 50, clientY: 80 });
+
+    const menu = await screen.findByTestId('highlight-actions-menu');
+    fireEvent.click(within(menu).getByText(/Delete highlight|Highlight löschen/));
+
+    await waitFor(() => expect(api.deleteTranscriptHighlight).toHaveBeenCalledWith('th9'));
+    await waitFor(() =>
+      expect(screen.queryByTestId('transcript-highlight')).not.toBeInTheDocument(),
+    );
   });
 });
 

@@ -10,7 +10,7 @@
  * computed from the running time, floored and capped, and written into the
  * prompt as a number the model does not have to derive.
  */
-const { overviewSectionTarget } = require('../overview-progress');
+const { overviewSectionTarget, overviewWindowTarget } = require('../overview-progress');
 
 describe('overviewSectionTarget', () => {
   it('does not leave a short video with one or two sections', () => {
@@ -32,5 +32,45 @@ describe('overviewSectionTarget', () => {
     expect(overviewSectionTarget(null)).toBeNull();
     expect(overviewSectionTarget(undefined)).toBeNull();
     expect(overviewSectionTarget(0)).toBeNull();
+  });
+});
+
+/**
+ * Pro-rating the target to the window a round actually sees (user report
+ * 2026-09-10): the 2:35:26 Bengio talk arrived as 18 half-minute sections for
+ * its first 9:37 because Groq's budget cut the transcript there and the model
+ * spent the global target on the sliver it saw.
+ */
+describe('overviewWindowTarget', () => {
+  const BENGIO = 9326; // 2:35:26 — total target 22
+
+  it('gives a budget-cut first round its share, not the whole target', () => {
+    // Groq's 10 500-char cap ended the transcript at 9:37.
+    expect(overviewWindowTarget(BENGIO, 0, 577)).toBe(1);
+  });
+
+  it('leaves a continuation that sees the whole rest most of the target', () => {
+    expect(overviewWindowTarget(BENGIO, 577, null)).toBe(21);
+  });
+
+  it('pro-rates a continuation whose rest is cut again', () => {
+    // resumes at 9:37, cut again at 20:00 — 623 s of 9 326.
+    expect(overviewWindowTarget(BENGIO, 577, 1200)).toBe(1);
+  });
+
+  it('never asks a round for zero sections', () => {
+    expect(overviewWindowTarget(600, 0, 60)).toBe(1); // 10 % of a 10-min video
+  });
+
+  it('stays silent when the round sees the whole video', () => {
+    expect(overviewWindowTarget(BENGIO, 0, null)).toBeNull();
+    expect(overviewWindowTarget(BENGIO, null, null)).toBeNull();
+    expect(overviewWindowTarget(BENGIO, 0, BENGIO)).toBeNull();
+  });
+
+  it('stays silent when the duration is unknown or the window is empty', () => {
+    expect(overviewWindowTarget(null, 0, 577)).toBeNull();
+    expect(overviewWindowTarget(BENGIO, 577, 577)).toBeNull();
+    expect(overviewWindowTarget(BENGIO, 600, 577)).toBeNull();
   });
 });
