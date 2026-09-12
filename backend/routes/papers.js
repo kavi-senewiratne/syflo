@@ -614,7 +614,9 @@ module.exports = (db, uploadsDir, options = {}) => {
     if (!row.pdf_path || !fs.existsSync(row.pdf_path)) {
       return res.status(404).json({ error: 'PDF file missing on disk' });
     }
-    res.type('application/pdf').sendFile(path.resolve(row.pdf_path));
+    // dotfiles: 'allow' — the data dir lives under ~/.syflo, and sendFile's
+    // default treats the ".syflo" path segment as a dotfile and 404s.
+    res.type('application/pdf').sendFile(path.resolve(row.pdf_path), { dotfiles: 'allow' });
   });
 
   return router;
