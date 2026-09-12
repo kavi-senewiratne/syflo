@@ -244,6 +244,74 @@ describe('Zeitspanne vorn und ohne Klammern (Groq gpt-oss-120b, 2026-09-01)', ()
   });
 });
 
+describe('Zeitmarke allein auf der Folgezeile (Gemini Flash Lite, 2026-09-12)', () => {
+  // Hassabis-Vortrag: alle zehn Kapitel trugen ihre Spanne in einer EIGENEN
+  // Zeile unter der Überschrift. Kein Kapitel parste, die Video-Pane blieb
+  // leer — obwohl die Übersicht im Chat tadellos aussah.
+  const folgezeile = `## Eine Reise zur Künstlichen Intelligenz
+[0:02 - 5:48]
+**Demis Hassabis blickt auf seine akademischen Wurzeln in Cambridge zurück.**
+* **Rückkehr nach Cambridge:** Hassabis beschreibt seine emotionale Rückkehr.
+
+## Die Mission von DeepMind
+
+[5:48 - 9:22]
+
+**Intelligenz lösen, um alles andere zu lösen.**
+`;
+
+  it('paart die Überschrift mit der Marke aus der Folgezeile', () => {
+    const chapters = parseChapters(folgezeile);
+
+    expect(chapters).toHaveLength(2);
+    expect(chapters[0]).toMatchObject({
+      title: 'Eine Reise zur Künstlichen Intelligenz',
+      level: 2,
+      startSeconds: 2,
+      endSeconds: 348,
+      keyPoint: 'Demis Hassabis blickt auf seine akademischen Wurzeln in Cambridge zurück.',
+    });
+    // Leerzeilen zwischen Überschrift, Marke und Kernsatz sind erlaubt.
+    expect(chapters[1]).toMatchObject({
+      title: 'Die Mission von DeepMind',
+      startSeconds: 348,
+      endSeconds: 562,
+      keyPoint: 'Intelligenz lösen, um alles andere zu lösen.',
+    });
+  });
+
+  it('Offsets zeigen weiter auf Titel und Kernsatz im Originaltext', () => {
+    const [c] = parseChapters(folgezeile);
+    expect(folgezeile.slice(c.titleOffset, c.titleOffset + c.title.length)).toBe(c.title);
+    expect(folgezeile.slice(c.keyPointOffset!, c.keyPointOffset! + c.keyPoint!.length)).toBe(c.keyPoint);
+  });
+
+  it('liest die Kapitel auch aus dem bereits verlinkten Text', () => {
+    const chapters = parseChapters(insertTimeLinks(folgezeile));
+    expect(chapters).toHaveLength(2);
+    expect(chapters[0].startSeconds).toBe(2);
+  });
+
+  it('eine nackte Spanne auf der Folgezeile zählt — zwei Marken mit Strich sind eindeutig', () => {
+    const chapters = parseChapters('## Einführung\n0:04 – 0:34\n\n**Satz.**\n');
+    expect(chapters).toHaveLength(1);
+    expect(chapters[0]).toMatchObject({ title: 'Einführung', startSeconds: 4, endSeconds: 34 });
+  });
+
+  it('eine einzelne NACKTE Marke auf der Folgezeile bleibt Prosa (echote Videolänge)', () => {
+    expect(parseChapters('## Restliches Video\n47:40\n')).toEqual([]);
+  });
+
+  it('eine Überschrift, deren Folgezeile Prosa ist, bleibt kein Kapitel', () => {
+    expect(parseChapters('## Zusammenfassung\n\nEin Satz über [8:58] mitten im Text.\n')).toEqual([]);
+  });
+
+  it('overviewStopsShort liest die Folgezeilen-Marken als Fortschritt', () => {
+    // 5:48 von 61 Minuten → klar zu kurz; die Marke steht nur in Folgezeilen.
+    expect(overviewStopsShort('## Reise\n[0:02 - 5:48]\n', 3666)).toBe(true);
+  });
+});
+
 // ─── Welche NACHRICHT die Übersicht ist ────────────────────────────────────
 // Für die drei Zustände der Pane (mockup-truncated-answer §02) reicht der
 // Text nicht: sie muss wissen, ob DIESE Nachricht abgebrochen ist und welche

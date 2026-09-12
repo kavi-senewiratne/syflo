@@ -110,6 +110,44 @@ const TRAILING_HEADING_RE = new RegExp(
   `^(#{1,4})\\s+(.+?)${SEP_SRC}\\(?(${T_SRC})${DASH_SRC}(${T_SRC})\\)?\\s*$`,
 );
 
+/**
+ * A line that is NOTHING but a time mark — the "mark on the next line"
+ * overview shape (Gemini Flash Lite, 2026-09-12, Hassabis lecture):
+ *
+ *   ## Eine Reise zur Künstlichen Intelligenz
+ *   [0:02 - 5:48]
+ *
+ * All ten chapters of an otherwise well-formed overview carried their range
+ * this way, so not one parsed and the video pane stood empty. Accepted: a
+ * bracketed mark or range, possibly already linkified, and a BARE range —
+ * two marks joined by a dash are unambiguous (same reasoning as
+ * RANGE_ONLY_HEADING_RE). A bare SINGLE mark is not: the video's duration is
+ * injected into the prompt as exactly such a bare string (2026-08-30 lesson
+ * above), and an echo of it must not become a chapter.
+ *
+ * The pairing with the heading above happens in chapters.ts, which walks the
+ * lines; parseChapterHeading stays single-line because
+ * linkifyBareHeadingRanges depends on that.
+ */
+const LONE_MARK_LINE_RE = new RegExp(
+  `^\\s*(?:\\[(${T_SRC})(?:${DASH_SRC}(${T_SRC}))?\\](?:\\([^)]*\\))?|(${T_SRC})${DASH_SRC}(${T_SRC}))\\s*$`,
+);
+
+export function parseLoneMarkLine(
+  line: string,
+): { startSeconds: number; endSeconds: number | null } | null {
+  if (!line || !line.includes(':')) return null;
+  const m = line.match(LONE_MARK_LINE_RE);
+  if (!m) return null;
+  const start = m[1] ?? m[3];
+  const end = m[2] ?? m[4] ?? null;
+  const startSeconds = parseTimestamp(start);
+  if (startSeconds === null) return null;
+  const endSeconds = end ? parseTimestamp(end) : null;
+  if (end !== null && endSeconds === null) return null;
+  return { startSeconds, endSeconds };
+}
+
 export interface ChapterHeading {
   /** Heading depth: number of hashes. */
   level: number;
@@ -128,7 +166,7 @@ export interface ChapterHeading {
 }
 
 /** A dangling separator once the range is parsed out ('Einführung –' → 'Einführung'). */
-function cleanTitle(raw: string): string {
+export function cleanTitle(raw: string): string {
   return raw.trim().replace(/[\s–—−:-]+$/, '').trim();
 }
 

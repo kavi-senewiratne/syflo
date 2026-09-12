@@ -15,7 +15,14 @@
  * not a time (`[99:99]`) is rejected in both places by the same rule.
  */
 
-import { lastTimeMark, parseChapterHeading, parseTimestamp } from './timeLinks';
+import {
+  cleanTitle,
+  lastTimeMark,
+  parseChapterHeading,
+  parseLoneMarkLine,
+  parseTimestamp,
+} from './timeLinks';
+import type { ChapterHeading } from './timeLinks';
 import type { Message } from '../types';
 
 export interface Chapter {
@@ -49,7 +56,12 @@ export interface Chapter {
 // from rendered content), `#` one level high (Flash Lite, 2026-08-20), and a
 // BARE range with no brackets, range-first (`## 0:04 – 0:34 – Topic`, Groq
 // gpt-oss-120b 2026-09-01) or range-last. The time mark stays mandatory; it
-// is what separates a chapter from any other heading.
+// is what separates a chapter from any other heading — but it may sit alone
+// on the NEXT line under a mark-less heading (Gemini Flash Lite, 2026-09-12):
+// that pairing happens here, where the lines are, via parseLoneMarkLine.
+
+/** A heading that carries no time mark of its own — pairing candidate. */
+const PLAIN_HEADING_RE = /^(#{1,4})\s+(\S.*)$/;
 
 /** The bold sentence right under a heading: `**…**` alone on its line. */
 const KEY_POINT_RE = /^\*\*(.+?)\*\*[.!?]?$/;
@@ -81,8 +93,30 @@ export function parseChapters(content: string): Chapter[] {
   }
 
   lines.forEach((line, i) => {
-    const head = parseChapterHeading(line);
-    if (!head) return;
+    let head: Pick<
+      ChapterHeading,
+      'level' | 'title' | 'startSeconds' | 'endSeconds'
+    > | null = parseChapterHeading(line);
+    // The key point starts below the heading — or below the mark line, when
+    // the mark sits alone on the next line under a mark-less heading (Gemini
+    // Flash Lite, 2026-09-12: every chapter of the Hassabis overview, and the
+    // pane stood empty). Only blank lines may separate the two.
+    let below = i + 1;
+    if (!head) {
+      const plain = line.match(PLAIN_HEADING_RE);
+      if (!plain) return;
+      let j = i + 1;
+      while (j < lines.length && !lines[j].trim()) j++;
+      const lone = j < lines.length ? parseLoneMarkLine(lines[j]) : null;
+      if (!lone) return;
+      head = {
+        level: plain[1].length,
+        title: cleanTitle(plain[2]),
+        startSeconds: lone.startSeconds,
+        endSeconds: lone.endSeconds,
+      };
+      below = j + 1;
+    }
 
     const { startSeconds, endSeconds } = head;
 
@@ -92,7 +126,7 @@ export function parseChapters(content: string): Chapter[] {
     // than borrowing the first bullet, which would read as a claim.
     let keyPoint: string | null = null;
     let keyPointOffset: number | null = null;
-    for (let j = i + 1; j < lines.length; j++) {
+    for (let j = below; j < lines.length; j++) {
       const next = lines[j].trim();
       if (!next) continue;
       const m = next.match(KEY_POINT_RE);
