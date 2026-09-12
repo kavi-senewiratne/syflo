@@ -1,17 +1,19 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 400" width="700" height="400" role="img" aria-labelledby="t d">
-  <title id="t">What a branch sends to the model</title>
-  <desc id="d">A tree of four chats. The main chat about the paper is sent as a summary. Its child, the attention chat, is sent in full. The grandchild, why several heads, is where you are typing. The sibling branch GPU memory is not sent at all.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 430" width="920" height="430" role="img" aria-labelledby="t d">
+  <title id="t">One linear chat versus the Syflo tree</title>
+  <desc id="d">Two columns. Left: ChatGPT or Claude as one linear chat, turn 1 to turn 90, every earlier turn sent again with every new question. Right: the Syflo tree of four chats — the parent is sent in full, the main chat as a short summary, and the sibling branch GPU memory not at all.</desc>
 
   <style>
     /* Mushroom Kingdom palette, sampled from the GIFs: cream #fefcf3,
        sky #77abfb, deep blue #282855, green #84c471. No black anywhere. */
     .plate  { fill: #fefcf3; }
     .line   { stroke: #c8c3ad; stroke-width: 1.5; fill: none; }
+    .line-more { stroke: #c8c3ad; stroke-width: 1.5; fill: none; stroke-dasharray: 4 4; }
     .box    { fill: #fffdf6; stroke: #c8c3ad; stroke-width: 1.5; }
     .box-on { fill: #e6effe; stroke: #77abfb; stroke-width: 2; }
     .box-off{ fill: none;    stroke: #cfcabb; stroke-width: 1.5; stroke-dasharray: 5 4; }
     .label  { fill: #282855; font: 500 15px ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
     .label-off { fill: #8d88a0; font: 500 15px ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+    .head   { fill: #282855; font: 600 16px ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
     .tag    { fill: #5a86d8; font: 600 12.5px ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; letter-spacing: .02em; }
     .tag-mut{ fill: #9c97a8; font: 600 12.5px ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; letter-spacing: .02em; }
     .foot   { fill: #6f6a80; font: 400 13px ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
@@ -20,11 +22,13 @@
     @media (prefers-color-scheme: dark) {
       .plate   { fill: #20224f; }
       .line    { stroke: #464a80; }
+      .line-more { stroke: #464a80; }
       .box     { fill: #282855; stroke: #464a80; }
       .box-on  { fill: #2f3d75; stroke: #77abfb; }
       .box-off { stroke: #43476f; }
       .label   { fill: #f3f0e0; }
       .label-off { fill: #8b8fb4; }
+      .head    { fill: #f3f0e0; }
       .tag     { fill: #9cc4ff; }
       .tag-mut { fill: #8b8fb4; }
       .foot    { fill: #b4b1c8; }
@@ -32,36 +36,79 @@
     }
   </style>
 
-  <rect class="plate" x="0" y="0" width="700" height="400" rx="14"/>
+  <rect class="plate" x="0" y="0" width="920" height="430" rx="14"/>
 
-  <!-- trunk from root down to GPU memory -->
-  <path class="line" d="M 62 84 L 62 338"/>
-  <path class="line" d="M 62 154 L 92 154"/>
-  <path class="line" d="M 62 338 L 92 338"/>
-  <!-- branch from attention down to why several heads -->
-  <path class="line" d="M 114 176 L 114 246 L 144 246"/>
+  <!-- column divider -->
+  <line class="rule" x1="390" y1="28" x2="390" y2="402"/>
 
-  <!-- root -->
-  <rect class="box" x="32" y="30" width="252" height="54" rx="9"/>
-  <text class="label" x="52" y="62">main chat: the paper</text>
-  <text class="tag" x="316" y="62">sent as a short summary</text>
+  <!-- ── left column: one linear chat ── -->
+  <text class="head" x="40" y="52">ChatGPT · Claude</text>
+  <text class="tag-mut" x="185" y="52">one long scroll</text>
 
-  <!-- attention -->
-  <rect class="box" x="92" y="128" width="216" height="54" rx="9"/>
-  <text class="label" x="112" y="160">attention</text>
-  <text class="tag" x="340" y="160">sent in full</text>
+  <!-- chat flow, drawn behind the boxes -->
+  <path class="line" d="M 170 116 L 170 126"/>
+  <path class="line" d="M 170 164 L 170 174"/>
+  <path class="line-more" d="M 170 214 L 170 256"/>
+  <path class="line" d="M 170 296 L 170 306"/>
 
-  <!-- why several heads -->
-  <rect class="box-on" x="144" y="220" width="240" height="54" rx="9"/>
-  <text class="label" x="164" y="252">why several heads?</text>
-  <text class="tag" x="416" y="252">you are typing here</text>
+  <rect class="box" x="40" y="78" width="260" height="38" rx="9"/>
+  <text class="label" x="58" y="102">turn 1: the paper</text>
+  <text class="tag" x="312" y="102">sent again</text>
 
-  <!-- GPU memory -->
-  <rect class="box-off" x="92" y="312" width="216" height="54" rx="9"/>
-  <text class="label-off" x="112" y="344">GPU memory</text>
-  <text class="tag-mut" x="340" y="344">not sent at all</text>
+  <rect class="box" x="40" y="126" width="260" height="38" rx="9"/>
+  <text class="label" x="58" y="150">turn 2</text>
+  <text class="tag" x="312" y="150">sent again</text>
 
-  <!-- footnote -->
-  <line class="rule" x1="144" y1="288" x2="556" y2="288"/>
-  <text class="foot" x="144" y="306">…plus the words you branched on. The sibling branch stays out.</text>
+  <rect class="box" x="40" y="174" width="260" height="38" rx="9"/>
+  <text class="label" x="58" y="198">turn 3</text>
+  <text class="tag" x="312" y="198">sent again</text>
+
+  <text class="label-off" x="188" y="240">turns 4 – 88</text>
+
+  <rect class="box" x="40" y="258" width="260" height="38" rx="9"/>
+  <text class="label" x="58" y="282">turn 89</text>
+  <text class="tag" x="312" y="282">sent again</text>
+
+  <rect class="box-on" x="40" y="306" width="260" height="38" rx="9"/>
+  <text class="label" x="58" y="330">turn 90: your question</text>
+  <text class="tag" x="312" y="330">+ all of the above</text>
+
+  <text class="foot" x="40" y="384">Turn 91 will carry all ninety with it again.</text>
+
+  <!-- ── right column: the Syflo tree ── -->
+  <text class="head" x="420" y="52">Syflo</text>
+  <text class="tag-mut" x="478" y="52">a tree of branches</text>
+
+  <g transform="translate(408, 42) scale(0.85)">
+    <!-- trunk from root down to GPU memory -->
+    <path class="line" d="M 62 84 L 62 338"/>
+    <path class="line" d="M 62 154 L 92 154"/>
+    <path class="line" d="M 62 338 L 92 338"/>
+    <!-- branch from attention down to why several heads -->
+    <path class="line" d="M 114 176 L 114 246 L 144 246"/>
+
+    <!-- root -->
+    <rect class="box" x="32" y="30" width="252" height="54" rx="9"/>
+    <text class="label" x="52" y="62">main chat: the paper</text>
+    <text class="tag" x="316" y="62">sent as a short summary</text>
+
+    <!-- attention -->
+    <rect class="box" x="92" y="128" width="216" height="54" rx="9"/>
+    <text class="label" x="112" y="160">attention</text>
+    <text class="tag" x="340" y="160">sent in full</text>
+
+    <!-- why several heads -->
+    <rect class="box-on" x="144" y="220" width="240" height="54" rx="9"/>
+    <text class="label" x="164" y="252">why several heads?</text>
+    <text class="tag" x="416" y="252">you are typing here</text>
+
+    <!-- GPU memory -->
+    <rect class="box-off" x="92" y="312" width="216" height="54" rx="9"/>
+    <text class="label-off" x="112" y="344">GPU memory</text>
+    <text class="tag-mut" x="340" y="344">not sent at all</text>
+
+    <!-- footnote -->
+    <line class="rule" x1="144" y1="288" x2="556" y2="288"/>
+    <text class="foot" x="144" y="306">…plus the words you branched on. The sibling branch stays out.</text>
+  </g>
 </svg>
