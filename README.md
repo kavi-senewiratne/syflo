@@ -50,9 +50,11 @@ Ctrl-C in the terminal (or closing the window) stops the backend with it.
 Syflo works with Gemini, Groq, OpenAI, Anthropic and local Ollama models, and
 you pick which one answers each message. Gemini and Groq both hand out free keys
 with a daily allowance, and for a normal evening of reading that allowance has
-been enough. When you do run out, Syflo says so plainly and shows you when the
-limit resets, instead of failing with a red error. The picker labels which
-models are free and which cost money, so a paid one is never one misclick away.
+been enough. When one allowance runs out, Syflo moves to the next free model by
+itself and remembers not to try the exhausted one again until it resets — and it
+tells you so plainly, instead of failing with a red error. The picker labels
+which models are free and which cost money, so a paid one is never one misclick
+away, and the free ladder never falls through to a paid model on its own.
 
 If you want no provider at all, point Syflo at a local
 [Ollama](https://ollama.com) model. Then nothing leaves your machine, and there
@@ -87,8 +89,9 @@ Right-click a word in an answer, select a phrase, or type `/branch <topic>`. You
 get a new chat dedicated to that one thing. The conversation you were in stays
 exactly as it was.
 
-Half of the benefit is that the questions now have somewhere to live. The other
-half is what the model receives. Say your tree looks like this:
+Half of the benefit is that the questions now have somewhere to live: a week
+later you can still find the one about attention heads, because it is its own
+chat, not message 34 of 90. The other half is what the model receives. Say your tree looks like this:
 
 ```
 main chat: the paper
@@ -137,16 +140,20 @@ that exact line and lights it up, so you can check whether the model read what
 it claims to have read.
 
 **YouTube lectures.** Paste a link and you get the transcript as the tree's
-source, plus a structured overview with clickable timestamps. After that the
-transcript behaves like the paper: select a sentence, ask what it means, branch
-off it.
+source, plus a structured overview with clickable timestamps — so you can decide
+what is worth watching before you watch it. After that the transcript behaves
+like the paper: select a sentence, ask what it means, branch off it. A two-hour
+video becomes something you can interrogate instead of something you have to sit
+through.
+
+![Importing a video, then the timestamped overview writing itself](article/gifs/04-youtube.gif)
 
 ## Five themes
 
-The default is Mushroom Kingdom. There is also a Matrix terminal, Hyrule, and a
-quiet ink-on-paper theme for when you need to look like an adult. They change
-more than the colours — the thinking indicator, the app icon and the logo all
-follow the theme.
+The default is Mushroom Kingdom — sky, clouds, question blocks. There is also a
+Matrix terminal, Hyrule, and a quiet ink-on-paper theme for when you need to
+look like an adult. They change more than the colours — the thinking indicator,
+the app icon and the logo all follow the theme.
 
 ![Cycling through the themes](article/gifs/05-themes.gif)
 
@@ -209,8 +216,11 @@ shows cost tiers and what is left of today's free allowance.
 
 **Fully offline.** Point Syflo at Ollama and every part of the app that touches
 a model runs on your machine: the answers, the search over long papers, the
-dictation. Syflo reads your RAM and VRAM and recommends one of three vision
-models, downloadable from Settings without touching a terminal.
+titles and summaries, the dictation — and a local failure never falls back to
+the cloud on its own. Syflo reads your RAM and VRAM and recommends one of three
+vision models, downloadable from Settings without touching a terminal. Honest
+limitation: a small local model is noticeably weaker than a frontier model on a
+dense paper — local is for when a document should not leave the machine.
 
 ![Switching to the local provider](article/gifs/13-local-model.gif)
 
