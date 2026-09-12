@@ -208,7 +208,7 @@ describe('api.sendMessageStream', () => {
 
     expect(fetch).toHaveBeenCalledWith('/api/chats/chat99/messages', expect.objectContaining({
       method: 'POST',
-      body: JSON.stringify({ content: 'Test message', overview: false, quoteHighlightId: null }),
+      body: JSON.stringify({ content: 'Test message', overview: false, quoteHighlightId: null, searchNudge: null }),
     }));
   });
 
@@ -236,7 +236,7 @@ describe('api.sendMessageStream', () => {
     });
 
     expect(fetch).toHaveBeenCalledWith('/api/chats/c1/messages', expect.objectContaining({
-      body: JSON.stringify({ content: 'Hard question', think: true, overview: false, quoteHighlightId: null }),
+      body: JSON.stringify({ content: 'Hard question', think: true, overview: false, quoteHighlightId: null, searchNudge: null }),
     }));
     expect(onThinking).toHaveBeenCalledTimes(1);
   });

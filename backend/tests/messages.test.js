@@ -3510,6 +3510,56 @@ describe('queue split: settings kick + prompt hygiene', () => {
   });
 });
 
+// ─── Save-&-retry carries a search nudge ─────────────────────────────────────
+// design/mockup-search-key-saved.html: after saving a key, the card re-sends
+// the question — and a PLAIN resend just reproduced the old refusal in the
+// running app (2026-09-12): the identical question plus the model's own
+// "I cannot search" answer sit one turn above, and the model paraphrases
+// itself instead of calling the tool. The nudge names the tool AND the query.
+
+describe('POST /api/chats/:chatId/messages – searchNudge', () => {
+  let chatId;
+
+  beforeEach(async () => {
+    const chat = await request(app).post('/api/chats').send({ title: 'Nudge' });
+    chatId = chat.body.id;
+  });
+
+  it('appends the web_search instruction to the asked question, prompt-only', async () => {
+    mockCreate.mockResolvedValueOnce(makeStream(['With a search this time.']));
+    mockCreate.mockResolvedValueOnce({ choices: [{ message: { content: 'Titel' } }] });
+
+    await request(app)
+      .post(`/api/chats/${chatId}/messages`)
+      .send({ content: 'Link to his profile?', searchNudge: 'Vicentini LinkedIn' })
+      .buffer(true);
+
+    const asked = mockCreate.mock.calls[0][0].messages.filter((m) => m.role === 'user').at(-1);
+    expect(asked.content).toContain('Link to his profile?');
+    expect(asked.content).toContain('Call the web_search tool');
+    expect(asked.content).toContain('Vicentini LinkedIn');
+
+    // Prompt scaffolding only: the stored message — and with it the history of
+    // every LATER round — keeps the raw question.
+    const rows = await request(app).get(`/api/chats/${chatId}`);
+    const stored = rows.body.messages.find((m) => m.role === 'user');
+    expect(stored.content).toBe('Link to his profile?');
+  });
+
+  it('adds nothing without a nudge', async () => {
+    mockCreate.mockResolvedValueOnce(makeStream(['Plain answer.']));
+    mockCreate.mockResolvedValueOnce({ choices: [{ message: { content: 'Titel' } }] });
+
+    await request(app)
+      .post(`/api/chats/${chatId}/messages`)
+      .send({ content: 'Link to his profile?' })
+      .buffer(true);
+
+    const asked = mockCreate.mock.calls[0][0].messages.filter((m) => m.role === 'user').at(-1);
+    expect(asked.content).not.toContain('web_search');
+  });
+});
+
 // ─── The search wish outlives its stream ────────────────────────────────────
 // design/mockup-search-wish-card.html: the model called web_search and nobody
 // looked. Reported in the running app 2026-08-25 — the card was there, then

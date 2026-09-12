@@ -1524,6 +1524,7 @@ export function ChatArea({ chat, videoYoutubeId, onTimeMarkClick, loading, strea
                   <span
                     role="link"
                     tabIndex={0}
+                    data-focus-item="chat-branched-from"
                     onClick={handleBranchedFromActivate}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' || e.key === ' ') {
@@ -1608,6 +1609,7 @@ export function ChatArea({ chat, videoYoutubeId, onTimeMarkClick, loading, strea
                     <span
                       role="link"
                       tabIndex={0}
+                      data-focus-item="chat-trace-back"
                       data-testid="trace-back-link"
                       onClick={handleBranchedFromActivate}
                       onKeyDown={(e) => {
@@ -1750,6 +1752,9 @@ export function ChatArea({ chat, videoYoutubeId, onTimeMarkClick, loading, strea
                     onRetryMessage={onRetryMessage}
                     onSaveSearchKey={onSaveSearchKey}
                     searchKeyStored={searchKeyStored}
+                    // The save-&-retry receipt on an OLD bubble needs to know
+                    // whether the re-asked answer is still being written.
+                    chatStreaming={sending || streaming}
                     onContinueMessage={onContinueMessage}
                     modelLabels={modelLabels}
                     onRetryLocalModel={onRetryLocalModel}

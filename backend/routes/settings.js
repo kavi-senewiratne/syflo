@@ -36,6 +36,16 @@ function buildResponse(db) {
   // search an npm install can reach on every platform. Same rule as the LLM
   // keys: the frontend learns THAT there is a key, never which.
   out.tavily_api_key_set = Boolean(getSetting(db, 'tavily_api_key'));
+  // Plus a fingerprint — first five and last four characters — so the
+  // settings can prove "YOUR key made it" after a save from the chat card
+  // (user report 2026-09-12: an empty input read as "no key stored"). Nine
+  // characters of a low-blast-radius key, never the middle; keys too short
+  // to keep the middle secret get no hint at all.
+  const tavilyKey = getSetting(db, 'tavily_api_key');
+  out.tavily_api_key_hint =
+    tavilyKey && tavilyKey.length >= 14
+      ? `${tavilyKey.slice(0, 5)}…${tavilyKey.slice(-4)}`
+      : null;
   // Per cloud provider: model choice + whether a key is stored. The
   // plaintext key never leaves the backend.
   for (const p of CLOUD_PROVIDERS) {

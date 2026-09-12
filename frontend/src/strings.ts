@@ -152,19 +152,25 @@ const en = {
       // Its own tab (user decision 2026-08-24), between Model and Language:
       // both answer "where do Syflo's answers come from?".
       label: 'Web search',
-      allowance: 'Tavily · 1000 searches a month free, no credit card',
       removeKey: 'Remove key',
-      keyStored: 'Key stored',
-      notSetUp: 'Not set up',
       keyLabel: 'Tavily API key',
       // No trailing ellipsis: the provider-key input on this same tab is found
       // in tests by a placeholder regex that an "…" would also match, and two
       // hits fail the query. A shape is more useful than a truncation anyway.
       keyPlaceholder: 'tvly-xxxxxxxx',
-      replacePlaceholder: 'Enter a new key to replace it',
+      /* Shown in the stored-state chip when the key is too short for a safe
+         fingerprint — still says "a key is here", proves nothing more. */
+      keyMasked: 'tvly-••••••••',
       getKey: 'Get a free key',
-      withoutNote:
-        'Without a key Syflo answers from what the model knows, and cannot search for the PDF of a reference the paper does not link.',
+      /* The sell, folded into the Model tab's guide-block pattern
+         (mockup-search-settings-key-states.html, variant C): rendered only
+         while no key is stored. */
+      guideTitle: 'Get a free Tavily key',
+      guideBody:
+        '1000 searches a month, no credit card. Without a key Syflo answers from what the model knows, and cannot search for the PDF of a reference the paper does not link.',
+      /* A plan fact, not a pitch — stays visible with a key stored
+         (user decision 2026-09-12). */
+      storedAllowance: 'Your free allowance: 1000 searches a month, ~33 a day.',
     },
     footer: {
       activated: 'Activated',
@@ -451,6 +457,13 @@ const en = {
       saving: 'Saving…',
       getKey: 'Get a free key at tavily.com',
       dismiss: 'Dismiss',
+      /* Save-&-retry receipt (mockup-search-key-saved.html, settled aside
+         with an info mark). Two steps while the retry streams, one check
+         when it lands; the future-tense clause is an aside, not a step. */
+      savedTitle: 'Search key saved',
+      savedAsking: 'Asking again below…',
+      savedDone: 'asked again below.',
+      savedAside: 'Web search stays on for every future answer.',
     },
     assistantThinking: 'Assistant is thinking',
     tipLabel: 'Tip: ',
@@ -982,16 +995,15 @@ const de: Strings = {
     },
     search: {
       label: 'Websuche',
-      allowance: 'Tavily · 1000 Suchen im Monat kostenlos, keine Kreditkarte',
       removeKey: 'Schlüssel entfernen',
-      keyStored: 'Schlüssel gespeichert',
-      notSetUp: 'Noch nicht eingerichtet',
       keyLabel: 'Tavily-API-Schlüssel',
       keyPlaceholder: 'tvly-xxxxxxxx',
-      replacePlaceholder: 'Neuen Schlüssel eingeben, um ihn zu ersetzen',
+      keyMasked: 'tvly-••••••••',
       getKey: 'Kostenlosen Schlüssel holen',
-      withoutNote:
-        'Ohne Schlüssel antwortet Syflo nur aus dem Wissen des Modells und kann nicht nach dem PDF einer Referenz suchen, die das Paper nicht verlinkt.',
+      guideTitle: 'Kostenlosen Tavily-Schlüssel holen',
+      guideBody:
+        '1000 Suchen im Monat, keine Kreditkarte. Ohne Schlüssel antwortet Syflo nur aus dem Wissen des Modells und kann nicht nach dem PDF einer Referenz suchen, die das Paper nicht verlinkt.',
+      storedAllowance: 'Dein freies Kontingent: 1000 Suchen im Monat, ~33 am Tag.',
     },
     footer: {
       activated: 'Aktiviert',
@@ -1189,6 +1201,10 @@ const de: Strings = {
       saving: 'Wird gespeichert …',
       getKey: 'Kostenlosen Schlüssel auf tavily.com holen',
       dismiss: 'Ausblenden',
+      savedTitle: 'Such-Schlüssel gespeichert',
+      savedAsking: 'Frage läuft unten neu …',
+      savedDone: 'unten neu gefragt.',
+      savedAside: 'Die Websuche bleibt für alle künftigen Antworten aktiv.',
     },
     assistantThinking: 'Der Assistent denkt nach',
     tipLabel: 'Tipp: ',

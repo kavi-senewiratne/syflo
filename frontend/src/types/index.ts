@@ -737,6 +737,11 @@ export interface Settings {
   // Web search (ADR-0012: Tavily is the only one). Same rule as the LLM keys —
   // the frontend learns THAT a key is stored, never which.
   tavily_api_key_set: boolean;
+  // Fingerprint of the stored key (first five + last four characters, e.g.
+  // "tvly-…SeCS"), so the settings can prove WHICH key is stored without the
+  // plaintext ever leaving the backend. Null when no key, or one too short
+  // to keep a secret middle.
+  tavily_api_key_hint?: string | null;
 }
 
 // ─── Model registry (ADR-0008) ───────────────────────────────────────────────

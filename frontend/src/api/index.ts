@@ -390,7 +390,11 @@ export const api = {
     // Backend schaltet dafür den Retrieval-Modus ab — die Gliederung braucht
     // das ganze Transkript der Reihe nach, nicht die zur Frage passenden
     // Ausschnitte (Nutzerentscheid 2026-08-20).
-    opts?: { think?: boolean; overview?: boolean; quoteHighlightId?: string | null; onThinking?: () => void; onReasoning?: (delta: string) => void; onQueued?: (ahead: number, info?: { model?: string; current?: { chatId: string; question: string } }) => void; onStarted?: (userMessage: Message) => void; onRateLimit?: (info: { retryInSeconds: number; attempt: number }) => void; onOverloaded?: (info: { retryInSeconds: number; attempt: number; maxAttempts: number; provider?: string }) => void; onFailover?: (info: FailoverInfo) => void; signal?: AbortSignal },
+    // searchNudge: Save-&-retry der Schlüssel-Karte — die Query, die das
+    // Modell nachschlagen wollte. Das Backend hängt daraus eine Anweisung an
+    // die neu gesendete Frage ("call the web_search tool"), sonst kopiert das
+    // Modell seine eigene Absage aus der Historie statt zu suchen.
+    opts?: { think?: boolean; overview?: boolean; quoteHighlightId?: string | null; searchNudge?: string | null; onThinking?: () => void; onReasoning?: (delta: string) => void; onQueued?: (ahead: number, info?: { model?: string; current?: { chatId: string; question: string } }) => void; onStarted?: (userMessage: Message) => void; onRateLimit?: (info: { retryInSeconds: number; attempt: number }) => void; onOverloaded?: (info: { retryInSeconds: number; attempt: number; maxAttempts: number; provider?: string }) => void; onFailover?: (info: FailoverInfo) => void; signal?: AbortSignal },
   ): Promise<{ userMessage: Message; assistantMessage: Message }> {
     let res: Response;
     if (attachments.length > 0) {
@@ -410,7 +414,7 @@ export const api = {
       res = await fetch(`${BASE}/chats/${chatId}/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content, think: opts?.think, overview: opts?.overview ?? false, quoteHighlightId: opts?.quoteHighlightId ?? null }),
+        body: JSON.stringify({ content, think: opts?.think, overview: opts?.overview ?? false, quoteHighlightId: opts?.quoteHighlightId ?? null, searchNudge: opts?.searchNudge ?? null }),
         signal: opts?.signal,
       });
     }

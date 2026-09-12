@@ -349,6 +349,11 @@ export function SettingsModal({ open, onClose, onSaved, initialTab = 'appearance
       onClick={onClose}
     >
       <div
+        // role="dialog": the keyboard navigation treats an open dialog as a
+        // takeover region — the ring walks its controls like a menu's
+        // (user request 2026-09-12); also the correct a11y semantics.
+        role="dialog"
+        aria-modal="true"
         className="bg-white rounded-2xl shadow-2xl w-full max-w-xl overflow-hidden"
         onClick={e => e.stopPropagation()}
       >
@@ -373,7 +378,10 @@ export function SettingsModal({ open, onClose, onSaved, initialTab = 'appearance
               in den breiten Theme-Fonts über (Matrix-Mono: 168px Textbedarf) —
               Nutzerreport 2026-07-24, alle Themes betroffen. min/max begrenzen,
               truncate am Label fängt den Rest ab. */}
-          <nav className="shrink-0 min-w-40 max-w-56 border-r border-gray-100 bg-gray-50/50 p-2 space-y-1" aria-label={S.sectionsAria}>
+          {/* data-keyboard-rail: the keyboard navigation treats this tab list
+              as its own column — ↑/↓ walk the tabs, → crosses into the tab's
+              page (user request 2026-09-12). */}
+          <nav data-keyboard-rail className="shrink-0 min-w-40 max-w-56 border-r border-gray-100 bg-gray-50/50 p-2 space-y-1" aria-label={S.sectionsAria}>
             {tabs.map(t => {
               const isActive = tab === t.id;
               const Icon = t.icon;
@@ -382,6 +390,9 @@ export function SettingsModal({ open, onClose, onSaved, initialTab = 'appearance
                   key={t.id}
                   onClick={() => setTab(t.id)}
                   aria-current={isActive ? 'page' : undefined}
+                  // The ring enters the dialog on the ACTIVE tab — the same
+                  // "here you are" convention the sidebar's open chat row uses.
+                  data-focus-active={isActive ? 'true' : undefined}
                   className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors text-left ${
                     isActive
                       ? 'bg-blue-50 text-blue-700'
@@ -568,72 +579,109 @@ export function SettingsModal({ open, onClose, onSaved, initialTab = 'appearance
                      Save. The mockup's second option ("own SearXNG") is gone
                      with ADR-0012: Tavily is the whole of it. */
                   <div data-testid="settings-search-row" className="space-y-3">
-                    <div className="flex items-center justify-between gap-3">
-                      <p className="flex items-center gap-2 text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                        <Search size={13} className="shrink-0 text-gray-400" />
-                        {S.search.label}
-                      </p>
-                      <span
-                        className={`shrink-0 text-[11px] font-medium rounded-full px-2 py-0.5 ${
-                          original?.tavily_api_key_set
-                            ? 'text-green-700 bg-green-50'
-                            : 'text-gray-500 bg-gray-100'
-                        }`}
-                      >
-                        {original?.tavily_api_key_set ? S.search.keyStored : S.search.notSetUp}
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-gray-500 leading-relaxed">
-                      {S.search.allowance}
+                    <p className="flex items-center gap-2 text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                      <Search size={13} className="shrink-0 text-gray-400" />
+                      {S.search.label}
                     </p>
+                    {/* Variant C of mockup-search-settings-key-states.html
+                        (user decisions 2026-09-12): the sell lives in a guide
+                        block that renders only while nothing is stored, like
+                        the Model tab's `key-guide`. Stored → NO input at all:
+                        the fingerprint chip is the whole display, and the only
+                        exit is Remove — replacing means remove first, then add
+                        (user decision 2026-09-12; an editable "replace" field
+                        next to a stored key kept reading as "no key here"). */}
                     <div>
-                      <label
-                        htmlFor="settings-tavily-key"
-                        className="block mb-1 text-[11px] font-medium text-gray-600"
-                      >
-                        {S.search.keyLabel}
-                      </label>
-                      <input
-                        id="settings-tavily-key"
-                        data-testid="settings-search-key-input"
-                        type="password"
-                        value={searchKeyInput}
-                        onChange={e => setSearchKeyInput(e.target.value)}
-                        placeholder={
-                          original?.tavily_api_key_set
-                            ? S.search.replacePlaceholder
-                            : S.search.keyPlaceholder
-                        }
-                        className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100 transition"
-                      />
-                      <div className="mt-1.5 flex items-center gap-3">
-                        <a
-                          href="https://app.tavily.com/home"
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-[11px] font-medium text-blue-700 hover:underline inline-flex items-center gap-0.5"
+                      {/* The badge rides the FIELD label, exactly where the
+                          Model tab's key step wears it, and it is the SAME
+                          string (`model.keySaved` — just "saved"): "Tavily API
+                          key" already says key, so the badge must not repeat
+                          it (user report 2026-09-12). Sibling of the label,
+                          never a child of an `.uppercase` element — the themes
+                          restyle those with their display font. No check icon:
+                          the text already says saved. */}
+                      <div className="mb-1 flex items-center gap-2">
+                        <label
+                          htmlFor="settings-tavily-key"
+                          className="text-[11px] font-medium text-gray-600"
                         >
-                          {S.search.getKey}
-                          <ExternalLink size={10} />
-                        </a>
-                        {/* Only offered when there IS one — a "remove" for
-                            nothing is a button that cannot work. */}
+                          {S.search.keyLabel}
+                        </label>
                         {original?.tavily_api_key_set && (
-                          <button
-                            onClick={handleClearSearchKey}
-                            disabled={saving}
-                            data-testid="settings-search-remove"
-                            className="text-[11px] font-medium text-gray-400 hover:text-red-600 transition-colors disabled:opacity-50"
-                          >
-                            {S.search.removeKey}
-                          </button>
+                          <span className="inline-flex items-center text-[10px] font-medium text-green-700 bg-green-50 px-1.5 py-0.5 rounded">
+                            {S.model.keySaved}
+                          </span>
                         )}
                       </div>
+                      {original?.tavily_api_key_set ? (
+                        <>
+                          <div className="flex gap-2 items-center">
+                            {/* The chip proves WHICH key is stored (the hint);
+                                a key too short for a safe fingerprint shows
+                                generic dots — still "a key is here". No icon:
+                                the check lives in the label badge, as on the
+                                Model tab (user report 2026-09-12). */}
+                            <span
+                              data-testid="settings-search-key-chip"
+                              className="flex-1 min-w-0 inline-flex items-center px-3 py-2 rounded-lg bg-gray-100 font-mono text-sm text-gray-700"
+                            >
+                              <span className="truncate">
+                                {original.tavily_api_key_hint ?? S.search.keyMasked}
+                              </span>
+                            </span>
+                            <button
+                              onClick={handleClearSearchKey}
+                              disabled={saving}
+                              data-testid="settings-search-remove"
+                              className="px-3 py-2 rounded-lg text-sm font-medium text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50"
+                            >
+                              {S.search.removeKey}
+                            </button>
+                          </div>
+                          {/* A plan fact, not a pitch — the reader budgets
+                              their searches against it, key or no key (user
+                              decision 2026-09-12). Info mark: the app's hint
+                              vocabulary. */}
+                          <p className="mt-2 flex items-start gap-1.5 text-[11px] text-gray-500 leading-relaxed">
+                            <Info size={13} className="mt-0.5 shrink-0 text-gray-400" />
+                            {S.search.storedAllowance}
+                          </p>
+                        </>
+                      ) : (
+                        <input
+                          id="settings-tavily-key"
+                          data-testid="settings-search-key-input"
+                          type="password"
+                          value={searchKeyInput}
+                          onChange={e => setSearchKeyInput(e.target.value)}
+                          placeholder={S.search.keyPlaceholder}
+                          className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100 transition"
+                        />
+                      )}
                     </div>
-                    {/* What is lost without it — a fact, not a nudge. */}
-                    <p className="text-[11px] text-gray-500 leading-relaxed pt-1 border-t border-gray-100">
-                      {S.search.withoutNote}
-                    </p>
+                    {!original?.tavily_api_key_set && (
+                      <div
+                        data-testid="search-key-guide"
+                        className="rounded-lg bg-blue-50/60 border border-blue-100 p-3.5"
+                      >
+                        <div className="flex items-start gap-2">
+                          <Info size={14} className="text-blue-600 mt-0.5 shrink-0" />
+                          <div className="text-xs text-gray-700">
+                            <p className="font-semibold text-gray-900 mb-1">{S.search.guideTitle}</p>
+                            <p className="leading-relaxed">{S.search.guideBody}</p>
+                            <a
+                              href="https://app.tavily.com/home"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="mt-2 text-[11px] font-medium text-blue-700 hover:underline inline-flex items-center gap-0.5"
+                            >
+                              {S.search.getKey}
+                              <ExternalLink size={10} />
+                            </a>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <>
@@ -725,15 +773,19 @@ export function SettingsModal({ open, onClose, onSaved, initialTab = 'appearance
 
                         {/* Step 3: API key — bound per provider */}
                         <div>
-                          <div className="mb-2"><StepLabel n={3}>
-                            {S.model.stepApiKey}
+                          {/* Badge as a SIBLING of the StepLabel, not inside
+                              it: the themes restyle `.uppercase` with their
+                              display font and the badge inherited it. No check
+                              icon — the text already says saved (user report
+                              2026-09-12, same pass as the search tab). */}
+                          <div className="mb-2 flex items-center gap-2">
+                            <StepLabel n={3}>{S.model.stepApiKey}</StepLabel>
                             {keySetFor(provider) && (
-                              <span className="inline-flex items-center gap-1 text-[10px] text-green-700 bg-green-50 px-1.5 py-0.5 rounded normal-case tracking-normal">
-                                <Check size={10} />
+                              <span className="inline-flex items-center text-[10px] font-medium text-green-700 bg-green-50 px-1.5 py-0.5 rounded">
                                 {S.model.keySaved}
                               </span>
                             )}
-                          </StepLabel></div>
+                          </div>
                           <div className="flex gap-2">
                             <div className="relative flex-1">
                               <input
@@ -950,8 +1002,7 @@ export function SettingsModal({ open, onClose, onSaved, initialTab = 'appearance
           {tab === 'model' && (
             <div className="mr-auto text-xs flex items-center gap-1.5">
               {savedFlash ? (
-                <span className="text-green-700 flex items-center gap-1 font-medium">
-                  <Check size={12} />
+                <span className="text-green-700 font-medium">
                   {S.footer.activated}
                 </span>
               ) : needsKey ? (
@@ -973,8 +1024,7 @@ export function SettingsModal({ open, onClose, onSaved, initialTab = 'appearance
           {tab === 'instructions' && (
             <div className="mr-auto text-xs flex items-center gap-1.5">
               {savedFlash ? (
-                <span className="text-green-700 flex items-center gap-1 font-medium">
-                  <Check size={12} />
+                <span className="text-green-700 font-medium">
                   {S.footer.saved}
                 </span>
               ) : instructionsDirty ? (

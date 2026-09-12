@@ -162,6 +162,115 @@ describe('the search wish card', () => {
     expect(screen.queryByTestId('search-wish-key-open')).not.toBeInTheDocument();
   });
 
+  // Save-&-retry receipt (design/mockup-search-key-saved.html, fifth pass).
+  // The state it prevents: after saving, the card re-rendered the same key
+  // field — the click looked swallowed (user report with screenshot,
+  // 2026-09-12).
+  describe('after the key is saved from this card', () => {
+    const saveKey = async () => {
+      await userEvent.click(screen.getByTestId('search-wish-key-open'));
+      await userEvent.type(screen.getByTestId('search-wish-key-input'), 'tvly-abc123');
+      await userEvent.click(screen.getByTestId('search-wish-key-save'));
+    };
+
+    it('morphs to the receipt instead of re-rendering the key field', async () => {
+      const { rerender } = render(
+        <MessageBubble
+          message={answered}
+          onWordRightClick={vi.fn()}
+          onSaveSearchKey={vi.fn().mockResolvedValue(undefined)}
+        />,
+      );
+      await saveKey();
+      rerender(
+        <MessageBubble
+          message={answered}
+          onWordRightClick={vi.fn()}
+          onSaveSearchKey={vi.fn()}
+          searchKeyStored
+          chatStreaming
+        />,
+      );
+
+      expect(screen.queryByTestId('search-wish-key-input')).not.toBeInTheDocument();
+      expect(screen.getByTestId('search-wish-saved')).toHaveTextContent('Search key saved');
+    });
+
+    it('spins on the ASKING step while the retry streams — the save is a done fact', async () => {
+      const { rerender } = render(
+        <MessageBubble
+          message={answered}
+          onWordRightClick={vi.fn()}
+          onSaveSearchKey={vi.fn().mockResolvedValue(undefined)}
+        />,
+      );
+      await saveKey();
+      rerender(
+        <MessageBubble
+          message={answered}
+          onWordRightClick={vi.fn()}
+          onSaveSearchKey={vi.fn()}
+          searchKeyStored
+          chatStreaming
+        />,
+      );
+
+      expect(screen.getByTestId('search-wish-saved-asking')).toHaveTextContent('Asking again below');
+      expect(screen.queryByTestId('search-wish-saved-done')).not.toBeInTheDocument();
+    });
+
+    it('settles to one line plus the info aside once the retry lands', async () => {
+      const { rerender } = render(
+        <MessageBubble
+          message={answered}
+          onWordRightClick={vi.fn()}
+          onSaveSearchKey={vi.fn().mockResolvedValue(undefined)}
+        />,
+      );
+      await saveKey();
+      rerender(
+        <MessageBubble
+          message={answered}
+          onWordRightClick={vi.fn()}
+          onSaveSearchKey={vi.fn()}
+          searchKeyStored
+          chatStreaming={false}
+        />,
+      );
+
+      const done = screen.getByTestId('search-wish-saved-done');
+      expect(done).toHaveTextContent('Search key saved');
+      expect(done).toHaveTextContent('asked again below');
+      // The aside is a footnote about the future, not a second step.
+      expect(screen.getByTestId('search-wish-saved')).toHaveTextContent(
+        'Web search stays on for every future answer',
+      );
+    });
+
+    it('can be dismissed once settled', async () => {
+      const { rerender } = render(
+        <MessageBubble
+          message={answered}
+          onWordRightClick={vi.fn()}
+          onSaveSearchKey={vi.fn().mockResolvedValue(undefined)}
+        />,
+      );
+      await saveKey();
+      rerender(
+        <MessageBubble
+          message={answered}
+          onWordRightClick={vi.fn()}
+          onSaveSearchKey={vi.fn()}
+          searchKeyStored
+          chatStreaming={false}
+        />,
+      );
+
+      await userEvent.click(screen.getByTestId('search-wish-dismiss'));
+      expect(screen.queryByTestId('search-wish-saved')).not.toBeInTheDocument();
+    });
+  });
+
   it('says the key was rejected rather than asking as if none existed', () => {
     render(
       <MessageBubble

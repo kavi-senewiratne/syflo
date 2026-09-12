@@ -24,7 +24,7 @@ const multer = require('multer');
 const { getLLMClient, getLLMClientFor, getSetting, noThinkExtras, extendOllamaKeepAlive } = require('../llm');
 const { getModelInfo, getRegistry } = require('../registry');
 const { streamWithTools, availableTools, toolsField, isTruncatedFinish } = require('../tools');
-const { joinContinuation, continuationInstruction, condenseWrittenAnswer, detectLanguage, seamSuspect } = require('../continuation');
+const { joinContinuation, continuationInstruction, condenseWrittenAnswer, detectLanguage, seamSuspect, LANGUAGE_NAMES } = require('../continuation');
 const {
   DEFAULT_CHAT_TITLES, MAX_PASSAGE_CHARS, capTitleWords, sanitizeTitle,
   branchTitleInstruction, chatTitleInstruction, parseBranchTitleReply,
@@ -40,6 +40,7 @@ const {
   transcriptFrom,
   formatMark,
   overviewSectionTarget,
+  overviewWindowTarget,
   stripRoundSignOff,
   stripLeadingNarration,
   closeUnbalancedBold,
@@ -465,6 +466,17 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
       // the running time, with a floor and a ceiling, so a ten-minute video
       // does not come back as two sections and a four-hour one not as sixty.
       const sectionTarget = overviewSectionTarget(videoContext.durationSeconds);
+      // The target is pro-rated to the window this round actually sees (user
+      // report 2026-09-10): a 2:35:26 talk arrived as 18 half-minute sections
+      // for its first 9:37 — Groq's budget had cut the transcript there, the
+      // model could not know that was 6 % of the video, and the global "about
+      // 22 in total" never triggered; the continuation, counting correctly,
+      // then pressed the other 2 h 26 min into the 4 sections that were left.
+      const windowFrom = transcriptResumedFrom ?? 0;
+      const windowUntil = transcriptCutAt ?? videoContext.durationSeconds;
+      const windowTarget = overviewWindowTarget(
+        videoContext.durationSeconds, windowFrom, transcriptCutAt
+      );
       systemBase +=
         `\n\nA YouTube video is attached to this conversation as its source: ` +
         `"${videoContext.title}"${videoContext.channel ? ` by ${videoContext.channel}` : ''}. ` +
@@ -472,13 +484,24 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
         'about the video on this transcript; if something is not covered by it, say so instead ' +
         'of guessing.\n' +
         'When the user asks you to structure the video, work through the transcript from ' +
-        'beginning to end and divide it into the sections the video itself has. A section is ' +
+        'beginning to end and divide it into the sections the video itself has. Write the ' +
+        'overview in the LANGUAGE OF THE USER\'S REQUEST — never in the transcript\'s ' +
+        'language just because the transcript is longer. A section is ' +
         'a TOPIC the video spends time on, never a unit of time. ' +
         (sectionTarget
           ? `The FINISHED overview of this video should have about ${sectionTarget} sections ` +
             'in total — count them as you go, and if you are about to write many more than ' +
             'that, your sections are too small and belong merged. '
           : 'Aim for roughly one section per 5 to 10 minutes of video. ') +
+        (windowTarget !== null
+          ? `The transcript below is only a WINDOW of the video: it reaches from ` +
+            `[${formatMark(windowFrom)}] to [${formatMark(windowUntil)}] of the ` +
+            `[${formatMark(videoContext.durationSeconds)}] running time. Write about ` +
+            `${windowTarget} section${windowTarget === 1 ? '' : 's'} for this window and no ` +
+            'more — the remaining sections belong to the parts of the video that later ' +
+            'rounds will see. Do NOT spend more sections on this window just because it is ' +
+            'all you can see right now. '
+          : '') +
         'Open a section shorter than 3 minutes only where the video really jumps (a sponsor ' +
         'break, a change of speaker), and NEVER start a new section merely because another ' +
         'minute has passed. Everything the speaker says inside a section belongs in that ' +
@@ -982,6 +1005,15 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
     // question without a quote, and a PDF quote saved without a color, send
     // nothing here.
     const quoteHighlightId = req.body.quoteHighlightId || null;
+    // Save-&-retry after a search key arrived: the query the model wished for.
+    // A plain resend is not enough — the identical question plus the model's
+    // own "I cannot search" answer sit one turn above in the history, and the
+    // model paraphrases itself instead of calling the tool (verified in the
+    // running app, 2026-09-12).
+    const searchNudge =
+      typeof req.body.searchNudge === 'string'
+        ? req.body.searchNudge.trim().slice(0, 300)
+        : '';
     if (!content && (!req.files || req.files.length === 0)) {
       return res.status(400).json({ error: 'content or files required' });
     }
@@ -1024,6 +1056,7 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
       // would depend on the app language and on the user rewording the
       // prompt. It only turns retrieval off (see buildSystemAndHistory).
       overview: overviewRequest,
+      searchNudge: searchNudge || null,
       persisted: { userMsgId },
     });
   });
@@ -1401,10 +1434,59 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
       // is the same repair the user made by hand ("also ich meine, was ich
       // markiert habe"). Prompt scaffolding only: the stored message, and
       // therefore the tree and the UI, keep the raw question.
-      const askedText = chat.parent_word
+      let askedText = chat.parent_word
         ? `[Selected passage from the source, the subject of this branch: ` +
           `"${String(chat.parent_word).trim().slice(0, MAX_PASSAGE_CHARS)}"]\n\n${content}`
         : content;
+      // The FIRST overview round names its language too (user report
+      // 2026-09-12): the mirror rule sits in the system block ABOVE the whole
+      // transcript, and gemini-flash-lite answered the German overview request
+      // in English from the very first heading — it followed the tens of
+      // thousands of English source tokens, not the far-away rule. Same lever
+      // as the continuation fix (2026-09-05), same placement lesson as the
+      // branch selection (2026-08-08): name the language next to where the
+      // model answers, and take away the excuse it actually used — a source in
+      // another language. The overview prompt follows the app language
+      // (ADR-0005), so detecting it from the request itself is reliable; with
+      // no clear signal nothing is appended and today's behavior stands.
+      // Prompt scaffolding only: the stored message, and therefore the tree
+      // and the UI, keep the raw question.
+      // A single suffix line was NOT enough (verified live 2026-09-12 against
+      // gemini-flash-lite on a fresh chat: the very same request answered
+      // German with chat history present and English without it). Two
+      // reinforcements, measured to matter for a small model over a large
+      // foreign-language source: the demand is a SANDWICH (first and last
+      // thing in the user turn), and the prefix is written IN the target
+      // language — an instruction that is itself German pulls the answer
+      // toward German harder than an English sentence about German. The
+      // German string is prompt copy, not code (same status as the DE half
+      // of strings.ts).
+      const OVERVIEW_LANGUAGE_PREFIX = {
+        de: '[Antworte AUSSCHLIESSLICH auf Deutsch — jede Überschrift, jede Kernaussage, ' +
+          'jeder Stichpunkt. Auch wenn das Transkript in einer anderen Sprache ist, bleibt ' +
+          'die gesamte Antwort deutsch.]',
+        en: '[Answer ONLY in English — every heading, key point and bullet. Even if the ' +
+          'transcript is in another language, the entire answer stays English.]',
+      };
+      const overviewLanguage = job.overview && !job.continueOf ? detectLanguage(content) : null;
+      if (LANGUAGE_NAMES[overviewLanguage]) {
+        askedText =
+          `${OVERVIEW_LANGUAGE_PREFIX[overviewLanguage]}\n\n${askedText}` +
+          `\n\n[Write the ENTIRE overview in ${LANGUAGE_NAMES[overviewLanguage]}, the language ` +
+          'of this request. A transcript in another language does NOT change the language of ' +
+          'the answer — only quoted terms and proper names stay as spoken.]';
+      }
+      // Save-&-retry after a search key arrived (design/mockup-search-key-saved
+      // .html): name the tool AND the query, or the model copies its own
+      // refusal from one turn above instead of calling it — "call the
+      // web_search tool" is the same push the 2026-08-25 verification needed.
+      // Prompt scaffolding only: the stored message keeps the raw question.
+      if (job.searchNudge) {
+        askedText +=
+          `\n\n[The web search key is configured now. Call the web_search tool with the ` +
+          `query: "${job.searchNudge}" and answer from its results. Do not repeat the ` +
+          `earlier answer that said searching was unavailable.]`;
+      }
       if (job.continueOf) {
         // One instruction, two shapes — and in both the model is told NOT to
         // write the closing sections the user's custom instructions ask for:

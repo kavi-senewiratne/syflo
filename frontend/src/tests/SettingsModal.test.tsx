@@ -364,19 +364,50 @@ describe('SettingsModal – web search tab (W3)', () => {
     expect(screen.queryByTestId('settings-search-row')).not.toBeInTheDocument();
   });
 
+  // Variant C of mockup-search-settings-key-states.html (2026-09-12): the
+  // sell lives in a guide block that renders only while no key is stored —
+  // the same rule as the Model tab's key-guide.
   it('offers the search key with its free allowance as a number', async () => {
     const row = await openSearchTab();
 
-    expect(row).toHaveTextContent('1000 searches a month free');
-    // Numbers and limits, never a recommendation (§07's language rule).
-    expect(row).toHaveTextContent('Not set up');
+    expect(screen.getByTestId('search-key-guide')).toHaveTextContent('1000 searches a month');
+    // No badge while nothing is stored — the Model tab's key step shows its
+    // mini-badge only once a key is saved, and the two tabs must match.
+    expect(row).not.toHaveTextContent('saved');
   });
 
-  it('says so when a key is already stored, without showing it', async () => {
+  it('drops the sell once a key is stored, but keeps the allowance fact', async () => {
     const row = await openSearchTab({ ...geminiSettings, tavily_api_key_set: true });
 
-    expect(row).toHaveTextContent('Key stored');
-    expect(row).not.toHaveTextContent('tvly-');
+    // The badge rides the field label and reuses the Model tab's exact word:
+    // "Tavily API key" already says key, so the badge only says saved.
+    expect(row).toHaveTextContent(/Tavily API key\s*saved/);
+    // The guide argued for getting a key — argued at someone who has one.
+    expect(screen.queryByTestId('search-key-guide')).not.toBeInTheDocument();
+    expect(row).not.toHaveTextContent('Get a free key');
+    // The allowance is a plan fact the reader budgets against — it stays
+    // (user decision 2026-09-12).
+    expect(row).toHaveTextContent('1000 searches a month, ~33 a day');
+  });
+
+  it('names the stored key by its fingerprint, never in full — and offers no input', async () => {
+    await openSearchTab({
+      ...geminiSettings,
+      tavily_api_key_set: true,
+      tavily_api_key_hint: 'tvly-…SeCS',
+    });
+
+    // The empty "replace" input kept reading as "no key stored" (user reports
+    // 2026-09-12) — stored means a chip, and the only exit is Remove:
+    // replacing is remove first, then add.
+    expect(screen.getByTestId('settings-search-key-chip')).toHaveTextContent('tvly-…SeCS');
+    expect(screen.queryByTestId('settings-search-key-input')).not.toBeInTheDocument();
+  });
+
+  it('masks the chip when the key is too short for a safe fingerprint', async () => {
+    await openSearchTab({ ...geminiSettings, tavily_api_key_set: true });
+
+    expect(screen.getByTestId('settings-search-key-chip')).toHaveTextContent('tvly-••••••••');
   });
 
   it('saves the typed key with its own Save button', async () => {
@@ -395,10 +426,10 @@ describe('SettingsModal – web search tab (W3)', () => {
   });
 
   it('keeps Save out of reach while the field is empty', async () => {
-    await openSearchTab({ ...geminiSettings, tavily_api_key_set: true });
+    // The input exists only while NO key is stored (stored shows the chip),
+    // so an accidental empty save can only happen here.
+    await openSearchTab();
 
-    // An empty field means "leave it alone" — sending '' would clear a key
-    // the reader never touched.
     expect(screen.getByTestId('settings-search-save')).toBeDisabled();
     fireEvent.change(screen.getByTestId('settings-search-key-input'), { target: { value: '  ' } });
     expect(screen.getByTestId('settings-search-save')).toBeDisabled();

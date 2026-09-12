@@ -137,6 +137,28 @@ describe('the web search key (W1, design/mockup-onboarding-flow.html §06)', () 
     expect(JSON.stringify(res.body)).not.toContain('tvly-abc123');
   });
 
+  // The fingerprint (user decision 2026-09-12): enough of the key's edges to
+  // recognize "MY key made it" after a save from the chat card, never the
+  // middle. A key too short to keep a secret middle gets no hint at all.
+  it('exposes a fingerprint of a stored key, never the middle', async () => {
+    const res = await request(app)
+      .put('/api/settings')
+      .send({ tavily_api_key: 'tvly-dev-abcdefghijklmnop' });
+
+    expect(res.body.tavily_api_key_hint).toBe('tvly-…mnop');
+    expect(JSON.stringify(res.body)).not.toContain('abcdefghijkl');
+  });
+
+  it('gives no fingerprint for a short key, and none once removed', async () => {
+    const short = await request(app).put('/api/settings').send({ tavily_api_key: 'tvly-abc123' });
+    expect(short.body.tavily_api_key_hint).toBeNull();
+
+    await request(app).put('/api/settings').send({ tavily_api_key: 'tvly-dev-abcdefghijklmnop' });
+    const removed = await request(app).put('/api/settings').send({ tavily_api_key: '' });
+    expect(removed.body.tavily_api_key_hint).toBeNull();
+    expect(removed.body.tavily_api_key_set).toBe(false);
+  });
+
 });
 
 describe('getLLMClient – provider switching', () => {

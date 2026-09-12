@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Syflo · Web-search settings — the stored key deserves a different page</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  /* ============================================================
+     THEME TOKENS — copied verbatim from frontend/src/index.css so this
+     mockup shows the real five themes, not an approximation.
+     ============================================================ */
+  :root {
+    --t-white: #FFFFFF;
+    --t-gray-50: #F9FAFB; --t-gray-100: #F3F4F6; --t-gray-200: #E5E7EB; --t-gray-300: #D1D5DB;
+    --t-gray-400: #9CA3AF; --t-gray-500: #6B7280; --t-gray-600: #4B5563; --t-gray-700: #374151;
+    --t-gray-800: #1F2937; --t-gray-900: #111827;
+    --t-blue-50: #EFF6FF; --t-blue-100: #DBEAFE; --t-blue-500: #3B82F6; --t-blue-600: #155DFC; --t-blue-700: #1D4ED8;
+  }
+  :root[data-theme='mushroom-kingdom'] {
+    --t-white: #fffdf4;
+    --t-gray-50: #f7f4e4; --t-gray-100: #f0eddd; --t-gray-200: #e4decc; --t-gray-300: #cfc7ac;
+    --t-gray-400: #82829f; --t-gray-500: #6e6e8c; --t-gray-600: #565678; --t-gray-700: #3d3d63;
+    --t-gray-800: #2f2f55; --t-gray-900: #23234a;
+    --t-blue-50: #fbe6db; --t-blue-100: #f8d2c2; --t-blue-500: #dd4d44; --t-blue-600: #d8433b; --t-blue-700: #bc332c;
+  }
+  :root[data-theme='hyrule'] {
+    --t-white: #f8f5e8;
+    --t-gray-50: #f1eddc; --t-gray-100: #e8e3ce; --t-gray-200: #d9d3b9; --t-gray-300: #c6bfa0;
+    --t-gray-400: #8e9078; --t-gray-500: #767962; --t-gray-600: #5f624e; --t-gray-700: #4e5240;
+    --t-gray-800: #414534; --t-gray-900: #33372a;
+    --t-blue-50: #deede8; --t-blue-100: #cbe4dd; --t-blue-500: #2fa79d; --t-blue-600: #2aa198; --t-blue-700: #218880;
+  }
+  :root[data-theme='ink-blue'] {
+    --t-white: #ffffff;
+    --t-gray-50: #f3f8fd; --t-gray-100: #eef4fb; --t-gray-200: #dbe6f3; --t-gray-300: #becfe4;
+    --t-gray-400: #6e82a3; --t-gray-500: #5c7194; --t-gray-600: #46597b; --t-gray-700: #2c4059;
+    --t-gray-800: #1f3049; --t-gray-900: #14263f;
+    --t-blue-50: #EFF6FF; --t-blue-100: #DBEAFE; --t-blue-500: #3B82F6; --t-blue-600: #155DFC; --t-blue-700: #1D4ED8;
+  }
+  :root[data-theme='matrix'] {
+    /* the gray ramp is INVERTED here: gray-900 is near-white, white near-black. */
+    --t-white: #060c07;
+    --t-gray-50: #08130a; --t-gray-100: #0c160d; --t-gray-200: #12301a; --t-gray-300: #1a4224;
+    --t-gray-400: #3e6a48; --t-gray-500: #4c7e58; --t-gray-600: #64a272; --t-gray-700: #7bc188;
+    --t-gray-800: #9ad6a4; --t-gray-900: #b7e8bc;
+    --t-blue-50: #07290f; --t-blue-100: #0a3414; --t-blue-500: #24c95c; --t-blue-600: #2be76b; --t-blue-700: #5ef391;
+  }
+
+  :root {
+    --brand-blue: var(--t-blue-500);
+    --bg-app: var(--t-gray-50);
+    --surface: var(--t-white);
+    --text-strong: var(--t-gray-900);
+    --text-default: var(--t-gray-700);
+    --text-muted: var(--t-gray-500);
+    --text-faint: var(--t-gray-400);
+    --border: var(--t-gray-200);
+    --blue-50: var(--t-blue-50); --blue-100: var(--t-blue-100);
+    --blue-500: var(--t-blue-500); --blue-600: var(--t-blue-600); --blue-700: var(--t-blue-700);
+    --gray-50: var(--t-gray-50); --gray-100: var(--t-gray-100); --gray-200: var(--t-gray-200);
+    --gray-300: var(--t-gray-300); --gray-400: var(--t-gray-400); --gray-500: var(--t-gray-500);
+    --gray-600: var(--t-gray-600);
+    --stage-bg: var(--t-gray-200);
+    --on-brand: var(--t-white);
+    --shadow: 0 1px 3px rgba(0,0,0,0.07), 0 1px 2px rgba(0,0,0,0.05);
+  }
+  :root[data-theme='matrix'] { --on-brand: #060c07; }
+
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Inter', -apple-system, sans-serif; background: var(--bg-app);
+    color: var(--text-default); -webkit-font-smoothing: antialiased;
+    min-height: 100vh; padding: 44px 32px 120px;
+  }
+  .wrap { max-width: 1240px; margin: 0 auto; }
+
+  .themes { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 26px; }
+  .themes button {
+    font-family: inherit; font-size: 11.5px; font-weight: 500; cursor: pointer;
+    height: 28px; padding: 0 11px; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--surface); color: var(--text-muted);
+  }
+  .themes button:hover { background: var(--gray-100); color: var(--text-default); }
+  .themes button[aria-pressed='true'] {
+    background: var(--blue-50); border-color: var(--blue-100); color: var(--blue-700); font-weight: 600;
+  }
+
+  .intro { margin-bottom: 40px; }
+  .intro h1 { font-size: 24px; font-weight: 700; color: var(--text-strong); letter-spacing: -0.015em; margin-bottom: 8px; }
+  .intro p { font-size: 14px; color: var(--text-muted); line-height: 1.65; max-width: 880px; }
+  .intro p + p { margin-top: 8px; }
+  .intro strong { color: var(--text-default); }
+  code {
+    background: var(--gray-100); border-radius: 4px; padding: 1px 5px;
+    font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  .diag {
+    margin-top: 16px; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: 14px 18px 15px; box-shadow: var(--shadow); max-width: 880px;
+  }
+  .diag h2 {
+    font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--text-faint); margin-bottom: 9px;
+  }
+  .diag ol { list-style: none; counter-reset: d; }
+  .diag li {
+    font-size: 13px; line-height: 1.6; color: var(--text-muted);
+    counter-increment: d; position: relative; padding-left: 26px;
+  }
+  .diag li + li { margin-top: 7px; }
+  .diag li::before {
+    content: counter(d); position: absolute; left: 0; top: 2px;
+    font-size: 10px; font-weight: 700; color: var(--blue-700);
+    background: var(--blue-50); border-radius: 5px; width: 17px; height: 17px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .diag li strong { color: var(--text-default); }
+
+  .section { margin-bottom: 54px; }
+  .section-label {
+    font-size: 12px; font-weight: 600; color: var(--text-muted);
+    letter-spacing: 0.06em; text-transform: uppercase;
+    display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px;
+  }
+  .section-label .num { color: var(--brand-blue); font-weight: 700; }
+  .section-desc { font-size: 13px; color: var(--text-muted); line-height: 1.65; margin-bottom: 18px; max-width: 880px; }
+  .section-desc strong { color: var(--text-default); }
+  .trade { display: flex; gap: 22px; flex-wrap: wrap; margin-bottom: 18px; max-width: 880px; }
+  .trade div { flex: 1 1 300px; font-size: 12.5px; line-height: 1.6; color: var(--text-muted); }
+  .trade h3 {
+    font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--text-faint); margin-bottom: 5px;
+  }
+
+  .stage {
+    background: var(--stage-bg); border-radius: 14px; padding: 30px 24px;
+    display: flex; justify-content: center; gap: 26px; align-items: flex-start; flex-wrap: wrap;
+  }
+  .col { display: flex; flex-direction: column; width: 430px; max-width: 100%; }
+  .state-label {
+    font-size: 10.5px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.06em; color: var(--text-muted); margin-bottom: 10px; line-height: 1.45;
+  }
+
+  /* ── Settings-tab panel ── */
+  .panel {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+    padding: 16px; box-shadow: var(--shadow);
+    display: flex; flex-direction: column; gap: 12px;
+  }
+  .hrow { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .hlabel {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 12px; font-weight: 600; color: var(--text-default);
+    text-transform: uppercase; letter-spacing: 0.06em;
+  }
+  .hlabel svg { color: var(--text-faint); flex: none; }
+  /* Today's badge classes verbatim: green-50/green-700 are static Tailwind
+     values in the app (status colour, not a theme token). */
+  .badge {
+    flex: none; font-size: 11px; font-weight: 500; border-radius: 999px; padding: 2px 8px;
+    color: var(--text-muted); background: var(--gray-100);
+  }
+  .badge.stored { color: #15803d; background: #f0fdf4; }
+  :root[data-theme='matrix'] .badge.stored { color: #5ef391; background: #0a3414; }
+
+  .allowance { font-size: 11px; color: var(--text-muted); line-height: 1.6; }
+  .klabel { font-size: 11px; font-weight: 500; color: var(--gray-600); margin-bottom: 4px; }
+  .kinput {
+    width: 100%; padding: 8px 12px; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--surface);
+    font-size: 13px; color: var(--text-default);
+  }
+  .kinput::placeholder { color: var(--text-faint); }
+  .linkrow { margin-top: 6px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .link {
+    display: inline-flex; align-items: center; gap: 3px;
+    font-size: 11px; font-weight: 500; color: var(--blue-700);
+  }
+  .quietlink { font-size: 11px; font-weight: 500; color: var(--text-faint); }
+  .footnote {
+    font-size: 11px; color: var(--text-muted); line-height: 1.6;
+    padding-top: 10px; border-top: 1px solid var(--gray-100);
+  }
+
+  /* ── Stored-state pieces ── */
+  .keychip {
+    display: inline-flex; align-items: center; gap: 7px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px;
+    color: var(--text-default); background: var(--gray-100);
+    border-radius: 8px; padding: 6px 10px;
+  }
+  .keychip .ok { color: var(--blue-700); display: inline-flex; }
+  .actrow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .btn-quiet {
+    display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 11px;
+    border-radius: 8px; border: 1px solid var(--border); background: var(--surface);
+    color: var(--text-default); font-size: 12px; font-weight: 500; flex: none;
+  }
+  .btn-danger {
+    display: inline-flex; align-items: center; height: 28px; padding: 0 11px;
+    border-radius: 8px; color: #dc2626; background: transparent;
+    font-size: 12px; font-weight: 500; flex: none;
+  }
+  .spread { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .guide {
+    border-radius: 10px; border: 1px solid var(--blue-100);
+    background: color-mix(in oklab, var(--blue-50) 60%, var(--surface));
+    padding: 12px 14px; display: flex; gap: 9px;
+  }
+  .guide svg { color: var(--blue-600); flex: none; margin-top: 1px; }
+  .guide .g-body { font-size: 12px; color: var(--text-default); line-height: 1.6; }
+  .guide .g-body b { display: block; font-weight: 600; color: var(--text-strong); margin-bottom: 2px; }
+  .guide .g-link { margin-top: 8px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="themes" id="themes">
+    <button data-theme="" aria-pressed="true">Simply Blue</button>
+    <button data-theme="ink-blue">Ink Blue</button>
+    <button data-theme="mushroom-kingdom">Mushroom Kingdom</button>
+    <button data-theme="hyrule">Hyrule</button>
+    <button data-theme="matrix">Matrix</button>
+  </div>
+
+  <div class="intro">
+    <h1>Web-search settings — the stored key deserves a different page</h1>
+    <p>
+      The Web search tab (W3) shows nearly the same furniture whether a key is stored or not
+      (user report with screenshot, 2026-09-12, Matrix theme). Source today:
+      <code>SettingsModal/index.tsx</code>, tab <code>search</code>.
+    </p>
+    <p>
+      <strong>Standardization rule (user, 2026-09-12):</strong> this tab must match the Model tab’s
+      key step — one design language for every key in the app. So the EMPTY state is the same in all
+      variants below: input plus the Model tab’s guide block carrying the whole sell (allowance,
+      link, without-a-key note), rendered only while nothing is stored. The variants differ only in
+      what the STORED state shows.
+    </p>
+    <div class="diag">
+      <h2>What confuses today's stored state</h2>
+      <ol>
+        <li><strong>The key is invisible.</strong> The user saved a key from the chat card, opens this tab — and sees an empty input. Only the small badge says anything was stored; the page's largest element says the opposite.</li>
+        <li><strong>The sell outlives its sale.</strong> “1000 searches a month free, no credit card”, “Get a free key”, and “without a key Syflo answers only from the model’s knowledge” are all arguments for getting a key — argued at someone who already has one.</li>
+        <li><strong>The precedent is one tab away.</strong> The Model tab already does this right: its key guide (<code>data-testid="key-guide"</code>) renders only while <code>!keySetFor(provider)</code>, the “Key saved” mini-badge sits on the step label, and Remove sits beside the input. The search tab predates that pattern.</li>
+      </ol>
+    </div>
+  </div>
+
+  <!-- ============================================================ §01 -->
+  <div class="section">
+    <div class="section-label"><span class="num">§01</span> Today, rebuilt — both states</div>
+    <p class="section-desc">
+      Reproduced from the component. The only differences between the two states: the badge text,
+      the input placeholder, and a “Remove key” link. Every selling line stays.
+    </p>
+    <div class="stage">
+      <div class="col">
+        <div class="state-label">No key</div>
+        <div class="panel">
+          <div class="hrow">
+              <p class="hlabel"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>Web search</p>
+              <span class="badge">Not set up</span>
+            </div>
+          <p class="allowance">Tavily · 1000 searches a month free, no credit card</p>
+          <div>
+            <p class="klabel">Tavily API key</p>
+            <input class="kinput" type="password" placeholder="tvly-xxxxxxxx">
+            <div class="linkrow">
+              <span class="link">Get a free key <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg></span>
+            </div>
+          </div>
+          <p class="footnote">Without a key Syflo answers only from the model’s knowledge and cannot search for the PDF of a reference the paper doesn’t link.</p>
+        </div>
+      </div>
+      <div class="col">
+        <div class="state-label">Key stored — today</div>
+        <div class="panel">
+          <div class="hrow">
+              <p class="hlabel"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>Web search</p>
+              <span class="badge stored">Key stored</span>
+            </div>
+          <p class="allowance">Tavily · 1000 searches a month free, no credit card</p>
+          <div>
+            <p class="klabel">Tavily API key</p>
+            <input class="kinput" type="password" placeholder="Enter a new key to replace it">
+            <div class="linkrow">
+              <span class="link">Get a free key <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg></span>
+              <span class="quietlink">Remove key</span>
+            </div>
+          </div>
+          <p class="footnote">Without a key Syflo answers only from the model’s knowledge and cannot search for the PDF of a reference the paper doesn’t link.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================ §02 -->
+  <div class="section">
+    <div class="section-label"><span class="num">§02</span> Variant A — two faces, masked chip</div>
+    <p class="section-desc">
+      The stored state collapses to the three things that are still true: the key exists (a masked
+      chip where the input was), it can be replaced, it can be removed. The empty state is the
+      standardized Model-tab form — input plus guide block; “Replace” opens that input back up.
+    </p>
+    <div class="trade">
+      <div><h3>Gains</h3>No backend change — the chip is generic dots plus the fixed <code>tvly-</code> prefix. The page halves; every remaining element has a job, and the empty state is byte-for-byte the Model tab’s pattern.</div>
+      <div><h3>Costs</h3>Generic dots prove that <em>a</em> key is stored, not that it is <em>the reader’s</em> key — the “is mine really in there?” doubt from the chat-save survives. Replace needs a second click.</div>
+    </div>
+    <div class="stage">
+      <div class="col">
+        <div class="state-label">No key — standardized empty state (all variants)</div>
+        <div class="panel">
+          <div class="hrow">
+              <p class="hlabel"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>Web search</p>
+              <span class="badge">Not set up</span>
+            </div>
+          <div>
+            <p class="klabel">Tavily API key</p>
+            <input class="kinput" type="password" placeholder="tvly-xxxxxxxx">
+          </div>
+          <div class="guide">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 16v-4M12 8h.01"/></svg>
+            <div class="g-body">
+              <b>Get a free Tavily key</b>
+              1000 searches a month, no credit card. Without a key Syflo answers only from the model’s knowledge and cannot search for the PDF of a reference the paper doesn’t link.
+              <div class="g-link"><span class="link">Get a free key <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg></span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="col">
+        <div class="state-label">Key stored</div>
+        <div class="panel">
+          <div class="hrow">
+              <p class="hlabel"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>Web search</p>
+              <span class="badge stored">Key stored</span>
+            </div>
+          <div class="spread">
+            <span class="keychip"><span class="ok"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg></span>tvly-••••••••••••••••</span>
+            <span class="actrow">
+              <span class="btn-quiet">Replace</span>
+              <span class="btn-danger">Remove key</span>
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================ §03 -->
+  <div class="section">
+    <div class="section-label"><span class="num">§03</span> Variant B — two faces, real fingerprint</div>
+    <p class="section-desc">
+      Same page as A, but the chip shows the key’s real edges — first five and last four characters,
+      dots between. That answers the exact doubt from 2026-09-12: “I saved a key in the chat, but it
+      is not here.” Needs one backend line: settings expose a <code>tavily_api_key_hint</code>
+      alongside the existing <code>tavily_api_key_set</code>; the full key still never leaves the
+      backend (the model tab’s eye-toggle comment states that rule).
+    </p>
+    <div class="trade">
+      <div><h3>Gains</h3>The reader can match the fingerprint against the key in their password manager — the only variant that proves “my key made it”, wherever it was saved (chat card, this tab, or long ago).</div>
+      <div><h3>Costs</h3>A backend change and a new settings field. Nine visible characters of a secret — Tavily keys are low-blast-radius, but it is a precedent the provider keys would inherit questions about.</div>
+    </div>
+    <div class="stage">
+      <div class="col">
+        <div class="state-label">Key stored</div>
+        <div class="panel">
+          <div class="hrow">
+              <p class="hlabel"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>Web search</p>
+              <span class="badge stored">Key stored</span>
+            </div>
+          <div class="spread">
+            <span class="keychip"><span class="ok"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg></span>tvly-…SeCS</span>
+            <span class="actrow">
+              <span class="btn-quiet">Replace</span>
+              <span class="btn-danger">Remove key</span>
+            </span>
+          </div>
+        </div>
+      </div>
+      <div class="col">
+        <div class="state-label">Key stored · replace opened</div>
+        <div class="panel">
+          <div class="hrow">
+              <p class="hlabel"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>Web search</p>
+              <span class="badge stored">Key stored</span>
+            </div>
+          <div>
+            <p class="klabel">New Tavily API key <span style="font-weight:400; color:var(--text-faint)">(replaces tvly-…SeCS)</span></p>
+            <input class="kinput" type="password" placeholder="tvly-xxxxxxxx">
+            <div class="linkrow">
+              <span class="link">Get a free key <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg></span>
+              <span class="quietlink">Keep the current key</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================ §04 -->
+  <div class="section">
+    <div class="section-label"><span class="num">§04</span> Variant C — exactly the Model tab's pattern</div>
+    <p class="section-desc">
+      Minimum novelty: the stored state, too, is exactly the Model tab’s — the input stays visible
+      as the replace affordance (placeholder saying so), Remove sits beside it as a red button, and
+      the guide block is gone. Nothing on this tab exists that a provider-key step does not have.
+    </p>
+    <p class="section-desc">
+      <strong>Kept in the stored state (user decision 2026-09-12):</strong> the allowance line. It
+      is a plan fact, not a pitch — the reader budgets their searches against it. Reworded for this
+      state: “no credit card” matters only before signing up, so it stays in the empty state’s
+      guide block and leaves here.
+    </p>
+    <div class="trade">
+      <div><h3>Gains</h3>One pattern for every key in the app — a reader who has set up a provider key already knows this page. Replace needs no extra click. Smallest diff in the component.</div>
+      <div><h3>Costs</h3>The stored state keeps an empty input as its largest element — the “key is not here” misreading survives, softened only by the placeholder. The sell moves but does not shrink.</div>
+    </div>
+    <div class="stage">
+      <div class="col">
+        <div class="state-label">No key — the shared empty state, for reference</div>
+        <div class="panel">
+          <div class="hrow">
+              <p class="hlabel"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>Web search</p>
+              <span class="badge">Not set up</span>
+            </div>
+          <div>
+            <p class="klabel">Tavily API key</p>
+            <input class="kinput" type="password" placeholder="tvly-xxxxxxxx">
+          </div>
+          <div class="guide">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 16v-4M12 8h.01"/></svg>
+            <div class="g-body">
+              <b>Get a free Tavily key</b>
+              1000 searches a month, no credit card. Without a key Syflo answers only from the model’s knowledge and cannot search for the PDF of a reference the paper doesn’t link.
+              <div class="g-link"><span class="link">Get a free key <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg></span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="col">
+        <div class="state-label">Key stored — input stays, guide gone</div>
+        <div class="panel">
+          <div class="hrow">
+              <p class="hlabel"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>Web search</p>
+              <span class="badge stored">Key stored</span>
+            </div>
+          <div>
+            <p class="klabel">Tavily API key</p>
+            <div style="display:flex; gap:8px;">
+              <input class="kinput" type="password" placeholder="Enter a new key to replace it" style="flex:1; min-width:0;">
+              <span class="btn-danger" style="border:1px solid transparent;">Remove key</span>
+            </div>
+            <p class="allowance" style="margin-top:6px;">Your free allowance: 1000 searches a month, ~33 a day.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  const root = document.documentElement;
+  const bar = document.getElementById('themes');
+  function set(theme) {
+    if (theme) root.setAttribute('data-theme', theme); else root.removeAttribute('data-theme');
+    bar.querySelectorAll('button').forEach(b =>
+      b.setAttribute('aria-pressed', String((b.dataset.theme || '') === theme)));
+    location.hash = theme ? 'theme=' + theme : '';
+  }
+  bar.addEventListener('click', e => {
+    const b = e.target.closest('button');
+    if (b) set(b.dataset.theme || '');
+  });
+  const m = location.hash.match(/theme=([\w-]+)/);
+  if (m) set(m[1]);
+</script>
+</body>
+</html>
