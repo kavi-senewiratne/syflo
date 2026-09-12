@@ -8,6 +8,7 @@
 import { Fragment, useState, useRef, useEffect, useImperativeHandle, useMemo } from 'react';
 import { AlertCircle, Cpu, Eye, EyeOff, Loader2, Mic, MicOff, MessageCircleQuestionMark, Plus, ArrowUp, Check, ChevronDown, ChevronRight, CornerDownRight, KeyRound, GitBranch, Highlighter, Image as ImageIcon, ImagePlus, FileText, BookOpen, MessageSquareQuote, MessageSquarePlus, RotateCcw, Square, TvMinimalPlay, X, Zap } from 'lucide-react';
 import { MessageBubble } from './MessageBubble';
+import { CARD_ACTION_BTN } from './cardActionButton';
 import { BranchTrace } from './BranchTrace';
 import { InlineMarkdown } from './InlineMarkdown';
 import { MathText, hasMath, plainMathText } from '../MathText';
@@ -1833,7 +1834,7 @@ export function ChatArea({ chat, videoYoutubeId, onTimeMarkClick, loading, strea
                     type="button"
                     data-testid="resend-button"
                     onClick={() => onResendUnanswered(last)}
-                    className="inline-flex items-center gap-1 rounded-md border border-gray-200 px-2 py-0.5 text-[12px] font-medium text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-700"
+                    className={CARD_ACTION_BTN}
                   >
                     <RotateCcw size={11} className="shrink-0" />
                     {S.resend}
@@ -1980,7 +1981,7 @@ export function ChatArea({ chat, videoYoutubeId, onTimeMarkClick, loading, strea
                     // the question can be finished after the switch.
                     onClick={() => onSwitchVisionModel?.(visionSwitchTarget)}
                     data-testid="vision-switch-button"
-                    className="inline-flex items-center gap-1 rounded-md border border-blue-100 bg-blue-50 px-2 py-0.5 text-[12px] font-semibold text-blue-700 transition-colors hover:bg-blue-100"
+                    className={CARD_ACTION_BTN}
                   >
                     <Eye size={11} className="shrink-0" />
                     {S.visionSwitchAction(visionSwitchTarget.label)}
@@ -1989,7 +1990,7 @@ export function ChatArea({ chat, videoYoutubeId, onTimeMarkClick, loading, strea
                     type="button"
                     onClick={removeImageAttachments}
                     data-testid="vision-remove-image"
-                    className="inline-flex items-center gap-1 rounded-md border border-gray-200 px-2 py-0.5 text-[12px] font-medium text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-700"
+                    className={CARD_ACTION_BTN}
                   >
                     {S.visionRemoveImage}
                   </button>
@@ -2048,7 +2049,7 @@ export function ChatArea({ chat, videoYoutubeId, onTimeMarkClick, loading, strea
                     type="button"
                     onClick={removeImageAttachments}
                     data-testid="vision-ask-anyway"
-                    className="inline-flex items-center gap-1 rounded-md border border-gray-200 px-2 py-0.5 text-[12px] font-medium text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-700"
+                    className={CARD_ACTION_BTN}
                   >
                     {S.visionAskAnyway}
                   </button>

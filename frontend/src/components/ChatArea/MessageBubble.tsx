@@ -20,6 +20,7 @@ import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
 import { AlertCircle, ArrowLeftRight, ArrowRight, Brain, Check, ChevronDown, ChevronRight, Clock, Cloud, CornerUpLeft, Cpu, ExternalLink, Info, Key, KeyRound, Loader2, RotateCcw, Search, SlidersHorizontal, Square, WifiOff, X, Zap } from 'lucide-react';
 import { ThinkingIndicator } from './ThinkingIndicator';
+import { CARD_ACTION_BTN, CARD_ACTION_BTN_DISABLEABLE, CARD_ACTION_LINK } from './cardActionButton';
 import {
   clearFlashChatRange,
   clearMessageHighlights,
@@ -1144,7 +1145,7 @@ export function MessageBubble({
                 type="button"
                 data-testid="interrupted-retry-button"
                 onClick={() => onRetryMessage(message)}
-                className="inline-flex items-center gap-1 rounded-md border border-gray-200 px-2 py-0.5 text-[12px] font-medium text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-700"
+                className={CARD_ACTION_BTN}
               >
                 <RotateCcw size={11} className="shrink-0" />
                 {S.retry}
@@ -1215,7 +1216,7 @@ export function MessageBubble({
                       type="button"
                       data-testid="add-free-provider-button"
                       onClick={() => onAddFreeProvider(freeProviderOffer.provider)}
-                      className="inline-flex items-center gap-1 rounded-md border border-blue-100 bg-blue-50 px-2 py-0.5 text-[12px] font-semibold text-blue-700 transition-colors hover:bg-blue-100"
+                      className={CARD_ACTION_BTN}
                     >
                       <Key size={11} className="shrink-0" />
                       {STR.chatArea.freeProviderAddAction(freeProviderOffer.label)}
@@ -1223,7 +1224,7 @@ export function MessageBubble({
                     <button
                       type="button"
                       data-testid="free-provider-wait-button"
-                      className="inline-flex items-center gap-1 rounded-md border border-gray-200 px-2 py-0.5 text-[12px] font-medium text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-700"
+                      className={CARD_ACTION_BTN}
                     >
                       {STR.chatArea.freeProviderWait}
                     </button>
@@ -1237,7 +1238,7 @@ export function MessageBubble({
                     type="button"
                     data-testid="retry-free-button"
                     onClick={() => onRetryFreeModel(message)}
-                    className="inline-flex items-center gap-1 rounded-md border border-blue-100 bg-blue-50 px-2 py-0.5 text-[12px] font-semibold text-blue-700 transition-colors hover:bg-blue-100"
+                    className={CARD_ACTION_BTN}
                   >
                     <Zap size={11} className="shrink-0" />
                     {STR.chatArea.retryWithModel(freeFallback.modelLabel)}
@@ -1259,7 +1260,7 @@ export function MessageBubble({
                     data-testid="retry-button"
                     disabled={retryInSeconds > 0 && !isLongCooldown && !switchedSinceFail}
                     onClick={() => onRetryMessage(message)}
-                    className="inline-flex items-center gap-1 rounded-md border border-gray-200 px-2 py-0.5 text-[12px] font-medium text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-700 disabled:opacity-55 disabled:cursor-default disabled:hover:bg-transparent disabled:hover:text-gray-500"
+                    className={CARD_ACTION_BTN_DISABLEABLE}
                   >
                     <RotateCcw size={11} className="shrink-0" />
                     {retryInSeconds > 0 && !isLongCooldown && !switchedSinceFail ? STR.chatArea.retryCountdown(retryInSeconds) : S.retry}
@@ -1271,7 +1272,7 @@ export function MessageBubble({
                     data-testid="retry-local-button"
                     title={`${STR.chatArea.retryLocal} — ${STR.chatArea.retryLocalNote}`}
                     onClick={() => onRetryLocalModel(message)}
-                    className="inline-flex items-center gap-1 rounded-md border border-blue-100 bg-blue-50 px-2 py-0.5 text-[12px] font-semibold text-blue-700 transition-colors hover:bg-blue-100"
+                    className={CARD_ACTION_BTN}
                   >
                     <Cpu size={11} className="shrink-0" />
                     {STR.chatArea.retryLocal}
@@ -1283,7 +1284,7 @@ export function MessageBubble({
                     data-testid="switch-model-button"
                     title={STR.chatArea.switchModelTip}
                     onClick={() => onOpenModelPicker(message)}
-                    className="inline-flex items-center gap-1 rounded-md border border-gray-200 px-2 py-0.5 text-[12px] font-medium text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-700"
+                    className={CARD_ACTION_BTN}
                   >
                     <ArrowLeftRight size={11} className="shrink-0" />
                     {STR.chatArea.switchModelAction}
@@ -1296,7 +1297,7 @@ export function MessageBubble({
                     rel="noreferrer"
                     data-testid="raise-limit-link"
                     title={STR.chatArea.raiseLimitTip}
-                    className="inline-flex items-center gap-1 rounded-md border border-gray-200 px-2 py-0.5 text-[12px] font-medium text-gray-500 no-underline transition-colors hover:bg-gray-50 hover:text-gray-700"
+                    className={CARD_ACTION_LINK}
                   >
                     <ExternalLink size={11} className="shrink-0" />
                     {STR.chatArea.raiseLimit}
@@ -1309,7 +1310,7 @@ export function MessageBubble({
                     rel="noreferrer"
                     data-testid="setup-billing-link"
                     title={STR.chatArea.setUpBillingTip}
-                    className="inline-flex items-center gap-1 rounded-md border border-gray-200 px-2 py-0.5 text-[12px] font-medium text-gray-500 no-underline transition-colors hover:bg-gray-50 hover:text-gray-700"
+                    className={CARD_ACTION_LINK}
                   >
                     <ExternalLink size={11} className="shrink-0" />
                     {STR.chatArea.setUpBilling}
@@ -1353,10 +1354,6 @@ export function MessageBubble({
                           : reason === 'local_missing'
                             ? STR.chatArea.failLocalMissing(message.failModel ?? '')
                             : STR.chatArea.failLocalUnreachable;
-              const plainBtn =
-                'inline-flex items-center gap-1 rounded-md border border-gray-200 px-2 py-0.5 text-[12px] font-medium text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-700';
-              const primaryishBtn =
-                'inline-flex items-center gap-1 rounded-md border border-blue-100 bg-blue-50 px-2 py-0.5 text-[12px] font-semibold text-blue-700 transition-colors hover:bg-blue-100';
               const showRetry =
                 onRetryMessage &&
                 (reason === 'network' || reason === 'local_unreachable' ||
@@ -1398,7 +1395,7 @@ export function MessageBubble({
                         data-testid="open-settings-button"
                         title={reason === 'no_key' || reason === 'bad_key' ? STR.chatArea.addApiKeyTip : undefined}
                         onClick={onOpenSettings}
-                        className={primaryishBtn}
+                        className={CARD_ACTION_BTN}
                       >
                         {reason === 'no_key' || reason === 'bad_key' ? (
                           <Key size={11} className="shrink-0" />
@@ -1418,7 +1415,7 @@ export function MessageBubble({
                             : `${STR.chatArea.retryLocal} — ${STR.chatArea.retryLocalNote}`
                         }
                         onClick={() => onRetryLocalModel(message)}
-                        className={reason === 'no_vision' ? primaryishBtn : plainBtn}
+                        className={CARD_ACTION_BTN}
                       >
                         <Cpu size={11} className="shrink-0" />
                         {STR.chatArea.retryLocal}
@@ -1430,7 +1427,7 @@ export function MessageBubble({
                         data-testid="switch-model-button"
                         title={STR.chatArea.switchModelVisionTip}
                         onClick={() => onOpenModelPicker(message)}
-                        className={plainBtn}
+                        className={CARD_ACTION_BTN}
                       >
                         <ArrowLeftRight size={11} className="shrink-0" />
                         {STR.chatArea.switchModelAction}
@@ -1442,7 +1439,7 @@ export function MessageBubble({
                         data-testid="retry-cloud-button"
                         title={STR.chatArea.retryCloudTip(cloudFallback.providerLabel)}
                         onClick={() => onRetryCloudModel(message)}
-                        className={plainBtn}
+                        className={CARD_ACTION_BTN}
                       >
                         <Cloud size={11} className="shrink-0" />
                         {STR.chatArea.retryCloud(cloudFallback.modelLabel)}
@@ -1453,7 +1450,7 @@ export function MessageBubble({
                         type="button"
                         data-testid="retry-button"
                         onClick={() => onRetryMessage(message)}
-                        className={plainBtn}
+                        className={CARD_ACTION_BTN}
                       >
                         <RotateCcw size={11} className="shrink-0" />
                         {S.retry}
@@ -1490,7 +1487,7 @@ export function MessageBubble({
                 type="button"
                 data-testid="retry-button"
                 onClick={() => onRetryMessage(message)}
-                className="inline-flex items-center gap-1 rounded-md border border-gray-200 px-2 py-0.5 text-[12px] font-medium text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-700"
+                className={CARD_ACTION_BTN}
               >
                 <RotateCcw size={11} className="shrink-0" />
                 {S.retry}
@@ -1609,7 +1606,7 @@ export function MessageBubble({
                 type="button"
                 data-testid="continue-button"
                 onClick={() => onContinueMessage(message)}
-                className="inline-flex items-center gap-1 rounded-md border border-blue-100 bg-blue-50 px-2 py-0.5 text-[12px] font-semibold text-blue-700 transition-colors hover:bg-blue-100"
+                className={CARD_ACTION_BTN}
               >
                 <ArrowRight size={11} className="shrink-0" />
                 {STR.chatArea.continueWriting}
@@ -1640,7 +1637,7 @@ export function MessageBubble({
                 type="button"
                 data-testid="seam-regenerate-button"
                 onClick={() => onRetryMessage(message)}
-                className="inline-flex items-center gap-1 rounded-md border border-blue-100 bg-blue-50 px-2 py-0.5 text-[12px] font-semibold text-blue-700 transition-colors hover:bg-blue-100"
+                className={CARD_ACTION_BTN}
               >
                 <RotateCcw size={11} className="shrink-0" />
                 {STR.chatArea.seamRegenerate}

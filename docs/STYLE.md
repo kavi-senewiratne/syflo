@@ -113,8 +113,7 @@ Extracted from the running code by counting occurrences; new UI picks from these
 
 | Role | Recipe |
 |---|---|
-| **Accent action** (the one real exit on a card) | `inline-flex items-center gap-1 rounded-md border border-blue-100 bg-blue-50 px-2 py-0.5 text-[12px] font-semibold text-blue-700 transition-colors hover:bg-blue-100` |
-| **Plain action** (secondary; also "wait", which is a valid answer, not a dismissed link) | same shape with `border-gray-200 … font-medium text-gray-500 hover:bg-gray-50 hover:text-gray-700` |
+| **Card action** (EVERY clickable action in a chat bubble or chat-area card — user decision 2026-09-12) | `inline-flex items-center gap-1 rounded-md border border-blue-100 bg-blue-50 px-2 py-0.5 text-[12px] font-semibold text-blue-700 transition-colors hover:bg-blue-100` — exported as `CARD_ACTION_BTN` (plus `_LINK` / `_DISABLEABLE`) in `components/ChatArea/cardActionButton.ts`; never restyle inline |
 | **Quiet blue door** (popup/card footers) | `flex items-center justify-center gap-2 w-full px-3 py-2 rounded-lg text-sm font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 transition-colors` |
 | **Filled primary** (dialogs only) | `text-sm font-semibold px-3.5 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50` |
 | **Filled on a card in the transcript** | `h-7 px-3 rounded-lg bg-blue-700 text-white text-xs font-semibold hover:bg-blue-800` — blue-700, not 600: measured against each theme's `white`, 600 fails contrast in Hyrule/Mushroom |
@@ -154,7 +153,7 @@ filled button inside the shell was tried and looked like another app's control.
 
 - **Under the answer, never instead of it** — when real content exists, the card is a
   caveat, not a replacement. Only the `*Failed*` / `*Interrupted*` markers replace
-  content, and they get the quiet gray error line + retry.
+  content, and they get the quiet gray error line + retry button.
 - Shared base: `mt-2 flex flex-col items-start gap-2 text-[12.5px] text-gray-400`, an
   italic message line with a 13px icon, then a button row from the table above.
 - **One card per bubble**: two cards would fight for the same click (the seam warning
@@ -164,7 +163,12 @@ filled button inside the shell was tried and looked like another app's control.
   window. Fix by dropping the second frame, not restyling it — a footer marks itself
   with a wash of the accent (`blue-100/40` is the only token wash that separates from
   the bubble in all five themes), no border, no shadow.
-- Cards use standard grays so all themes can recolor them.
+- Cards use standard grays for their TEXT so all themes can recolor them; their
+  buttons wear the accent pill. **There is no gray secondary button in a card**
+  (user decision 2026-09-12): the gray twin that used to mark secondary exits read
+  as unthemed next to the accent — gray stays gray in every theme, while `blue-*`
+  is exactly what the themes remap. Order alone communicates priority, same rule
+  as the popup shell.
 - Card copy: honest and minimal — one line naming the culprit, exits that actually lead
   out, at most one footnote. **Never two sentences in one paragraph**: the second is
   always a different kind of claim, so it gets its own line and the darker gray.
