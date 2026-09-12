@@ -123,11 +123,11 @@
 
   <p>The part I underestimated while building it, and the one I notice every evening. Say my tree looks like this:</p>
 
-  <figure class="diagram"><img src="diagrams/context-tree.svg" alt="A four-node tree: the main chat about the paper goes as a summary, the attention chat in full, and the GPU memory branch not at all"><figcaption><span class="fignum">Figure 2:</span> A normal chat re-sends every message on every turn. The tree sends three pieces: the parent in full, the main chat as a summary, the words branched on.</figcaption></figure>
+  <figure class="diagram"><img src="diagrams/context-tree.svg" alt="A four-node tree: the main chat about the paper goes as a summary, the attention chat in full, and the GPU memory branch not at all"><figcaption><span class="fignum">Figure 2:</span> In a conventional linear chat, earlier turns remain part of the context as the conversation grows. The tree sends three pieces: the parent in full, the main chat as a summary, the words branched on.</figcaption></figure>
 
   <p>The <strong>GPU memory</strong> branch is not sent at all. It has nothing to do with the question, so the conversation you carry stays small however deep you go.</p>
 
-  <p>Three things follow, and I notice all three daily: faster answers, much less wandering off topic, and a free daily allowance that lasts — long chats burn through quotas because you pay for the whole history on every message.</p>
+  <p>Three things follow, and I notice all three daily: faster answers, much less wandering off topic, and a free daily allowance that lasts — a long chat carries its whole history into every turn, and a daily quota notices.</p>
 
   <hr>
 
@@ -151,7 +151,7 @@
 
   <figure><img src="gifs/04-youtube.gif" alt="Importing a video, then the timestamped overview writing itself"><figcaption><span class="fignum">Figure 4:</span> Import a video and the overview writes its own chapters, each with a clickable timestamp into the player.</figcaption></figure>
 
-  <h3>No source at all</h3>
+  <h3>No attachment at all</h3>
 
   <p>None of this is required. Plenty of my trees have nothing attached — an algorithm, a bug I'm thinking through — and they branch the same way. The chat then takes the whole window, and inside a branch the centre pane shows the parent conversation, read-only.</p>
 
@@ -178,7 +178,7 @@ syflo</code></pre>
 
   <p>Node 20+ is the only hard requirement. On first start, add a provider key in Settings.</p>
 
-  <p><strong>The key stays yours.</strong> Syflo ships without one, never proxies your traffic, and keeps everything in <code>~/.syflo</code>. If you want no provider at all, point it at a local <a href="https://ollama.com">Ollama</a> model — then nothing leaves your machine and there is nothing to pay for.</p>
+  <p><strong>The key stays yours.</strong> Syflo ships without one, never proxies your traffic, and keeps everything in <code>~/.syflo</code>. If you want no provider at all, point it at a local <a href="https://ollama.com">Ollama</a> model — then no part of your conversation reaches a provider, and the model costs nothing.</p>
 
   <p><strong>Repository:</strong> <a href="https://github.com/kavi-senewiratne/syflo">https://github.com/kavi-senewiratne/syflo</a></p>
 
@@ -186,7 +186,15 @@ syflo</code></pre>
 
   <hr>
 
-  <h2>The smaller things</h2>
+  <h2>What it comes down to</h2>
+
+  <p>Two ideas: a question gets somewhere to live, and the thing you are reading doesn't disappear behind ninety messages.</p>
+
+  <p>Neither is something a single scrolling chat gives you, and once you have read this way, the scroll is hard to go back to.</p>
+
+  <hr>
+
+  <h2>Bonus content — the smaller things</h2>
 
   <p>None of these are a reason to install Syflo. They are the reasons it stays pleasant once you have.</p>
 
@@ -246,19 +254,11 @@ syflo</code></pre>
 
   <h3>Running it fully offline</h3>
 
-  <p>Point Syflo at <a href="https://ollama.com">Ollama</a> and everything that touches a model runs on your machine: the answers, the search over long papers, the dictation. No key, no bill, nothing leaving the laptop.</p>
+  <p>Point Syflo at <a href="https://ollama.com">Ollama</a> and everything that touches a model runs on your machine: the answers, the search over long papers, the titles and summaries, the dictation. No key, no bill, and none of your conversation leaving the laptop — a local failure never falls back to the cloud on its own.</p>
 
   <p>Honest limitation: a small local model is noticeably weaker than Gemini on a dense paper. I use local when I don't want a document to leave the machine, cloud when I want the best answer.</p>
 
   <figure><img src="gifs/13-local-model.gif" alt="Switching the provider to local Ollama in Settings"><figcaption><span class="fignum">Figure 16:</span> One switch in Settings and the same app runs without a key, a bill, or a network.</figcaption></figure>
-
-  <hr>
-
-  <h2>What it comes down to</h2>
-
-  <p>Two ideas: a question gets somewhere to live, and the thing you are reading doesn't disappear behind ninety messages.</p>
-
-  <p>Neither is something a single scrolling chat gives you, and once you have read this way, the scroll is hard to go back to.</p>
 
   <p class="closing">Syflo is maintained by one person in the evenings. There is no roadmap. But it is open, and it is what I use every day.</p>
 
