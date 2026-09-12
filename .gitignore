@@ -34,6 +34,10 @@ npm-debug.log*
 # Test coverage
 coverage/
 
+# Design mockups — local working material, not part of the published repo.
+# The written UI source of truth is docs/STYLE.md.
+design/
+
 # Electron bundled resources — synced from backend/ before each build.
 # Source of truth lives in backend/. Re-created by
 # scripts/sync-electron-resources.sh (electron build scripts run it).

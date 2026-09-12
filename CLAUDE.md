@@ -15,8 +15,10 @@
 - `CONTEXT.md` is the glossary — use its terms in code and tests.
 - `docs/adr/` records the decisions; ADR-0008 governs the provider
   layer (cloud under user-owned keys, local as private fallback).
-- UI work follows `design/mockup-*.html` as the source of truth; new UI
-  must use only standard theme tokens so all five themes work.
+- UI work follows the approved mockups in `design/mockup-*.html` (local
+  working material, gitignored — `docs/STYLE.md` is the written UI source
+  of truth in the repo); new UI must use only standard theme tokens so all
+  five themes work.
 - **Every visual element must adapt to the active theme** (user rule
   2026-07-26): color ONLY via the standard token families the
   `:root[data-theme]` blocks in `frontend/src/index.css` remap — accents
