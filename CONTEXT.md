@@ -37,13 +37,26 @@ Deleting a category frees its chats, never deletes them
 (design/mockup-sidebar-categories-v2.html).
 _Avoid_: folder, tag, label, project
 
+**Abandoned chat**:
+A root chat that is unambiguously worthless: no messages, no branches, no source, no
+attachments, not pinned. The frontend deletes one when it is left; the backend sweeps
+the stragglers at startup (`backend/cleanup.js`) with a 15-minute grace period, so a
+dev-server restart never deletes the empty chat still open in the frontend. The
+definition must stay identical in both places.
+_Avoid_: empty chat (only one of the criteria), stale chat, orphan
+
 **Highlight**:
 A colored, persistent marking of a text passage, created via the right-click menu.
-Five colors: yellow, green, blue, pink, orange. Two kinds sharing colors and labels:
-a **PDF highlight** (in the tree's PDF, anchored geometrically per page) and a
+Five colors: yellow, green, blue, pink, orange. Four kinds sharing colors, labels and
+gestures: a **PDF highlight** (in the tree's PDF, anchored geometrically per page), a
 **chat highlight** (in a chat message, anchored by character offsets so it survives
-reflow).
-_Avoid_: annotation, marking, Markierung
+reflow), a **transcript highlight** (in a YouTube transcript block, anchored by
+offsets plus the block's `start_seconds` — read from the block, never chosen), and a
+**chapter highlight** (offsets into the Video overview text the chapter list renders;
+`transcript_highlights.source` separates the last two). One gesture on every surface:
+clicking an existing highlight opens the recolor/delete actions menu — the linked
+chat is a menu item, never the click itself (parity decision 2026-09-10).
+_Avoid_: annotation, marking, Markierung, mark (UI shorthand for the video kinds)
 
 **Ask in chat**:
 The popup action on a selection (PDF or chat text) that drops the selection into the
@@ -90,8 +103,9 @@ _Avoid_: branch marker, fork line, breadcrumb
 
 **Parent context**:
 The read-only rendering of a branch's parent chat in the center pane when the tree
-has no PDF — keeps the passage the branch came from visible. With a PDF attached the
-PDF keeps the center. Above it, the **ancestor chain** renders what the branch inherits.
+has no source — keeps the passage the branch came from visible. With a source attached
+the source keeps the center: the PDF viewer, or the Video pane. Above it, the
+**ancestor chain** renders what the branch inherits.
 _Avoid_: context view (unqualified), preview pane
 
 **Ancestor context**:
@@ -158,7 +172,8 @@ _Avoid_: attachment (that's message-level), document (unqualified)
 The prompt strategy for a source that exceeds the context window (ADR-0006): the
 system prompt carries the source's **skeleton**, and per question the most relevant
 **source chunks** are appended after the history. Sources that fit stay on the
-full-text path — retrieval is the exception, not the default.
+full-text path — retrieval is the exception, not the default — and the Video overview
+never uses it (decision 2026-08-20).
 _Avoid_: RAG (implementation jargon), search mode
 
 **Skeleton**:
@@ -172,7 +187,8 @@ A paragraph-aligned piece of a source (~800 tokens, with its section heading),
 embedded via the local embedding model — embeddings always run locally, regardless of
 the chat provider — and cached in `source_chunks`. The cache is stamped with the
 embedding model that produced it; a mismatch triggers a rebuild. Per question,
-the top-8 by cosine similarity are injected in document order.
+the top-5 by cosine similarity are injected in document order (8 → 5, addendum
+2026-07-25).
 _Avoid_: passage, snippet, embedding (that's the vector, not the text)
 
 **YouTube transcript**:
@@ -184,13 +200,58 @@ _Avoid_: transcript (unqualified), video (as the source's name)
 **Video overview**:
 The first reply in a tree with a YouTube transcript, produced by an auto-sent visible
 user message right after import. A restructuring of the video's content — sections and
-key points with nothing substantive dropped — not a summary.
+key points with nothing substantive dropped — not a summary. Always answered from the
+full transcript: `overview: true` switches retrieval mode off and lifts the token
+budget cap (decision 2026-08-20); the section count scales with video length. Long
+videos are written over several self-continuation rounds; custom instructions are
+excluded (the user's settings text surfaced between two chapters, 2026-09-04).
 _Avoid_: summary (that's lossy; this isn't), auto-prompt (that's the message triggering it)
+
+**Video pane**:
+The center pane of a tree with a YouTube transcript: the embedded player, the
+transcript as timestamped blocks, and the chapter list — with highlights on both
+texts (`frontend/src/components/VideoPane`). Replaced the earlier transcript drawer
+and video banner.
+_Avoid_: transcript drawer, video banner (both removed), player (that's one part of it)
+
+**Chapter**:
+One section of the Video overview as a navigable object: a `##` heading carrying a
+`[m:ss - m:ss]` range, plus one bold **key point**. Chapters are not a second model
+call — they are parsed out of the overview message itself
+(`frontend/src/markdown/chapters.ts`; `parseChapterHeading` accepts every heading
+shape real models have produced, kept in step with `backend/overview-progress.js`).
+Shown as the chapter list under the player; markable as chapter highlights.
+_Avoid_: section (unqualified), timeline entry
+
+**Time link**:
+A timestamp in an overview or reply made clickable to seek the player — added by
+post-processing (`frontend/src/markdown/timeLinks.ts`), not by a prompt rule, so old
+overviews turn clickable too.
+_Avoid_: deep link, seek button
+
+**Overview coverage**:
+How far into the video the overview actually reaches, judged from the answer's own
+time ranges plus `messages.covered_until_seconds` — how much transcript the model was
+even shown. Catches two failure shapes: an overview that stops short shows "ends at X
+of Y" with a continue path, and one whose transcript was cut says so. Exists because
+a model can stop cleanly (`finish=stop`) after a quarter of a long video — nothing is
+truncated, yet the reader gets a fragment with no hint.
+_Avoid_: progress, completeness
 
 **Paper search**:
 Searching external indices for a research paper from the plus menu and attaching
 the found paper's PDF to the current chat.
 _Avoid_: import, fetch
+
+**Citation card**:
+The card a clicked citation opens — a citation mark in the paper's running text and a
+row of its reference list open the same card. Four lines and two doors: title, one
+meta line, two lines of context, then the actions; the state lives in the door ("No
+free PDF", "Go to tree", a spinner). Backed by a one-time background pass per paper
+(`backend/references.js`) that writes `paper_references` (the bibliography) and
+`paper_citations` (the click targets); a tree opened through the card records its
+origin (`chats.cited_from_chat_id` + `cited_ref_label`).
+_Avoid_: reference popup, footnote, bibliography entry (that opens the same card)
 
 **Plus menu**:
 The attach menu opened by the round + button in the chat composer, offering
@@ -226,28 +287,84 @@ those are labeled as such, and image attachments are rejected with a hint while 
 active — never silently dropped.
 _Avoid_: multimodal model (unqualified), OCR model
 
-**Model ladder**:
-The curated list of recommended vision models, one per machine-size class (small /
-medium / large). The ladder is the app's own opinion of what is good; it is independent
-of what happens to be installed.
-_Avoid_: model list (unqualified), presets
+**Failover ladder**:
+The shared, ordered list of provider/model candidates a reply walks down when the
+current choice cannot answer (quota, retirement, outage) — one implementation
+(`backend/quota.js`) used by chat replies, Explain, titles and `/btw`. Each rung can
+sit in a **cooldown** whose kind says why it is skipped: `daily` (until the provider's
+reset), `minute`, `retired` (24 h), `unknown`. The ladder never steps onto a paid rung
+on its own (decision 2026-07-30).
+_Avoid_: model ladder (the removed hardware-recommendation feature — ADR-0008
+amendment 2026-07-25 froze local to a plain `ollama pull` fallback), fallback chain
 
-**Recommended model**:
-The ladder rung matching the current machine's hardware. It becomes the default
-automatically once installed — unless the user has chosen a model manually; a manual
-choice always wins. A recommended model that is not yet downloaded can be seen and
-downloaded, but never activated before the download completes.
-_Avoid_: auto model, suggested model
+**Retired model**:
+A model its provider has shut off. `RETIRED_MODELS` (`backend/database.js`) is the
+list; its migration moves a stored model choice onto the named successor, because
+removing the model from the registry alone left the picker selecting a 404 (Groq's
+Llama retirement, 2026-09-04). The picker marks a retired choice with a "no longer
+available" badge; the next retirement is a line in that list.
+_Avoid_: deprecated model, removed model
 
 **Web search**:
 A tool call the chat model makes against Tavily, under the user's own key
-(ADR-0012), to pull live web results into the conversation. Offered to the model
-only when a key is stored. Not related to Paper search.
+(ADR-0012), to pull live web results into the conversation. The tool is always
+offered — key or no key (2026-08-25); a search that cannot run reaches the UI as a
+named failure state (`no-search-provider`, `tavily-invalid-key`,
+`tavily-quota-exhausted`) instead of being silently dropped. Settings show a stored
+key only as its **key fingerprint** (`tvly-…seCS` — first five plus last four
+characters): the frontend learns THAT a key exists, never the key. Not related to
+Paper search.
 _Avoid_: search (unqualified), SearXNG search (removed 2026-08-23), Tavily search
+
+**Search wish**:
+The record that the model called web_search and the search could not run, persisted
+per message (`messages.search_wish_query` / `search_wish_error`) for deterministic
+causes only — no key, invalid key; an exhausted quota is deliberately transient
+because Tavily resets monthly. Rendered as the **search-wish card** under the answer,
+never instead of it — the answer is real, it is just older than the question. The
+card can save a key and re-ask; the re-ask carries a **search nudge** naming the
+wished query, because the model otherwise copies its own refusal from one turn up.
+The stored user message stays raw.
+_Avoid_: failed search (the answer didn't fail), search error (that's the cause field)
+
+**Truncated answer**:
+An answer whose provider stopped mid-thought — `finish_reason` length/content-filter,
+or a missing finish chunk — flagged as `messages.truncated` and persisted, because
+half an answer reads like a whole one. Normally healed invisibly by
+self-continuation; the "Continue writing" card under the bubble is the fallback, not
+the normal path. Continuations extend the same message: one answer never becomes two
+bubbles.
+_Avoid_: incomplete answer, cut transcript (that's overview coverage), aborted
+(that's the *Interrupted* marker)
+
+**Self-continuation**:
+The loop that finishes a truncated answer without being asked: rounds continue until
+a round adds nothing, a round fails, or the round cap is hit (flat for chat answers,
+video-length-scaled for the overview). Each round is overlap-stitched onto the
+existing text at the **seam** (`backend/continuation.js`).
+_Avoid_: auto-continue (the UI never names it), retry (that's for failures)
+
+**Seam suspect**:
+A continuation whose seam could not be verified — no overlap, the existing text ends
+mid-sentence, and the new text starts with a word character — so words may be missing
+at the join. The first suspect round is discarded and retried once; a second is kept
+but flagged (`messages.seam_suspect`) and shown with a warning card whose way out is
+Regenerate, never more continuing.
+_Avoid_: bad seam, glitch, corruption
+
+**Retryable marker**:
+One of two fixed strings stored *as* the message content when there is no answer:
+`*Failed*` (generation failed; offers retry) and `*Interrupted*` (the user hit stop).
+UI states living in the content column — but they are filtered out of every prompt,
+and the next question may replace them in place. Also the reason such a branch shows
+no outcome line.
+_Avoid_: error message (it's a state, not text from anyone), placeholder
 
 **Thinking quote**:
 An entry of the curated quote pool (`frontend/src/components/ChatArea/quotes.json`)
-rotated in the thinking indicator while a reply is pending. Every quote — including
+rotated in the thinking indicator while a reply is pending — each line is a 50/50
+coin flip between a feature tip and a quote; quotes circulate in an active pool of 50
+and retire after three showings. Every quote — including
 hand-added ones — must pass the curation rules in `scripts/build-quotes.mjs`:
 genuinely famous author, fundamental truth (no politics, romance kitsch, or insider
 humor), PG-rated, no known misattribution. Rejected quotes/authors live in
@@ -257,8 +374,8 @@ _Avoid_: tip (that's the feature hints), loading message
 **Custom instructions**:
 User-authored free text, managed in Settings, injected into the system prompt of every
 chat reply (and its warm-up). Global — one text for all chat trees — and switchable
-on/off without deleting the text. Does not apply to Explain, chat titles, or chat
-summaries.
+on/off without deleting the text. Does not apply to Explain, chat titles, chat
+summaries, or the Video overview including its continuation rounds (2026-09-04).
 _Avoid_: persona, personalization, system prompt (that's the whole assembled prompt)
 
 **Syflo**:
@@ -279,7 +396,9 @@ messages), language (unqualified)
 **Feedback**:
 A short text message (kind: Bug / Idea / Question, plus optional reply-to
 email) sent from the sidebar button or the `/feedback` composer command to a
-private inbox (ADR-0010) — never auto-posted as a public GitHub issue.
+private inbox (ADR-0010) — never auto-posted as a public GitHub issue. Sent straight
+from the browser (Web3Forms; the backend only supplies the key); when sending fails,
+the dialog offers the public issue tracker as the manual fallback.
 _Avoid_: bug report (too narrow — also covers ideas/questions), issue (that's
 the public GitHub artifact the maintainer may create afterward)
 
@@ -291,8 +410,10 @@ screen is skipped; a region that is on screen is never skipped, even when empty 
 with no highlights falls back to focusing the page). Everything interactive inside a
 region is an item — message bubbles and chat rows, but equally the composer's attach,
 mic, model and send buttons and the collapsed sidebar's rail buttons. A control the
-layout has hidden is not an item. An **open menu** is a region too, and while one is up
-it is the only one there is.
+layout has hidden is not an item. A **takeover surface** — an open menu or a dialog —
+is a region too, and while one is up it is the only one there is; its form fields are
+items (Enter focuses them for typing), and a dialog that declares a tab rail splits
+into two regions, rail and page, with `←` `→` crossing between them.
 _Avoid_: pane, panel (that's the drawer), landmark, column (the map isn't one)
 
 **Focus ring**:

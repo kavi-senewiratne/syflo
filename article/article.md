@@ -2,7 +2,7 @@
 
 **The problem:** an AI chat app — ChatGPT, Claude, any of them — gives you one
 long scroll. Learning doesn't work like that. What you're reading has to stay in
-view, and the questions you've raised along the way need somewhere to go.
+view, and the questions you've raised along the way have to stay easy to find.
 
 Syflo does those two things.
 
@@ -14,11 +14,10 @@ It's open source.
 
 ---
 
-## 1. Any question can get its own chat
+## 1. Any question can get its own chat branch
 
-Nothing branches on its own: type a question the normal way and it stays where
-it is. A branch happens only when you ask for one — right-click a word, select
-a phrase in the answer or the paper, or type `/branch <topic>`.
+A branch is created when you ask for one: right-click a word, select a phrase
+in the answer or the paper, or type `/branch <topic>`.
 
 The questions then have somewhere to live. A week later I can still find the
 one about attention heads, because it is its own chat, not message 34 of 90.
@@ -56,11 +55,11 @@ it holds the centre of the window: message ninety can still ask it questions,
 and so can a branch four levels deep. There is no re-upload, because nothing
 was ever uploaded to a message.
 
-### Papers
+### Research papers
 
-Search for a paper by name and it arrives from arXiv or OpenAlex, or upload
-your own PDF. You read it the way you'd read it on paper: select a passage,
-highlight it in one of five colours, ask about it in the chat you're in.
+Search for a published paper by name, or upload your own PDF. Select a passage
+and highlight it in one of five colours, the way you would on physical paper —
+then ask about it in the chat you're in.
 
 The part I use most: ask about a passage and the quote stays clickable in your
 own message. One click scrolls the PDF back to that line and lights it up —
@@ -97,19 +96,21 @@ parent conversation, read-only.
 
 ---
 
-## The Mushroom Kingdom
+## Models (BYOK)
 
-Four themes. The default is Mushroom Kingdom: sky, clouds, question blocks.
-There's also a Matrix terminal, Hyrule, and a plain blue one for when you need
-to look like an adult.
+Gemini, Groq, OpenAI, Anthropic, or local Ollama — your key, switchable
+mid-conversation from the composer.
 
-They change more than the colours — the thinking indicator, the app icon and
-the logo follow the theme too. It makes the app nicer to sit in front of for a
-few hours, and that was reason enough.
+**It's bring-your-own-key, but you should not have to pay for this.** Gemini
+and Groq both hand out free keys with a daily allowance, and a whole evening of
+reading fits inside it — I have never paid for a Syflo session.
 
-![Cycling through the themes on one tree](gifs/05-themes.gif)
+**When one allowance runs out, Syflo moves to the next free model by itself**
+and remembers not to try the exhausted one again until it resets.
 
-*Figure 6: One tree, four coats of paint — logo, icon and thinking indicator included.*
+![The model picker with cost tiers and remaining quota](gifs/12-model-picker.gif)
+
+*Figure 6: Free models on top with what is left of today's allowance; local models at the bottom.*
 
 ---
 
@@ -123,13 +124,7 @@ syflo
 Node 20+ is the only hard requirement. On first start, add a provider key in
 Settings.
 
-**You should not have to pay for this.** Gemini and Groq both hand out free
-keys with a daily allowance, and a whole evening of reading fits inside it —
-I have never paid for a Syflo session. OpenAI and Anthropic work too, and the
-picker labels which models cost money, so a paid one is never one misclick
-away.
-
-**And the key stays yours.** Syflo ships without one, never proxies your
+**The key stays yours.** Syflo ships without one, never proxies your
 traffic, and keeps everything in `~/.syflo`. If you want no provider at all,
 point it at a local [Ollama](https://ollama.com) model — then nothing leaves
 your machine and there is nothing to pay for.
@@ -224,14 +219,15 @@ numbers in @results?"*
 
 *Figure 14: Rename an attachment once, then point at it mid-sentence like you would at a person.*
 
-### Models
+### The Mushroom Kingdom
 
-Gemini, Groq, OpenAI, Anthropic, or local Ollama — your key, switchable
-mid-conversation from the composer.
+Four themes: Mushroom Kingdom by default — sky, clouds, question blocks — plus
+a Matrix terminal, Hyrule, and a plain blue one for when you need to look like
+an adult.
 
-![The model picker with cost tiers and remaining quota](gifs/12-model-picker.gif)
+![Cycling through the themes on one tree](gifs/05-themes.gif)
 
-*Figure 15: Free models on top with what is left of today’s allowance; local models at the bottom.*
+*Figure 15: One tree, four coats of paint — logo, icon and thinking indicator included.*
 
 ### Running it fully offline
 
@@ -239,13 +235,9 @@ Point Syflo at [Ollama](https://ollama.com) and everything that touches a model
 runs on your machine: the answers, the search over long papers, the dictation.
 No key, no bill, nothing leaving the laptop.
 
-Picking a local model is the hard part, so Syflo reads your RAM and VRAM and
-recommends one sized for the machine you have, downloadable from Settings
-without touching a terminal.
-
 Honest limitation: a small local model is noticeably weaker than Gemini on a
 dense paper. I use local when I don't want a document to leave the machine,
-cloud when I want the best answer — one click, per message.
+cloud when I want the best answer.
 
 ![Switching the provider to local Ollama in Settings](gifs/13-local-model.gif)
 
@@ -256,13 +248,10 @@ cloud when I want the best answer — one click, per message.
 ## What it comes down to
 
 Two ideas: a question gets somewhere to live, and the thing you are reading
-doesn't disappear behind ninety messages. Everything above is one or the other.
+doesn't disappear behind ninety messages.
 
-Neither is clever. They are just not what a single scrolling chat gives you,
-and once you have read something this way, the scroll is hard to go back to.
-
-A week later the tree is still there, and so is the paper. That was the whole
-point.
+Neither is something a single scrolling chat gives you, and once you have read
+this way, the scroll is hard to go back to.
 
 *Syflo is maintained by one person in the evenings. There is no roadmap. But it
 is open, and it is what I use every day.*
