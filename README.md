@@ -18,9 +18,12 @@ Syflo does those two things.
   tree exists — because it belongs to the conversation, not to a message. You
   can see it, and so can the model: it never scrolls out of memory.
 
-MIT licensed, runs entirely on your own machine.
+MIT licensed, runs entirely on your own machine, and one command away:
+`npm install -g syflo` ([details](#install)).
 
 ![Selecting a passage in an answer and branching from it](article/gifs/01-branching.gif)
+
+## Install
 
 ```bash
 npm install -g syflo
