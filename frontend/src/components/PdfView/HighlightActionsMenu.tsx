@@ -17,7 +17,7 @@
  * Closes on outside click and on Escape.
  */
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Check, MessageSquare, Trash2 } from 'lucide-react';
 import { HIGHLIGHT_COLORS } from '../../types';
 import type { HighlightColor } from '../../types';
@@ -81,16 +81,24 @@ export function HighlightActionsMenu({
   }, [onClose]);
 
   // Clamp to viewport so the menu never gets cut off near a screen edge.
+  // The width is a MINIMUM, not fixed: the fixed 240px wrapped the German
+  // "Verknüpften Chat öffnen" onto two lines in the Matrix theme, whose
+  // monospace face runs wider (user report 2026-09-12). The menu sizes to its
+  // longest action instead, and the clamp re-runs against the measured width.
   const w = 240;
   const h = highlight.chatId ? 160 : 120;
-  const left = Math.min(x + 4, window.innerWidth - w - 12);
+  const [measuredW, setMeasuredW] = useState(w);
+  useLayoutEffect(() => {
+    if (ref.current) setMeasuredW(ref.current.offsetWidth);
+  }, []);
+  const left = Math.min(x + 4, window.innerWidth - measuredW - 12);
   const top = Math.min(y + 4, window.innerHeight - h - 12);
 
   return (
     <div
       ref={ref}
       role="menu"
-      style={{ left, top, width: w }}
+      style={{ left, top, minWidth: w, width: 'max-content', maxWidth: 'calc(100vw - 24px)' }}
       className="fixed z-50 bg-white rounded-xl shadow-2xl border border-gray-100 overflow-hidden"
       data-testid="highlight-actions-menu"
     >
@@ -123,18 +131,18 @@ export function HighlightActionsMenu({
           <button
             type="button"
             onClick={onOpenChat}
-            className="w-full flex items-center gap-2.5 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+            className="w-full flex items-center gap-2.5 whitespace-nowrap px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
           >
-            <MessageSquare size={14} className="text-gray-500" />
+            <MessageSquare size={14} className="shrink-0 text-gray-500" />
             {S.openLinkedChat}
           </button>
         )}
         <button
           type="button"
           onClick={onDelete}
-          className="w-full flex items-center gap-2.5 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+          className="w-full flex items-center gap-2.5 whitespace-nowrap px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
         >
-          <Trash2 size={14} className="text-gray-500" />
+          <Trash2 size={14} className="shrink-0 text-gray-500" />
           {S.deleteHighlight}
         </button>
       </div>

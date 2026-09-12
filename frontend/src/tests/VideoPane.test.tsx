@@ -867,23 +867,42 @@ describe('VideoPane – Markierungen in den Kapiteln', () => {
     expect(mark.getAttribute('data-color')).toBe('pink');
   });
 
-  it('führt beim Klick auf eine verknüpfte Markierung in ihren Chat', () => {
-    const onOpenHighlightChat = vi.fn();
+  it('öffnet beim Klick auf eine Markierung das Aktionsmenü — wie Chat und PDF', () => {
+    const onHighlightMenu = vi.fn();
     render(
       <VideoPane
         video={video}
         overview={overview}
         transcriptHighlights={[chapterMark({ childChatId: 'c9' })]}
-        onOpenHighlightChat={onOpenHighlightChat}
+        onHighlightMenu={onHighlightMenu}
       />,
     );
 
-    fireEvent.click(screen.getByTestId('chapter-highlight'));
+    fireEvent.click(screen.getByTestId('chapter-highlight'), { clientX: 40, clientY: 60 });
 
-    expect(onOpenHighlightChat).toHaveBeenCalledWith('c9');
+    expect(onHighlightMenu).toHaveBeenCalledTimes(1);
+    expect(onHighlightMenu.mock.calls[0][0].id).toBe('ch1');
+    expect(onHighlightMenu.mock.calls[0][0].childChatId).toBe('c9');
   });
 
-  it('springt NICHT im Video, wenn die Markierung in den Chat führt', () => {
+  it('öffnet das Menü auch für eine UNVERKNÜPFTE Markierung (Entfernen-Weg)', () => {
+    const onHighlightMenu = vi.fn();
+    render(
+      <VideoPane
+        video={video}
+        overview={overview}
+        transcriptHighlights={[chapterMark()]}
+        onHighlightMenu={onHighlightMenu}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId('chapter-highlight'), { clientX: 40, clientY: 60 });
+
+    expect(onHighlightMenu).toHaveBeenCalledTimes(1);
+    expect(onHighlightMenu.mock.calls[0][0].id).toBe('ch1');
+  });
+
+  it('springt NICHT im Video, wenn der Klick das Menü öffnet', () => {
     const posted: unknown[] = [];
     vi.spyOn(HTMLIFrameElement.prototype, 'contentWindow', 'get').mockReturnValue(
       { postMessage: (m: unknown) => posted.push(m) } as unknown as Window,
@@ -893,13 +912,49 @@ describe('VideoPane – Markierungen in den Kapiteln', () => {
         video={video}
         overview={overview}
         transcriptHighlights={[chapterMark({ childChatId: 'c9' })]}
-        onOpenHighlightChat={vi.fn()}
+        onHighlightMenu={vi.fn()}
       />,
     );
 
     fireEvent.click(screen.getByTestId('chapter-highlight'));
 
     expect(posted.filter((m) => String(m).includes('seekTo'))).toHaveLength(0);
+  });
+});
+
+// ─── Menü auch im Transcript ───────────────────────────────────────────────
+// Nutzer-Report 2026-09-10: eine gespeicherte Markierung ließ sich im
+// Transcript (und in den Kapiteln) nicht wieder anklicken und entfernen —
+// Chat und PDF konnten das längst. Der Klick öffnet jetzt dasselbe Menü.
+
+describe('VideoPane – Aktionsmenü im Transcript', () => {
+  const transcript = '[00:00] Hi everyone.\n\n[07:30] A feature is the smallest unit.';
+  const marked: Video = { ...video, transcript };
+
+  it('öffnet das Menü beim Klick auf eine Transcript-Markierung', () => {
+    const start = transcript.indexOf('the smallest unit');
+    const onHighlightMenu = vi.fn();
+    render(
+      <VideoPane
+        video={marked}
+        overview={overview}
+        onHighlightMenu={onHighlightMenu}
+        transcriptHighlights={[
+          {
+            id: 'th1', videoId: 'v1', color: 'green', text: 'the smallest unit',
+            startOffset: start, endOffset: start + 'the smallest unit'.length,
+            startSeconds: 450, childChatId: null,
+            createdAt: '2026-08-16T00:00:00Z', updatedAt: '2026-08-16T00:00:00Z',
+          },
+        ]}
+      />,
+    );
+    fireEvent.click(screen.getByTestId('video-view-transcript'));
+
+    fireEvent.click(screen.getByTestId('transcript-highlight'), { clientX: 12, clientY: 34 });
+
+    expect(onHighlightMenu).toHaveBeenCalledTimes(1);
+    expect(onHighlightMenu.mock.calls[0][0].id).toBe('th1');
   });
 });
 

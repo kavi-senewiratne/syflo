@@ -1013,7 +1013,12 @@ body {
   --color-gray-100: #0c160d;
   --color-gray-200: #12301a;
   --color-gray-300: #1a4224;
-  --color-gray-400: #3e6a48;
+  /* gray-400 sunk from #3e6a48 so the category/subcategory rank step
+     (gray-500 vs gray-400) survives the dark ground — 1.86:1 instead of
+     1.32:1. Raising gray-500 instead made category headings read like
+     chat-row text (design/mockup-matrix-category-contrast.html,
+     Variante B — user decision 2026-09-12). */
+  --color-gray-400: #2f5237;
   --color-gray-500: #4c7e58;
   --color-gray-600: #64a272;
   --color-gray-700: #7bc188;

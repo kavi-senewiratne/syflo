@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Syflo · Matrix theme — category vs subcategory contrast</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #060c07;
+    --panel-bg: #08130a;
+    --border-dim: #12301a;
+    --shadow-ink: #10331b;
+    --text-muted: #4c7e58;     /* current gray-500 */
+    --text-body: #7bc188;      /* current gray-700 */
+    --text-strong: #9ad6a4;    /* current gray-800 */
+    --text-title: #b7e8bc;     /* current gray-900 — chat row titles */
+    --text-brightest: #d9f6dd; /* current gray-950 */
+    --count: #1a4224;          /* current gray-300 — closed-section counts */
+    --accent: #2be76b;
+    --accent-bright: #5ef391;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text-body);
+    font-family: 'IBM Plex Mono', ui-monospace, monospace;
+    padding: 48px 32px 96px; -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1200px; margin: 0 auto; }
+  .intro h1 {
+    font-family: 'Share Tech Mono', monospace; font-size: 24px; color: var(--text-brightest);
+    letter-spacing: 0.02em; margin: 0 0 10px;
+  }
+  .intro p { font-size: 13px; color: var(--text-muted); line-height: 1.7; max-width: 800px; margin: 0 0 8px; }
+  .intro code, .section-desc code { color: var(--accent-bright); }
+
+  .section { margin-top: 56px; }
+  .section-label {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--accent); margin-bottom: 4px;
+  }
+  .section-label .num { color: var(--accent-bright); }
+  .section-desc { font-size: 12.5px; color: var(--text-muted); line-height: 1.6; max-width: 780px; margin-bottom: 20px; }
+
+  .row2 { display: flex; gap: 28px; flex-wrap: wrap; align-items: flex-start; }
+
+  .panel {
+    background: var(--panel-bg); border: 1px solid var(--border-dim); border-radius: 6px;
+    box-shadow: 6px 6px 0 var(--shadow-ink); padding: 18px 0 14px; width: 300px;
+  }
+  .panel-caption { font-size: 11.5px; color: var(--text-muted); margin-top: 12px; max-width: 300px; line-height: 1.6; }
+  .panel-caption b { color: var(--text-strong); font-weight: 600; }
+
+  /* ---- sidebar sample (mirrors Sidebar/index.tsx structure) ---- */
+  .sb { font-size: 11px; }
+  .sb .cat, .sb .sub, .sb .parent, .sb .nested {
+    display: flex; align-items: center; gap: 6px;
+    padding: 2px 10px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 500;
+  }
+  .sb .cat { margin-top: 14px; }
+  .sb .sub { margin-top: 10px; }
+  .sb .parent { margin-top: 0; }
+  .sb .nested { margin-top: 10px; }
+  .sb svg { flex: none; }
+  .sb .count { margin-left: auto; font-size: 10px; letter-spacing: 0; font-variant-numeric: tabular-nums; color: var(--count); }
+  .sb .chat {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 13px; color: var(--text-title); text-transform: none; letter-spacing: 0;
+    padding: 4px 10px 4px 22px; white-space: nowrap; overflow: hidden;
+  }
+  .sb .chat .t { overflow: hidden; text-overflow: ellipsis; }
+  .sb .badge {
+    margin-left: auto; flex: none; display: inline-flex; align-items: center; gap: 3px;
+    font-size: 10px; line-height: 14px; font-weight: 600; letter-spacing: 0.02em;
+    color: var(--text-muted); background: var(--bg); border: 1px solid var(--border-dim);
+    border-radius: 3px; padding: 0 5px;
+  }
+  .sb hr { border: 0; border-top: 1px solid var(--border-dim); margin: 14px 10px 0; }
+
+  /* ---- side-effects strip: other places the same tokens appear ---- */
+  .fx { margin-top: 14px; padding: 10px 10px 2px; border-top: 1px dashed var(--border-dim); }
+  .fx .fx-label { font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--count); margin-bottom: 8px; }
+  .fx .line { display: flex; align-items: center; gap: 8px; font-size: 12px; margin-bottom: 8px; }
+
+  /* Variant colour hooks — .g4 wears gray-400, .g5 wears gray-500 */
+  .v-ist .g5, .v-ist .fx5 { color: #4c7e58; }
+  .v-ist .g4, .v-ist .fx4 { color: #3e6a48; }
+  .v-a   .g5, .v-a   .fx5 { color: #6fb27e; }
+  .v-a   .g4, .v-a   .fx4 { color: #3e6a48; }
+  .v-b   .g5, .v-b   .fx5 { color: #4c7e58; }
+  .v-b   .g4, .v-b   .fx4 { color: #2f5237; }
+  .v-c   .g5, .v-c   .fx5 { color: #64a272; }
+  .v-c   .g4, .v-c   .fx4 { color: #35593e; }
+
+  table.tokens { border-collapse: collapse; font-size: 12px; margin-top: 8px; }
+  table.tokens th, table.tokens td {
+    border: 1px solid var(--border-dim); padding: 6px 12px; text-align: left; color: var(--text-body);
+  }
+  table.tokens th { color: var(--text-muted); font-weight: 600; text-transform: uppercase; font-size: 10.5px; letter-spacing: 0.06em; }
+  table.tokens td.num { font-variant-numeric: tabular-nums; }
+  .swatch { display: inline-block; width: 12px; height: 12px; border-radius: 2px; vertical-align: -1px; margin-right: 6px; border: 1px solid var(--border-dim); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="intro">
+    <h1>Matrix theme — category vs subcategory contrast</h1>
+    <p>The sidebar carries rank purely through one token step: a category heading wears
+       <code>gray-500</code>, a subcategory heading wears <code>gray-400</code> (same pair as the
+       timeline parent vs the date headings). In the Matrix palette those two greens —
+       <code>#4c7e58</code> and <code>#3e6a48</code> — sit only 1.32:1 apart on a dark ground,
+       where dim-on-dark differences compress. The mechanism stays as it is in every theme;
+       only the Matrix token values are retuned. Each variant shows the same sidebar snippet
+       plus the collateral: <code>gray-400</code>/<code>gray-500</code> also dress ~240 other
+       muted texts and icons, which move with the token.</p>
+  </div>
+
+  <!-- ============================ IST ============================ -->
+  <div class="section">
+    <div class="section-label"><span class="num">§00</span> · Current state (for reference)</div>
+    <div class="section-desc">gray-500 <code>#4c7e58</code> · gray-400 <code>#3e6a48</code> — step 1.32:1.</div>
+    <div class="row2">
+      <div>
+        <div class="panel v-ist"><div class="sb">
+          <div class="cat g5">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>
+            AI Physical Safety
+          </div>
+          <div class="chat"><span class="t">Safety in the Loop: …</span><span class="badge">YT</span></div>
+          <div class="sub g4">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+            ISO 25785
+          </div>
+          <div class="chat"><span class="t">Defining Safety for …</span><span class="badge">YT</span></div>
+          <hr>
+          <div class="parent g5" style="margin-top:14px">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+            History
+          </div>
+          <div class="nested g4">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+            Yesterday <span class="count">4</span>
+          </div>
+        </div></div>
+        <div class="panel-caption"><b>Current.</b> Category 4.0:1 vs ground, subcategory 3.0:1; the two ranks sit 1.32:1 apart — the light themes carry the same 1.3:1 step, but dark-on-darker survives it and dim-on-dark does not.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================ A ============================ -->
+  <div class="section">
+    <div class="section-label"><span class="num">§A</span> · Raise the category</div>
+    <div class="section-desc">gray-500 <code>#4c7e58 → #6fb27e</code>, gray-400 unchanged. Step 2.48:1.</div>
+    <div class="row2">
+      <div>
+        <div class="panel v-a"><div class="sb">
+          <div class="cat g5">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>
+            AI Physical Safety
+          </div>
+          <div class="chat"><span class="t">Safety in the Loop: …</span><span class="badge">YT</span></div>
+          <div class="sub g4">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+            ISO 25785
+          </div>
+          <div class="chat"><span class="t">Defining Safety for …</span><span class="badge">YT</span></div>
+          <hr>
+          <div class="parent g5" style="margin-top:14px">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+            History
+          </div>
+          <div class="nested g4">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+            Yesterday <span class="count">4</span>
+          </div>
+          <div class="fx">
+            <div class="fx-label">Same tokens elsewhere</div>
+            <div class="line fx5">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+              gray-500 caption · 12:04
+            </div>
+            <div class="line fx4">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+              gray-400 placeholder · Ask a question…
+            </div>
+          </div>
+        </div></div>
+        <div class="panel-caption"><b>A.</b> The category climbs to 7.5:1 vs ground; the subcategory stays where it is today. Every gray-500 text in the theme (timestamps, captions, secondary labels) brightens with it.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================ B ============================ -->
+  <div class="section">
+    <div class="section-label"><span class="num">§B</span> · Sink the subcategory</div>
+    <div class="section-desc">gray-400 <code>#3e6a48 → #2f5237</code>, gray-500 unchanged. Step 1.86:1.</div>
+    <div class="row2">
+      <div>
+        <div class="panel v-b"><div class="sb">
+          <div class="cat g5">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>
+            AI Physical Safety
+          </div>
+          <div class="chat"><span class="t">Safety in the Loop: …</span><span class="badge">YT</span></div>
+          <div class="sub g4">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+            ISO 25785
+          </div>
+          <div class="chat"><span class="t">Defining Safety for …</span><span class="badge">YT</span></div>
+          <hr>
+          <div class="parent g5" style="margin-top:14px">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+            History
+          </div>
+          <div class="nested g4">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+            Yesterday <span class="count">4</span>
+          </div>
+          <div class="fx">
+            <div class="fx-label">Same tokens elsewhere</div>
+            <div class="line fx5">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+              gray-500 caption · 12:04
+            </div>
+            <div class="line fx4">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+              gray-400 placeholder · Ask a question…
+            </div>
+          </div>
+        </div></div>
+        <div class="panel-caption"><b>B.</b> The category keeps today's 4.0:1; the subcategory drops to 2.15:1 vs ground — clearly subordinate, but every gray-400 text in the theme (placeholders, disabled icons, faint hints) dims with it, some toward the edge of legibility.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================ C ============================ -->
+  <div class="section">
+    <div class="section-label"><span class="num">§C</span> · Spread both ends</div>
+    <div class="section-desc">gray-500 <code>#4c7e58 → #64a272</code> (today's gray-600), gray-400 <code>#3e6a48 → #35593e</code>. Step 2.62:1.</div>
+    <div class="row2">
+      <div>
+        <div class="panel v-c"><div class="sb">
+          <div class="cat g5">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>
+            AI Physical Safety
+          </div>
+          <div class="chat"><span class="t">Safety in the Loop: …</span><span class="badge">YT</span></div>
+          <div class="sub g4">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+            ISO 25785
+          </div>
+          <div class="chat"><span class="t">Defining Safety for …</span><span class="badge">YT</span></div>
+          <hr>
+          <div class="parent g5" style="margin-top:14px">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+            History
+          </div>
+          <div class="nested g4">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+            Yesterday <span class="count">4</span>
+          </div>
+          <div class="fx">
+            <div class="fx-label">Same tokens elsewhere</div>
+            <div class="line fx5">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+              gray-500 caption · 12:04
+            </div>
+            <div class="line fx4">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+              gray-400 placeholder · Ask a question…
+            </div>
+          </div>
+        </div></div>
+        <div class="panel-caption"><b>C.</b> Widest step (2.62:1) with the smallest move at each end: category 6.3:1, subcategory 2.4:1 vs ground. gray-500 lands on today's gray-600, so a subcategory's hover color meets the category's resting color.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================ numbers ============================ -->
+  <div class="section">
+    <div class="section-label"><span class="num">§§</span> · Numbers side by side</div>
+    <div class="section-desc">WCAG contrast vs the sidebar ground <code>#08130a</code>. The light themes' category/subcategory step is ~1.3:1 in all three (mushroom 1.32, hyrule 1.37, ink-blue 1.27) — the mechanism is shared; only Matrix's dark ground makes that step invisible.</div>
+    <table class="tokens">
+      <tr><th>Variant</th><th>gray-500 (category)</th><th>gray-400 (subcategory)</th><th>cat : ground</th><th>sub : ground</th><th>cat : sub</th></tr>
+      <tr><td>Current</td><td><span class="swatch" style="background:#4c7e58"></span>#4c7e58</td><td><span class="swatch" style="background:#3e6a48"></span>#3e6a48</td><td class="num">4.00</td><td class="num">3.03</td><td class="num">1.32</td></tr>
+      <tr><td>A</td><td><span class="swatch" style="background:#6fb27e"></span>#6fb27e</td><td><span class="swatch" style="background:#3e6a48"></span>#3e6a48</td><td class="num">7.53</td><td class="num">3.03</td><td class="num">2.48</td></tr>
+      <tr><td>B</td><td><span class="swatch" style="background:#4c7e58"></span>#4c7e58</td><td><span class="swatch" style="background:#2f5237"></span>#2f5237</td><td class="num">4.00</td><td class="num">2.15</td><td class="num">1.86</td></tr>
+      <tr><td>C</td><td><span class="swatch" style="background:#64a272"></span>#64a272</td><td><span class="swatch" style="background:#35593e"></span>#35593e</td><td class="num">6.28</td><td class="num">2.39</td><td class="num">2.62</td></tr>
+    </table>
+  </div>
+
+</div>
+</body>
+</html>

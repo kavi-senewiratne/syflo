@@ -122,8 +122,13 @@ interface Props {
   }) => void;
   /** Saved colored marks of this video — transcript AND chapter passages. */
   transcriptHighlights?: TranscriptHighlight[];
-  /** Click on a mark that opened a branch: go to that chat. */
-  onOpenHighlightChat?: (chatId: string) => void;
+  /**
+   * Click on an existing mark: open the recolor/delete actions menu — the
+   * same gesture as clicking a colored highlight in the chat or the PDF
+   * (parity request 2026-09-10). A linked mark's way into its chat moved
+   * into the menu's "Open linked chat" entry, matching both other surfaces.
+   */
+  onHighlightMenu?: (highlight: TranscriptHighlight, x: number, y: number) => void;
   /**
    * A passage was selected in a CHAPTER (user request 2026-08-16). Chapters
    * are the model's own writing, so a branch from here quotes the overview,
@@ -176,7 +181,7 @@ function paintBlock(
     /** Which marks belong to this text — transcript blocks or chapter text. */
     source: 'transcript' | 'chapter';
     testId: string;
-    onOpenChat?: (chatId: string) => void;
+    onMenu?: (highlight: TranscriptHighlight, x: number, y: number) => void;
     /** The mark that should glow right now, if it is in this text. */
     flashId?: string | null;
   },
@@ -211,11 +216,14 @@ function paintBlock(
       continue;
     }
     const top = covering[covering.length - 1];
-    // A mark that opened a branch is a way IN, exactly like a linked
-    // highlight in the chat or on the page (user request 2026-08-16): click
-    // it and you are in that chat. role="button" rather than <button> for the
-    // same reason the row is one — the text has to stay selectable.
-    const linked = Boolean(top.childChatId && opts.onOpenChat);
+    // Clicking a saved mark opens the recolor/delete actions menu — the same
+    // gesture as in the chat and the PDF (parity request 2026-09-10). A mark
+    // that opened a branch keeps its linked underline; its way into the chat
+    // is the menu's "Open linked chat" entry, exactly like both other
+    // surfaces. role="button" rather than <button> for the same reason the
+    // row is one — the text has to stay selectable.
+    const linked = Boolean(top.childChatId);
+    const clickable = Boolean(opts.onMenu);
     pieces.push(
       <span
         key={`${from}-${to}`}
@@ -223,7 +231,7 @@ function paintBlock(
         data-highlight-id={top.id}
         data-color={top.color}
         data-flash={top.id === opts.flashId ? 'true' : undefined}
-        {...(linked
+        {...(clickable
           ? {
               role: 'button',
               tabIndex: 0,
@@ -232,19 +240,20 @@ function paintBlock(
                 // one click, one destination.
                 e.stopPropagation();
                 if (window.getSelection()?.toString().trim()) return;
-                opts.onOpenChat!(top.childChatId!);
+                opts.onMenu!(top, e.clientX, e.clientY);
               },
               onKeyDown: (e: React.KeyboardEvent) => {
                 if (e.key !== 'Enter' && e.key !== ' ') return;
                 e.preventDefault();
                 e.stopPropagation();
-                opts.onOpenChat!(top.childChatId!);
+                const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                opts.onMenu!(top, r.left, r.bottom);
               },
             }
           : null)}
         className={`rounded-[2px] ${HIGHLIGHT_BG_CLASS[top.color]} ${
-          linked ? 'cursor-pointer syflo-mark-linked' : ''
-        }`}
+          clickable ? 'cursor-pointer' : ''
+        } ${linked ? 'syflo-mark-linked' : ''}`}
       >
         {chunk}
       </span>,
@@ -260,7 +269,7 @@ function markOf(seconds: number): string {
 
 export function VideoPane({
   video, overview, onRequestTranscript, overviewStreaming, overviewTruncated, overviewStoppedEarly, overviewContinuing, onContinueOverview,
-  onTranscriptSelection, transcriptHighlights, onChapterSelection, onOpenHighlightChat, ref,
+  onTranscriptSelection, transcriptHighlights, onChapterSelection, onHighlightMenu, ref,
 }: Props) {
   const S = useStrings().videoPane;
   const frameRef = useRef<HTMLIFrameElement>(null);
@@ -833,14 +842,14 @@ export function VideoPane({
                   <span className="min-w-0 flex-1" data-chapter-text="">
                     <span className="block text-[12.5px] leading-snug font-semibold break-words text-gray-900">
                       {paintBlock(c.title, c.titleOffset, transcriptHighlights, {
-                        source: 'chapter', testId: 'chapter-highlight', onOpenChat: onOpenHighlightChat, flashId,
+                        source: 'chapter', testId: 'chapter-highlight', onMenu: onHighlightMenu, flashId,
                       })}
                     </span>
                     {c.keyPoint && (
                       <span className="mt-0.5 block text-[11.5px] leading-relaxed break-words text-gray-500">
                         {c.keyPointOffset !== null
                           ? paintBlock(c.keyPoint, c.keyPointOffset, transcriptHighlights, {
-                              source: 'chapter', testId: 'chapter-highlight', onOpenChat: onOpenHighlightChat, flashId,
+                              source: 'chapter', testId: 'chapter-highlight', onMenu: onHighlightMenu, flashId,
                             })
                           : c.keyPoint}
                       </span>
@@ -971,7 +980,7 @@ export function VideoPane({
                   }`}
                   data-transcript-text=""
                 >
-                  {paintBlock(b.text, b.offset, transcriptHighlights, { source: 'transcript', testId: 'transcript-highlight', onOpenChat: onOpenHighlightChat, flashId })}
+                  {paintBlock(b.text, b.offset, transcriptHighlights, { source: 'transcript', testId: 'transcript-highlight', onMenu: onHighlightMenu, flashId })}
                 </span>
               </div>
             ))}
