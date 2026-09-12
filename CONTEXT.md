@@ -19,8 +19,7 @@ _Avoid_: chat list, history
 A root chat lifted out of the sidebar's date sections into one **Pinned section** at the
 top, ordered most recently pinned first (`chats.pinned_at`). Pinning is pure navigation —
 it changes where a tree is listed, nothing about the tree itself. Only roots can be
-pinned; the rows carry no marking of their own, the section heading does
-(design/mockup-pinned-chats.html).
+pinned; the rows carry no marking of their own, the section heading does.
 _Avoid_: favorite, starred, bookmark
 
 **Category / Subcategory**:
@@ -33,8 +32,7 @@ Filing and pinning are **mutually exclusive** — they answer the same question
 (where does this tree live), so filing clears the pin and pinning unfiles.
 Only the positive gesture clears the other: taking a chat out of a category
 does not unpin it, and unpinning does not unfile it.
-Deleting a category frees its chats, never deletes them
-(design/mockup-sidebar-categories-v2.html).
+Deleting a category frees its chats, never deletes them.
 _Avoid_: folder, tag, label, project
 
 **Abandoned chat**:
@@ -98,7 +96,7 @@ sent — carrying a pill with the command name and the branch title. A click ope
 branch; from inside the branch, the header link walks back and makes the line glow.
 An anchor that resolves to nothing (empty chat, deleted message) floats its line to the
 top of the transcript. Selection branches deliberately get no line: their passage is the
-more precise trace (design/mockup-branch-trace.html, variant A, 2026-08-09).
+more precise trace (decision 2026-08-09).
 _Avoid_: branch marker, fork line, breadcrumb
 
 **Parent context**:
@@ -377,6 +375,15 @@ chat reply (and its warm-up). Global — one text for all chat trees — and swi
 on/off without deleting the text. Does not apply to Explain, chat titles, chat
 summaries, or the Video overview including its continuation rounds (2026-09-04).
 _Avoid_: persona, personalization, system prompt (that's the whole assembled prompt)
+
+**Mockup**:
+A standalone HTML page that proposes new UI before any of it is implemented. Anything
+visually new starts as a mockup: variants are built side by side under neutral labels
+(A/B/C — the page argues, the maintainer decides), one is approved, and only then does
+implementation begin, checked against the approved page. The written rules distilled
+from the mockups live in `docs/STYLE.md`; the mockup pages themselves are a local
+design workshop and are not part of the published repo.
+_Avoid_: prototype (mockups are static pages, not wired), wireframe, design file
 
 **Syflo**:
 This product (formerly **FlowTalk**; repo renamed 2026-07-18). Not to be confused with

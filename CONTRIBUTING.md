@@ -75,15 +75,17 @@ at least the suite you touched before opening a pull request.
 
 Three rules, and they are the ones a pull request is most likely to trip over.
 
-### 1. UI changes follow the mockups
+### 1. UI changes follow the style guide — and start as mockups
 
-`design/mockup-*.html` is the **source of truth** for the interface. If you are
-changing how something looks or behaves on screen, diff your change against the
-matching mockup before and after you write it.
+[`docs/STYLE.md`](docs/STYLE.md) is the written source of truth for the
+interface: themes, tokens, and the recurring UI recipes. If you are changing
+how something looks or behaves on screen, check your change against it before
+and after you write it.
 
-For a *new* UI idea, build the mockup first and get it agreed in an issue or
-Discussion, then implement it. It is much cheaper to argue about a static HTML
-page than about a merged component.
+For a *new* UI idea, build a mockup first — a standalone HTML page, ideally
+with variants side by side — and get it agreed in an issue or Discussion, then
+implement it. It is much cheaper to argue about a static HTML page than about
+a merged component.
 
 Two constraints that come with this:
 

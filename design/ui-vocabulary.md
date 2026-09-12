@@ -1,5 +1,9 @@
 # UI vocabulary — the recurring class recipes
 
+> **Superseded 2026-09-12 by `docs/STYLE.md`**, which absorbed these recipes
+> and is the published style guide (`design/` stays local). Update STYLE.md,
+> not this file.
+
 Extracted from the running code on 2026-08-15 by counting how often each
 class combination appears in `frontend/src/components/`. This is a
 description, not an invention: every recipe below is what the app already

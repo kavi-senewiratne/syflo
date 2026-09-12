@@ -311,7 +311,8 @@ running app — before a change counts as done.
 
 - `CONTEXT.md` — the glossary of domain terms used in code and tests.
 - [`docs/adr/`](docs/adr/) — the architecture decision records.
-- `design/mockup-*.html` — the source of truth for the interface.
+- [`docs/STYLE.md`](docs/STYLE.md) — the visual style guide: themes, tokens, and
+  the recurring UI recipes.
 - `article/` — the long-form write-up these sections are drawn from.
 
 ## License
