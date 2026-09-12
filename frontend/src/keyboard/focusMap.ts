@@ -6,7 +6,7 @@
  * user can feel about keyboard navigation is decided here.
  */
 
-export type RegionId = 'menu' | 'map' | 'sidebar' | 'source' | 'chat' | 'highlights';
+export type RegionId = 'menu' | 'menuRail' | 'map' | 'sidebar' | 'source' | 'chat' | 'highlights';
 
 /** One keyboard region and the items currently inside it, in visual order. */
 export interface Region {
@@ -95,12 +95,17 @@ export function interpretKey(event: KeyboardEvent, ctx: KeyContext): Command {
     return ctx.inComposer ? { kind: 'enterStructure' } : { kind: 'leaveStructure' };
   }
 
-  if (ctx.inComposer || ctx.modalOpen) return { kind: 'ignore' };
+  if (ctx.inComposer) return { kind: 'ignore' };
 
+  // A modal no longer freezes the arrows: its dialog is a takeover region the
+  // ring walks like a menu (user request 2026-09-12). It still owns Escape
+  // (above), and printable keys must NOT fall through to the main composer
+  // hidden behind it.
   if (NAV_KEYS.includes(event.key as NavKey)) {
     return { kind: 'nav', key: event.key as NavKey };
   }
   if (event.key === 'Enter') return { kind: 'activate' };
+  if (ctx.modalOpen) return { kind: 'ignore' };
   // Any printable key silently hands focus back to the composer and types —
   // the same unexplained rule /btw already uses for dismissal.
   if (event.key.length === 1) return { kind: 'returnToComposer', text: event.key };
@@ -134,6 +139,12 @@ export interface ScreenState {
   menuItems?: string[] | null;
   menuRows?: string[][] | null;
   /**
+   * A dialog's tab rail, when it declares one (`data-keyboard-rail`): its own
+   * column inside the takeover — ↑/↓ walk the tabs, →/← cross between rail
+   * and page (user request 2026-09-12). Items also appear in menuItems.
+   */
+  menuRail?: { items: string[]; rows: string[][] } | null;
+  /**
    * The same items again, grouped into visual rows. Optional: a caller that
    * only knows the order gets rows of one, which is how most regions look
    * anyway.
@@ -148,6 +159,21 @@ export function buildLayout(screen: ScreenState): Layout {
   // An open menu is the whole map while it lasts. Anything else would let the
   // ring wander out from under a menu that is still covering the screen.
   if (screen.menuItems?.length) {
+    const rail = screen.menuRail;
+    if (rail?.items.length) {
+      // A dialog with a tab rail is two columns, like the app itself: the
+      // rail on the left, the tab's page on the right.
+      const railSet = new Set(rail.items);
+      const pageItems = screen.menuItems.filter(i => !railSet.has(i));
+      const pageRows = (screen.menuRows ?? [])
+        .map(r => r.filter(i => !railSet.has(i)))
+        .filter(r => r.length > 0);
+      const columns: Region[] = [{ id: 'menuRail', items: rail.items, rows: rail.rows }];
+      if (pageItems.length) {
+        columns.push({ id: 'menu', items: pageItems, rows: pageRows.length ? pageRows : undefined });
+      }
+      return { map: null, columns };
+    }
     return {
       map: null,
       columns: [{ id: 'menu', items: screen.menuItems, rows: screen.menuRows ?? undefined }],

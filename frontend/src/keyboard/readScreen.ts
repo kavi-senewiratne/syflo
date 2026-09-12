@@ -22,14 +22,22 @@ export function readScreen(root: Document | HTMLElement): ScreenState {
   });
 
   const map = root.querySelector('[data-focus-region="map"]');
-  const menu = root.querySelector('[role="menu"]');
+  // A dialog (settings, feedback) is a takeover surface exactly like a menu:
+  // while one is open it is the only region there is, and its controls are
+  // stamped rather than annotated one by one (user request 2026-09-12).
+  const menu = root.querySelector('[role="menu"]') ?? root.querySelector('[role="dialog"]');
 
   // menuItemsIn stamps the ids, so rowsIn can see them afterwards — a menu's
   // colour swatches sit side by side and must answer to ← → like any other row.
   const menuItems = menu ? menuItemsIn(menu) : null;
 
+  // A dialog's declared tab rail becomes its own column (items are stamped by
+  // menuItemsIn above, so itemsIn/rowsIn can read them here).
+  const rail = menu?.querySelector('[data-keyboard-rail]') ?? null;
+
   return {
     menuItems,
+    menuRail: rail ? { items: itemsIn(rail), rows: rowsIn(rail) } : null,
     menuRows: menu ? rowsIn(menu) : null,
     mindMapRows: map ? rowsIn(map) : null,
     sidebarItems: sidebarRows,
@@ -57,7 +65,10 @@ export function readScreen(root: Document | HTMLElement): ScreenState {
  * doing it here keeps menus from needing a single edit to join in.
  */
 function menuItemsIn(menu: Element): string[] {
-  const selector = 'button, [role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"]';
+  // Dialogs bring form controls with them: text fields, selects, switches.
+  // Enter on a field focuses it for typing (App.handleKeyboardActivate).
+  const selector =
+    'button, input, textarea, select, [role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"], [role="switch"], [role="button"], a[href]';
   return Array.from(menu.querySelectorAll<HTMLElement>(selector))
     .filter(el => isLaidOut(el))
     .map((el, i) => {
@@ -127,15 +138,45 @@ function rowsIn(region: Element | null): string[][] {
   if (elements.every(el => { const r = el.getBoundingClientRect(); return !r.width && !r.height; })) {
     return elements.map(el => [el.dataset.focusItem!]);
   }
+  // A region can mix scroll contexts: the chat column is a pinned header, a
+  // scrolling transcript, and a pinned composer. Raw viewport tops order those
+  // wrongly — a transcript item below the fold reads top ≈ 1500 and sorted
+  // AFTER the composer (top ≈ 800), so ↓ skipped every off-screen item
+  // straight into the composer (user report 2026-09-12). Ordering therefore
+  // uses the top CLAMPED to the item's own scroller: what is scrolled past an
+  // edge piles up at that edge, keeping its in-scroller order via the raw top
+  // as tiebreaker.
+  const scrollerOf = (el: HTMLElement): HTMLElement | null => {
+    for (let p = el.parentElement; p && p !== region.parentElement && p !== document.body; p = p.parentElement) {
+      const style = getComputedStyle(p);
+      if (/^(auto|scroll|overlay)$/.test(style.overflowY) || /^(auto|scroll|overlay)$/.test(style.overflowX)) {
+        return p;
+      }
+    }
+    return null;
+  };
   const nodes = elements
-    .map(el => ({
-      id: el.dataset.focusItem!,
-      top: el.getBoundingClientRect().top,
-      sequence: isSequence(el),
-    }))
-    .sort((a, b) => a.top - b.top);
+    .map(el => {
+      const rect = el.getBoundingClientRect();
+      const scroller = scrollerOf(el);
+      const clip = scroller?.getBoundingClientRect();
+      return {
+        id: el.dataset.focusItem!,
+        top: rect.top,
+        order: clip ? Math.min(Math.max(rect.top, clip.top), clip.bottom) : rect.top,
+        left: rect.left,
+        scroller,
+        sequence: isSequence(el),
+      };
+    })
+    .sort((a, b) => a.order - b.order || a.top - b.top);
 
-  const rows: { top: number; ids: string[]; sequence: boolean }[] = [];
+  const rows: {
+    top: number;
+    scroller: HTMLElement | null;
+    members: { id: string; left: number }[];
+    sequence: boolean;
+  }[] = [];
   const placed = new Set<string>();
   for (const node of nodes) {
     // Same deduplication as itemsIn: the topmost piece decides where the item
@@ -143,12 +184,30 @@ function rowsIn(region: Element | null): string[][] {
     if (placed.has(node.id)) continue;
     placed.add(node.id);
     const row = rows[rows.length - 1];
+    // A row is a visual band WITHIN one scroll context — two items whose raw
+    // tops collapse only because both are piled at a scroller's edge are not
+    // side-by-side controls.
     const joins =
-      row && !row.sequence && !node.sequence && Math.abs(node.top - row.top) <= ROW_TOLERANCE_PX;
-    if (joins) row.ids.push(node.id);
-    else rows.push({ top: node.top, ids: [node.id], sequence: node.sequence });
+      row &&
+      !row.sequence &&
+      !node.sequence &&
+      node.scroller === row.scroller &&
+      Math.abs(node.top - row.top) <= ROW_TOLERANCE_PX;
+    if (joins) row.members.push({ id: node.id, left: node.left });
+    else {
+      rows.push({
+        top: node.top,
+        scroller: node.scroller,
+        members: [{ id: node.id, left: node.left }],
+        sequence: node.sequence,
+      });
+    }
   }
-  return rows.map(r => r.ids);
+  // Within a row, ← → mean screen order, so sort by left — grouping alone
+  // orders by top: the branch header's quote link (top 16) sorted AFTER the
+  // buttons (top 13) and ← from them left the region instead of reaching it
+  // (user report 2026-09-12).
+  return rows.map(r => r.members.sort((a, b) => a.left - b.left).map(m => m.id));
 }
 
 /**
@@ -168,10 +227,15 @@ export function findItem(region: string, item: string): HTMLElement | null {
  */
 export function findItemPieces(region: string, item: string): HTMLElement[] {
   const id = CSS.escape(item);
-  const scope = region === 'menu' ? '[role="menu"]' : `[data-focus-region="${region}"]`;
+  const scopes =
+    region === 'menu' || region === 'menuRail'
+      ? ['[role="menu"]', '[role="dialog"]']
+      : [`[data-focus-region="${region}"]`];
   return Array.from(
     document.querySelectorAll<HTMLElement>(
-      `${scope} [data-focus-item="${id}"], ${scope} [data-testid="${id}"]`,
+      scopes
+        .flatMap(scope => [`${scope} [data-focus-item="${id}"]`, `${scope} [data-testid="${id}"]`])
+        .join(', '),
     ),
   );
 }

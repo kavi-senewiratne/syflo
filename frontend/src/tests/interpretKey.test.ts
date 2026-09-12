@@ -27,8 +27,19 @@ describe('interpretKey', () => {
       .toEqual({ kind: 'nav', key: 'ArrowLeft' });
   });
 
-  it('freezes navigation while a real modal is up', () => {
-    expect(press('ArrowLeft', { inComposer: false, modalOpen: true })).toEqual({ kind: 'ignore' });
+  it('keeps navigating while a modal is up — its dialog is a takeover region', () => {
+    // Settings and feedback were dead to the ring (user report 2026-09-12):
+    // the dialog is now walked like a menu; the modal keeps Escape, and
+    // printable keys must not fall through to the composer hidden behind it.
+    expect(press('ArrowLeft', { inComposer: false, modalOpen: true }))
+      .toEqual({ kind: 'nav', key: 'ArrowLeft' });
+    expect(press('Enter', { inComposer: false, modalOpen: true })).toEqual({ kind: 'activate' });
+    expect(press('Escape', { inComposer: false, modalOpen: true })).toEqual({ kind: 'ignore' });
+    expect(press('h', { inComposer: false, modalOpen: true })).toEqual({ kind: 'ignore' });
+  });
+
+  it('leaves the keys to a focused field inside a modal', () => {
+    expect(press('ArrowLeft', { inComposer: true, modalOpen: true })).toEqual({ kind: 'ignore' });
   });
 
   it('leaves the composer on Escape once nothing is left to close', () => {

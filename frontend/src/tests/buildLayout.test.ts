@@ -53,4 +53,22 @@ describe('buildLayout', () => {
 
     expect(map).toEqual({ id: 'map', items: ['root', 'a', 'b'], rows: [['root'], ['a', 'b']] });
   });
+
+  it('splits a dialog with a tab rail into two columns', () => {
+    // The settings dialog: ↑/↓ walk the rail's tabs, → crosses into the tab's
+    // page (user request 2026-09-12). The rail items also appear in menuItems
+    // (they are stamped like everything else) and must not repeat in the page.
+    const layout = buildLayout(
+      screen({
+        menuItems: ['close', 'tab-a', 'tab-b', 'field-1', 'field-2'],
+        menuRows: [['close'], ['tab-a', 'field-1'], ['tab-b', 'field-2']],
+        menuRail: { items: ['tab-a', 'tab-b'], rows: [['tab-a'], ['tab-b']] },
+      }),
+    );
+
+    expect(layout.columns).toEqual([
+      { id: 'menuRail', items: ['tab-a', 'tab-b'], rows: [['tab-a'], ['tab-b']] },
+      { id: 'menu', items: ['close', 'field-1', 'field-2'], rows: [['close'], ['field-1'], ['field-2']] },
+    ]);
+  });
 });

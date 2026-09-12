@@ -515,6 +515,15 @@ export default function App() {
     y: number;
   } | null>(null);
 
+  // Actions menu for an existing video mark (transcript or chapter) — the
+  // third surface, same menu component and same click gesture as chat and
+  // PDF (parity request 2026-09-10).
+  const [videoHighlightMenu, setVideoHighlightMenu] = useState<{
+    highlight: TranscriptHighlight;
+    x: number;
+    y: number;
+  } | null>(null);
+
   // Die "blaue Markierung" sichtbar halten, solange das Popup offen ist
   // (Nutzerkorrektur 2026-07-22): die native Selektion kollabiert beim Klick
   // ins Popup. Chat: die erfasste Auswahl wird als Pending-Overlay gemalt;
@@ -1305,7 +1314,9 @@ export default function App() {
     // lässt das Transkript dann im Volltext, statt in den Retrieval-Modus zu
     // kippen — sonst gliedert das Modell ein Video, von dem es nur Skelett
     // und ein paar Ausschnitte gesehen hat (Nutzerentscheid 2026-08-20).
-    opts?: { overview?: boolean },
+    // searchNudge: Save-&-retry der Schlüssel-Karte — die gewünschte Query;
+    // das Backend erzwingt damit den web_search-Aufruf beim Neu-Fragen.
+    opts?: { overview?: boolean; searchNudge?: string | null },
   ) => {
     // targetChatId: für programmatische Sends in einen gerade erst
     // gewechselten Chat (Auto-Prompt nach Video-Import in einen neuen Baum) —
@@ -1374,6 +1385,7 @@ export default function App() {
         think: thinkByChat[chatId] || undefined,
         overview: opts?.overview,
         quoteHighlightId: quoteHighlightId ?? null,
+        searchNudge: opts?.searchNudge ?? null,
         ...h.opts,
       }),
     ).finally(revokePreviews);
@@ -2720,6 +2732,35 @@ export default function App() {
     if (menu?.highlight.childChatId) await handleSelectChat(menu.highlight.childChatId);
   };
 
+  // Recolor/delete/open-chat for an existing video mark (transcript or
+  // chapter) — same menu component and same stays-open recolor semantics as
+  // the PDF and chat variants.
+  const handleVideoMenuChangeColor = async (color: HighlightColor) => {
+    const menu = videoHighlightMenu;
+    if (!menu) return;
+    setVideoHighlightMenu({ ...menu, highlight: { ...menu.highlight, color } });
+    const updated = await api.updateTranscriptHighlight(menu.highlight.id, { color });
+    if (updated) setTranscriptHighlights(prev => prev.map(h => (h.id === updated.id ? updated : h)));
+    // The tree-wide drawer carries video marks too — same freshness rule as
+    // the CRUD hooks (grill decision 9).
+    invalidateTreeHighlights();
+  };
+
+  const handleVideoMenuDelete = async () => {
+    const menu = videoHighlightMenu;
+    setVideoHighlightMenu(null);
+    if (!menu) return;
+    await api.deleteTranscriptHighlight(menu.highlight.id);
+    setTranscriptHighlights(prev => prev.filter(h => h.id !== menu.highlight.id));
+    invalidateTreeHighlights();
+  };
+
+  const handleVideoMenuOpenChat = async () => {
+    const menu = videoHighlightMenu;
+    setVideoHighlightMenu(null);
+    if (menu?.highlight.childChatId) await handleSelectChat(menu.highlight.childChatId);
+  };
+
   // ─── Highlights-Drawer (mockup-highlights-overview.html, Variante A) ──────
 
   // Rechtsklick auf eine Drawer-Karte → dasselbe HighlightActionsMenu wie im
@@ -2732,9 +2773,13 @@ export default function App() {
     } else if (item.kind === 'chat') {
       const { kind: _kind, chatTitle: _title, ...highlight } = item;
       setChatHighlightMenu({ highlight, x, y });
+    } else {
+      // Video marks (transcript/chapter): the TreeHighlight row carries every
+      // field of a TranscriptHighlight plus `kind` — which doubles as the
+      // mark's `source`.
+      const { kind, ...rest } = item;
+      setVideoHighlightMenu({ highlight: { ...rest, source: kind }, x, y });
     }
-    // Video marks (transcript/chapter, since 2026-08-16) have no chatId and no
-    // messageId, so neither menu can act on them — they carry no menu yet.
   };
 
   // Klick auf eine Drawer-Karte (Grill-Entscheidungen 1+8): PDF-Karten
@@ -2973,6 +3018,7 @@ export default function App() {
     // Listing them as modal froze every arrow key while one was open.
     highlightMenu !== null ||
     chatHighlightMenu !== null ||
+    videoHighlightMenu !== null ||
     highlightsOpen ||
     (activeChatId ? asides[activeChatId] !== undefined : false);
 
@@ -2989,9 +3035,28 @@ export default function App() {
     // video pane's chapters and transcript blocks have to be divs — text
     // inside a <button> cannot be dragged over in Chrome, and those rows must
     // do both — so a tag check alone left the whole middle column dead under
-    // ↵ (user report 2026-08-17).
+    // ↵ (user report 2026-08-17). Same for `role="link"`: the branch header's
+    // "Branched from …" quote is an inline <span> because a <button> cannot
+    // truncate, and without this it fell through to selectWholeMessage
+    // (user report 2026-09-12).
+    // `data-focus-click` marks items that are activated by a plain click but
+    // are none of the tags above — the chat highlights' invisible keyboard
+    // anchors: the click dispatched at their centre falls through to the
+    // bubble's own handler, which opens the highlight menu exactly as a mouse
+    // click on the mark does (2026-09-12).
+    // <A> too: the video overview's time marks are real anchors (they carry a
+    // YouTube href for middle/modifier clicks); Enter's synthetic click takes
+    // the plain-click path — seek the embedded player (2026-09-12).
     const el = findItem(position.region, position.item);
-    if (el?.tagName === 'BUTTON' || el?.getAttribute('role') === 'button') {
+    const role = el?.getAttribute('role');
+    if (
+      el &&
+      (el.tagName === 'BUTTON' ||
+        el.tagName === 'A' ||
+        role === 'button' ||
+        role === 'link' ||
+        el.hasAttribute('data-focus-click'))
+    ) {
       const r = el.getBoundingClientRect();
       el.dispatchEvent(
         new MouseEvent('click', {
@@ -3001,6 +3066,18 @@ export default function App() {
           clientY: r.top + r.height / 2,
         }),
       );
+      return;
+    }
+
+    // A dialog's form controls: Enter hands them the caret — typing then
+    // belongs to the field, and the modal's own Enter/Escape handling takes
+    // over (user request 2026-09-12).
+    if (
+      position.region === 'menu' &&
+      el &&
+      (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT')
+    ) {
+      el.focus();
       return;
     }
 
@@ -3196,7 +3273,7 @@ export default function App() {
               onTranscriptSelection={handleTranscriptSelection}
               transcriptHighlights={transcriptHighlights}
               onChapterSelection={handleChapterSelection}
-              onOpenHighlightChat={(chatId) => void handleSelectChat(chatId)}
+              onHighlightMenu={(h, x, y) => setVideoHighlightMenu({ highlight: h, x, y })}
               onRequestTranscript={() => void ensureTranscript()}
             />
           )}
@@ -3336,7 +3413,15 @@ export default function App() {
                 const question = idx === -1
                   ? null
                   : ordered.slice(0, idx).reverse().find(m => m.role === 'user');
-                if (question) void handleSendMessage(question.content, [], chat.id);
+                // The wished-for query rides along as searchNudge: without it
+                // the resend just reproduces the old refusal — the model
+                // paraphrases its own answer instead of calling the tool
+                // (verified in the running app, 2026-09-12).
+                if (question) {
+                  void handleSendMessage(question.content, [], chat.id, undefined, {
+                    searchNudge: message.searchWish?.query ?? null,
+                  });
+                }
               }}
               searchKeyStored={settings?.tavily_api_key_set ?? false}
               modelLabels={modelLabels}
@@ -3690,6 +3775,24 @@ export default function App() {
           onChangeColor={handleChatMenuChangeColor}
           onDelete={handleChatMenuDelete}
           onOpenChat={handleChatMenuOpenChat}
+        />
+      )}
+
+      {/* Actions menu for an existing video mark (transcript or chapter):
+          recolor / delete / open linked chat — the same gesture on the third
+          surface (parity request 2026-09-10). */}
+      {videoHighlightMenu && (
+        <HighlightActionsMenu
+          highlight={{
+            color: videoHighlightMenu.highlight.color,
+            chatId: videoHighlightMenu.highlight.childChatId,
+          }}
+          x={videoHighlightMenu.x}
+          y={videoHighlightMenu.y}
+          onClose={() => setVideoHighlightMenu(null)}
+          onChangeColor={handleVideoMenuChangeColor}
+          onDelete={handleVideoMenuDelete}
+          onOpenChat={handleVideoMenuOpenChat}
         />
       )}
     </div>

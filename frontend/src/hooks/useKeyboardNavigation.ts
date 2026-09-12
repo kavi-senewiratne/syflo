@@ -62,6 +62,10 @@ function entryPoint(layout: Layout, memory: FocusMemory): FocusPosition | null {
  * thing.
  */
 const RING_ID = 'syflo-focus-ring';
+// How long after an Enter a torn-down focus place may re-land (a chat switch
+// includes a fetch, so it is generous — but short enough that an unrelated
+// later disappearance keeps the old rescue path).
+const RELAND_WINDOW_MS = 3000;
 const RING_PADDING_PX = 3;
 // The ring never touches the edge of the region it lives in. A menu entry runs
 // the full width of its card, so a ring flush with the card's border read as
@@ -100,6 +104,16 @@ function scrollClip(el: HTMLElement): DOMRect | null {
   return null;
 }
 
+function hiddenClip(el: HTMLElement): DOMRect | null {
+  for (let p: HTMLElement | null = el.parentElement; p && p !== document.body; p = p.parentElement) {
+    const style = getComputedStyle(p);
+    if (/hidden|clip/.test(style.overflowX) || /hidden|clip/.test(style.overflowY)) {
+      return p.getBoundingClientRect();
+    }
+  }
+  return null;
+}
+
 function drawRing(pieces: readonly HTMLElement[]): void {
   const rects = pieces.map(p => p.getBoundingClientRect()).filter(r => r.width > 0 || r.height > 0);
   if (rects.length === 0) return hideRing();
@@ -112,9 +126,13 @@ function drawRing(pieces: readonly HTMLElement[]): void {
   // pane can cut it off — which also means nothing stops it from spilling
   // across a neighbour: a highlight scrolled half out of the PDF pane drew its
   // ring over the sidebar (user report 2026-08-11).
-  const region = (pieces[0].closest('[data-focus-region], [role="menu"]') as HTMLElement | null)
+  const region = (pieces[0].closest('[data-focus-region], [role="menu"], [role="dialog"]') as HTMLElement | null)
     ?.getBoundingClientRect();
-  for (const bounds of [region, scrollClip(pieces[0])]) {
+  // A hidden-overflow ancestor clips the item just like a scroller does — the
+  // branch header's quote span is wider than its `truncate` div, and without
+  // this bound the ring ran on over the header's buttons (user report
+  // 2026-09-12).
+  for (const bounds of [region, scrollClip(pieces[0]), hiddenClip(pieces[0])]) {
     if (!bounds) continue;
     left = Math.max(left, bounds.left + RING_INSET_PX);
     top = Math.max(top, bounds.top + RING_INSET_PX);
@@ -158,6 +176,12 @@ function scrollIntoView(pieces: readonly HTMLElement[]): void {
   const first = ordered[0];
   const last = ordered[ordered.length - 1];
   if (!first) return;
+  // A box that HIDES its overflow is not a window the user can scroll back,
+  // but scrollIntoView still scrolls it programmatically: the branch header's
+  // truncated quote is wider than its `truncate` div, so ringing it shoved the
+  // "Branched from" label out of the box — and it stayed out (user report
+  // 2026-09-12). Snapshot every hidden-overflow ancestor and put it back.
+  const restore = snapshotHiddenScrollers(first);
   // An item taller than the window it is seen through — a PDF page, or a
   // transcript block of 463 px in a 230 px list (measured 2026-08-17) — never
   // fits, so show its top. The window is the SCROLLER where there is one: the
@@ -168,10 +192,28 @@ function scrollIntoView(pieces: readonly HTMLElement[]): void {
   const seenThrough = scrollClip(first)?.height ?? window.innerHeight;
   if (union > seenThrough * 0.9) {
     first.scrollIntoView({ block: 'start' });
+    restore();
     return;
   }
   last.scrollIntoView({ block: 'nearest' });
   first.scrollIntoView({ block: 'nearest' });
+  restore();
+}
+
+function snapshotHiddenScrollers(el: HTMLElement): () => void {
+  const saved: Array<{ el: HTMLElement; left: number; top: number }> = [];
+  for (let p: HTMLElement | null = el.parentElement; p && p !== document.body; p = p.parentElement) {
+    const style = getComputedStyle(p);
+    if (/hidden|clip/.test(style.overflowX) || /hidden|clip/.test(style.overflowY)) {
+      saved.push({ el: p, left: p.scrollLeft, top: p.scrollTop });
+    }
+  }
+  return () => {
+    for (const s of saved) {
+      if (s.el.scrollLeft !== s.left) s.el.scrollLeft = s.left;
+      if (s.el.scrollTop !== s.top) s.el.scrollTop = s.top;
+    }
+  };
 }
 
 function hideRing(): void {
@@ -234,6 +276,12 @@ export function useKeyboardNavigation(options: KeyboardNavigationOptions): Focus
   // pointerdown always comes BEFORE the menu a mouse gesture opens, so this is
   // false by the time that menu appears, and true for a menu opened with Enter.
   const lastInputWasKey = useRef(false);
+  // When Enter last pressed something. An activation may tear down the place
+  // the ring was in — "Open linked chat" closes its menu AND switches chats —
+  // and inside this window the ring re-lands on the first message instead of
+  // dying, so the keyboard journey continues (user request 2026-09-12). Kept
+  // short so an unrelated later disappearance cannot teleport the ring.
+  const activatedAt = useRef(0);
 
   // Read through a ref so the window listener is installed once and still sees
   // the current screen — re-binding it on every render would drop keystrokes
@@ -263,7 +311,11 @@ export function useKeyboardNavigation(options: KeyboardNavigationOptions): Focus
       // app, 2026-08-10). The ring goes with them.
       const typing = isTextField(document.activeElement);
       const position = typing ? null : focusRef.current;
-      if (typing && focusRef.current) setFocus(null);
+      // Typing in the MAIN composer puts the ring away — the user left the
+      // structure. Typing in a dialog's field must NOT: the ring holds the
+      // user's place there, and dropping it left nothing to restore when the
+      // dialog closed (user report 2026-09-12).
+      if (typing && focusRef.current && !modalOpen) setFocus(null);
 
       // One focus indicator, not two. The browser's own Tab ring competed with
       // this one and read as a second place the keyboard was (user report
@@ -308,6 +360,7 @@ export function useKeyboardNavigation(options: KeyboardNavigationOptions): Focus
         return;
       }
       if (command.kind === 'activate') {
+        activatedAt.current = Date.now();
         latest.current.onActivate(position);
         return;
       }
@@ -329,6 +382,8 @@ export function useKeyboardNavigation(options: KeyboardNavigationOptions): Focus
     // chain is read as the user sees it.
     const onPointerDown = () => {
       lastInputWasKey.current = false;
+      // The mouse took over — a pending keyboard re-landing would now fight it.
+      activatedAt.current = 0;
     };
     window.addEventListener('keydown', onKey, true);
     window.addEventListener('pointerdown', onPointerDown, true);
@@ -367,12 +422,20 @@ export function useKeyboardNavigation(options: KeyboardNavigationOptions): Focus
   const [domVersion, setDomVersion] = useState(0);
   useEffect(() => {
     const observer = new MutationObserver(records => {
-      const touchesMenu = records.some(r =>
-        [...r.addedNodes, ...r.removedNodes].some(
-          n => n instanceof HTMLElement && (n.matches('[role="menu"]') || n.querySelector('[role="menu"]')),
-        ),
+      // The focused item can be torn out by a component re-rendering on its
+      // own — the sidebar swapping its tree for the root list ("Alle Chats")
+      // commits no App render, so the rescue in the paint effect below never
+      // ran and the ring silently died (user report 2026-09-12). Nudge it.
+      const current = focusRef.current;
+      const focusSel = current ? `[data-focus-item="${CSS.escape(current.item)}"]` : null;
+      const touches = records.some(r =>
+        [...r.addedNodes, ...r.removedNodes].some(n => {
+          if (!(n instanceof HTMLElement)) return false;
+          if (n.matches('[role="menu"]') || n.querySelector('[role="menu"]')) return true;
+          return !!focusSel && (n.matches(focusSel) || !!n.querySelector(focusSel));
+        }),
       );
-      if (touchesMenu) setDomVersion(v => v + 1);
+      if (touches) setDomVersion(v => v + 1);
     });
     observer.observe(document.body, { childList: true, subtree: true });
     return () => observer.disconnect();
@@ -401,15 +464,78 @@ export function useKeyboardNavigation(options: KeyboardNavigationOptions): Focus
     const pieces = findItemPieces(focus.region, focus.item);
     const el = pieces[0];
     if (!el) {
-      // The item is gone — pressing "All chats" replaces the whole tree with
-      // the root list, for instance. Stay in the same region if it is still
-      // there rather than dropping the user's place entirely; only a region
-      // that has itself vanished clears the ring.
-      const region = document.querySelector(`[data-focus-region="${focus.region}"]`);
-      const replacement = region?.querySelector<HTMLElement>('[data-focus-active="true"], [data-focus-item]');
-      const item = replacement?.dataset.focusItem;
+      // The item is gone. The ring must survive every keyboard activation —
+      // it leaves the screen only through Escape (user request 2026-09-12).
+      // First choice: stay in the same region — "Alle Chats" swaps the tree
+      // for the root list, so land on the row marked as the open chat; in the
+      // chat column the first MESSAGE beats the header controls that precede
+      // it in the DOM.
+      const winActive = Date.now() - activatedAt.current < RELAND_WINDOW_MS;
       hideRing();
-      setFocus(item ? { region: focus.region, item } : null);
+      const region = document.querySelector(`[data-focus-region="${focus.region}"]`);
+      const replacement =
+        region?.querySelector<HTMLElement>('[data-focus-active="true"]') ??
+        (focus.region === 'chat'
+          ? region?.querySelector<HTMLElement>('[data-testid^="message-row-"][data-focus-item]')
+          : null) ??
+        region?.querySelector<HTMLElement>('[data-focus-item]');
+      let to: FocusPosition | null = replacement?.dataset.focusItem
+        ? { region: focus.region, item: replacement.dataset.focusItem }
+        : null;
+      // The region itself is gone (a closed dialog or menu). First choice:
+      // back to the remembered place in the column it came from — the very
+      // button that opened it. Checked BEFORE the chat fallback: Enter inside
+      // a dialog re-opens the window, and closing it a moment later teleported
+      // the ring into the chat instead of back to the opener. Where a menu
+      // action switched chats, the remembered item is gone with the old chat
+      // and this hands over to the chat fallback below.
+      if (!to) {
+        const col = memory.current.column;
+        const rem = col ? memory.current[col] : undefined;
+        if (col && rem && document.querySelector(
+          `[data-focus-region="${col}"] [data-focus-item="${CSS.escape(rem)}"]`,
+        )) {
+          to = { region: col, item: rem };
+        }
+      }
+      // "Open linked chat" closes its menu AND switches chats. After a fresh
+      // Enter the journey continues on the first message of the (new) chat;
+      // while that chat is still loading, keep the position and let a later
+      // render retry — this effect runs on every one. The window is not spent
+      // on a landing: the first one can hit the OLD chat's message a render
+      // before the switch replaces it, and the second tear-down must still
+      // re-land. It simply expires.
+      if (!to && winActive) {
+        const first = document.querySelector<HTMLElement>(
+          '[data-focus-region="chat"] [data-testid^="message-row-"][data-focus-item]',
+        );
+        if (first?.dataset.focusItem) {
+          to = { region: 'chat', item: first.dataset.focusItem };
+        } else {
+          // No chat either — the button that vanished opened something that
+          // replaced it (the highlights drawer covers the chat column whole).
+          // Continue in the first region that exists, the drawer before the
+          // sidebar: the user just opened it and wants to be inside.
+          for (const id of ['highlights', 'source', 'sidebar'] as const) {
+            const item = document.querySelector<HTMLElement>(
+              `[data-focus-region="${id}"] [data-focus-item]`,
+            )?.dataset.focusItem;
+            if (item) {
+              to = { region: id, item };
+              break;
+            }
+          }
+          // Nothing on screen yet — keep the position, a later render retries.
+          if (!to) return;
+        }
+      }
+      if (to && winActive) {
+        remember(to);
+        // The re-landing is a jump the eye has to find — same glow as
+        // entering the structure.
+        glowPending.current = true;
+      }
+      setFocus(to);
       return;
     }
     // A menu that just opened takes the ring with it — the user pressed a
@@ -423,11 +549,23 @@ export function useKeyboardNavigation(options: KeyboardNavigationOptions): Focus
     // synthetic click is not a pointer event, so a keyboard-opened menu still
     // takes the ring. Arrow keys reach the popup either way — while it is open
     // it is the only region, so the next press walks straight into it.
-    if (focus.region !== 'menu' && lastInputWasKey.current) {
-      const menu = buildLayout(readScreen(document)).columns[0];
-      if (menu?.id === 'menu' && menu.items[0]) {
+    if (focus.region !== 'menu' && focus.region !== 'menuRail' && lastInputWasKey.current) {
+      const layout = buildLayout(readScreen(document));
+      const first = layout.columns[0];
+      if ((first?.id === 'menu' || first?.id === 'menuRail') && first.items[0]) {
+        // Enter on the element the dialog marks as "here you are" — the
+        // settings dialog stamps its ACTIVE tab, the way the sidebar marks
+        // the open chat (user request 2026-09-12). Menus without one start
+        // on their first entry, as before.
+        const surface = document.querySelector('[role="menu"], [role="dialog"]');
+        const active = surface?.querySelector<HTMLElement>('[data-focus-active="true"]')
+          ?.dataset.focusItem;
+        const item = active && layout.columns.some(c => c.items.includes(active))
+          ? active
+          : first.items[0];
+        const region = layout.columns.find(c => c.items.includes(item))?.id ?? first.id;
         hideRing();
-        setFocus({ region: 'menu', item: menu.items[0] });
+        setFocus({ region, item });
         return;
       }
     }

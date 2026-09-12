@@ -159,4 +159,58 @@ describe('readScreen', () => {
 
     expect(readScreen(document).mindMapRows).toEqual([['root'], ['a', 'b']]);
   });
+
+  it('orders a row left to right, not by whose top is smaller', () => {
+    // The branch header's quote link sits a few px lower than the buttons
+    // beside it (inline text vs. centred h-8 buttons). Sorting the row by top
+    // put the link LAST, so ← from the buttons left the region instead of
+    // reaching it (user report 2026-09-12).
+    html(`
+      <div data-focus-region="chat">
+        <span data-focus-item="chat-branched-from" data-test-top="16" data-test-left="260"></span>
+        <button data-focus-item="chat-questions" data-test-top="13" data-test-left="1348"></button>
+        <button data-focus-item="chat-highlights" data-test-top="13" data-test-left="1392"></button>
+      </div>
+    `);
+    document.querySelectorAll('[data-test-top]').forEach(el => {
+      const e = el as HTMLElement;
+      e.getBoundingClientRect = () =>
+        ({ top: Number(e.dataset.testTop), left: Number(e.dataset.testLeft), width: 100, height: 22 }) as DOMRect;
+    });
+
+    expect(readScreen(document).chatRows).toEqual([
+      ['chat-branched-from', 'chat-questions', 'chat-highlights'],
+    ]);
+  });
+
+  it('keeps items below a scroller’s fold ahead of the pinned composer', () => {
+    // The chat column mixes scroll contexts: header and composer are pinned,
+    // the transcript scrolls. An off-screen transcript item (viewport top 1500)
+    // must still sort before the composer (top 800) — by raw tops it did not,
+    // and ↓ skipped every off-screen item straight into the composer (user
+    // report 2026-09-12).
+    html(`
+      <div data-focus-region="chat">
+        <button data-focus-item="chat-highlights" data-test-top="13"></button>
+        <div id="scroller" style="overflow-y: auto" data-test-top="60" data-test-bottom="780">
+          <div data-focus-item="m1" data-test-top="100"></div>
+          <span data-focus-item="hl-below-fold" data-focus-axis="sequence" data-test-top="1500"></span>
+        </div>
+        <button data-focus-item="composer-send" data-test-top="800"></button>
+      </div>
+    `);
+    document.querySelectorAll('[data-test-top]').forEach(el => {
+      const e = el as HTMLElement;
+      const top = Number(e.dataset.testTop);
+      const bottom = Number(e.dataset.testBottom ?? top + 20);
+      e.getBoundingClientRect = () => ({ top, bottom, left: 0, width: 200, height: bottom - top }) as DOMRect;
+    });
+
+    expect(readScreen(document).chatRows).toEqual([
+      ['chat-highlights'],
+      ['m1'],
+      ['hl-below-fold'],
+      ['composer-send'],
+    ]);
+  });
 });

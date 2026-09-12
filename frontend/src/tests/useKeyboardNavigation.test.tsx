@@ -20,10 +20,15 @@ function Harness(props: {
   chatCovered?: boolean;
   // No row marked as the open chat — then the ring falls back to the chat.
   noActive?: boolean;
+  // The tree view's "All chats" back button; pressing it swaps the view and
+  // the button disappears.
+  allChatsButton?: boolean;
   // A source region whose single highlight is drawn in three pieces.
   split?: boolean;
   // An open menu — the selection popup and every action menu carry role="menu".
   menu?: boolean;
+  // Id of the chat's message row — a different id simulates a chat switch.
+  chatMessage?: string;
 }) {
   useKeyboardNavigation({
     escapeTaken: props.escapeTaken ?? false,
@@ -43,6 +48,7 @@ function Harness(props: {
         </div>
       )}
       <div data-focus-region="sidebar">
+        {props.allChatsButton && <button data-focus-item="sidebar-all-chats">Alle Chats</button>}
         <div data-focus-item="root">Attention Is All You Need</div>
         <div data-focus-item="attention" data-focus-active={props.noActive ? undefined : 'true'}>Self-attention</div>
       </div>
@@ -54,7 +60,14 @@ function Harness(props: {
         </div>
       )}
       <div data-focus-region={props.chatCovered ? undefined : 'chat'}>
-        <div data-focus-item="m1">Why divide by the square root of d_k?</div>
+        {/* data-testid mirrors the real app's message rows — the re-landing
+            after a keyboard activation looks for exactly this shape. */}
+        <div
+          data-focus-item={props.chatMessage ?? 'm1'}
+          data-testid={`message-row-${props.chatMessage ?? 'm1'}`}
+        >
+          Why divide by the square root of d_k?
+        </div>
         <textarea data-focus-item="composer" aria-label="composer" />
       </div>
       {props.menu && (
@@ -117,6 +130,57 @@ describe('useKeyboardNavigation', () => {
     rerender(<Harness noActive menu />);
 
     expect(document.querySelector('[role="menu"] [data-focus-ring]')).not.toBeNull();
+  });
+
+  it('re-lands on the first message when Enter tears down its own place', async () => {
+    // "Open linked chat" closes the menu AND switches chats — the ring's item
+    // and region are both gone. Instead of dying, the ring continues on the
+    // first message of the new chat (user request 2026-09-12).
+    const { rerender } = render(<Harness noActive />);
+    screen.getByLabelText('composer').focus();
+    fireEvent.keyDown(window, { key: 'Escape' });
+    fireEvent.keyDown(window, { key: 'Enter' }); // opens the menu
+    rerender(<Harness noActive menu />);
+    expect(document.querySelector('[role="menu"] [data-focus-ring]')).not.toBeNull();
+
+    fireEvent.keyDown(window, { key: 'Enter' }); // presses the menu entry
+    // The menu closes and the chat switches to a different one.
+    rerender(<Harness noActive chatMessage="m2" />);
+
+    await waitFor(() => expect(ringed()).toBe('m2'));
+  });
+
+  it('stays in the sidebar, on the open chat, when Enter swaps the view', async () => {
+    // Enter on "Alle Chats" replaces the tree with the root list — the button
+    // is gone, but the sidebar (and the row marked as the open chat) is not.
+    // The ring must continue there, not die and not teleport into the chat
+    // (user request 2026-09-12).
+    const { rerender } = render(<Harness allChatsButton />);
+    screen.getByLabelText('composer').focus();
+    fireEvent.keyDown(window, { key: 'Escape' });        // lands on the active row
+    fireEvent.keyDown(window, { key: 'ArrowUp' });       // root
+    fireEvent.keyDown(window, { key: 'ArrowUp' });       // the All-chats button
+    expect(ringed()).toBe('sidebar-all-chats');
+
+    fireEvent.keyDown(window, { key: 'Enter' });
+    rerender(<Harness />); // view swapped, button gone, active row still marked
+
+    await waitFor(() => expect(ringed()).toBe('attention'));
+  });
+
+  it('does not teleport the ring when the mouse pressed the menu entry', async () => {
+    const { rerender } = render(<Harness noActive />);
+    screen.getByLabelText('composer').focus();
+    fireEvent.keyDown(window, { key: 'Escape' });
+    fireEvent.keyDown(window, { key: 'Enter' });
+    rerender(<Harness noActive menu />);
+
+    // A real mouse click on the menu entry: pointerdown first, then the app
+    // closes the menu and switches chats. No keyboard re-landing.
+    fireEvent.pointerDown(document.querySelector('[role="menu"] button')!);
+    rerender(<Harness noActive chatMessage="m2" />);
+
+    await waitFor(() => expect(ringed()).toBeUndefined());
   });
 
   it('leaves the ring alone when a mouse gesture opens the menu', () => {

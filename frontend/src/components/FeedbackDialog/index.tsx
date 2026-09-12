@@ -55,6 +55,16 @@ export function FeedbackDialog({ open, onClose, initialText = '' }: Props) {
     setIssuesUrl(null);
   }, [open, initialText]);
 
+  // Escape closes, like every other dialog (the settings modal already did) —
+  // it never had a listener here, so the keyboard journey dead-ended in the
+  // open dialog (found 2026-09-12 while making dialogs ring-navigable).
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, onClose]);
+
   if (!open) return null;
 
   async function handleSend() {
@@ -73,7 +83,9 @@ export function FeedbackDialog({ open, onClose, initialText = '' }: Props) {
 
   return (
     <div data-overlay className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden" onClick={e => e.stopPropagation()}>
+      {/* role="dialog": takeover region for the keyboard navigation, like the
+          settings modal (user request 2026-09-12). */}
+      <div role="dialog" aria-modal="true" className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
           <h3 className="text-base font-semibold text-gray-900">{S.title}</h3>
           <button onClick={onClose} aria-label={S.close} className="p-1 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors">

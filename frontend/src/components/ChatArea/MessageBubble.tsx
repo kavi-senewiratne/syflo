@@ -18,7 +18,7 @@ import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
-import { AlertCircle, ArrowLeftRight, ArrowRight, Brain, ChevronDown, ChevronRight, Clock, Cloud, CornerUpLeft, Cpu, ExternalLink, Key, KeyRound, Loader2, RotateCcw, Search, SlidersHorizontal, Square, WifiOff, X, Zap } from 'lucide-react';
+import { AlertCircle, ArrowLeftRight, ArrowRight, Brain, Check, ChevronDown, ChevronRight, Clock, Cloud, CornerUpLeft, Cpu, ExternalLink, Info, Key, KeyRound, Loader2, RotateCcw, Search, SlidersHorizontal, Square, WifiOff, X, Zap } from 'lucide-react';
 import { ThinkingIndicator } from './ThinkingIndicator';
 import {
   clearFlashChatRange,
@@ -28,6 +28,7 @@ import {
   paintFlashChatRange,
   paintMessageHighlights,
   paintPendingChatSelection,
+  rangeFromOffsets,
   textOffsetInRoot,
 } from '../../chat/highlightAnchors';
 import { markedOccurrenceIndex } from '../../chat/markedOccurrence';
@@ -174,6 +175,10 @@ interface Props {
   // only the key.
   onSaveSearchKey?: (key: string, message: Message) => Promise<void> | void;
   searchKeyStored?: boolean;
+  // The active chat has a running or queued stream. The save-&-retry receipt
+  // of the search-wish card reads it as "the re-asked answer is still being
+  // written" — spinner on step 2 while true, settled line once false.
+  chatStreaming?: boolean;
 }
 
 // "Thought for 1m 42s" / "Thought for 34s".
@@ -296,6 +301,7 @@ export function MessageBubble({
   onAddFreeProvider,
   onSaveSearchKey,
   searchKeyStored,
+  chatStreaming,
 }: Props) {
   // UI-Texte in der App language — re-rendert beim Sprachwechsel mit.
   const STR = useStrings();
@@ -317,6 +323,72 @@ export function MessageBubble({
   // Root around the rendered message text — the coordinate system for
   // highlight offsets. Excludes streaming indicator and sources list.
   const contentRef = useRef<HTMLDivElement>(null);
+
+  // ─── Keyboard anchors for this message's highlights ──────────────────────
+  // Chat highlights are painted through the CSS Custom Highlight API and have
+  // no DOM element of their own — nothing readScreen could list, so ↓ walked
+  // straight past them (user report 2026-09-12; the PDF's highlights ARE
+  // items, ADR-0011 decision 7). Each highlight gets one invisible, absolutely
+  // positioned anchor over its bounding box: the ring machinery reads it like
+  // any other item, and Enter's synthetic click falls through to the text
+  // underneath (pointer-events: none keeps it out of real mouse work).
+  // data-focus-axis="sequence" sits on the anchor itself so two marks on one
+  // text line never form a ← → row — they are places in a text, not controls
+  // (the same call the PDF made, 2026-08-11).
+  const [hlAnchors, setHlAnchors] = useState<
+    Array<{ id: string; top: number; left: number; width: number; height: number }>
+  >([]);
+  const hlAnchorsKey = useRef('');
+  const measureHlAnchors = () => {
+    const root = contentRef.current;
+    if (!root) return;
+    const mine = (highlights ?? []).filter((h) => h.messageId === message.id);
+    const rootRect = root.getBoundingClientRect();
+    const next: typeof hlAnchors = [];
+    for (const h of mine) {
+      const range = rangeFromOffsets(root, h.startOffset, h.endOffset);
+      // jsdom's Range has no getBoundingClientRect at all — no geometry, no
+      // anchors there (the tests that care stub it, like the row tests do).
+      if (!range || typeof range.getBoundingClientRect !== 'function') continue;
+      const r = range.getBoundingClientRect();
+      if (!r.width && !r.height) continue;
+      next.push({
+        id: h.id,
+        top: r.top - rootRect.top,
+        left: r.left - rootRect.left,
+        width: r.width,
+        height: r.height,
+      });
+    }
+    const key = next
+      .map((a) => `${a.id}:${Math.round(a.top)},${Math.round(a.left)},${Math.round(a.width)},${Math.round(a.height)}`)
+      .join('|');
+    if (key !== hlAnchorsKey.current) {
+      hlAnchorsKey.current = key;
+      setHlAnchors(next);
+    }
+  };
+  // The ResizeObserver below mounts once ([] deps) — hand it the CURRENT
+  // measure closure, not the first render's (whose `highlights` was empty).
+  const measureHlAnchorsRef = useRef(measureHlAnchors);
+  measureHlAnchorsRef.current = measureHlAnchors;
+  const hlAnchorEls = hlAnchors.map((a) => (
+    <span
+      key={a.id}
+      data-focus-item={a.id}
+      data-focus-click=""
+      data-focus-axis="sequence"
+      aria-hidden="true"
+      style={{
+        position: 'absolute',
+        top: a.top,
+        left: a.left,
+        width: a.width,
+        height: a.height,
+        pointerEvents: 'none',
+      }}
+    />
+  ));
 
   // Thinking-Panel: null = Automatik (offen, solange die Gedankenkette
   // streamt und noch keine Antwort da ist; zu, sobald die Antwort beginnt).
@@ -399,6 +471,10 @@ export function MessageBubble({
       }
       if (next) setMarkOrdinals(next);
     }
+    // After the paints: the keyboard anchors mirror the same offsets against
+    // the same, current DOM. Guarded by a geometry key, so this settles after
+    // one extra commit instead of looping.
+    measureHlAnchors();
   });
   useEffect(() => () => {
     clearMessageHighlights(message.id);
@@ -423,6 +499,9 @@ export function MessageBubble({
       if (width === lastWidth) return;
       lastWidth = width;
       markWideFormulas(root);
+      // A narrower column reflows the text, and every highlight sits somewhere
+      // new — the keyboard anchors have to move with them.
+      measureHlAnchorsRef.current();
     });
     observer.observe(root);
     return () => observer.disconnect();
@@ -557,6 +636,13 @@ export function MessageBubble({
                     target="_blank"
                     rel="noopener noreferrer"
                     data-testid="video-time-link"
+                    // Keyboard item (ADR-0011): ↓ walks the overview's time
+                    // marks like any other element, Enter presses them (user
+                    // request 2026-09-12). The id repeats when the same second
+                    // is marked twice in one message — readScreen dedups, the
+                    // ring unions the pieces, Enter seeks the same second
+                    // either way.
+                    data-focus-item={`time-${message.id}-${Math.floor(seconds)}`}
                     // Steht der Player in der Mittelspalte, gehört der
                     // einfache Klick ihm (mockup-youtube-embed-layout.html
                     // §03). Mittelklick, Cmd/Ctrl- und Shift-Klick bleiben
@@ -741,6 +827,17 @@ export function MessageBubble({
     // are spans with button semantics, not <button> elements.
     if ((e.target as HTMLElement).closest('a, button, [role="button"]')) return;
     const mine = highlights.filter((h) => h.messageId === message.id);
+    // Enter's synthetic click targets the highlight's keyboard anchor — a real
+    // mouse click never does (pointer-events: none). The anchor names its
+    // highlight, so no point-to-offset guessing: a multi-line mark's bounding
+    // box centre can sit between the marked lines, where highlightAtPoint
+    // would come up empty.
+    const anchorId = (e.target as HTMLElement).dataset?.focusItem;
+    const direct = anchorId ? mine.find((h) => h.id === anchorId) : undefined;
+    if (direct) {
+      onHighlightContextMenu(direct, e.clientX, e.clientY);
+      return;
+    }
     const hit = highlightAtPoint(root, mine, e.clientX, e.clientY);
     if (hit) onHighlightContextMenu(hit, e.clientX, e.clientY);
   };
@@ -836,7 +933,8 @@ export function MessageBubble({
                   fontSize: '15px',
                 }}
               >
-                <div ref={contentRef} data-chat-content>
+                <div ref={contentRef} data-chat-content className="relative">
+                  {hlAnchorEls}
                   {quote !== null && (
                     // currentColor + Opazität statt fester Grautöne: die
                     // Themes färben die User-Bubble beliebig um (Matrix dunkel,
@@ -1401,8 +1499,11 @@ export function MessageBubble({
           </div>
           )
         ) : markdownTree ? (
-          <div ref={contentRef} data-chat-content>
+          // relative: positioning context for the invisible highlight anchors
+          // — it changes nothing else (no offsets are set on the div itself).
+          <div ref={contentRef} data-chat-content className="relative">
             {markdownTree}
+            {hlAnchorEls}
           </div>
         ) : null}
 
@@ -1475,6 +1576,7 @@ export function MessageBubble({
           <SearchWishCard
             wish={message.searchWish}
             searchKeyStored={searchKeyStored}
+            retryStreaming={chatStreaming}
             onSaveSearchKey={onSaveSearchKey && ((key) => onSaveSearchKey(key, message))}
           />
         )}
@@ -1668,10 +1770,12 @@ function SourcesList({ sources }: { sources: NonNullable<Message['sources']> }) 
 function SearchWishCard({
   wish,
   searchKeyStored,
+  retryStreaming,
   onSaveSearchKey,
 }: {
   wish: NonNullable<Message['searchWish']>;
   searchKeyStored?: boolean;
+  retryStreaming?: boolean;
   onSaveSearchKey?: (key: string) => Promise<void> | void;
 }) {
   const S = useStrings().messageBubble.searchWish;
@@ -1679,8 +1783,58 @@ function SearchWishCard({
   const [keyFieldOpen, setKeyFieldOpen] = useState(false);
   const [keyInput, setKeyInput] = useState('');
   const [saving, setSaving] = useState(false);
+  // The key was saved from THIS card, this session. Transient by design: on
+  // reload the card falls back to the stored-key caveat (mockup §05).
+  const [savedHere, setSavedHere] = useState(false);
 
   if (dismissed) return null;
+
+  // Save-&-retry receipt (mockup-search-key-saved.html, fifth pass): two
+  // steps only WHILE something runs — step 1 checks the moment the card
+  // morphs (the save is a done fact), step 2 carries the spinner, because
+  // what runs is the answer generation below, not the search. Settled it is
+  // one line with ONE check; "web search stays on" is an aside, not a step,
+  // so it moves to its own faint line behind an Info mark — the app's
+  // existing hint vocabulary (model picker local-hint row, settings hints).
+  if (savedHere) {
+    return (
+      <div data-testid="search-wish-saved" className="mt-3 rounded-lg bg-blue-100/40 px-3 py-2.5">
+        {retryStreaming ? (
+          <div className="flex flex-col gap-1.5">
+            <div className="flex items-start gap-2">
+              <Check size={13} className="mt-0.5 shrink-0 text-blue-700" />
+              <p className="text-xs font-semibold text-gray-900 leading-snug">{S.savedTitle}</p>
+            </div>
+            <div className="flex items-start gap-2">
+              <Loader2 size={13} className="mt-0.5 shrink-0 animate-spin text-blue-700" />
+              <p data-testid="search-wish-saved-asking" className="text-xs text-gray-500 leading-snug">{S.savedAsking}</p>
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-1.5">
+            <div className="flex items-start gap-2">
+              <Check size={13} className="mt-0.5 shrink-0 text-blue-700" />
+              <p data-testid="search-wish-saved-done" className="flex-1 min-w-0 text-xs text-gray-900 leading-snug">
+                <span className="font-semibold">{S.savedTitle}</span> — {S.savedDone}
+              </p>
+              <button
+                onClick={() => setDismissed(true)}
+                aria-label={S.dismiss}
+                data-testid="search-wish-dismiss"
+                className="shrink-0 p-0.5 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+              >
+                <X size={13} />
+              </button>
+            </div>
+            <div className="flex items-start gap-2">
+              <Info size={13} className="mt-0.5 shrink-0 text-gray-400" />
+              <p className="flex-1 min-w-0 text-[11px] text-gray-400 leading-relaxed">{S.savedAside}</p>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   // One sentence per named state, and a different ask in each. "Add a search
   // key" is wrong when one is already stored — the reader would type the same
@@ -1729,6 +1883,9 @@ function SearchWishCard({
     setSaving(true);
     try {
       await onSaveSearchKey?.(key);
+      // Morph to the receipt — leaving the key field standing made the click
+      // look swallowed (user report with screenshot, 2026-09-12).
+      setSavedHere(true);
     } finally {
       setSaving(false);
     }

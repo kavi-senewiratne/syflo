@@ -44,4 +44,36 @@ describe('ChatArea as a keyboard region', () => {
 
     expect(container.querySelector('[data-focus-region="chat"]')).toBeNull();
   });
+
+  // The header links are the only way back to a branch's origin; without a
+  // data-focus-item the keyboard walk skips them entirely (user report
+  // 2026-09-12).
+  it('exposes the "Branched from" quote as a keyboard item', () => {
+    const branchChat: ChatDetail = {
+      ...chat,
+      id: '2',
+      parent_id: '1',
+      parent_word: 'the working draft is currently being refined',
+    };
+    const { container } = render(<ChatArea {...props} chat={branchChat} />);
+
+    const item = container.querySelector('[data-focus-item="chat-branched-from"]');
+    expect(item).not.toBeNull();
+    expect(item?.getAttribute('role')).toBe('link');
+  });
+
+  it('exposes the topic-branch trace-back link as a keyboard item', () => {
+    const topicBranch: ChatDetail = {
+      ...chat,
+      id: '3',
+      parent_id: '1',
+      parent_word: null,
+      branch_origin: 'topic',
+    };
+    const { container } = render(<ChatArea {...props} chat={topicBranch} />);
+
+    const item = container.querySelector('[data-focus-item="chat-trace-back"]');
+    expect(item).not.toBeNull();
+    expect(item?.getAttribute('role')).toBe('link');
+  });
 });

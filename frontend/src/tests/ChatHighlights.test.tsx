@@ -115,6 +115,74 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+describe('MessageBubble — keyboard anchors for chat highlights', () => {
+  // Chat highlights are ::highlight() paint with no DOM element of their own,
+  // so ↓ walked straight past them (user report 2026-09-12). Each one gets an
+  // invisible anchor the keyboard machinery can ring and Enter can press.
+  const highlight: MessageHighlight = {
+    id: 'h1',
+    messageId: 'a1',
+    chatId: 'c1',
+    childChatId: null,
+    startOffset: 9,
+    endOffset: 23,
+    text: 'clipping alone',
+    color: 'yellow',
+    createdAt: '2026-07-19T00:00:00Z',
+    updatedAt: '2026-07-19T00:00:00Z',
+  };
+
+  // jsdom's Range lacks getBoundingClientRect entirely — stand in for it.
+  const rangeRect = {
+    top: 40, left: 12, width: 90, height: 18, right: 102, bottom: 58, x: 12, y: 40,
+  } as DOMRect;
+  beforeEach(() => {
+    (Range.prototype as unknown as { getBoundingClientRect: () => DOMRect }).getBoundingClientRect =
+      () => rangeRect;
+  });
+  afterEach(() => {
+    delete (Range.prototype as unknown as { getBoundingClientRect?: () => DOMRect })
+      .getBoundingClientRect;
+  });
+
+  it('renders one focusable anchor per highlight, marked as a reading sequence', async () => {
+    const { container } = render(
+      <MessageBubble
+        message={assistantMessage}
+        onWordRightClick={vi.fn()}
+        highlights={[highlight]}
+        onHighlightContextMenu={vi.fn()}
+      />,
+    );
+    await waitFor(() => {
+      const anchor = container.querySelector('[data-focus-item="h1"]');
+      expect(anchor).not.toBeNull();
+      expect(anchor?.hasAttribute('data-focus-click')).toBe(true);
+      expect(anchor?.getAttribute('data-focus-axis')).toBe('sequence');
+      expect((anchor as HTMLElement).style.pointerEvents).toBe('none');
+    });
+  });
+
+  it("Enter's synthetic click on the anchor opens that highlight's menu", async () => {
+    const onHighlightContextMenu = vi.fn();
+    const { container } = render(
+      <MessageBubble
+        message={assistantMessage}
+        onWordRightClick={vi.fn()}
+        highlights={[highlight]}
+        onHighlightContextMenu={onHighlightContextMenu}
+      />,
+    );
+    const anchor = await waitFor(() => {
+      const el = container.querySelector('[data-focus-item="h1"]');
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    fireEvent.click(anchor, { clientX: 57, clientY: 49 });
+    expect(onHighlightContextMenu).toHaveBeenCalledWith(highlight, 57, 49);
+  });
+});
+
 describe('MessageBubble — chat selection capture', () => {
   it('fires onChatSelection with message-relative offsets on assistant text', () => {
     const onChatSelection = vi.fn();
