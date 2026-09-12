@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<title>Syflo · Simply Blue — Dock-Icon invertiert: weiße Kachel, blaue Marke</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  /* ============================================================
+     Invertiertes Dock-Icon — Frage vom 2026-09-12:
+     „Wie sieht das Icon aus, wenn die Farben vertauscht sind —
+      weißer Hintergrund, blaues Symbol?"
+
+     Referenz ist der heutige Stand aus app-icon-professional.svg:
+     Material D4 (Runde 13, Wahl 2026-08-25) + Marke R2 (Runde 11).
+     Alle Maße sind 1:1 übernommen — Offset-Schatten 800 @ (142|122)
+     rx 200 · Kachel 775 @ (104.5|84.5) rx 187.5 · Kontur 25 ·
+     Innenrand 22 · Marke scale 10.8, translate (205.8|212.8).
+
+     Die Varianten unterscheiden sich NUR darin, wohin die Inversion
+     reicht: nur die zwei Farben (I1), auch das D4-Material (I2),
+     der Verlauf wandert in die Marke (I3), auch die Kontur (I4).
+     Wie in Runde 13 kommt jede Zeichnung aus EINEM Symbolsatz.
+     ============================================================ */
+  :root{
+    --blue-50:#EFF6FF;--blue-100:#DBEAFE;--blue-200:#BFDBFE;--blue-400:#60A5FA;
+    --blue-600:#2563EB;--blue-700:#1D4ED8;--blue-800:#1E40AF;--blue-900:#1E3A8A;
+    --gray-50:#F9FAFB;--gray-100:#F3F4F6;--gray-200:#E5E7EB;--gray-300:#D1D5DC;
+    --gray-400:#99A1AF;--gray-500:#6A7282;--gray-700:#364153;--gray-900:#101828;
+    --surface:#FFF;--border:var(--gray-200);
+    --shadow:0 1px 3px rgba(0,0,0,.07),0 1px 2px rgba(0,0,0,.05);
+    --sys:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Inter',var(--sys);background:var(--gray-50);color:var(--gray-700);
+       -webkit-font-smoothing:antialiased;padding:44px 32px 160px}
+  .wrap{max-width:1340px;margin:0 auto}
+  .intro h1{font-size:25px;font-weight:700;color:var(--gray-900);letter-spacing:-.015em;margin-bottom:9px}
+  .intro p{font-size:14px;line-height:1.68;max-width:980px;color:var(--gray-500)}
+  .intro p+p{margin-top:10px}
+  .intro strong{color:var(--gray-700);font-weight:600}
+  code{background:var(--gray-100);border-radius:4px;padding:1px 5px;font-size:12px;
+       font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--gray-700)}
+  section{margin-top:52px}
+  section>h2{font-size:18px;font-weight:700;color:var(--gray-900);letter-spacing:-.01em;margin-bottom:6px}
+  section>h2 .num{color:var(--blue-600)}
+  section>.lead{font-size:13.5px;line-height:1.65;color:var(--gray-500);max-width:980px;margin-bottom:22px}
+  .grid{display:flex;flex-wrap:wrap;gap:24px}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px 16px 18px;
+        box-shadow:var(--shadow);width:306px}
+  .card>.tag{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;
+             color:var(--blue-700);background:var(--blue-50);border-radius:999px;padding:3px 9px}
+  .card>.tag.now{color:var(--gray-500);background:var(--gray-100)}
+  .card>h3{font-size:14.5px;font-weight:650;color:var(--gray-900);margin:7px 0 3px}
+  .card>p{font-size:12.5px;line-height:1.6;color:var(--gray-500)}
+  .note{font-size:12px;line-height:1.55;color:var(--gray-500);border-top:1px dashed var(--gray-200);
+        margin-top:12px;padding-top:10px}
+  .note b{color:var(--gray-700);font-weight:600}
+  .desk{background:linear-gradient(160deg,#DCE4EE,#EEF2F7);border-radius:10px;padding:16px;
+        display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+  .desk.dark{background:linear-gradient(160deg,#2A3342,#404C5E)}
+  .desk.photo{background:linear-gradient(150deg,#6B7F9E 0%,#94A7BE 40%,#C3B79E 100%)}
+  .row{display:flex;align-items:flex-end;gap:18px;margin-top:14px}
+  .row .s{display:flex;flex-direction:column;align-items:center;gap:6px}
+  .row .s span{font-size:10px;color:var(--gray-400)}
+  .foot{margin-top:58px;border-top:1px solid var(--border);padding-top:18px;font-size:12.5px;
+        color:var(--gray-400);line-height:1.7;max-width:980px}
+  .switch{display:flex;gap:8px;align-items:center;margin-bottom:18px;flex-wrap:wrap}
+  .switch span.t{font-size:12px;color:var(--gray-500);margin-right:2px}
+  .switch button{font:inherit;font-size:12px;font-weight:550;color:var(--gray-700);background:var(--surface);
+                 border:1px solid var(--gray-200);border-radius:999px;padding:5px 12px;cursor:pointer}
+  .switch button[aria-pressed="true"]{background:var(--blue-600);border-color:var(--blue-600);color:#FFF}
+
+  /* Marken-Tinte pro Untergrund, wie in Runde 13 */
+  .onblue{--ink:#FFFFFF;--hole:none}
+  .onwhite{--ink:var(--blue-600);--hole:none}
+  .gradink{--ink:url(#gMarkInk);--hole:none}
+  /* §04 — Tinten der Eigenheiten */
+  .twotone{--ink:var(--blue-400);--inkNode:var(--blue-700);--hole:none}
+  .echoInk{--ink:var(--blue-200);--hole:none}
+  .haloInk{--ink:var(--blue-100);--sw:11;--swRing:10;--dotSw:7;--hole:none}
+</style>
+</head>
+<body>
+
+<!-- ================= EINE Quelle für jede Zeichnung ================= -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <!-- Marke R2, Geometrie unverändert aus app-icon-professional.svg.
+       Nachtrag §04: Strichstärken und Knotentinte sind CSS-Variablen mit den
+       bisherigen Werten als Default — ohne gesetzte Variable zeichnet das
+       Symbol exakt wie vorher (Ast 5, Ringe 4, Knoten = Asttinte). -->
+  <symbol id="r2" viewBox="0 0 50 48">
+    <g fill="none" stroke="var(--ink)" stroke-width="var(--sw,5)" stroke-linecap="round">
+      <path d="M11 24 H 22 C 28 24, 29 15, 36 13"/>
+      <path d="M22 24 C 28 24, 29 33, 36 35"/>
+    </g>
+    <circle cx="8" cy="24" r="4" fill="var(--ink)" stroke="var(--ink)" stroke-width="var(--dotSw,0)"/>
+    <circle cx="41.77" cy="11.35" r="5.5" fill="var(--hole)" stroke="var(--inkNode,var(--ink))" stroke-width="var(--swRing,4)"/>
+    <circle cx="41.77" cy="36.65" r="5.5" fill="var(--hole)" stroke="var(--inkNode,var(--ink))" stroke-width="var(--swRing,4)"/>
+  </symbol>
+
+  <defs>
+    <!-- heutiges Material D4 -->
+    <linearGradient id="gVert" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#60A5FA"/><stop offset="55%" stop-color="#2563EB"/><stop offset="100%" stop-color="#1D4ED8"/>
+    </linearGradient>
+    <linearGradient id="gRim" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%"   stop-color="#FFFFFF" stop-opacity=".55"/>
+      <stop offset="42%"  stop-color="#FFFFFF" stop-opacity="0"/>
+      <stop offset="58%"  stop-color="#1E3A8A" stop-opacity="0"/>
+      <stop offset="100%" stop-color="#1E3A8A" stop-opacity=".45"/>
+    </linearGradient>
+
+    <!-- D4 nach Weiß übersetzt: derselbe senkrechte Hell-nach-Dunkel-Gang,
+         nur im Weißbereich (Weiß → kühles Off-White). -->
+    <linearGradient id="gVertW" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FFFFFF"/><stop offset="55%" stop-color="#F4F7FC"/><stop offset="100%" stop-color="#E9EFF8"/>
+    </linearGradient>
+    <!-- Innenrand auf Weiß: die weiße Lichtkante oben ist auf weißem Grund
+         unsichtbar, also trägt nur die Abdunklung unten die Materialstärke —
+         blue-900, aber deutlich schwächer als auf der blauen Kachel. -->
+    <linearGradient id="gRimW" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%"   stop-color="#FFFFFF" stop-opacity=".9"/>
+      <stop offset="42%"  stop-color="#FFFFFF" stop-opacity="0"/>
+      <stop offset="58%"  stop-color="#1E3A8A" stop-opacity="0"/>
+      <stop offset="100%" stop-color="#1E3A8A" stop-opacity=".18"/>
+    </linearGradient>
+    <!-- I3: der Kachel-Verlauf wandert in die Marke. userSpaceOnUse in den
+         Koordinaten der 50×48-Markenbox, damit Ast und Knoten denselben
+         Verlauf teilen (objectBoundingBox gäbe jedem Pfad seinen eigenen). -->
+    <linearGradient id="gMarkInk" x1="0" y1="0" x2="0" y2="48" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#60A5FA"/><stop offset="55%" stop-color="#2563EB"/><stop offset="100%" stop-color="#1D4ED8"/>
+    </linearGradient>
+    <!-- §04: Kachel-Innenfläche als Clip (wie #tile in Runde 13) und das
+         Zeilenmuster — Matrix-Scanlines ins Helle übersetzt. -->
+    <clipPath id="tileClipW"><rect x="117" y="97" width="750" height="750" rx="175"/></clipPath>
+    <pattern id="scanW" width="8" height="26" patternUnits="userSpaceOnUse">
+      <rect y="0" width="8" height="5" fill="#DBEAFE"/>
+    </pattern>
+  </defs>
+
+  <!-- D4 — der Stand bis 2026-09-12 (frühere app-icon-professional.svg 1:1) -->
+  <symbol id="d4" viewBox="0 0 1024 1024">
+    <rect x="142" y="122" width="800" height="800" rx="200" fill="#1E40AF"/>
+    <rect x="104.5" y="84.5" width="775" height="775" rx="187.5" fill="url(#gVert)" stroke="#1E40AF" stroke-width="25"/>
+    <rect x="128" y="108" width="728" height="728" rx="164" fill="none" stroke="url(#gRim)" stroke-width="22"/>
+    <g class="onblue" transform="translate(205.8, 212.8) scale(10.8)"><use href="#r2" width="50" height="48"/></g>
+  </symbol>
+
+  <!-- ---- Weiße Kachel-Hintergründe OHNE Marke. §01 setzt die Marke in
+          heutiger Größe darauf (i1–i4), §03 in wählbarer Größe.
+          So bleibt jede Kachel eine einzige Zeichnung. ---- -->
+  <!-- flach Weiß, Kontur blue-800 (I1 und I3) -->
+  <symbol id="twFlat" viewBox="0 0 1024 1024">
+    <rect x="142" y="122" width="800" height="800" rx="200" fill="#1E40AF"/>
+    <rect x="104.5" y="84.5" width="775" height="775" rx="187.5" fill="#FFFFFF" stroke="#1E40AF" stroke-width="25"/>
+  </symbol>
+  <!-- D4-Material auf Weiß: Verlauf + Innenrand (I2) -->
+  <symbol id="twMat" viewBox="0 0 1024 1024">
+    <rect x="142" y="122" width="800" height="800" rx="200" fill="#1E40AF"/>
+    <rect x="104.5" y="84.5" width="775" height="775" rx="187.5" fill="url(#gVertW)" stroke="#1E40AF" stroke-width="25"/>
+    <rect x="128" y="108" width="728" height="728" rx="164" fill="none" stroke="url(#gRimW)" stroke-width="22"/>
+  </symbol>
+  <!-- flach Weiß, Kontur blue-600 (I4) -->
+  <symbol id="twRand" viewBox="0 0 1024 1024">
+    <rect x="142" y="122" width="800" height="800" rx="200" fill="#1E40AF"/>
+    <rect x="104.5" y="84.5" width="775" height="775" rx="187.5" fill="#FFFFFF" stroke="#2563EB" stroke-width="25"/>
+  </symbol>
+
+  <!-- I1 — nur die zwei Farben getauscht: Fläche flach Weiß, Marke blue-600.
+       Kontur, Offset-Schatten und alle Maße unverändert blue-800. -->
+  <symbol id="i1" viewBox="0 0 1024 1024">
+    <use href="#twFlat" width="1024" height="1024"/>
+    <g class="onwhite" transform="translate(205.8, 212.8) scale(10.8)"><use href="#r2" width="50" height="48"/></g>
+  </symbol>
+
+  <!-- I2 — das D4-Material mitübersetzt: weißer Verlauf + Innenrand. -->
+  <symbol id="i2" viewBox="0 0 1024 1024">
+    <use href="#twMat" width="1024" height="1024"/>
+    <g class="onwhite" transform="translate(205.8, 212.8) scale(10.8)"><use href="#r2" width="50" height="48"/></g>
+  </symbol>
+
+  <!-- I3 — der Verlauf wandert in die Marke: Fläche flach Weiß,
+       Marke blue-400 → blue-600 → blue-700 von oben nach unten. -->
+  <symbol id="i3" viewBox="0 0 1024 1024">
+    <use href="#twFlat" width="1024" height="1024"/>
+    <g class="gradink" transform="translate(205.8, 212.8) scale(10.8)"><use href="#r2" width="50" height="48"/></g>
+  </symbol>
+
+  <!-- I4 — Kontur in Markenfarbe: wie I1, aber die 25er Kontur in blue-600
+       statt blue-800 (das Echo der Sidebar-Variante „weiße Kachel + blauer
+       Rand"). Offset-Schatten bleibt blue-800. -->
+  <symbol id="i4" viewBox="0 0 1024 1024">
+    <use href="#twRand" width="1024" height="1024"/>
+    <g class="onwhite" transform="translate(205.8, 212.8) scale(10.8)"><use href="#r2" width="50" height="48"/></g>
+  </symbol>
+</svg>
+
+<div class="wrap">
+
+  <div class="intro">
+    <h1>Dock-Icon invertiert — weiße Kachel, blaue Marke</h1>
+    <p>Bis zum 2026-09-12 war das Simply-Blue-Dock-Icon eine blaue Kachel mit weißer Marke:
+      Material <strong>D4</strong> (senkrechter Verlauf + Innenrand, Runde 13) mit Marke <strong>R2</strong>
+      aus <code>design/app-icon-professional.svg</code>. Diese Seite zeigt es mit
+      <strong>vertauschten Farben</strong> — weißer Grund, blaues Symbol.</p>
+    <p>Die Inversion ist keine einzelne Zeichnung, sondern eine Frage der Reichweite: Tauscht man nur die
+      zwei Farben, auch das Material, oder auch die Kontur? Die vier Varianten decken genau diese Stufen ab.
+      Kontur (25), Offset-Schatten (50 nach rechts unten), Radien und die Marke sind in allen identisch —
+      es ändern sich ausschließlich Farben und Materialübersetzung.</p>
+    <p><strong>Stand 2026-09-12: I2 mit Markengröße G88 in Erprobung</strong> (weißes D4-Material,
+      Marke <code>blue-600</code> bei Maßstab 9.5, Kontur und Offset-Schatten <code>blue-800</code>).
+      Der Weg dorthin: erst I1 mit G80 gewählt, dann G88, dann das Material auf I2 gewechselt.
+      Die Eigenheiten aus §04 sind nicht Teil der Wahl. <strong>Umgesetzt am 2026-09-12</strong> in
+      <code>app-icon-professional.svg</code> + <code>electron/assets/icon-professional.png</code> —
+      D4 (blau) ist damit Historie und dient auf dieser Seite nur noch als Vergleich.</p>
+  </div>
+
+  <!-- ============================================================ §01 -->
+  <section>
+    <h2><span class="num">§01</span> &nbsp;Die Varianten</h2>
+    <p class="lead">Links der frühere Stand als Referenz, daneben die vier Invertierungen.
+      Jede Karte zeigt 132 px und die drei Dock-relevanten Größen 64 / 32 / 16 px.</p>
+
+    <div class="grid">
+
+      <div class="card">
+        <span class="tag now">D4 · bis 2026-09-12</span>
+        <h3>Blaue Kachel, weiße Marke</h3>
+        <p>Verlauf <code>blue-400 → blue-600 → blue-700</code>, 22er Innenrand, Kontur und
+          Offset-Schatten <code>blue-800</code>. Unverändert als Referenz.</p>
+        <div class="desk" style="margin-top:14px;justify-content:center"><svg width="132" height="132"><use href="#d4" width="132" height="132"/></svg></div>
+        <div class="row">
+          <div class="s"><svg width="64" height="64"><use href="#d4" width="64" height="64"/></svg><span>64</span></div>
+          <div class="s"><svg width="32" height="32"><use href="#d4" width="32" height="32"/></svg><span>32</span></div>
+          <div class="s"><svg width="16" height="16"><use href="#d4" width="16" height="16"/></svg><span>16</span></div>
+        </div>
+        <div class="note"><b>Referenz:</b> der Stand bis zum 2026-09-12 — seit der Wahl I1+G80
+          zeichnet <code>app-icon-professional.svg</code> die weiße Kachel.</div>
+      </div>
+
+      <div class="card">
+        <span class="tag">I1</span>
+        <h3>Nur Farben getauscht</h3>
+        <p>Fläche flach <code>#FFFFFF</code>, Marke <code>blue-600</code>. Kontur und Offset-Schatten
+          bleiben <code>blue-800</code>, kein Verlauf, kein Innenrand.</p>
+        <div class="desk" style="margin-top:14px;justify-content:center"><svg width="132" height="132"><use href="#i1" width="132" height="132"/></svg></div>
+        <div class="row">
+          <div class="s"><svg width="64" height="64"><use href="#i1" width="64" height="64"/></svg><span>64</span></div>
+          <div class="s"><svg width="32" height="32"><use href="#i1" width="32" height="32"/></svg><span>32</span></div>
+          <div class="s"><svg width="16" height="16"><use href="#i1" width="16" height="16"/></svg><span>16</span></div>
+        </div>
+        <div class="note"><b>Der kleinste Tausch:</b> zwei Farbwerte. Die weiße Fläche ist
+          allerdings flach — dieselbe Eigenschaft, die bei M1/D1 als „zu flach" zurückkam.</div>
+      </div>
+
+      <div class="card">
+        <span class="tag">I2 · in Erprobung 2026-09-12</span>
+        <h3>D4-Material auf Weiß</h3>
+        <p>Senkrechter Verlauf <code>#FFFFFF → #F4F7FC → #E9EFF8</code> plus 22er Innenrand.
+          Marke <code>blue-600</code>, Kontur/Schatten <code>blue-800</code>.</p>
+        <div class="desk" style="margin-top:14px;justify-content:center"><svg width="132" height="132"><use href="#i2" width="132" height="132"/></svg></div>
+        <div class="row">
+          <div class="s"><svg width="64" height="64"><use href="#i2" width="64" height="64"/></svg><span>64</span></div>
+          <div class="s"><svg width="32" height="32"><use href="#i2" width="32" height="32"/></svg><span>32</span></div>
+          <div class="s"><svg width="16" height="16"><use href="#i2" width="16" height="16"/></svg><span>16</span></div>
+        </div>
+        <div class="note"><b>Die genaueste Übersetzung von D4:</b> gleiche Tiefe, nur im Weißbereich.
+          Die weiße Lichtkante oben ist auf Weiß unsichtbar — die Materialstärke trägt allein
+          die Abdunklung unten (<code>blue-900</code> bei 18 % statt 45 %).</div>
+      </div>
+
+      <div class="card">
+        <span class="tag">I3</span>
+        <h3>Verlauf wandert in die Marke</h3>
+        <p>Fläche flach <code>#FFFFFF</code>; die Marke trägt den Kachel-Verlauf
+          <code>blue-400 → blue-600 → blue-700</code> von oben nach unten.</p>
+        <div class="desk" style="margin-top:14px;justify-content:center"><svg width="132" height="132"><use href="#i3" width="132" height="132"/></svg></div>
+        <div class="row">
+          <div class="s"><svg width="64" height="64"><use href="#i3" width="64" height="64"/></svg><span>64</span></div>
+          <div class="s"><svg width="32" height="32"><use href="#i3" width="32" height="32"/></svg><span>32</span></div>
+          <div class="s"><svg width="16" height="16"><use href="#i3" width="16" height="16"/></svg><span>16</span></div>
+        </div>
+        <div class="note"><b>Die wörtlichste Inversion:</b> was vorher die Fläche färbte, färbt jetzt
+          die Tinte. Der obere Ring beginnt in <code>blue-400</code> — bei 16 px wird das auf Weiß
+          zum hellsten und damit schwächsten Teil der Marke.</div>
+      </div>
+
+      <div class="card">
+        <span class="tag">I4</span>
+        <h3>Kontur in Markenfarbe</h3>
+        <p>Wie I1, aber die 25er Kontur in <code>blue-600</code> statt <code>blue-800</code> —
+          das Echo der Sidebar-Variante „weiße Kachel + blauer Rand". Offset-Schatten bleibt
+          <code>blue-800</code>.</p>
+        <div class="desk" style="margin-top:14px;justify-content:center"><svg width="132" height="132"><use href="#i4" width="132" height="132"/></svg></div>
+        <div class="row">
+          <div class="s"><svg width="64" height="64"><use href="#i4" width="64" height="64"/></svg><span>64</span></div>
+          <div class="s"><svg width="32" height="32"><use href="#i4" width="32" height="32"/></svg><span>32</span></div>
+          <div class="s"><svg width="16" height="16"><use href="#i4" width="16" height="16"/></svg><span>16</span></div>
+        </div>
+        <div class="note"><b>Rand und Marke aus einer Farbe:</b> Kachelrand und Symbol lesen sich als
+          ein Satz. Der Kontrast Kontur↔Schatten wird kleiner, weil <code>blue-600</code>
+          direkt an <code>blue-800</code> grenzt.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ §02 -->
+  <section>
+    <h2><span class="num">§02</span> &nbsp;Im Dock, neben den echten vier Icons</h2>
+    <p class="lead">Außen die unveränderten PNGs aus <code>electron/assets/</code> — links Ink Blue und
+      Mushroom Kingdom, rechts Hyrule und Matrix. In der Mitte D4 (der alte Stand) und die vier Invertierungen.
+      Drei Untergründe, weil das Dock je nach Schreibtischbild anders wirkt. „D4·alt" ist der
+      abgelöste blaue Stand.</p>
+    <div id="dockRows"></div>
+
+    <p class="lead" style="margin-top:26px">Und die fünf direkt nebeneinander bei Dock-Größe (64 px),
+      ohne fremde Nachbarn:</p>
+    <div class="desk" style="justify-content:flex-start">
+      <div class="row" style="margin-top:0">
+        <div class="s"><svg width="64" height="64"><use href="#d4" width="64" height="64"/></svg><span>D4·alt</span></div>
+        <div class="s"><svg width="64" height="64"><use href="#i1" width="64" height="64"/></svg><span>I1</span></div>
+        <div class="s"><svg width="64" height="64"><use href="#i2" width="64" height="64"/></svg><span>I2</span></div>
+        <div class="s"><svg width="64" height="64"><use href="#i3" width="64" height="64"/></svg><span>I3</span></div>
+        <div class="s"><svg width="64" height="64"><use href="#i4" width="64" height="64"/></svg><span>I4</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ §03 -->
+  <section>
+    <h2><span class="num">§03</span> &nbsp;Größe der Marke <span style="font-size:12px;font-weight:500;color:var(--gray-400)">(Nachtrag 2026-09-12)</span></h2>
+    <p class="lead">Rückmeldung zur ersten Fassung: das blaue Symbol könnte etwas kleiner sein.
+      Vor der Wahl stand die Marke bei Maßstab <span class="num-out">10.8</span> — dieselbe Tintenbreite wie bei
+      Ink Blue (53,9 %) und Matrix (54,1 %). Hier sechs kleinere Stufen daneben; die Marke bleibt auf dem
+      Kachelmittelpunkt zentriert (translate rechnet mit demselben Ankerpunkt 492|472 wie die
+      Produktionsdatei). Die Größenfrage ist <strong>unabhängig von der Materialfrage aus §01</strong> —
+      der Schalter setzt jede Kachel-Variante unter die drei Größen.</p>
+
+    <div class="switch" id="matSwitch">
+      <span class="t">Kachel:</span>
+      <button data-mat="i1" aria-pressed="true">I1 · flach</button>
+      <button data-mat="i2" aria-pressed="false">I2 · D4-Material</button>
+      <button data-mat="i3" aria-pressed="false">I3 · Verlauf in der Marke</button>
+      <button data-mat="i4" aria-pressed="false">I4 · blaue Kontur</button>
+    </div>
+
+    <div class="grid" id="sizeCards"></div>
+
+    <p class="lead" style="margin-top:26px">Alle Größen nebeneinander bei Dock-Größe (64 px):</p>
+    <div class="desk" style="justify-content:flex-start">
+      <div class="row" id="sizeRow" style="margin-top:0"></div>
+    </div>
+  </section>
+
+  <!-- ============================================================ §04 -->
+  <section>
+    <h2><span class="num">§04</span> &nbsp;Kleine Eigenheiten <span style="font-size:12px;font-weight:500;color:var(--gray-400)">(Nachtrag 2026-09-12)</span></h2>
+    <p class="lead">Rückmeldung: dem weißen Icon fehlen die kleinen Eigenheiten (quirks), die Hyrule und
+      Matrix haben — Hyrule setzt Leitung und Knoten in zwei Tinten, Matrix hat Zeilenraster und ein
+      Glüh-Echo. Hier vier Übersetzungen in die Simply-Blue-Welt, alle <strong>ohne Weichzeichner-Filter</strong>
+      (nur Kopien, Muster und Strichbreiten — dieselbe librsvg-Regel wie die Produktionsdatei).
+      Gezeigt auf der flachen weißen Kachel; Material (§01) und Markengröße (§03) bleiben unabhängig
+      wählbar — der Schalter hier übernimmt die G-Stufen.</p>
+
+    <div class="switch" id="quirkSizeSwitch">
+      <span class="t">Markengröße:</span>
+    </div>
+
+    <div class="grid" id="quirkCards"></div>
+
+    <p class="lead" style="margin-top:26px">Im Dock direkt neben den beiden Vorbildern (80 px,
+      heller Schreibtisch):</p>
+    <div class="desk" id="quirkDock" style="gap:14px"></div>
+  </section>
+
+  <div class="foot">
+    Referenz: <code>design/app-icon-professional.svg</code> (Material D4 + Marke R2) ·
+    Herleitung des Materials: <code>design/mockup-logo-simply-blue-round13.html</code> §04 ·
+    Sidebar-Gegenstück „weiße Kachel + blauer Rand":
+    <code>design/mockup-logo-white-mark-blue-outline.html</code>.
+    §01/§02 ändern nur Farben und Materialübersetzung — Radien, Kontur- und Schattenmaße sowie die
+    Marke R2 sind mit der Produktionsdatei identisch. §03 stellt zusätzlich die Markengröße zur Wahl
+    (G100 entspricht der Produktionsdatei), §04 kleine Eigenheiten nach dem Vorbild von Hyrule und
+    Matrix — alle vier filterfrei und damit librsvg-sicher.
+  </div>
+</div>
+
+<script>
+/* Dock-Reihen — 1:1 die Mechanik aus Runde 13 §05 */
+(function renderDock() {
+  const host = document.getElementById('dockRows');
+  const others = ['ink-blue', 'mushroom-kingdom', 'hyrule', 'matrix'];
+  const grounds = [
+    { cls: '',      label: 'heller Schreibtisch' },
+    { cls: 'dark',  label: 'dunkler Schreibtisch' },
+    { cls: 'photo', label: 'Foto als Hintergrund' },
+  ];
+  for (const g of grounds) {
+    const lab = document.createElement('div');
+    lab.style.cssText = 'font-size:11.5px;color:var(--gray-400);margin:16px 0 8px';
+    lab.textContent = g.label;
+    host.appendChild(lab);
+
+    const cap = g.cls === 'dark' ? '#B9C2CF' : 'var(--gray-500)';
+    const real = n => `<img src="../electron/assets/icon-${n}.png" width="80" height="80" alt="" style="align-self:flex-start">`;
+    const cand = id =>
+      `<span style="display:flex;flex-direction:column;align-items:center;gap:6px">` +
+      `<svg width="80" height="80"><use href="#${id}" width="80" height="80"/></svg>` +
+      `<span style="font-size:10.5px;color:${cap};font-family:ui-monospace,Menlo,monospace">` +
+      `${id.toUpperCase()}${id === 'd4' ? '·alt' : ''}</span></span>`;
+
+    const row = document.createElement('div');
+    row.className = 'desk ' + g.cls;
+    row.style.gap = '14px';
+    row.innerHTML = real(others[0]) + real(others[1]) +
+      ['d4', 'i1', 'i2', 'i3', 'i4'].map(cand).join('') +
+      real(others[2]) + real(others[3]);
+    host.appendChild(row);
+  }
+})();
+
+/* ---------------- §03 — Markengröße ---------------- */
+/* Ankerpunkt aus app-icon-professional.svg: die Marke ist auf (492|472)
+   zentriert, Boxmitte der Tinte liegt bei (26.5|24) in Markenkoordinaten.
+   translate = (492 − 26.5·s | 472 − 24·s) hält die Marke beim Verkleinern
+   an Ort und Stelle. */
+const MATS = {
+  i1: { tile: 'twFlat', ink: 'onwhite' },
+  i2: { tile: 'twMat',  ink: 'onwhite' },
+  i3: { tile: 'twFlat', ink: 'gradink' },
+  i4: { tile: 'twRand', ink: 'onwhite' },
+};
+const SIZES = [
+  { tag: 'G100 · alt', scale: 10.8, now: true,
+    p: 'Maßstab <code>10.8</code> — die Tintenbreite, mit der alle fünf Theme-Icons gleichzogen (Ink Blue 53,9 %, Matrix 54,1 %).',
+    note: '<b>Der Set-Anschluss:</b> im Dock neben den vier anderen Icons wäre die Marke exakt gleich breit.' },
+  { tag: 'G94', scale: 10.2,
+    p: 'Maßstab <code>10.2</code>, sechs Prozent kleiner. Der weiße Rand um die Marke wächst spürbar, ohne dass die Kachel leer wirkt.',
+    note: '<b>Bei 16 px:</b> die Strichstärke sinkt von 0,84 px (G100) auf 0,80 px — im Finder-Listenicon kaum messbar.' },
+  { tag: 'G88 · Wahl 2026-09-12', scale: 9.5,
+    p: 'Maßstab <code>9.5</code>, zwölf Prozent kleiner. Die Marke bekommt deutlich Luft — die Kachel liest sich mehr als Rahmen, weniger als Fläche.',
+    note: '<b>Bei 16 px:</b> Strichstärke 0,74 px; die Ringe messen dort noch 1,6 px außen und bleiben als Punkte lesbar, verlieren aber ihr Loch.' },
+  { tag: 'G80', scale: 8.6,
+    p: 'Maßstab <code>8.6</code>, ein Fünftel kleiner. Die Tintenbreite fällt auf 366 von 800 sichtbarer Kachel (46 %) — erkennbar unter den ~54 % der vier anderen Theme-Icons.',
+    note: '<b>Bei 16 px:</b> Strichstärke 0,67 px — unter zwei Dritteln eines Pixels beginnt der Rasterer (rasterizer) die Äste als Halbton zu zeichnen.' },
+  { tag: 'G72', scale: 7.8,
+    p: 'Maßstab <code>7.8</code>, gut ein Viertel kleiner. Die Marke wird zum Emblem in der Fläche; Tintenbreite 332 von 800 (41 %).',
+    note: '<b>Deutlich unter dem Set:</b> im Dock steht damit ein sichtbar kleineres Symbol als bei den vier anderen Icons — bei 16 px Strichstärke 0,61 px.' },
+  { tag: 'G64', scale: 6.9,
+    p: 'Maßstab <code>6.9</code>, gut ein Drittel kleiner. Tintenbreite 293 von 800 (37 %) — die weiße Fläche dominiert, die Marke wird zur Prägung.',
+    note: '<b>Bei 16 px:</b> Strichstärke 0,54 px — ein halbes Pixel; die Äste erscheinen dort nur noch als hellblauer Hauch.' },
+  { tag: 'G56', scale: 6.0,
+    p: 'Maßstab <code>6.0</code>, fast halbiert. Tintenbreite 255 von 800 (32 %) — das Verhältnis kippt: mehr Rahmen als Symbol.',
+    note: '<b>Die Untergrenze dieser Reihe:</b> bei 16 px bleiben 0,47 px Strich; unterhalb davon rastert das Symbol im Finder nicht mehr zuverlässig.' },
+];
+let sizeMat = 'i1';
+
+function markSvg(mat, scale, px, extra) {
+  const m = MATS[mat];
+  const x = (492 - 26.5 * scale).toFixed(1);
+  const y = (472 - 24 * scale).toFixed(1);
+  return `<svg width="${px}" height="${px}" viewBox="0 0 1024 1024"${extra || ''}>` +
+    `<use href="#${m.tile}" width="1024" height="1024"/>` +
+    `<g class="${m.ink}" transform="translate(${x}, ${y}) scale(${scale})">` +
+    `<use href="#r2" width="50" height="48"/></g></svg>`;
+}
+
+function renderSizes() {
+  const cards = document.getElementById('sizeCards');
+  cards.innerHTML = SIZES.map(s => `
+    <div class="card">
+      <span class="tag${s.now ? ' now' : ''}">${s.tag}</span>
+      <h3>${Math.round(s.scale / 10.8 * 100)} % der heutigen Marke</h3>
+      <p>${s.p}</p>
+      <div class="desk" style="margin-top:14px;justify-content:center">${markSvg(sizeMat, s.scale, 132)}</div>
+      <div class="row">
+        <div class="s">${markSvg(sizeMat, s.scale, 64)}<span>64</span></div>
+        <div class="s">${markSvg(sizeMat, s.scale, 32)}<span>32</span></div>
+        <div class="s">${markSvg(sizeMat, s.scale, 16)}<span>16</span></div>
+      </div>
+      <div class="note">${s.note}</div>
+    </div>`).join('');
+
+  document.getElementById('sizeRow').innerHTML = SIZES.map(s =>
+    `<div class="s">${markSvg(sizeMat, s.scale, 64)}<span>${s.tag.split(' ')[0]}</span></div>`).join('');
+}
+
+document.querySelectorAll('#matSwitch button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    sizeMat = btn.dataset.mat;
+    document.querySelectorAll('#matSwitch button').forEach(b =>
+      b.setAttribute('aria-pressed', String(b === btn)));
+    renderSizes();
+  });
+});
+renderSizes();
+
+/* ---------------- §04 — kleine Eigenheiten ---------------- */
+function markAt(scale, cls, dx, dy) {
+  const x = (492 - 26.5 * scale + (dx || 0) * scale).toFixed(1);
+  const y = (472 - 24 * scale + (dy || 0) * scale).toFixed(1);
+  return `<g class="${cls}" transform="translate(${x}, ${y}) scale(${scale})">` +
+    `<use href="#r2" width="50" height="48"/></g>`;
+}
+const SCAN = `<g clip-path="url(#tileClipW)"><rect x="117" y="97" width="750" height="750" fill="url(#scanW)"/></g>`;
+
+const QUIRKS = [
+  { key: 'E1', h: 'Zweifarbige Tinte', vorbild: 'Hyrule',
+    body: s => `<use href="#twFlat" width="1024" height="1024"/>` + markAt(s, 'twotone'),
+    p: 'Der Hyrule-Griff, in Blau übersetzt: der Ast in <code>blue-400</code>, die Knoten in <code>blue-700</code> — zwei Tinten statt einer, wie Türkis und Gold beim Vorbild.',
+    note: '<b>Bei 16 px:</b> die dunklen Knoten tragen die Erkennbarkeit, der helle Ast tritt zurück — dieselbe Hierarchie wie bei Hyrule, wo die Rauten das Icon halten.' },
+  { key: 'E2', h: 'Glitch-Echo', vorbild: 'Matrix',
+    body: s => `<use href="#twFlat" width="1024" height="1024"/>` + markAt(s, 'echoInk', 2.0, 0.9) + markAt(s, 'onwhite'),
+    p: 'Die Matrix-Doppelbelichtung: unter der Haupttinte liegt eine zweite Markenkopie in <code>blue-200</code>, um 2|0,9 Markeneinheiten nach rechts unten versetzt.',
+    note: '<b>Nur eine Kopie, kein Filter:</b> bei 32 px verschmilzt das Echo zu einem Schattensaum, bei 16 px verschwindet es im Strich — das Icon fällt auf den I1-Stand zurück.' },
+  { key: 'E3', h: 'Feine Zeilen', vorbild: 'Matrix',
+    body: s => `<use href="#twFlat" width="1024" height="1024"/>` + SCAN + markAt(s, 'onwhite'),
+    p: 'Die Matrix-Scanlines ins Helle übersetzt: waagerechte Zeilen in <code>blue-100</code>, 5 hoch alle 26, auf die Kachelfläche geclippt.',
+    note: '<b>Bei 16 px:</b> die Zeilen mitteln sich zu einem kaum kühleren Weiß — die Eigenheit lebt nur in Dock- und Schreibtischgröße, genau wie beim Vorbild.' },
+  { key: 'E4', h: 'Schein unter der Marke', vorbild: 'Matrix',
+    body: s => `<use href="#twFlat" width="1024" height="1024"/>` + markAt(s, 'haloInk') + markAt(s, 'onwhite'),
+    p: 'Das Matrix-Glühen ohne Weichzeichner: dieselbe Marke einmal breit gezeichnet (Ast 11 statt 5, Ringe 10 statt 4) in <code>blue-100</code>, darüber die Haupttinte.',
+    note: '<b>Ein Halo aus Strichbreite:</b> hart statt weich, dafür librsvg-sicher. Bei 16 px bleibt vom Schein ein 0,5-px-Saum, der die Marke optisch leicht verfettet.' },
+];
+let quirkScale = 10.8;
+
+function renderQuirks() {
+  document.getElementById('quirkCards').innerHTML = QUIRKS.map(q => `
+    <div class="card">
+      <span class="tag">${q.key} · nach ${q.vorbild}</span>
+      <h3>${q.h}</h3>
+      <p>${q.p}</p>
+      <div class="desk" style="margin-top:14px;justify-content:center">
+        <svg width="132" height="132" viewBox="0 0 1024 1024">${q.body(quirkScale)}</svg></div>
+      <div class="row">
+        <div class="s"><svg width="64" height="64" viewBox="0 0 1024 1024">${q.body(quirkScale)}</svg><span>64</span></div>
+        <div class="s"><svg width="32" height="32" viewBox="0 0 1024 1024">${q.body(quirkScale)}</svg><span>32</span></div>
+        <div class="s"><svg width="16" height="16" viewBox="0 0 1024 1024">${q.body(quirkScale)}</svg><span>16</span></div>
+      </div>
+      <div class="note">${q.note}</div>
+    </div>`).join('');
+
+  const cand = q =>
+    `<span style="display:flex;flex-direction:column;align-items:center;gap:6px">` +
+    `<svg width="80" height="80" viewBox="0 0 1024 1024">${q.body(quirkScale)}</svg>` +
+    `<span style="font-size:10.5px;color:var(--gray-500);font-family:ui-monospace,Menlo,monospace">${q.key}</span></span>`;
+  document.getElementById('quirkDock').innerHTML =
+    `<img src="../electron/assets/icon-hyrule.png" width="80" height="80" alt="" style="align-self:flex-start">` +
+    QUIRKS.map(cand).join('') +
+    `<img src="../electron/assets/icon-matrix.png" width="80" height="80" alt="" style="align-self:flex-start">`;
+}
+
+const qsw = document.getElementById('quirkSizeSwitch');
+SIZES.forEach((s, i) => {
+  const b = document.createElement('button');
+  b.textContent = s.tag;
+  b.setAttribute('aria-pressed', String(i === 0));
+  b.addEventListener('click', () => {
+    quirkScale = s.scale;
+    qsw.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+    renderQuirks();
+  });
+  qsw.appendChild(b);
+});
+renderQuirks();
+</script>
+</body>
+</html>

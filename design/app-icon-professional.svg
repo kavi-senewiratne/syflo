@@ -1,90 +1,80 @@
 <svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
   <!-- Syflo App-Icon, Basic (Dock/Schreibtisch, 1024er-Canvas mit
-       Transparenzrand). Material D4 + Marken-Anschluss R2.
-       Design source: design/mockup-logo-simply-blue-round13.html (D4),
-                      design/mockup-logo-simply-blue-round11.html (R2)
+       Transparenzrand). INVERTIERT: Variante I2 + Markengröße G88.
+       Design source: design/mockup-logo-simply-blue-inverted.html
+       (Wahl 2026-09-12: erst „I1 mit G80", dann G88, dann Wechsel
+       des Materials auf I2 — Stand in Erprobung)
 
-       Maßstab unverändert: die 96er Kachel des Mockups × 8.333 → 800er Kachel.
-         Radius 24 → 200 · Kontur 3 → 25 · Offset-Schatten 6 → 50
+       I2 (löst Material D4 ab, das seit Runde 13 die blaue Kachel trug):
+       die Farben sind vertauscht — die Kachel trägt das D4-Material ins
+       Weiße übersetzt, die Marke ist blue-600. Konkret:
 
-       MATERIAL D4 (Nutzerwahl 2026-08-25) — löst M1 ab, das aus Runde 12 kam
-       und in der laufenden App als „zu flach“ zurückgemeldet wurde. D4 ist:
+         1. senkrechter Verlauf #FFFFFF → #F4F7FC → #E9EFF8 (derselbe
+            Hell-nach-Dunkel-Gang wie D4, nur im Weißbereich);
 
-         1. senkrechter Verlauf blue-400 → blue-600 → blue-700 (wie die
-            Produktionsdatei vor Runde 12 und wie alle vier anderen Icons —
-            gemessen an electron/assets, senkrechter Schnitt bei 22 % Breite:
-            Ink Blue rgb(86,151,254)→rgb(48,110,227), Mushroom
-            rgb(234,130,120)→rgb(204,60,53));
+         2. der 22er INNENRAND bleibt, aber die weiße Lichtkante oben
+            ist auf weißem Grund unsichtbar — die Materialstärke trägt
+            allein die Abdunklung unten, blue-900 bei 18 % statt 45 %.
 
-         2. ein 22er INNENRAND, oben Weiß bei 42 %, unten blue-900 bei 38 %.
-            Der ersetzt die alte 25er Lichtkante: statt eines waagerechten
-            weißen Streifens, der bei 32 px zum Halbton zerfällt, bekommt die
-            Kachel rundherum eine Materialstärke. Bei 16 px misst der Rand
-            noch ein halbes Pixel und bleibt damit sichtbar.
+       Kontur (25) und Offset-Schatten (50 nach rechts unten) bleiben
+       blue-800 — Entscheidung aus Runde 10: jedes Theme zieht beides
+       aus der eigenen Farbe.
 
-       Kontur und Offset-Schatten bleiben blue-800 (Entscheidung aus Runde 10):
-       jedes Theme zieht beides aus der eigenen Farbe, Basic borgte sie sich
-       früher aus dem Graustufensatz und fiel damit aus der Reihe.
+       G88: die Marke steht auf Maßstab 9.5 statt 10.8 (zwölf Prozent
+       kleiner; Stufen G94–G56 im Mockup §03 verglichen, G80 war einen
+       Tag lang gewählt und wirkte zu klein). Tintenbreite
+       42.5 × 9.5 ≈ 404 von 800 sichtbarer Kachel (50 %) — bewusst
+       etwas unter den ~54 % der vier anderen Theme-Icons. Der
+       Ankerpunkt ist unverändert (492|472), die Boxmitte der Tinte
+       liegt bei (26.5|24) in Markenkoordinaten:
+         translate x = 492 − 26.5 × 9.5 = 240.25 · y = 472 − 24 × 9.5 = 244
 
-       Marke R2 — die Knoten sind RINGE (Loch offen, Wand 4 Einheiten) auf
-       (41.77|11.35) und (41.77|36.65); der Ast ist unverändert. Gerechnet:
-       mit dem Knoten auf (38.5|12) endet der Ast 2.69 Einheiten vor der
-       Knotenmitte, seine runde Kappe (r 2.5) deckt dann 3.31 der 3.5 Einheiten
-       Lochradius — 94 % des Lochs. Auf Abstand 6.0 endet die Kappe exakt an
-       der Lochkante. Verschoben wurde der Knoten, nicht der Ast, damit die
-       Astlänge aus Runde 8 erhalten bleibt. Folge: die Markenbox ist 50 × 48,
-       die Tinte liegt um 1.5 Einheiten außerhalb der Boxmitte (26.5 statt 25),
-       was das translate unten ausgleicht.
+       Marke R2 unverändert (Runde 11): Knoten sind RINGE (Loch offen,
+       Wand 4 Einheiten) auf (41.77|11.35) und (41.77|36.65); durch die
+       offenen Löcher scheint die Kachel.
 
-       Maßstab der Marke: 8.3333 × 1.45 ≈ 12.1 war auf die 48er Box gerechnet
-       (Tintenbreite 38 Einheiten). R2 ist 42.5 Einheiten breit, also
-       12.1 × 38/42.5 ≈ 10.8 — gleiche Tintenbreite auf der Kachel wie vorher,
-       vergleichbar mit Ink Blue (53.9 %) und Matrix (54.1 %).
-         Markenbox 50 × 10.8 = 540 breit, 48 × 10.8 = 518.4 hoch
-         translate x = 492 − 26.5 × 10.8 = 205.8 · y = 472 − 259.2 = 212.8
+       Der Innenrand ist wie bei D4 EIN Strich mit Farbverlauf, nicht
+       zwei geclippte Hälften (Nachtrag 2026-08-25: zwei Hälften
+       erzeugen im gerasterten PNG eine harte Stufe auf halber Höhe).
 
-       Bewusst OHNE Weichzeichner-Filter gebaut — nur Verläufe, Konturen und
-       Clip-Pfade, damit librsvg das Icon zuverlässig rastert.
+       Bewusst OHNE Weichzeichner-Filter gebaut — nur Verläufe,
+       Konturen und Pfade, damit librsvg das Icon zuverlässig rastert.
 
        Regenerieren: rsvg-convert -w 1024 -h 1024 (transparenter Grund)
        → electron/assets/icon-professional.png -->
 
   <defs>
     <linearGradient id="tileFill" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#60A5FA"/>
-      <stop offset="55%" stop-color="#2563EB"/>
-      <stop offset="100%" stop-color="#1D4ED8"/>
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="55%" stop-color="#F4F7FC"/>
+      <stop offset="100%" stop-color="#E9EFF8"/>
     </linearGradient>
-    <!-- Der Innenrand als EIN Strich mit Farbverlauf, nicht als zwei geclippte
-         Hälften: bei zwei Hälften steht im 1024er PNG an den Seitenkanten eine
-         harte Stufe genau auf halber Höhe. Der Verlauf blendet Licht und
-         Schatten in der Mitte auf null und wieder auf. -->
     <linearGradient id="rim" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%"   stop-color="#FFFFFF" stop-opacity="0.55"/>
+      <stop offset="0%"   stop-color="#FFFFFF" stop-opacity="0.9"/>
       <stop offset="42%"  stop-color="#FFFFFF" stop-opacity="0"/>
       <stop offset="58%"  stop-color="#1E3A8A" stop-opacity="0"/>
-      <stop offset="100%" stop-color="#1E3A8A" stop-opacity="0.45"/>
+      <stop offset="100%" stop-color="#1E3A8A" stop-opacity="0.18"/>
     </linearGradient>
   </defs>
 
   <!-- harter Offset-Schatten, 50px nach rechts unten, in blue-800 -->
   <rect x="142" y="122" width="800" height="800" rx="200" fill="#1E40AF"/>
 
-  <!-- Kachel: Verlauf, die 25er Kontur liegt innen auf der Kante -->
+  <!-- Kachel: weißer Verlauf, die 25er Kontur liegt innen auf der Kante -->
   <rect x="104.5" y="84.5" width="775" height="775" rx="187.5"
         fill="url(#tileFill)" stroke="#1E40AF" stroke-width="25"/>
 
-  <!-- Innenrand: oben Licht, unten Schatten, in der Mitte nichts -->
+  <!-- Innenrand: oben unsichtbares Licht, unten sanfter Schatten -->
   <rect x="128" y="108" width="728" height="728" rx="164"
         fill="none" stroke="url(#rim)" stroke-width="22"/>
 
-  <!-- Marke R2. Die Löcher der Ringe bleiben ungefüllt: dort scheint die
-       Kachel durch, im Dock also der Verlauf. -->
-  <g transform="translate(205.8, 212.8) scale(10.8)">
-    <path d="M11 24 H 22 C 28 24, 29 15, 36 13" stroke="#FFFFFF" stroke-width="5" stroke-linecap="round" fill="none"/>
-    <path d="M22 24 C 28 24, 29 33, 36 35" stroke="#FFFFFF" stroke-width="5" stroke-linecap="round" fill="none"/>
-    <circle cx="8" cy="24" r="4" fill="#FFFFFF"/>
-    <circle cx="41.77" cy="11.35" r="5.5" fill="none" stroke="#FFFFFF" stroke-width="4"/>
-    <circle cx="41.77" cy="36.65" r="5.5" fill="none" stroke="#FFFFFF" stroke-width="4"/>
+  <!-- Marke R2 in blue-600, Maßstab 9.5 (G88). Die Löcher der Ringe
+       bleiben ungefüllt: dort scheint die Kachel durch. -->
+  <g transform="translate(240.25, 244) scale(9.5)">
+    <path d="M11 24 H 22 C 28 24, 29 15, 36 13" stroke="#2563EB" stroke-width="5" stroke-linecap="round" fill="none"/>
+    <path d="M22 24 C 28 24, 29 33, 36 35" stroke="#2563EB" stroke-width="5" stroke-linecap="round" fill="none"/>
+    <circle cx="8" cy="24" r="4" fill="#2563EB"/>
+    <circle cx="41.77" cy="11.35" r="5.5" fill="none" stroke="#2563EB" stroke-width="4"/>
+    <circle cx="41.77" cy="36.65" r="5.5" fill="none" stroke="#2563EB" stroke-width="4"/>
   </g>
 </svg>
