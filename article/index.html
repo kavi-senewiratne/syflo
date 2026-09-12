@@ -123,7 +123,7 @@
 
   <p>The part I underestimated while building it, and the one I notice every evening. Say my tree looks like this:</p>
 
-  <figure class="diagram"><img src="diagrams/context-tree.svg" alt="Two columns: ChatGPT or Claude as one linear chat that resends every turn, and the Syflo tree that sends only the path to your question"><figcaption><span class="fignum">Figure 2:</span> In a conventional linear chat, earlier turns remain part of the context as the conversation grows. The tree sends three pieces: the parent in full, the main chat as a summary, the words branched on.</figcaption></figure>
+  <figure class="diagram"><img src="diagrams/context-tree.svg" alt="Left: one long chat where all six messages are re-sent on every turn, in red. Right: the Syflo tree, where only three pieces are sent, in green, and the sibling branch not at all"><figcaption><span class="fignum">Figure 2:</span> In a conventional linear chat, earlier turns remain part of the context as the conversation grows. The tree sends three pieces: the parent in full, the main chat as a summary, the words branched on.</figcaption></figure>
 
   <p>The <strong>GPU memory</strong> branch is not sent at all. It has nothing to do with the question, so the conversation you carry stays small however deep you go.</p>
 

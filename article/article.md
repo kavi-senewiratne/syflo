@@ -33,7 +33,7 @@ one about attention heads, because it is its own chat, not message 34 of 90.
 The part I underestimated while building it, and the one I notice every
 evening. Say my tree looks like this:
 
-![Two columns: ChatGPT or Claude as one linear chat that resends every turn, and the Syflo tree that sends only the path to your question](diagrams/context-tree.svg)
+![Left: one long chat where all six messages are re-sent on every turn, in red. Right: the Syflo tree, where only three pieces are sent, in green, and the sibling branch not at all](diagrams/context-tree.svg)
 
 *Figure 2: In a conventional linear chat, earlier turns remain part of the context as the conversation grows. The tree sends three pieces: the parent in full, the main chat as a summary, the words branched on.*
 
