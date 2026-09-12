@@ -165,6 +165,15 @@ if (require.main === module) {
   }
 
   const db = createDb();
+
+  // Empty chats abandoned by quitting/reloading the app never hit the
+  // frontend's navigation cleanup — sweep them here (see cleanup.js).
+  const { sweepAbandonedChats } = require('./cleanup');
+  const swept = sweepAbandonedChats(db);
+  if (swept > 0) {
+    console.log(`Removed ${swept} abandoned empty chat${swept === 1 ? '' : 's'}`);
+  }
+
   const app = createApp(db);
   const PORT = process.env.PORT || 3001;
   // Loopback only: Syflo is a single-user local app — other devices on the
