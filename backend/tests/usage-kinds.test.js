@@ -333,5 +333,9 @@ describe('answeredToday', () => {
     } finally {
       db.close();
     }
-  });
+    // 28 inserts plus a summary request that walks every provider's day
+    // start: on the slow Windows CI runners that blew Jest's 5 s default
+    // (first real runs, 2026-09-13) — and the timeout then cascaded into an
+    // EBUSY in afterEach because the DB was still open.
+  }, 15000);
 });
