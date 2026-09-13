@@ -16,6 +16,7 @@ import { useState, useEffect, useRef, createContext, useContext } from 'react';
 import { ChevronRight, ChevronDown, Clock, FileText, TvMinimalPlay } from 'lucide-react';
 import { useStrings } from '../../strings';
 import { MathText, hasMath, plainMathText } from '../MathText';
+import { overflowTip } from '../../overflowTip';
 import type { Chat } from '../../types';
 
 interface Props {
@@ -179,7 +180,7 @@ function TreeNode({ chat, activeChatId, renamingId, onSelect, onContextMenu, onR
           e.preventDefault();
           onContextMenu(chat.id, e.clientX, e.clientY);
         }}
-        title={isRenaming ? undefined : plainMathText(chat.title)}
+        {...overflowTip(isRenaming ? undefined : plainMathText(chat.title))}
       >
         {/* Expand/collapse chevron — only for nodes that have children.
             A leaf gets NO placeholder: the reserved 13px slot left an empty
@@ -207,7 +208,7 @@ function TreeNode({ chat, activeChatId, renamingId, onSelect, onContextMenu, onR
           // sonst ist die Zeilenhöhe nicht ganzzahlig (32,5625px) und die
           // 1-px-Baumlinien darunter rutschen pro Zeile auf andere Subpixel —
           // manche Linien wirkten dadurch dicker (Nutzer-Screenshot 2026-07-23).
-          <span className={`flex-1 text-[13px] leading-[18px] ${hasMath(chat.title) ? 'syflo-math-fade' : 'truncate'}`}><MathText text={chat.title} /></span>
+          <span data-overflow-label="" className={`flex-1 text-[13px] leading-[18px] ${hasMath(chat.title) ? 'syflo-math-fade' : 'truncate'}`}><MathText text={chat.title} /></span>
         )}
 
         {/* Laufende Hintergrund-Antwort (Punkte) oder wartende Frage (Uhr) */}

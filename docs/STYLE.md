@@ -173,6 +173,22 @@ filled button inside the shell was tried and looked like another app's control.
   out, at most one footnote. **Never two sentences in one paragraph**: the second is
   always a different kind of claim, so it gets its own line and the darker gray.
 
+### Kurzinfo (data-tip)
+
+- **The native `title` attribute is dead in this app**: Chromium pops it up only after
+  a second of stillness and in the running app it often never appeared (2026-08-11,
+  again 2026-09-12) — and it never matches the theme. The replacement is the CSS-only
+  `data-tip` bubble in `index.css` (ink `gray-900` on paper `gray-50`, which every
+  theme remaps — Matrix inverts to light-on-dark automatically).
+- Icon-only controls carry `data-tip` directly. **Not every icon**: a control sitting
+  beside the value it changes explains itself and shows nothing.
+- Truncated row labels (sidebar chats, categories) get the bubble via
+  `overflowTip(fullTitle)` from `src/overflowTip.ts`, spread onto the row with the
+  label span marked `data-overflow-label`: it measures on hover and arms
+  `data-tip` + `data-tip-below/-start/-wrap` **only while the text really is cut** —
+  a bubble repeating a fully visible label is noise. `data-tip-wrap` is the
+  long-text variant (wraps, `max-width: 14rem`); never use nowrap bubbles for titles.
+
 ### Menus
 
 - Shell: `fixed z-50 bg-white rounded-xl shadow-2xl border border-gray-100
@@ -292,6 +308,11 @@ z-60.
   grows a bubble inside a bubble.
 - Styling that themes must override lives in `index.css` under a `.syflo-*` class, not
   inline in the component.
+- **A theme's `.font-serif` override sets the family, never a `font-size`**: being
+  unlayered, a fixed size there beats every `text-*` utility on the element — Mushroom
+  Kingdom's 22px blew the citation card's 13px raw-text fallback up to display size
+  (fixed 2026-09-12). A place that wants a display size sets its own class
+  (`.syflo-empty-title`).
 
 ## 10. Verifying UI work
 

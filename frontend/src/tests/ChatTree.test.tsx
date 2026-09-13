@@ -62,10 +62,24 @@ describe('ChatTree – rendering', () => {
     expect(screen.queryByTitle('Delete chat')).not.toBeInTheDocument();
   });
 
-  it('exposes the full title as a tooltip on each row', () => {
+  it('arms the Kurzinfo bubble on hover only while the title is actually cut', () => {
+    // The native `title` attribute is gone: Chromium often never showed it
+    // (user report 2026-09-12). The row measures its label on mouseenter and
+    // joins the data-tip design only when the text overflows.
     render(<ChatTree chats={flatChats} {...baseProps} />);
-    const row = screen.getByText('Alpha').closest('div');
-    expect(row?.getAttribute('title')).toBe('Alpha');
+    const row = screen.getByText('Alpha').closest('div') as HTMLElement;
+    const label = row.querySelector('[data-overflow-label]') as HTMLElement;
+
+    // jsdom measures 0/0 — not cut: hovering must arm nothing.
+    fireEvent.mouseEnter(row);
+    expect(row.getAttribute('data-tip')).toBeNull();
+
+    // A label wider than its box IS cut: hovering arms the wrapped bubble.
+    Object.defineProperty(label, 'scrollWidth', { value: 300, configurable: true });
+    Object.defineProperty(label, 'clientWidth', { value: 180, configurable: true });
+    fireEvent.mouseEnter(row);
+    expect(row.getAttribute('data-tip')).toBe('Alpha');
+    expect(row.hasAttribute('data-tip-wrap')).toBe(true);
   });
 
   it('highlights the active chat', () => {

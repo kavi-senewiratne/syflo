@@ -149,6 +149,17 @@ describe('CitationCard', () => {
     expect(screen.getByText('R. Sennrich, B. Haddow, A. Birch')).toBeInTheDocument();
   });
 
+  it('shows a single fact outright instead of a fold that expands into itself', async () => {
+    // A chevron that "expands" one line into the same one line is a control
+    // with nothing behind it (user report 2026-09-12, an arXiv row whose only
+    // fact was its year). The fold starts at two facts.
+    setup({ ...UNRESOLVED, parsedYear: 2015, parsedVenue: null });
+
+    expect(screen.queryByTestId('citation-more')).not.toBeInTheDocument();
+    expect(screen.getByText('2015')).toBeInTheDocument();
+    expect(screen.getByText('Year:')).toBeInTheDocument();
+  });
+
   it('gives every fact its own row, labelled for screen readers', async () => {
     // One long "·"-separated string wrapped mid-separator and read as rubble
     // (user report 2026-08-09). Icons replace the separators; the label each

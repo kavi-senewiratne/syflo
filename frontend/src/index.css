@@ -718,8 +718,13 @@ body {
   font-family: 'Baloo 2', -apple-system, sans-serif;
 }
 :root[data-theme='mushroom-kingdom'] .font-serif {
+  /* Family only — NO font-size: this rule is unlayered and a fixed size here
+     beats every text-* utility on the element (the Tailwind v4 cascade-layers
+     trap). The 22px it used to carry blew the citation card's 13px raw-text
+     fallback up to display size (user report 2026-09-12); the one place that
+     wants a display size, .syflo-empty-title, sets its own. Press Start 2P is
+     cramped at its default leading, so the line-height stays. */
   font-family: 'Press Start 2P', monospace;
-  font-size: 22px;
   line-height: 1.6;
   letter-spacing: 0;
 }
@@ -1553,6 +1558,15 @@ body .katex .accent-body {
   left: auto;
   right: 0;
   translate: 0;
+}
+/* For a bubble that carries a whole chat title rather than an icon's label:
+   nowrap would run a long title off the window, so this variant wraps inside
+   a sidebar-sized cap. Same bubble, one extra attribute — the hook
+   useOverflowTip arms it only while the row's label really is cut. */
+[data-tip][data-tip-wrap]::after {
+  white-space: normal;
+  width: max-content;
+  max-width: 14rem;
 }
 @media (hover: hover) {
   [data-tip]:hover::after {

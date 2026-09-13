@@ -19,6 +19,7 @@ import { SquarePen, GitBranch, ArrowLeft, Pencil, Trash2, FileText, PanelLeftClo
 import { ChatTree, QueuedClock, RenameInput, StreamingDots, type CollapseControl } from './ChatTree';
 import { groupChatsByDate } from './groupChatsByDate';
 import { MathText, hasMath, plainMathText } from '../MathText';
+import { overflowTip } from '../../overflowTip';
 import { useStrings } from '../../strings';
 import { Logo } from '../Logo';
 import type { SettingsTab } from '../SettingsModal';
@@ -451,7 +452,7 @@ export function Sidebar({ chats, activeChatId, categories, onCreateCategory, onR
             setCategoryMenu({ categoryId: category.id, x: e.clientX, y: e.clientY });
           }}
           {...dropTarget(category.id)}
-          title={isRenaming ? undefined : category.name}
+          {...overflowTip(isRenaming ? undefined : category.name)}
           className={`group w-full flex items-center gap-1.5 text-[11px] font-medium pl-2.5 pr-2.5 py-0.5 mt-5 mb-0.5 uppercase tracking-wider cursor-pointer transition-colors ${
             dropCategoryId === category.id
               ? 'text-blue-700 ring-1 ring-inset ring-blue-400 rounded'
@@ -468,7 +469,7 @@ export function Sidebar({ chats, activeChatId, categories, onCreateCategory, onR
             />
           ) : (
             <>
-              <span className="flex-1 truncate">{category.name}</span>
+              <span data-overflow-label="" className="flex-1 truncate">{category.name}</span>
               {/* The count appears only while the category is CLOSED — the
                   same rule the date sections and the subcategory headings
                   already follow. Open, the rows underneath say how many there
@@ -598,7 +599,7 @@ export function Sidebar({ chats, activeChatId, categories, onCreateCategory, onR
           e.preventDefault();
           openContextMenu(chat.id, e.clientX, e.clientY);
         }}
-        title={isRenaming ? undefined : plainMathText(chat.title)}
+        {...overflowTip(isRenaming ? undefined : plainMathText(chat.title))}
         className={`flex items-center gap-2.5 pl-2.5 pr-2.5 py-1.5 rounded-md cursor-pointer transition-colors ${
           isActive
             ? isMenuTarget ? 'bg-blue-100 text-blue-700' : 'bg-blue-50 text-blue-700'
@@ -614,7 +615,7 @@ export function Sidebar({ chats, activeChatId, categories, onCreateCategory, onR
             onCancel={() => setRenamingId(null)}
           />
         ) : (
-          <span className={`flex-1 text-[13px] ${hasMath(chat.title) ? 'syflo-math-fade' : 'truncate'}`}><MathText text={chat.title} /></span>
+          <span data-overflow-label="" className={`flex-1 text-[13px] ${hasMath(chat.title) ? 'syflo-math-fade' : 'truncate'}`}><MathText text={chat.title} /></span>
         )}
         {/* Laufende Antwort (Punkte) oder wartende Frage (Uhr)
             in diesem Baum (Root oder Kind) */}

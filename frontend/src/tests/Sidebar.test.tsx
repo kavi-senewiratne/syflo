@@ -126,10 +126,24 @@ describe('Sidebar', () => {
     expect(screen.queryByTitle('Delete chat')).not.toBeInTheDocument();
   });
 
-  it('shows the full chat title as a tooltip on the row', () => {
+  it('arms the Kurzinfo bubble on hover only while the title is actually cut', () => {
+    // The native `title` attribute is gone: Chromium often never showed it
+    // (user report 2026-09-12). The row measures its label on mouseenter and
+    // joins the data-tip design only when the text overflows.
     render(<Sidebar {...defaultProps} />);
-    const row = screen.getByText('First Chat').closest('div');
-    expect(row?.getAttribute('title')).toBe('First Chat');
+    const row = screen.getByText('First Chat').closest('div') as HTMLElement;
+    const label = row.querySelector('[data-overflow-label]') as HTMLElement;
+
+    // jsdom measures 0/0 — not cut: hovering must arm nothing.
+    fireEvent.mouseEnter(row);
+    expect(row.getAttribute('data-tip')).toBeNull();
+
+    // A label wider than its box IS cut: hovering arms the wrapped bubble.
+    Object.defineProperty(label, 'scrollWidth', { value: 300, configurable: true });
+    Object.defineProperty(label, 'clientWidth', { value: 180, configurable: true });
+    fireEvent.mouseEnter(row);
+    expect(row.getAttribute('data-tip')).toBe('First Chat');
+    expect(row.hasAttribute('data-tip-wrap')).toBe(true);
   });
 
   it('opens the context menu on right-click with rename and delete options', () => {

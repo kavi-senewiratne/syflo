@@ -345,8 +345,12 @@ export function CitationCard({
               no icon — it is the sentence, not a data field. */}
           {authorLine && <p className="text-xs text-gray-500 leading-relaxed">{authorLine}</p>}
 
+          {/* A single fact is shown outright: a chevron that "expands" one
+              line into the same one line is a control with nothing behind it
+              (user report 2026-09-12). The fold exists to keep three facts
+              from crowding the card, so it starts at two. */}
           {foldedFacts.length > 0 &&
-            (unfolded ? (
+            (unfolded || foldedFacts.length === 1 ? (
               <div className="flex flex-col gap-1.5 pt-0.5">
                 {year && (
                   <MetaRow icon={<Calendar size={12} />} label={S.yearLabel}>
