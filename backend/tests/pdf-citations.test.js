@@ -223,6 +223,47 @@ describe('extractCitations', () => {
     expect(references[0].rawText).toBe('[1] A. Smith. The cited paper. 2020.');
   });
 
+  it('snaps a destination that sits at the entry TOP EDGE down to its opener line', async () => {
+    // Annual Reviews flavour (Safe Learning in Robotics, measured 2026-09-12):
+    // the destination y is a line height ABOVE the entry's first baseline
+    // (dest 248, baseline 238). The entry's own "1. " line then matched the
+    // ENTRY_OPENER terminator, and every row was cut to whatever sat between
+    // the anchors — the PREVIOUS entry's overflow line ("matica 103:461–471")
+    // — leaving 150 of 156 references labelless fragments.
+    const openFn = stubDocument(
+      [
+        {
+          annotations: [
+            link('cite.smith2020', [108, 714, 118, 726]),
+            link('cite.jones2019', [130, 714, 140, 726]),
+          ],
+          items: [text('Cited here (1) and there (2).', 72, 720)],
+        },
+        {
+          items: [
+            text('LITERATURE CITED', 72, 730, 90),
+            text('1. A. Smith. 2020. The cited paper appears', 72, 720, 200),
+            text('here in full. Journal of Things 38:139–166', 82, 710, 190),
+            text('2. B. Jones. 2019. Robust things with recursive', 72, 700, 200),
+            text('update. Automatica 103:461–471', 82, 690, 150),
+          ],
+        },
+      ],
+      // Both destinations point 8–10 pt above their entry's first baseline.
+      { 'cite.smith2020': [1, 72, 728], 'cite.jones2019': [1, 72, 708] },
+    );
+
+    const { references } = await extractCitations('/ignored.pdf', { openFn });
+    const byAnchor = Object.fromEntries(references.map((r) => [r.anchor, r.rawText]));
+
+    expect(byAnchor['cite.smith2020']).toBe(
+      '1. A. Smith. 2020. The cited paper appears here in full. Journal of Things 38:139–166',
+    );
+    expect(byAnchor['cite.jones2019']).toBe(
+      '2. B. Jones. 2019. Robust things with recursive update. Automatica 103:461–471',
+    );
+  });
+
   it('reports where each reference row sits, so the list is clickable too', async () => {
     // The rows at the end of the paper are DESTINATIONS, not annotations, so
     // they carry no rect of their own — and the reference list stayed dead

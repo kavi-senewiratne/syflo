@@ -137,6 +137,12 @@ const ANCHOR_SLACK = 4;
 // without this the previous row would swallow it and everything below it.
 const ENTRY_OPENER = /^\s*(?:\[\d{1,3}\]|\(\d{1,3}\)|\d{1,3}\.)\s/;
 
+// How far below a resolved destination the entry's own opener line may sit
+// (see the snap step in extractCitations). One line height plus change: the
+// top-edge flavour offsets by exactly one baseline-to-top distance (~10 pt),
+// while the next entry's opener is at least a full entry further down.
+const OPENER_SNAP = 16;
+
 function rowTextBetween(items, fromY, toY, column, starts) {
   const parts = [];
   const used = [];
@@ -330,6 +336,60 @@ async function extractCitations(pdfPath, { openFn = openPdf } = {}) {
     }
     for (const page of new Set(located.map((l) => l.page))) await loadPage(page);
     for (const l of located) l.column = columnOf(l.x, startsByPage.get(l.page));
+
+    // Some PDFs put the destination at the TOP EDGE of the entry, a full line
+    // height above the first line's baseline (Annual Reviews, measured on the
+    // Safe Learning in Robotics review 2026-09-12: dest y 248, baseline 238).
+    // ANCHOR_SLACK is 4 pt, so the entry's own "53. " line then matched the
+    // ENTRY_OPENER terminator and cut every row to whatever sat between the
+    // anchors — the PREVIOUS entry's overflow line ("matica 103:461–471").
+    // Snap each anchor down to its entry's opener baseline.
+    //
+    // WHICH opener is the entry's own is ambiguous per anchor: with a uniform
+    // line pitch, the top edge of entry N is exactly the baseline of the line
+    // above it — and when the entry above is a single line, that baseline is
+    // itself an opener (measured on the same paper: cite.astorm2011's dest at
+    // 349.4 saw both Khalil's opener at 349.39 and its own at 339.5). Per
+    // DOCUMENT the dest→opener offset is one constant though — ~0 for the
+    // baseline flavour, one line pitch for the top-edge flavour — so every
+    // anchor votes with its candidate offsets and each then snaps to the
+    // opener nearest the median. A bibliography without numbered openers
+    // casts no votes and keeps the resolved y, which is the flavour that
+    // already worked.
+    const candidatesOf = (l) => {
+      const items = textByPage.get(l.page);
+      const starts = startsByPage.get(l.page);
+      const found = [];
+      for (const item of items) {
+        if (typeof item.str !== 'string' || !ENTRY_OPENER.test(item.str)) continue;
+        if (columnOf(item.transform[4], starts) !== l.column) continue;
+        const by = item.transform[5];
+        if (by > l.y + ANCHOR_SLACK || by < l.y - OPENER_SNAP) continue;
+        found.push({ y: by, offset: l.y - by });
+      }
+      return found;
+    };
+    const votes = located.flatMap((l) => candidatesOf(l).map((c) => c.offset)).sort((a, b) => a - b);
+    if (votes.length) {
+      // Lower-middle median, and ties broken toward the SMALLER offset: with
+      // one anchor sitting on its own opener and the next entry's opener also
+      // in the window (offsets 0 and 12), the vote must land on 0 — the
+      // baseline flavour — not on the entry below.
+      const median = votes[Math.floor((votes.length - 1) / 2)];
+      for (const l of located) {
+        let best = null;
+        for (const c of candidatesOf(l)) {
+          const better =
+            best === null ||
+            Math.abs(c.offset - median) < Math.abs(best.offset - median) - 0.01 ||
+            (Math.abs(Math.abs(c.offset - median) - Math.abs(best.offset - median)) <= 0.01 &&
+              c.offset < best.offset);
+          if (better) best = c;
+        }
+        if (best !== null) l.y = best.y;
+      }
+    }
+
     located.sort((a, b) => (a.page - b.page) || (a.column - b.column) || (b.y - a.y));
 
     for (let i = 0; i < located.length; i++) {

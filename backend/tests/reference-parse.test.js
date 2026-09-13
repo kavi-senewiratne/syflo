@@ -109,6 +109,43 @@ describe('parseReferenceRow', () => {
     expect(parsed.year).toBe(2016);
   });
 
+  it('reads the Annual Reviews shape "authors. YEAR. title. venue"', () => {
+    // How the year tokenises depends on the LAST author's initials (Safe
+    // Learning in Robotics, 2026-09-12): after a double initial it becomes its
+    // own segment — which used to land in the title slot, and the real title
+    // in the venue slot.
+    const doubleInitial = parseReferenceRow(
+      '3. Dong K, Pereida K, Shkurti F, Schoellig AP. 2020. Catch the ball: Accurate high-speed motions for mobile manipulators via inverse dynamics learning. arXiv:2003.07489 [cs.RO]',
+    );
+    expect(doubleInitial.title).toBe(
+      'Catch the Ball: Accurate High-Speed Motions for Mobile Manipulators via Inverse Dynamics Learning',
+    );
+    expect(doubleInitial.year).toBe(2020);
+    expect(doubleInitial.venue).toBeNull();
+
+    // After a single initial the year stays glued to the author segment and
+    // must not survive as an "author".
+    const singleInitial = parseReferenceRow(
+      '52. Lorenzen M, Cannon M, Allgöwer F. 2019. Robust MPC with recursive model update. Automatica 103:461–471',
+    );
+    expect(singleInitial.title).toBe('Robust MPC With Recursive Model Update');
+    expect(singleInitial.authors).toEqual(['Lorenzen M', 'Cannon M', 'Allgöwer F']);
+    expect(singleInitial.year).toBe(2019);
+  });
+
+  it('never reads a year out of an arXiv id', () => {
+    // Real miss (Safe Learning in Robotics, 2026-09-12): a fragment row whose
+    // only "year" was the id — "arXiv:2011.02920" is November 2020, and the
+    // card said 2011.
+    expect(parseReferenceRow('arXiv:2011.02920 [cs.RO]').year).toBeNull();
+
+    // A real year beside the id still wins.
+    const parsed = parseReferenceRow(
+      '[24] M.-T. Luong, H. Pham, and C. Manning. Effective approaches. arXiv:1508.04025, 2015.',
+    );
+    expect(parsed.year).toBe(2015);
+  });
+
   it('reads a journal row with volume and pages', () => {
     const parsed = parseReferenceRow(
       '[13] Sepp Hochreiter and Jürgen Schmidhuber. Long short-term memory. Neural Computation, 9(8):1735–1780, 1997.',

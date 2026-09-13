@@ -184,13 +184,27 @@ function parseReferenceRow(rawText) {
   if (parts.length === 0) return empty;
 
   // The year is the last plausible one anywhere in the row — a publication
-  // year sits at the end, while a title may contain another number.
-  const years = body.match(/\b(19|20)\d{2}\b/g) || [];
+  // year sits at the end, while a title may contain another number. An arXiv
+  // id is blanked first: "arXiv:2011.02920" is November 2020, and reading
+  // "2011" out of it put a wrong year on the card (seen in the running app
+  // 2026-09-12 — a fragment row whose only "year" was the id).
+  const yearSource = body.replace(/\barxiv\s*[:.]?\s*\d{4}\.\d{4,5}(?:v\d+)?\b/gi, ' ');
+  const years = yearSource.match(/\b(19|20)\d{2}\b/g) || [];
   const year = years.length ? Number(years[years.length - 1]) : null;
 
-  // Shape 1: "authors. title. rest…" — by far the most common.
+  // Shape 1: "authors. title. rest…" — by far the most common. Annual
+  // Reviews prints "authors. YEAR. title. venue" instead, and how that
+  // tokenises depends on the LAST author's initials (seen on Safe Learning
+  // in Robotics, 2026-09-12): after a single initial ("Allgöwer F. 2019.")
+  // the year stays glued to the author segment, after a double one
+  // ("Schoellig AP. 2020.") it becomes its own segment — which then landed
+  // in the title slot, and the real title in the venue slot.
+  const BARE_YEAR = /^(19|20)\d{2}[a-z]?$/;
   if (parts.length >= 2 && looksLikeAuthors(parts[0])) {
-    const rest = parts.slice(2);
+    const titleAt = BARE_YEAR.test(parts[1]) && parts.length >= 3 ? 2 : 1;
+    parts[0] = parts[0].replace(/[.\s]+(19|20)\d{2}[a-z]?$/, '');
+    const titleSeg = parts[titleAt] ?? null;
+    const rest = parts.slice(titleAt + 1);
     // The venue is the segment after the title, minus its trailing volume,
     // pages and year — "Neural Computation, 9(8):1735–1780, 1997" is a venue
     // with bookkeeping attached.
@@ -214,7 +228,7 @@ function parseReferenceRow(rawText) {
     }
     return {
       authors: splitAuthors(parts[0]),
-      title: parts[1] ? toTitleCase(parts[1]) : null,
+      title: titleSeg ? toTitleCase(titleSeg) : null,
       venue: venue || null,
       year,
     };
