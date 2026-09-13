@@ -38,6 +38,10 @@ coverage/
 # The written UI source of truth is docs/STYLE.md.
 design/
 
+# Article working material (drafts, GIF recording scripts) — not part of
+# the published repo.
+article/
+
 # Electron bundled resources — synced from backend/ before each build.
 # Source of truth lives in backend/. Re-created by
 # scripts/sync-electron-resources.sh (electron build scripts run it).
