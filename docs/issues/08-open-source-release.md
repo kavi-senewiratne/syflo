@@ -90,13 +90,11 @@ a DNS-rebinding Host guard beyond the original list). Suites green: backend
       the mind map is top-down, not radial; dictation is local whisper.cpp
       (ADR-0004), not the browser's `SpeechRecognition`; the tech-stack table no
       longer says Ollama is the model layer.
-- [ ] Enable GitHub Discussions with categories "Q&A" and "Ideas". Repository
-      setting, cannot be done from the tree — and `config.yml` already links to
-      `/discussions/categories/q-a` and `/ideas`, so those two categories have to
-      exist under exactly those slugs or the links 404.
-- [ ] Enable private vulnerability reporting in the repository's Security
-      settings — `SECURITY.md`, `CODE_OF_CONDUCT.md` and `config.yml` all point
-      at `/security/advisories/new`.
+- [x] Enable GitHub Discussions with categories "Q&A" and "Ideas". Done
+      2026-09-13 via `gh api` — the default categories already carry exactly
+      the slugs `q-a` and `ideas`, so `config.yml`'s links resolve.
+- [x] Enable private vulnerability reporting in the repository's Security
+      settings. Done 2026-09-13 (`gh api -X PUT …/private-vulnerability-reporting`).
 - [ ] No Discord at launch (revisit when there are regulars). Nothing to do;
       kept here so the decision is not silently reversed.
 
@@ -120,10 +118,16 @@ a DNS-rebinding Host guard beyond the original list). Suites green: backend
 - [x] Commit a root `package-lock.json`. Done 2026-09-13
       (`npm install --package-lock-only --ignore-scripts`); both workflows'
       root install switched from `npm install` to `npm ci`.
-- [ ] First publish: `syflo@0.1.0` with npm provenance. Deliberately not done —
-      the release workflow exists but has never been triggered.
-- [ ] Create the `NPM_TOKEN` repository secret (automation token) before the
-      first tag; `release.yml` reads it as `NODE_AUTH_TOKEN`.
+- [x] First publish: `syflo@0.1.0` with npm provenance. **Published
+      2026-09-13** via the tag-triggered workflow (SLSA v1 attestation on the
+      registry). Third publish attempt did it: npm's granular tokens must be
+      (a) unrestricted to a scope — a token limited to `@syflo` cannot touch
+      the unscoped name — and (b) direct-capable: a staging-only token cannot
+      CREATE a package (`E_STAGE_REQUIRED`). Once the package exists, the
+      broad token can be swapped for a narrow one scoped to just `syflo`.
+- [x] Create the `NPM_TOKEN` repository secret. Done 2026-09-13, piped from
+      the keychain (`security find-generic-password -s npm-automation-token`)
+      into `gh secret set`.
 
 ## CI & releases
 
@@ -148,15 +152,17 @@ a DNS-rebinding Host guard beyond the original list). Suites green: backend
 - [x] Versioning: SemVer from 0.1.0; 1.0 only when the SQLite schema is stable.
       No release cadence promises. Written down where users see it (README
       "What to expect") and enforced by the tag/version check in `release.yml`.
-- [ ] Watch the first real CI run. The workflows have never executed, and the
-      frontend typecheck was red while this pass ran (2026-08-24): the web-search
-      UI was mid-change, so `Settings` gained `tavily_api_key_set` and
-      `search_setup_dismissed` while the fixtures in `App.test.tsx`,
-      `ModelFlowApp.test.tsx` and `CitationCard.test.tsx` had not caught up.
-      Because `tsc -b` is what `prepack` runs, this also breaks
-      `npm pack` — the tarball verdict above was taken with `--ignore-scripts`
-      against the `frontend/dist` from the last successful build. Re-run a plain
-      `npm pack --dry-run` once the web-search work lands, before the first tag.
+- [x] Watch the first real CI run. Done 2026-09-13 — it took five rounds to a
+      green matrix, every failure real and platform-shaped: (1) the backend
+      test scripts' `NODE_OPTIONS=…` prefix is POSIX-only, so every Windows
+      cell died before Jest started; (2-4) the slow Windows runners (5-13x a
+      dev machine's wall clock) blew the 5 s default timeouts of a different
+      suite each round — fixed at the config level, `testTimeout: 30000` in
+      backend `jest.config.js` and frontend `vitest.config.ts` (plus
+      testing-library `asyncUtilTimeout: 10000` in `setup.ts`); (5) a genuine
+      1 ms clock race in `quota-unknown.test.js` (the test read `Date.now()`
+      one line after the code under test did). A plain `npm pack --dry-run`
+      re-ran clean before the tag: 298 files, 5.6 MB, nothing sensitive.
 
 ## Name reservations (outside the repo)
 
