@@ -81,8 +81,15 @@ function createChat(id = 'c1') {
 
 describe('an expired wait becomes "status unknown"', () => {
   it('keeps a run-out minute cooldown in the snapshot as kind "unknown"', () => {
+    // markQuotaCooldown reads the system clock itself; without freezing it,
+    // a millisecond tick between that call and this line's Date.now() makes
+    // the equality below miss by 1 ms (seen on the Node 20 CI cells,
+    // 2026-09-13).
+    const now = Date.now();
+    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(now);
     router.markQuotaCooldown('gemini', 'gemini-flash-latest', 90_000, 'minute');
-    const until = Date.now() + 90_000;
+    nowSpy.mockRestore();
+    const until = now + 90_000;
 
     // While the wait runs, the row is honestly "cooling down".
     const cooling = entryFor(router.getQuotaCooldowns(until - 1_000), 'gemini-flash-latest');
