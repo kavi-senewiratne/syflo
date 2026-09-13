@@ -1,7 +1,7 @@
 {
   "name": "syflo",
   "version": "0.1.0",
-  "description": "Branching research chats over papers, PDFs and videos \u2014 local-first, bring your own model keys",
+  "description": "Branching research chats over papers, PDFs and videos — local-first, bring your own model keys",
   "license": "MIT",
   "author": "Kavi Senewiratne",
   "homepage": "https://github.com/kavi-senewiratne/syflo",
@@ -21,7 +21,7 @@
     "local-first"
   ],
   "bin": {
-    "syflo": "./bin/syflo.js"
+    "syflo": "bin/syflo.js"
   },
   "engines": {
     "node": ">=20"
