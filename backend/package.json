@@ -7,8 +7,8 @@
     "start": "node server.js",
     "dev": "node --watch server.js",
     "test": "npm run test:main && npm run test:pdfjs",
-    "test:main": "NODE_OPTIONS=--experimental-vm-modules jest tests/ --testPathIgnorePatterns '/node_modules/' 'tests/pdf-(text|citations)\\.test\\.js$'",
-    "test:pdfjs": "NODE_OPTIONS=--experimental-vm-modules jest tests/pdf-text.test.js tests/pdf-citations.test.js",
+    "test:main": "node --experimental-vm-modules node_modules/jest/bin/jest.js tests/ --testPathIgnorePatterns /node_modules/ \"tests/pdf-(text|citations)\\.test\\.js$\"",
+    "test:pdfjs": "node --experimental-vm-modules node_modules/jest/bin/jest.js tests/pdf-text.test.js tests/pdf-citations.test.js",
     "bench": "node scripts/benchmark.js"
   },
   "keywords": [],
