@@ -1,5 +1,12 @@
 import '@testing-library/jest-dom';
+import { configure } from '@testing-library/dom';
 import { beforeEach } from 'vitest';
+
+// waitFor/findBy default to giving up after 1 s — on the slow Windows CI
+// runners a scroll-driven indicator legitimately takes longer to settle
+// (PdfView page indicator, release run 2026-09-13). Green tests return the
+// moment the condition holds; only a failing wait pays the full budget.
+configure({ asyncUtilTimeout: 10000 });
 
 // The sidebar folds the older history sections away ONCE per browser and
 // records that in localStorage (Sidebar/index.tsx). jsdom hands every test a

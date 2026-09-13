@@ -145,10 +145,7 @@ describe('an aside reveals itself at reading pace', () => {
     expect(last).toBeGreaterThan(500);           // der ganze Absatz steht am Ende
     expect(first).toBeGreaterThan(0);            // es fing wirklich an
     expect(first).toBeLessThan(last / 2);        // aber eben nicht als Block
-    // Echte Timer, echtes Lesetempo: ~640 Zeichen bei 85 Z/s sind ~7,5 s —
-    // auf den langsamen CI-Runnern (Windows/Ubuntu, erste echte Läufe
-    // 2026-09-13) riss das die 5-s-Vorgabe. Der Timeout gehört zum Test.
-  }, 20000);
+  });
 
   // In der laufenden App gemessen (2026-08-20): die Knöpfe standen schon da,
   // als erst 1461 von 1905 Zeichen sichtbar waren. „Im Chat behalten" darf
@@ -182,6 +179,5 @@ describe('an aside reveals itself at reading pace', () => {
     // Vollständig, nicht bloß angefangen. (Das gerenderte Markdown wirft das
     // abschließende Leerzeichen weg — deshalb gegen den getrimmten Text.)
     expect(lenAtButton).toBe(paragraph.trimEnd().length);
-    // Gleiches Lesetempo-Budget wie oben — echte Timer brauchen echte Zeit.
-  }, 20000);
+  });
 });
