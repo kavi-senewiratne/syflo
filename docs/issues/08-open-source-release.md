@@ -39,14 +39,15 @@ a DNS-rebinding Host guard beyond the original list). Suites green: backend
 - [x] Hardening: serve `/uploads` with `Content-Disposition: attachment` +
       `X-Content-Type-Options: nosniff` so an uploaded HTML file can never
       execute same-origin with the app.
-- [ ] Commit the pending files. `git status --porcelain | wc -l` = **71** on
-      2026-08-24 (the earlier "~128" is stale). Includes the web-search work in
-      flight and everything added by this pass.
-- [ ] Untrack `article/` and `design/`: `git rm -r --cached` + `.gitignore`
-      entries. Still open — `git ls-files design | wc -l` = 85,
-      `git ls-files article | wc -l` = 9, and `.gitignore` mentions neither.
-      Files stay on disk; **no history rewrite** (decided — nothing secret in
-      history, verified 2026-07-31: no uploads/dbs/PDFs/.env ever committed).
+- [x] Commit the pending files. Done 2026-09-13: the tree is clean — the
+      citation-extraction fixes landed as `fix(citations)`, the sidebar
+      Kurzinfo work as `feat(sidebar)`, all suites green first (backend
+      943+22, frontend typecheck + 1316, root 22).
+- [x] Untrack `article/` and `design/`: done — `design/` was already
+      untracked and ignored; `article/` (37 files) untracked + ignored
+      2026-09-13 (`chore(release)`). Files stay on disk; **no history
+      rewrite** (decided — nothing secret in history, verified 2026-07-31:
+      no uploads/dbs/PDFs/.env ever committed).
 - [x] Add `LICENSE` (MIT). `LICENSE` at the repo root, MIT, © 2026 Kavi
       Senewiratne; `package.json` already declared `"license": "MIT"`.
 - [x] `searxng/` removed entirely (ADR-0012, 2026-08-23) — with it the last
@@ -116,10 +117,9 @@ a DNS-rebinding Host guard beyond the original list). Suites green: backend
       (`postinstall`), 605 MB bge-m3 GGUF, four opt-outs — already present,
       `SYFLO_SKIP_MODEL`, `CI`, non-global git checkout — and it never fails the
       install. Covered by `tests/download-model.test.js`.
-- [ ] Commit a root `package-lock.json`. There is none, so CI has to use
-      `npm install` at the root while `backend/` and `frontend/` get `npm ci`
-      from their own (both verified in sync with their `package.json` on
-      2026-08-24).
+- [x] Commit a root `package-lock.json`. Done 2026-09-13
+      (`npm install --package-lock-only --ignore-scripts`); both workflows'
+      root install switched from `npm install` to `npm ci`.
 - [ ] First publish: `syflo@0.1.0` with npm provenance. Deliberately not done —
       the release workflow exists but has never been triggered.
 - [ ] Create the `NPM_TOKEN` repository secret (automation token) before the
