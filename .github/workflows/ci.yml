@@ -48,8 +48,7 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
 
-      # Four packages, three lockfiles. The root has no lockfile yet, so it gets
-      # `npm install`; backend and frontend get `npm ci` from their own.
+      # Four packages, four lockfiles — every install is `npm ci`.
       # --ignore-scripts on purpose: the root suite only needs Jest, while the
       # root dependencies carry three native/binary postinstalls (electron,
       # node-llama-cpp, better-sqlite3) that no test here touches — the CLI
@@ -57,7 +56,7 @@ jobs:
       # node-llama-cpp lazily. Downloading them would add minutes per matrix
       # cell and a failure mode unrelated to the change under test.
       - name: Install root (the `syflo` CLI and the install script)
-        run: npm install --ignore-scripts --no-audit --no-fund
+        run: npm ci --ignore-scripts --no-audit --no-fund
 
       - name: Install backend
         run: npm ci --no-audit --no-fund

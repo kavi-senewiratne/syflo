@@ -63,7 +63,7 @@ jobs:
       # Same reasoning as in ci.yml: nothing in the publish path runs the root
       # dependencies' native postinstalls. `prepack` still fires on publish.
       - name: Install root
-        run: npm install --ignore-scripts --no-audit --no-fund
+        run: npm ci --ignore-scripts --no-audit --no-fund
 
       # `prepack` builds the frontend into frontend/dist, which the `files`
       # field ships. Its dependencies have to be there before npm publish runs.
