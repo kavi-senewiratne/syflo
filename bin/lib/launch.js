@@ -81,6 +81,62 @@ function resolveElectronBinary({ exists = fs.existsSync, req = require } = {}) {
   }
 }
 
+/**
+ * Ubuntu 24.04+ and Electron's sandbox — the one Linux start failure ADR-0009
+ * did not foresee.
+ *
+ * Ubuntu locks unprivileged user namespaces behind AppArmor. Chromium then
+ * needs its SUID sandbox helper (`chrome-sandbox` next to the binary) to be
+ * root-owned with mode 4755 — which an npm install into $HOME can never be, and
+ * which every `npm update` would undo anyway. Electron aborts with a FATAL
+ * before any window exists. Ubuntu's own answer for VS Code, Slack and Discord
+ * is a per-application AppArmor profile granting `userns`; Syflo ships one in
+ * bin/apparmor/syflo and `--install-linux-sandbox` puts it in place.
+ *
+ * This decides, before anything is spawned, whether that FATAL is coming. All
+ * four probes are injectable so the tests never touch /proc or /etc:
+ *  - not Linux → no restriction exists;
+ *  - the sysctl reads anything but "1" → namespaces are allowed;
+ *  - the profile is installed → this binary is exempt (the loaded-profile list
+ *    under /sys is not readable by users, so the file is the evidence);
+ *  - the helper is root-owned and setuid → the SUID path works after all.
+ */
+const USERNS_RESTRICT_FILE = '/proc/sys/kernel/apparmor_restrict_unprivileged_userns';
+const APPARMOR_PROFILE_TARGET = '/etc/apparmor.d/syflo';
+const APPARMOR_PROFILE_SOURCE = path.join('bin', 'apparmor', 'syflo');
+
+function readFileOrNull(file) {
+  try {
+    return fs.readFileSync(file, 'utf8');
+  } catch {
+    return null;
+  }
+}
+
+function statOrNull(file) {
+  try {
+    return fs.statSync(file);
+  } catch {
+    return null;
+  }
+}
+
+function detectLinuxSandboxBlock({
+  electronBinary,
+  platform = process.platform,
+  readFile = readFileOrNull,
+  stat = statOrNull,
+  exists = fs.existsSync,
+} = {}) {
+  if (platform !== 'linux' || !electronBinary) return false;
+  const restricted = (readFile(USERNS_RESTRICT_FILE) || '').trim() === '1';
+  if (!restricted) return false;
+  if (exists(APPARMOR_PROFILE_TARGET)) return false;
+  const helper = stat(path.join(path.dirname(electronBinary), 'chrome-sandbox'));
+  const setuidRoot = Boolean(helper) && helper.uid === 0 && (helper.mode & 0o4000) !== 0;
+  return !setuidRoot;
+}
+
 // The backend is a single-user local server: it binds loopback only (see the
 // comment above `app.listen` in backend/server.js), and the launcher must not
 // widen that. It is the URL the window and the browser are pointed at, too.
@@ -105,10 +161,24 @@ function buildLaunchPlan(argv = [], deps = {}) {
     // on PATH — a different version, or nothing at all when npm's own Node is
     // not on the PATH of the shell that launched us.
     execPath = process.execPath,
+    // Probes for the Linux sandbox check; see detectLinuxSandboxBlock.
+    platform = process.platform,
+    readFile = readFileOrNull,
+    stat = statOrNull,
   } = deps;
 
   const args = parseArgs(argv);
   if (args.help) return { mode: 'help' };
+  // Needs neither backend nor frontend: it copies one file and asks AppArmor
+  // to load it. bin/syflo.js does the copying, and only as root.
+  if (args.installLinuxSandbox) {
+    return {
+      mode: 'install-linux-sandbox',
+      platform,
+      profileSource: path.join(packageRoot, APPARMOR_PROFILE_SOURCE),
+      profileTarget: APPARMOR_PROFILE_TARGET,
+    };
+  }
 
   const paths = resolvePaths({ packageRoot, resourcesPath, exists });
   const port = args.port || DEFAULT_PORT;
@@ -155,17 +225,24 @@ function buildLaunchPlan(argv = [], deps = {}) {
   if (!paths.electronMainFound) {
     return { mode: 'browser', ...base, fallbackFrom: 'electron', reason: 'electron-main-missing' };
   }
+  // Ubuntu's namespace lock would kill the window with a FATAL after the
+  // backend is already up. Same degradation as a missing binary — the browser
+  // works — but the reason is different, and so is the way out.
+  if (detectLinuxSandboxBlock({ electronBinary, platform, readFile, stat, exists })) {
+    return { mode: 'browser', ...base, fallbackFrom: 'electron', reason: 'linux-sandbox' };
+  }
   return { mode: 'electron', ...base, electronBinary, electronMain: paths.electronMain };
 }
 
 // Deliberately hand-rolled: the flag surface is three flags wide, and ADR-0009
 // allows exactly one new dependency (electron) — not an argument parser.
 function parseArgs(argv) {
-  const args = { help: false, browser: false, port: null };
+  const args = { help: false, browser: false, installLinuxSandbox: false, port: null };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === '--help' || arg === '-h') args.help = true;
     else if (arg === '--browser') args.browser = true;
+    else if (arg === '--install-linux-sandbox') args.installLinuxSandbox = true;
     else if (arg === '--port') {
       args.port = Number(argv[i + 1]) || null;
       i += 1;
@@ -186,6 +263,10 @@ Options:
   --browser        Start the backend only and open the default browser.
                    Use this when Electron's binary download failed.
   --port <number>  Port for the local backend (default ${DEFAULT_PORT}).
+  --install-linux-sandbox
+                   Linux only, needs sudo. Installs the AppArmor profile that
+                   lets Electron's sandbox run on Ubuntu 24.04+; without it
+                   Syflo falls back to the browser there.
   -h, --help       Show this help.
 
 The backend listens on ${LOOPBACK_HOST} only; chats, uploads and API keys
@@ -195,6 +276,9 @@ module.exports = {
   resolvePaths,
   buildLaunchPlan,
   resolveElectronBinary,
+  detectLinuxSandboxBlock,
+  APPARMOR_PROFILE_TARGET,
+  APPARMOR_PROFILE_SOURCE,
   HELP_TEXT,
   DEFAULT_PORT,
   LOOPBACK_HOST,

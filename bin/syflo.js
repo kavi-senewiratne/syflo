@@ -7,7 +7,8 @@
  * spawning, waiting and cleaning up.
  */
 
-const { spawn } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
+const fs = require('fs');
 const http = require('http');
 const path = require('path');
 
@@ -15,13 +16,55 @@ const { buildLaunchPlan, HELP_TEXT } = require('./lib/launch');
 
 const PACKAGE_ROOT = path.join(__dirname, '..');
 
+// `sudo syflo` would not work: sudo's secure_path knows nothing about nvm, fnm
+// or volta, so the command is spelled out with the Node and the script that are
+// running right now.
+const INSTALL_SANDBOX_COMMAND = `sudo "${process.execPath}" "${__filename}" --install-linux-sandbox`;
+
 // Why the fallback happened, in the words the user needs to act on.
 const FALLBACK_MESSAGES = {
   'electron-missing':
     "Electron is not available (its postinstall download often fails behind a proxy).\nOpening Syflo in your browser instead — pass --browser to skip this check.",
   'electron-main-missing':
     'The Electron shell is missing from this installation.\nOpening Syflo in your browser instead — pass --browser to skip this check.',
+  'linux-sandbox':
+    'This Linux locks the sandbox Electron needs (Ubuntu 24.04+ restricts user namespaces).\n' +
+    'Opening Syflo in your browser instead. To get the desktop window, allow it once:\n\n' +
+    `  ${INSTALL_SANDBOX_COMMAND}\n\n` +
+    'or pass --browser to skip this check.',
 };
+
+// `syflo --install-linux-sandbox`: copy bin/apparmor/syflo to /etc/apparmor.d
+// and load it. Root is required for both steps, and instead of failing halfway
+// with EACCES the command hands the user the exact sudo line.
+function installLinuxSandbox(plan) {
+  if (plan.platform !== 'linux') {
+    console.error('syflo: --install-linux-sandbox only applies to Linux.');
+    return 1;
+  }
+  if (typeof process.getuid === 'function' && process.getuid() !== 0) {
+    console.error(`syflo: installing the AppArmor profile needs root. Run:\n\n  ${INSTALL_SANDBOX_COMMAND}\n`);
+    return 1;
+  }
+  // Not copyFileSync: as root, libuv carries the SOURCE file's owner over to
+  // the copy, and the profile ended up owned by the user who ran sudo (seen
+  // 2026-09-16). A policy file must belong to root like Ubuntu's own — hence
+  // write, then chown explicitly.
+  fs.writeFileSync(plan.profileTarget, fs.readFileSync(plan.profileSource, 'utf8'), { mode: 0o644 });
+  fs.chownSync(plan.profileTarget, 0, 0);
+  fs.chmodSync(plan.profileTarget, 0o644);
+  const load = spawnSync('apparmor_parser', ['-r', plan.profileTarget], { stdio: 'inherit' });
+  if (load.error || load.status !== 0) {
+    const why = load.error ? load.error.message : `exit code ${load.status}`;
+    console.error(
+      `syflo: wrote ${plan.profileTarget} but could not load it (${why}).\n` +
+        'It will be loaded on the next boot; to load it now run: sudo apparmor_parser -r ' + plan.profileTarget
+    );
+    return 1;
+  }
+  console.log(`AppArmor profile installed at ${plan.profileTarget}. Run \`syflo\` again for the desktop window.`);
+  return 0;
+}
 
 function openInBrowser(url) {
   // No dependency for three one-liners. Detached and ignored: the opener is a
@@ -61,6 +104,10 @@ async function main() {
 
   if (plan.mode === 'help') {
     console.log(HELP_TEXT);
+    return;
+  }
+  if (plan.mode === 'install-linux-sandbox') {
+    process.exitCode = installLinuxSandbox(plan);
     return;
   }
   if (plan.mode === 'error') {

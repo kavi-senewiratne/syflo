@@ -39,12 +39,27 @@ uploads and API keys live in `~/.syflo` (override with `SYFLO_DATA_DIR`).
 | `syflo` | Backend + desktop window (Electron). |
 | `syflo --browser` | Backend only, opens your default browser. |
 | `syflo --port 4000` | Same, on another port (default 3001). |
+| `sudo … syflo --install-linux-sandbox` | Ubuntu 24.04+: allow the desktop window (see below). |
 | `syflo --help` | The flags above. |
 
 **If the window doesn't appear**, use `syflo --browser`. The desktop window
 needs Electron's binary, which is downloaded when the package is installed —
 that download is the one step likely to fail behind a corporate proxy. Syflo
 notices and opens the browser by itself, so the app works either way.
+
+**Ubuntu 24.04 and later** lock the sandbox Electron's window runs in
+(unprivileged user namespaces are restricted by AppArmor). Syflo detects this,
+opens the browser, and prints the one command that allows the window — the
+same kind of per-app AppArmor profile Ubuntu ships for VS Code and Slack.
+Copy the line Syflo prints (it names your Node and your install), or:
+
+```bash
+sudo "$(which node)" "$(which syflo)" --install-linux-sandbox
+```
+
+It grants `userns` to Syflo's Electron binary and nothing else; the profile is
+`bin/apparmor/syflo` in the package if you want to read it first. No
+`--no-sandbox`, no `chmod 4755` that the next `npm update` would undo.
 
 Ctrl-C in the terminal (or closing the window) stops the backend with it.
 

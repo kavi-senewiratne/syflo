@@ -1,0 +1,21 @@
+# AppArmor profile for Syflo's Electron window on Ubuntu 24.04 and later.
+#
+# Ubuntu locks unprivileged user namespaces (kernel.apparmor_restrict_unprivileged_userns=1).
+# Chromium then falls back to its SUID sandbox helper, which must be owned by root
+# with mode 4755 — impossible for a binary that npm installs into a user's home
+# (nvm, fnm, volta) and rewrites on every update. Ubuntu solves this for VS Code,
+# Slack and Discord with a profile like this one: it grants `userns` to exactly one
+# binary and nothing else. Install it with `sudo syflo --install-linux-sandbox`.
+#
+# The `/**/` prefix attaches the profile to the electron binary of ANY syflo
+# install location, so it survives Node and Syflo upgrades.
+
+abi <abi/4.0>,
+include <tunables/global>
+
+profile syflo /**/node_modules/syflo/node_modules/electron/dist/electron flags=(unconfined) {
+  userns,
+
+  # Site-specific additions and overrides. See local/README for details.
+  include if exists <local/syflo>
+}

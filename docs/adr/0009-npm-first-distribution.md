@@ -42,3 +42,36 @@ installs software via npm without blinking.
 - Electron's postinstall binary download is the most likely install failure; the
   README must mention `--browser` as the escape hatch.
 - The npm package name `syflo` gets claimed legitimately at first publish.
+
+## Addendum 2026-09-16 — Ubuntu locks Electron's sandbox
+
+Found on the first Ubuntu 24.04 install: `syflo` started the backend, then
+Electron aborted with *"The SUID sandbox helper binary was found, but is not
+configured correctly"*. Ubuntu restricts unprivileged user namespaces via
+AppArmor (`kernel.apparmor_restrict_unprivileged_userns=1`), so Chromium falls
+back to its SUID helper, which must be root-owned with mode 4755 — impossible
+for a binary npm puts into `$HOME` and rewrites on every update. This is the
+Linux start failure this ADR did not foresee; it hits the whole npm-on-Ubuntu
+audience, not a corner case.
+
+Decision: **detect before spawning, degrade to the browser, and ship the fix.**
+
+- `bin/lib/launch.js` probes (injectably) for Linux + the sysctl + a helper
+  that is not setuid-root + no `/etc/apparmor.d/syflo`, and returns the
+  browser plan with reason `linux-sandbox`. The FATAL never happens; the app
+  works at once.
+- `bin/apparmor/syflo` ships in the package: Ubuntu's own pattern for VS Code,
+  Slack and Discord — `flags=(unconfined)` plus `userns` for exactly one
+  binary. Its attachment path `/**/node_modules/syflo/node_modules/electron/dist/electron`
+  is prefix- and version-free, so nvm, fnm, volta and `/usr/local` share one
+  profile that survives upgrades.
+- `syflo --install-linux-sandbox` copies and loads it. It needs root, and
+  without root it prints the exact `sudo` line (spelled with the running Node
+  and script, because sudo's `secure_path` knows nothing about nvm).
+
+Rejected: passing `--no-sandbox` automatically (the renderer shows YouTube
+embeds — foreign web content — and would lose Chromium's isolation silently);
+`chown root` + `chmod 4755` on the helper (undone by the next `npm update`);
+turning the sysctl off system-wide (weakens every program on the machine). A
+user-facing `--no-sandbox` flag stays out until a user without root asks; the
+browser already covers that case.
