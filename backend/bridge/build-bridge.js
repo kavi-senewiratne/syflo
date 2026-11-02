@@ -8,8 +8,11 @@ const DIR = __dirname;
 const OUT = path.join(DIR, 'bridge.js');
 
 function build() {
-  const anchor = fs.readFileSync(path.join(DIR, 'anchor.js'), 'utf8');
-  const core = fs.readFileSync(path.join(DIR, 'bridge-core.js'), 'utf8');
+  // LF regardless of how git checked the sources out (Windows autocrlf), so
+  // the generated file is byte-identical on every platform.
+  const lf = (s) => s.replace(/\r\n/g, '\n');
+  const anchor = lf(fs.readFileSync(path.join(DIR, 'anchor.js'), 'utf8'));
+  const core = lf(fs.readFileSync(path.join(DIR, 'bridge-core.js'), 'utf8'));
   // The wrapper's own `module`/`exports` shadow any globals of the host page,
   // so anchor.js always takes its window.SyfloAnchor branch in the browser.
   return (

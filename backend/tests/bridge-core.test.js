@@ -53,7 +53,8 @@ const tick = () => new Promise((r) => setTimeout(r, 20));
 
 describe('bridge.js build', () => {
   test('the committed bridge.js is up to date with anchor.js + bridge-core.js', async () => {
-    expect(fs.readFileSync(OUT, 'utf8')).toBe(build());
+    // Compared LF-to-LF: a Windows checkout (autocrlf) hands back CRLF.
+    expect(fs.readFileSync(OUT, 'utf8').replace(/\r\n/g, '\n')).toBe(build());
   });
 });
 
