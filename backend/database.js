@@ -90,6 +90,18 @@ function createDb(dbPath = DB_PATH) {
       created_at TEXT NOT NULL
     );
 
+    -- HTML sources: the third source type (ADR-0013). html_path is the stored
+    -- snapshot copy; extracted_text / sections_json are what the chat reads
+    -- (visible text, cut at h1-h3). The root chat carries html_source_id.
+    CREATE TABLE IF NOT EXISTS html_sources (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      html_path TEXT NOT NULL,
+      extracted_text TEXT NOT NULL,
+      sections_json TEXT NOT NULL,
+      uploaded_at TEXT NOT NULL
+    );
+
     -- Text anchors for highlights (Syflo port, slice 04). bbox_json holds the
     -- multi-rects in zoom=1 page coordinates; start/end_offset are kept for
     -- schema compatibility with Syflo (there: Markdown anchors).
@@ -164,6 +176,24 @@ function createDb(dbPath = DB_PATH) {
     CREATE INDEX IF NOT EXISTS idx_transcript_highlights_video ON transcript_highlights(video_id);
     CREATE INDEX IF NOT EXISTS idx_transcript_highlights_child_chat ON transcript_highlights(child_chat_id);
 
+    -- Colored marks inside an HTML source (ADR-0013 decision 5). The anchor is
+    -- a QUOTE anchor { exact, prefix, suffix } (JSON) that the in-page bridge
+    -- re-finds on open; the backend only stores it. section is the heading
+    -- the passage sits in (drawer location text). chat_id is ON DELETE SET
+    -- NULL so marks outlive the chats they opened.
+    CREATE TABLE IF NOT EXISTS html_highlights (
+      id TEXT PRIMARY KEY,
+      html_source_id TEXT NOT NULL REFERENCES html_sources(id) ON DELETE CASCADE,
+      chat_id TEXT REFERENCES chats(id) ON DELETE SET NULL,
+      color TEXT NOT NULL CHECK(color IN ('yellow','green','blue','pink','orange')),
+      anchor_json TEXT NOT NULL,
+      section TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_html_highlights_source ON html_highlights(html_source_id);
+    CREATE INDEX IF NOT EXISTS idx_html_highlights_chat ON html_highlights(chat_id);
+
     -- Global color labels — one row per color the user RENAMED (slice 05).
     -- Deliberately NOT seeded (change 2026-08-06): the default name of a
     -- color is UI copy that follows the App language and lives in
@@ -199,6 +229,24 @@ function createDb(dbPath = DB_PATH) {
   // second source type (ADR-0005). Only the root chat of a tree carries it.
   if (!chatsCols.some((c) => c.name === 'video_id')) {
     db.exec('ALTER TABLE chats ADD COLUMN video_id TEXT REFERENCES videos(id) ON DELETE SET NULL');
+  }
+
+  // Migration: chats.html_source_id (nullable) — third source type (ADR-0013),
+  // carried by the root chat only, like paper_id and video_id.
+  if (!chatsCols.some((c) => c.name === 'html_source_id')) {
+    db.exec('ALTER TABLE chats ADD COLUMN html_source_id TEXT REFERENCES html_sources(id) ON DELETE SET NULL');
+  }
+
+  // Migration: html_sources.unfrozen_json (nullable) — JSON list of the network
+  // resources that could not be frozen into the stored copy (ADR-0013, decision 7).
+  const htmlSourceCols = db.prepare('PRAGMA table_info(html_sources)').all();
+  if (!htmlSourceCols.some((c) => c.name === 'unfrozen_json')) {
+    db.exec('ALTER TABLE html_sources ADD COLUMN unfrozen_json TEXT');
+  }
+  // Migration: html_sources.source_url (nullable) — the web address of a URL
+  // import (ADR-0013, "Web pages"); NULL for an uploaded file.
+  if (!htmlSourceCols.some((c) => c.name === 'source_url')) {
+    db.exec('ALTER TABLE html_sources ADD COLUMN source_url TEXT');
   }
 
   // Migration: chats.summary + chats.summary_last_message_id — cached LLM
@@ -429,7 +477,7 @@ function createDb(dbPath = DB_PATH) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS source_chunks (
       id TEXT PRIMARY KEY,
-      source_type TEXT NOT NULL CHECK(source_type IN ('paper', 'video')),
+      source_type TEXT NOT NULL CHECK(source_type IN ('paper', 'video', 'html')),
       source_id TEXT NOT NULL,
       chunk_index INTEGER NOT NULL,
       heading TEXT,
@@ -484,6 +532,36 @@ function createDb(dbPath = DB_PATH) {
   const chunkCols = db.prepare("PRAGMA table_info('source_chunks')").all();
   if (!chunkCols.some((c) => c.name === 'embedding_model')) {
     db.exec("ALTER TABLE source_chunks ADD COLUMN embedding_model TEXT NOT NULL DEFAULT 'nomic-embed-text'");
+  }
+
+  // Migration: allow source_type 'html' (ADR-0013). SQLite cannot alter a CHECK
+  // constraint, so a table still carrying the old one is rebuilt with its rows
+  // copied over. Idempotent: the rebuilt table's SQL names 'html'.
+  const chunkSql = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'source_chunks'").get();
+  if (chunkSql && !chunkSql.sql.includes("'html'")) {
+    db.transaction(() => {
+      db.exec(`
+        CREATE TABLE source_chunks_new (
+          id TEXT PRIMARY KEY,
+          source_type TEXT NOT NULL CHECK(source_type IN ('paper', 'video', 'html')),
+          source_id TEXT NOT NULL,
+          chunk_index INTEGER NOT NULL,
+          heading TEXT,
+          content TEXT NOT NULL,
+          embedding BLOB,
+          text_hash TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          embedding_model TEXT NOT NULL DEFAULT 'nomic-embed-text'
+        );
+        INSERT INTO source_chunks_new
+          SELECT id, source_type, source_id, chunk_index, heading, content, embedding,
+                 text_hash, created_at, embedding_model FROM source_chunks;
+        DROP TABLE source_chunks;
+        ALTER TABLE source_chunks_new RENAME TO source_chunks;
+        CREATE INDEX IF NOT EXISTS idx_source_chunks_source
+          ON source_chunks(source_type, source_id, chunk_index);
+      `);
+    })();
   }
 
   // Reference links: the citations a paper prints and the works behind them.

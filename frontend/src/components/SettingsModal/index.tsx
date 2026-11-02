@@ -14,19 +14,14 @@
  */
 
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { X, Loader2, Eye, EyeOff, Check, ExternalLink, Info, RefreshCw, Palette, Cpu, ScrollText, Languages, Mic, Search } from 'lucide-react';
+import { X, Loader2, Eye, EyeOff, Check, ExternalLink, Info, Palette, Cpu, ScrollText, Languages, Mic, Search } from 'lucide-react';
 import { api } from '../../api';
 import { ModelTierList, type TierCooldown } from './ModelTierList';
+import { LocalLibrary } from './LocalLibrary';
 import { THEMES, applyTheme, getStoredTheme, type ThemeId } from '../../theme';
 import { APP_LANGUAGES, setAppLanguage, useAppLanguage } from '../../appLanguage';
 import { useStrings } from '../../strings';
 import type { CloudProvider, LLMProvider, OllamaModelInfo, Registry, Settings, UsageSummary } from '../../types';
-
-function formatSize(bytes?: number): string {
-  if (!bytes) return '';
-  const gb = bytes / 1024 ** 3;
-  return gb >= 1 ? `${gb.toFixed(1)} GB` : `${(bytes / 1024 ** 2).toFixed(0)} MB`;
-}
 
 export type SettingsTab = 'appearance' | 'model' | 'search' | 'language' | 'instructions';
 
@@ -80,6 +75,9 @@ export function SettingsModal({ open, onClose, onSaved, initialTab = 'appearance
   const [tab, setTab] = useState<SettingsTab>('appearance');
 
   const [provider, setProvider] = useState<LLMProvider>('gemini');
+  // The local model chosen in the library's radio list (§07 C, 2026-10-31):
+  // a form value like the cloud models, saved by Activate.
+  const [ollamaModel, setOllamaModel] = useState('');
   // One chosen model and one key input PER cloud provider — switching
   // between cards never loses half-typed state this way.
   const [cloudModels, setCloudModels] = useState<Record<CloudProvider, string>>({
@@ -104,9 +102,8 @@ export function SettingsModal({ open, onClose, onSaved, initialTab = 'appearance
   const [cooldowns, setCooldowns] = useState<Record<string, TierCooldown>>({});
 
   // Ollama models pulled locally (vision-filtered, with canThink). Loaded
-  // once per modal-open; manually refreshable. Frozen fallback (ADR-0008
-  // amendment): downloads happen via `ollama pull` in the terminal — the
-  // app only lists.
+  // once per modal-open; refreshed by the library after a download or a
+  // Remove (grill 2026-10-27).
   const [ollamaModels, setOllamaModels] = useState<OllamaModelInfo[]>([]);
   const [ollamaModelsLoading, setOllamaModelsLoading] = useState(false);
 
@@ -143,6 +140,7 @@ export function SettingsModal({ open, onClose, onSaved, initialTab = 'appearance
 
   const applySettings = (s: Settings) => {
     setProvider(s.llm_provider);
+    setOllamaModel(s.ollama_model);
     setCloudModels({
       gemini: s.gemini_model,
       groq: s.groq_model,
@@ -193,18 +191,18 @@ export function SettingsModal({ open, onClose, onSaved, initialTab = 'appearance
 
   // "Dirty" = the selection differs from the last saved values. A non-empty
   // key input also counts as dirty (even though we never know the stored
-  // key — anything typed is intent). The Ollama model does NOT count here:
-  // it is switched only via the composer pill ("one owner per job") —
-  // Settings manages provider, cloud models and keys.
+  // key — anything typed is intent). The local model counts like a cloud
+  // model since §07 C (2026-10-31); the composer pill remains the other
+  // door to the same setting.
   const dirty = useMemo(() => {
     if (!original) return false;
     if (provider !== original.llm_provider) return true;
-    if (provider === 'ollama') return false;
+    if (provider === 'ollama') return ollamaModel !== original.ollama_model;
     return (
       cloudModels[provider] !== original[`${provider}_model`] ||
       keyInputs[provider].length > 0
     );
-  }, [original, provider, cloudModels, keyInputs]);
+  }, [original, provider, ollamaModel, cloudModels, keyInputs]);
 
   // Every cloud provider strictly requires a key. Activation stays blocked
   // while neither a stored nor a typed one exists.
@@ -239,7 +237,9 @@ export function SettingsModal({ open, onClose, onSaved, initialTab = 'appearance
       const patch: Parameters<typeof api.updateSettings>[0] = {
         llm_provider: provider,
       };
-      if (provider !== 'ollama') {
+      if (provider === 'ollama') {
+        if (ollamaModel) patch.ollama_model = ollamaModel;
+      } else {
         patch[`${provider}_model`] = cloudModels[provider];
         // Only send the key when the user actually typed something (empty
         // string = explicit delete — only "Remove key" sends that).
@@ -912,75 +912,23 @@ export function SettingsModal({ open, onClose, onSaved, initialTab = 'appearance
                       </>
                     ) : (
                       <>
-                        {/* The list of installed vision models. Frozen
-                            fallback (ADR-0008 amendment): no download, no
-                            remove, no hardware recommendation — installing
-                            happens with `ollama pull` in the terminal.
-                            Switching lives in the composer pill; here there is
-                            only a passive "Active" badge. */}
-                        <div>
-                          <div className="flex items-center justify-between mb-2">
-                            <StepLabel n={2}>{S.model.stepModels}</StepLabel>
-                            <button
-                              type="button"
-                              onClick={loadOllamaModels}
-                              disabled={ollamaModelsLoading}
-                              data-tip={S.model.refreshList}
-                              aria-label={S.model.refreshList}
-                              className="p-1 rounded text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors disabled:opacity-40"
-                            >
-                              <RefreshCw size={12} className={ollamaModelsLoading ? 'animate-spin' : ''} />
-                            </button>
-                          </div>
-
-                          <div className="space-y-2">
-                            {ollamaModels.map(row => {
-                              const isActive = original?.ollama_model === row.name;
-                              return (
-                                <div
-                                  key={row.name}
-                                  className="flex items-center gap-2.5 rounded-lg border border-gray-200 px-3 py-2.5"
-                                  data-testid={`library-row-${row.name}`}
-                                >
-                                  <div className="flex-1 min-w-0">
-                                    <div className="text-sm font-mono font-medium text-gray-900 truncate">{row.name}</div>
-                                    <div className="text-[11px] text-gray-500">
-                                      {[row.parameter_size, row.size ? formatSize(row.size) : null].filter(Boolean).join(' · ') || S.model.rowInstalled}
-                                      {row.canThink ? S.model.rowCanThink : ''}
-                                    </div>
-                                  </div>
-                                  {isActive && (
-                                    <span className="shrink-0 inline-flex items-center gap-1 text-[11px] font-semibold text-blue-700 bg-blue-50 rounded-full px-2 py-0.5">
-                                      {S.model.activeBadge}
-                                    </span>
-                                  )}
-                                </div>
-                              );
-                            })}
-                            {ollamaModels.length === 0 && (
-                              <p className="text-[11px] text-amber-700 leading-relaxed">
-                                {S.model.ollamaUnreachable}
-                              </p>
-                            )}
-                          </div>
-
-                          {/* Installing happens in the terminal (frozen fallback). */}
-                          <p className="mt-2 text-[11px] text-gray-500 leading-relaxed" data-testid="pull-hint">
-                            {S.model.pullHint}
-                          </p>
-                          <p className="mt-2 text-[11px] text-gray-500 leading-relaxed">
-                            {S.model.libraryNote}{' '}
-                            <a
-                              href="https://ollama.com/download"
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-green-700 font-medium hover:underline inline-flex items-center gap-0.5"
-                            >
-                              {S.model.installOllama}
-                              <ExternalLink size={10} />
-                            </a>
-                          </p>
-                        </div>
+                        {/* The local library (grill 2026-10-27, §07 C
+                            2026-10-31): hardware line, recommendation card
+                            with in-app download, and one radio list of the
+                            installed models — selected like the cloud list,
+                            saved by Activate below. The library installs,
+                            removes and — once, after a download — offers the
+                            switch (decision 8). */}
+                        <LocalLibrary
+                          ollamaModels={ollamaModels}
+                          ollamaModelsLoading={ollamaModelsLoading}
+                          onRefreshModels={loadOllamaModels}
+                          original={original}
+                          value={ollamaModel}
+                          onChange={setOllamaModel}
+                          onSwitched={(result) => { applySettings(result); onSaved?.(result); }}
+                          stepLabel={<StepLabel n={2}>{S.model.stepModels}</StepLabel>}
+                        />
                       </>
                     )}
                   </>

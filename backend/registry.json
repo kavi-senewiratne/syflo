@@ -1,5 +1,5 @@
 {
-  "asOf": "2026-09-04",
+  "asOf": "2026-10-27",
   "sourceUrl": "https://raw.githubusercontent.com/kavisenewiratne/syflo/main/backend/registry.json",
   "providers": {
     "gemini": {
@@ -192,7 +192,100 @@
       "billingUrl": null,
       "free": true,
       "defaultModel": "qwen3.5:9b",
-      "models": []
+      "models": [
+        {
+          "name": "qwen3.5:4b",
+          "label": "Qwen 3.5 4B",
+          "vision": true,
+          "canThink": true,
+          "contextWindowTokens": 32768,
+          "budgetCapTokens": 32768,
+          "free": true,
+          "pricing": null,
+          "downloadGb": 3.3,
+          "fitsGb": 6.8,
+          "minMemoryGb": 0,
+          "measured": false,
+          "notes": "Smallest rung; the CPU fallback when no GPU memory is usable."
+        },
+        {
+          "name": "qwen3.5:9b",
+          "label": "Qwen 3.5 9B",
+          "vision": true,
+          "canThink": true,
+          "contextWindowTokens": 32768,
+          "budgetCapTokens": 32768,
+          "free": true,
+          "pricing": null,
+          "downloadGb": 6.6,
+          "fitsGb": 10.1,
+          "minMemoryGb": 8,
+          "measured": true,
+          "notes": "8–20 GB rung — measured 2026-10-27 on an RTX 5080 Laptop (16 GB): paper prefill 5.1 s cold (13k tokens), warm TTFT 0.44 s, decode ~52 tok/s; OCR of a figure and a second-half table question both right. Hybrid attention (no q8_0 KV cache)."
+        },
+        {
+          "name": "gemma4:12b",
+          "label": "Gemma 4 12B",
+          "vision": true,
+          "canThink": true,
+          "contextWindowTokens": 32768,
+          "budgetCapTokens": 32768,
+          "free": true,
+          "pricing": null,
+          "downloadGb": 8.0,
+          "fitsGb": 11.5,
+          "minMemoryGb": 8,
+          "measured": false,
+          "alternative": true,
+          "notes": "8–20 GB rung alternative — measured 2026-10-27 on the same card: prefill 12.2 s cold, warm TTFT 0.44 s, decode ~108 tok/s; table question right, figure labels right but in the wrong order. Classic attention: q8_0 KV cache and slot restore possible (ADR-0007 revisit)."
+        },
+        {
+          "name": "qwen3.8:27b",
+          "label": "Qwen 3.8 27B",
+          "vision": true,
+          "canThink": true,
+          "contextWindowTokens": 32768,
+          "budgetCapTokens": 32768,
+          "free": true,
+          "pricing": null,
+          "downloadGb": 18.0,
+          "fitsGb": 21.5,
+          "minMemoryGb": 20,
+          "measured": false,
+          "notes": "20–30 GB rung. Dense 27B on the Qwen 3.5 architecture."
+        },
+        {
+          "name": "gemma4:26b",
+          "label": "Gemma 4 26B (MoE)",
+          "vision": true,
+          "canThink": true,
+          "contextWindowTokens": 32768,
+          "budgetCapTokens": 32768,
+          "free": true,
+          "pricing": null,
+          "downloadGb": 18.0,
+          "fitsGb": 21.5,
+          "minMemoryGb": 20,
+          "measured": false,
+          "alternative": true,
+          "notes": "20–30 GB rung alternative. 25B total, 3.8B active."
+        },
+        {
+          "name": "gemma4:31b",
+          "label": "Gemma 4 31B",
+          "vision": true,
+          "canThink": true,
+          "contextWindowTokens": 32768,
+          "budgetCapTokens": 32768,
+          "free": true,
+          "pricing": null,
+          "downloadGb": 20.0,
+          "fitsGb": 23.5,
+          "minMemoryGb": 30,
+          "measured": false,
+          "notes": "30 GB+ rung. Dense; strongest OCR of the family."
+        }
+      ]
     }
   }
 }

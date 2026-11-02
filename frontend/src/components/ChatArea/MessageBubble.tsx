@@ -45,6 +45,7 @@ import { MathText, plainMathText } from '../MathText';
 import { useStrings } from '../../strings';
 import { gfmTableComponents } from './markdownTables';
 import { CodeBlock } from './CodeBlock';
+import { HtmlFreezeCard, type HtmlFreezeInfo } from './HtmlFreezeCard';
 import { FAILED_MARKER, INTERRUPTED_MARKER } from '../../types';
 import type { ChatSelection, FreeProviderOffer, HighlightColor, LLMProvider, Message, MessageHighlight } from '../../types';
 
@@ -180,6 +181,10 @@ interface Props {
   // of the search-wish card reads it as "the re-asked answer is still being
   // written" — spinner on step 2 while true, settled line once false.
   chatStreaming?: boolean;
+  // The HTML source's unfrozen resources (ADR-0013 decision 7). Set only on
+  // the FIRST answer of the tree's root chat; the card is a caveat under that
+  // answer and yields to every other card (one card per bubble).
+  htmlFreeze?: HtmlFreezeInfo;
 }
 
 // "Thought for 1m 42s" / "Thought for 34s".
@@ -303,6 +308,7 @@ export function MessageBubble({
   onSaveSearchKey,
   searchKeyStored,
   chatStreaming,
+  htmlFreeze,
 }: Props) {
   // UI-Texte in der App language — re-rendert beim Sprachwechsel mit.
   const STR = useStrings();
@@ -1644,6 +1650,14 @@ export function MessageBubble({
               </button>
             )}
           </div>
+        )}
+
+        {/* The frozen-resources caveat of an HTML source: a card of its own
+            kind, so it stands back for the truncated and seam cards above and
+            for the search wish — two cards would fight for the same click. */}
+        {htmlFreeze && htmlFreeze.unfrozen.length > 0 && !message.truncated && !message.seam_suspect
+          && !message.searchWish && !isStreaming && !isFailed && !isInterrupted && (
+          <HtmlFreezeCard {...htmlFreeze} />
         )}
       </div>
     </div>

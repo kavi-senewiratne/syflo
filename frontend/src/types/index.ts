@@ -35,6 +35,9 @@ export interface Chat {
   // ID des an den Tree gebundenen YouTube transcript (ADR-0005) — nur am
   // Root gesetzt. Rendert den YT-Tag am Root-Knoten im Chat tree.
   video_id?: string | null;
+  // ID of the HTML source bound to the tree (ADR-0013) — root only. Renders
+  // the HTML tag on the root node and picks the center pane.
+  html_source_id?: string | null;
   // Branch trace (design/mockup-branch-trace.html, Variante A): Woher im
   // Elternchat dieser Zweig stammt. `/btw` und `/branch` haben keine
   // markierte Passage — ihr Anker ist die letzte Nachricht, die im
@@ -587,7 +590,15 @@ export interface TreeVideoHighlight {
   updatedAt: string;
 }
 
-export type TreeHighlight = TreePdfHighlight | TreeChatHighlight | TreeVideoHighlight;
+// A mark in the tree's HTML source — the fourth kind (ADR-0013). Same fields as
+// HtmlHighlight plus the discriminant.
+export interface TreeHtmlHighlight extends HtmlHighlight {
+  kind: 'html';
+  // = anchor.exact, so the drawer can print it like the other kinds.
+  text: string;
+}
+
+export type TreeHighlight = TreePdfHighlight | TreeChatHighlight | TreeVideoHighlight | TreeHtmlHighlight;
 
 // Eine Auswahl in einer Chat-Nachricht (vor dem Speichern) — von
 // MessageBubble beim Rechtsklick erfasst, von App an Popup/Composer gereicht.
@@ -828,6 +839,56 @@ export interface OllamaModelInfo {
   size?: number;
   parameter_size?: string;
   canThink?: boolean;
+  // The window Syflo baked or measured for this model (decision 7, grill
+  // 2026-10-27); null/absent until the model has been loaded once.
+  contextLength?: number | null;
+}
+
+// ─── Local library (grill 2026-10-27) ────────────────────────────────────────
+// The machine as ONE number (`usableGb`: VRAM, ~70 % of unified memory, or 0
+// without a GPU) and the registry model that fits it completely.
+export interface HardwareFacts {
+  platform: string;
+  totalMemGb: number;
+  gpu: { vendor: 'nvidia' | 'amd' | 'apple'; name: string; vramGb: number } | null;
+  usableGb: number;
+  basis: 'vram' | 'unified' | 'cpu';
+}
+
+// A registry Ollama model plus what the recommendation knows about it here.
+export interface RecommendedModel extends RegistryModel {
+  downloadGb: number;
+  // Weights + KV cache at 32k + buffer — what the model really occupies.
+  fitsGb: number;
+  minMemoryGb: number;
+  measured: boolean;
+  alternative?: boolean;
+  notes?: string;
+  // false only for the CPU fallback: offered, but it will not sit on a GPU.
+  fits: boolean;
+  installed: boolean;
+}
+
+export interface Recommendation {
+  hardware: HardwareFacts;
+  ollamaReachable: boolean;
+  recommended: RecommendedModel | null;
+  alsoFits: RecommendedModel[];
+}
+
+// One progress line of a pull, as Ollama streams it.
+export interface PullProgress {
+  status: string;
+  digest?: string;
+  total?: number;
+  completed?: number;
+}
+
+export interface PullResult {
+  ready: boolean;
+  // The window baked into the model after the pull; null = not baked.
+  contextLength: number | null;
+  error?: string;
 }
 
 // Settings updates — all fields optional (partial update).
@@ -901,4 +962,65 @@ export interface FreeProviderOffer {
   quota: string;
   // Groq's free models are text-only — the offer must say so.
   readsImages: boolean;
+}
+
+
+// ─── HTML source (ADR-0013, design/mockup-html-app.html) ────────────────────
+
+// One heading of the page's outline (h1–h3).
+export interface HtmlSection {
+  level: number;
+  heading: string;
+}
+
+// Why a network resource could not be frozen into the stored copy. The
+// backend names the exact reason; the warning card prints it verbatim.
+export type HtmlUnfrozenReason =
+  | 'no-internet'
+  | 'timeout'
+  | 'too-large'
+  | 'blocked-local-address'
+  | `http-${number}`;
+
+export interface HtmlUnfrozenResource {
+  url: string;
+  kind: string;
+  reason: HtmlUnfrozenReason | string;
+}
+
+export interface HtmlSource {
+  id: string;
+  title: string;
+  uploaded_at: string;
+  sections: HtmlSection[];
+  // Resources that could not be frozen at upload. Empty = fully offline.
+  unfrozen: HtmlUnfrozenResource[];
+}
+
+// Where the source is served (its own origin) and the token its bridge carries.
+export interface HtmlEmbed {
+  url: string;
+  origin: string;
+  token: string;
+}
+
+// A quote anchor (CONTEXT.md): the exact text plus context before and after,
+// re-found by the bridge on open — never character offsets.
+export interface HtmlAnchor {
+  exact: string;
+  prefix: string;
+  suffix: string;
+}
+
+export interface HtmlHighlight {
+  id: string;
+  htmlSourceId: string;
+  // The chat opened from this passage; null on a plain mark.
+  chatId: string | null;
+  color: HighlightColor;
+  anchor: HtmlAnchor;
+  // Heading the passage sits under.
+  section: string | null;
+  createdAt: string;
+  updatedAt?: string;
 }

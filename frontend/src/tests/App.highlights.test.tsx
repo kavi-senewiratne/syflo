@@ -27,6 +27,7 @@ vi.mock('../api', () => ({
     warmupChat: vi.fn().mockResolvedValue(undefined),
     getOllamaModels: vi.fn().mockResolvedValue([]),
     getOllamaStatus: vi.fn().mockResolvedValue({ reachable: true, models: [] }),
+    getRecommendation: vi.fn().mockResolvedValue({ hardware: { platform: 'linux', totalMemGb: 16, basis: 'cpu', usableGb: 0, gpu: null }, ollamaReachable: true, recommended: null, alsoFits: [] }),
     getQuotaCooldowns: vi.fn().mockResolvedValue([]),
     getUsageSummary: vi.fn().mockResolvedValue({ month: '2026-07', pricesAsOf: '2026-07-30', providers: {}, modelsToday: {} }),
     getRegistry: vi.fn().mockRejectedValue(new Error('none')),

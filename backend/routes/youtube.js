@@ -78,7 +78,7 @@ module.exports = (db, options = {}) => {
     if (!root) return res.status(404).json({ error: 'Chat not found' });
     // ADR-0005: one source per tree (PDF or video) — checked BEFORE the
     // fetch so the failure case burns no InnerTube request.
-    if (root.paper_id || root.video_id) {
+    if (root.paper_id || root.video_id || root.html_source_id) {
       return res.status(409).json({ error: 'tree-has-source', root_chat_id: root.id });
     }
 

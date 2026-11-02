@@ -308,4 +308,28 @@ async function extendOllamaKeepAlive(model) {
   } catch { /* Ollama unreachable — the TTL simply stays at the default */ }
 }
 
-module.exports = { getLLMClient, getLLMClientFor, normalizeSystemMessages, withMessageNormalization, unwrapProviderErrors, getSetting, setSetting, getAllSettings, testOpenAIKey, testProviderKey, noThinkExtras, extendOllamaKeepAlive, DEFAULTS, CLOUD_PROVIDERS };
+/**
+ * Reads the context window the daemon REALLY loaded `model` with (GET
+ * /api/ps → context_length) and stores it under ollama_context_length:<model>
+ * — the number registry.getModelInfo budgets with (grill 2026-10-27,
+ * decision 7). Returns the window, or null when the model is not loaded or
+ * Ollama is unreachable; the stored value is left alone then. `fetchFn` is
+ * injectable for tests.
+ */
+async function recordOllamaContextLength(db, model, fetchFn = fetch) {
+  try {
+    const r = await fetchFn('http://localhost:11434/api/ps');
+    if (!r.ok) return null;
+    const data = await r.json();
+    const names = new Set([model, model.includes(':') ? model : `${model}:latest`]);
+    const loaded = (data.models || []).find((m) => names.has(m.name) || names.has(m.model));
+    const n = loaded && parseInt(loaded.context_length, 10);
+    if (!n || n <= 0) return null;
+    setSetting(db, `ollama_context_length:${model}`, String(n));
+    return n;
+  } catch {
+    return null;
+  }
+}
+
+module.exports = { recordOllamaContextLength, getLLMClient, getLLMClientFor, normalizeSystemMessages, withMessageNormalization, unwrapProviderErrors, getSetting, setSetting, getAllSettings, testOpenAIKey, testProviderKey, noThinkExtras, extendOllamaKeepAlive, DEFAULTS, CLOUD_PROVIDERS };

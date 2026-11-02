@@ -46,3 +46,6 @@ article/
 # Source of truth lives in backend/. Re-created by
 # scripts/sync-electron-resources.sh (electron build scripts run it).
 electron/resources/
+
+# Playwright run artifacts (tests/e2e/*.spec.ts stay tracked)
+tests/e2e/.results/

@@ -10,11 +10,16 @@
 //    loads http://localhost:3001. The backend also serves the built frontend
 //    there (SYFLO_FRONTEND_DIR) — same-origin, so the frontend's relative /api
 //    calls work without a proxy.
-const { app, BrowserWindow, dialog, ipcMain, shell } = require('electron');
+const electron = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, shell } = electron;
 const { spawn, execFile } = require('child_process');
 const path = require('path');
 const http = require('http');
 const fs = require('fs');
+const os = require('os');
+const dns = require('dns');
+const { createPageRenderer } = require('./page-renderer');
+const { startRenderServer } = require('./render-server');
 
 const PACKAGE_ROOT = path.join(__dirname, '..');
 
@@ -48,6 +53,32 @@ const BACKEND_IS_EXTERNAL = process.env.SYFLO_BACKEND_EXTERNAL === '1';
 
 let backendProcess = null;
 
+// URL import (ADR-0013, "Web pages"): main renders pages for the backend over a
+// loopback channel. The bundled backend gets SYFLO_RENDER_URL/TOKEN in its env;
+// a backend that is already running (the `syflo` CLI starts it BEFORE this
+// process) finds the same pair in <data dir>/render-channel.json instead.
+// Without either the backend falls back to a raw fetch.
+let renderServer = null;
+let renderChannelFile = null;
+
+async function startRenderChannel() {
+  try {
+    const { backendEntry } = resolvePaths({ packageRoot: PACKAGE_ROOT, resourcesPath: process.resourcesPath });
+    // The SSRF guard is the backend's own (html-freeze.js), so both sides agree.
+    const { assertPublicHost } = require(path.join(path.dirname(backendEntry), 'html-freeze.js'));
+    const lookup = (host, opts) => dns.promises.lookup(host, opts);
+    const renderPage = createPageRenderer({ electron, assertPublicHost: (host) => assertPublicHost(host, lookup) });
+    renderServer = await startRenderServer({ renderPage });
+    const dataDir = process.env.SYFLO_DATA_DIR || (app.isPackaged ? app.getPath('userData') : path.join(os.homedir(), '.syflo'));
+    fs.mkdirSync(dataDir, { recursive: true });
+    renderChannelFile = path.join(dataDir, 'render-channel.json');
+    fs.writeFileSync(renderChannelFile, JSON.stringify({ url: renderServer.url, token: renderServer.token }), { mode: 0o600 });
+  } catch (err) {
+    console.error('Page renderer unavailable, URL import falls back to raw fetch:', err.message);
+    renderServer = null;
+  }
+}
+
 // The bundled backend process. SYFLO_DATA_DIR points at a per-user writable
 // place (the .app bundle is read-only on macOS).
 function spawnBackend() {
@@ -68,6 +99,7 @@ function spawnBackend() {
       SYFLO_DATA_DIR: dataDir,
       SYFLO_FRONTEND_DIR: frontendDir,
       PORT: String(BACKEND_PORT),
+      ...(renderServer ? { SYFLO_RENDER_URL: renderServer.url, SYFLO_RENDER_TOKEN: renderServer.token } : {}),
     },
     // Make backend logs visible in the app's console output
     stdio: 'inherit',
@@ -213,7 +245,7 @@ app.whenReady().then(() => {
   if (process.platform === 'darwin' && !app.isPackaged) {
     app.dock.setIcon(path.join(__dirname, 'assets', 'icon.png'));
   }
-  createWindow();
+  startRenderChannel().then(createWindow);
 });
 
 app.on('activate', () => {
@@ -227,4 +259,8 @@ app.on('window-all-closed', () => {
   app.quit();
 });
 
-app.on('will-quit', stopBackend);
+app.on('will-quit', () => {
+  stopBackend();
+  if (renderChannelFile) { try { fs.unlinkSync(renderChannelFile); } catch (_) { /* already gone */ } }
+  if (renderServer) renderServer.close();
+});

@@ -15,7 +15,7 @@
  */
 
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { SquarePen, GitBranch, ArrowLeft, Pencil, Trash2, FileText, PanelLeftClose, PanelLeftOpen, Settings as SettingsIcon, TvMinimalPlay, MessageSquarePlus, Pin, PinOff, ChevronDown, ChevronRight, Clock, Folder, FolderPlus, MoreHorizontal } from 'lucide-react';
+import { SquarePen, GitBranch, ArrowLeft, Pencil, Trash2, FileText, PanelLeftClose, PanelLeftOpen, Settings as SettingsIcon, TvMinimalPlay, Code, MessageSquarePlus, Pin, PinOff, ChevronDown, ChevronRight, Clock, Folder, FolderPlus, MoreHorizontal } from 'lucide-react';
 import { ChatTree, QueuedClock, RenameInput, StreamingDots, type CollapseControl } from './ChatTree';
 import { groupChatsByDate } from './groupChatsByDate';
 import { MathText, hasMath, plainMathText } from '../MathText';
@@ -641,6 +641,16 @@ export function Sidebar({ chats, activeChatId, categories, onCreateCategory, onR
           >
             <TvMinimalPlay size={9} />
             YT
+          </span>
+        )}
+        {/* HTML tag on trees with an HTML source (ADR-0013). */}
+        {!isRenaming && chat.html_source_id && (
+          <span
+            className="ml-auto shrink-0 inline-flex items-center gap-[3px] text-[10px] leading-[14px] font-semibold tracking-wide text-gray-500 bg-gray-50 border border-gray-200 rounded-[5px] px-1.5 py-px"
+            data-testid="root-list-html-tag"
+          >
+            <Code size={9} />
+            HTML
           </span>
         )}
         {/* No unpin button on the row (user decision 2026-08-11): pinning and

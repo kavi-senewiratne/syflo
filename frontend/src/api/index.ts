@@ -10,7 +10,7 @@
  * chunk so the UI can update in real time — exactly like ChatGPT's typing effect.
  */
 
-import type { BranchOrigin, Category, Chat, ChatAncestor, ChatDetail, CreateHighlightPayload, CreateMessageHighlightPayload, FailoverInfo, FailReason, FeedbackKind, Highlight, HighlightColor, HighlightLabelOverrides, LocalAttachment, Message, MessageHighlight, OllamaModelInfo, Paper, PaperCitations, PaperReference, PaperSearchResponse, QuotaReason, Registry, Settings, SettingsUpdate, ToolEvent, TranscriptHighlight, TreeHighlight, UsageSummary, Video, VideoSearchResult, WarmupResult } from '../types';
+import type { BranchOrigin, Category, Chat, ChatAncestor, ChatDetail, CreateHighlightPayload, CreateMessageHighlightPayload, FailoverInfo, FailReason, FeedbackKind, Highlight, HighlightColor, HtmlAnchor, HtmlEmbed, HtmlHighlight, HtmlSource, HighlightLabelOverrides, LocalAttachment, Message, MessageHighlight, OllamaModelInfo, Paper, PullProgress, PullResult, Recommendation, PaperCitations, PaperReference, PaperSearchResponse, QuotaReason, Registry, Settings, SettingsUpdate, ToolEvent, TranscriptHighlight, TreeHighlight, UsageSummary, Video, VideoSearchResult, WarmupResult } from '../types';
 import { FAIL_REASONS } from '../types';
 import { getAppLanguage } from '../appLanguage';
 
@@ -19,6 +19,16 @@ const BASE = '/api';
 // Fehler beim Anhängen einer Quelle an einen Tree, der schon eine hat —
 // ADR-0005 generalisiert ADR-0002: eine Quelle pro Baum (PDF ODER YouTube
 // transcript). Trägt die Root-Chat-ID für den Neuer-Tree-Dialog.
+// The imported web page rendered but showed no readable text (login wall,
+// paywall, captcha). A limit of the page, not a fault — the UI answers with a
+// quiet hint and an upload exit, never the red error surface (ADR-0013).
+export class HtmlNoReadableTextError extends Error {
+  constructor() {
+    super('no-readable-text');
+    this.name = 'HtmlNoReadableTextError';
+  }
+}
+
 export class TreeHasSourceError extends Error {
   rootChatId: string | null;
   constructor(rootChatId: string | null) {
@@ -178,6 +188,30 @@ async function readMessageStream(
   }
 
   throw new Error('Stream ended without completion');
+}
+
+// The backend may answer highlight rows in camelCase or snake_case; the app
+// works in camelCase only.
+function normalizeHtmlHighlight(h: Record<string, any>): HtmlHighlight { // eslint-disable-line @typescript-eslint/no-explicit-any
+  return {
+    id: h.id,
+    htmlSourceId: h.htmlSourceId ?? h.html_source_id,
+    chatId: h.chatId ?? h.chat_id ?? null,
+    color: h.color,
+    anchor: h.anchor,
+    section: h.section ?? null,
+    createdAt: h.createdAt ?? h.created_at ?? '',
+  };
+}
+
+function normalizeHtmlSource(s: Partial<HtmlSource> & { id: string }): HtmlSource {
+  return {
+    id: s.id,
+    title: s.title ?? '',
+    uploaded_at: s.uploaded_at ?? '',
+    sections: s.sections ?? [],
+    unfrozen: s.unfrozen ?? [],
+  };
 }
 
 export const api = {
@@ -675,6 +709,105 @@ export const api = {
     return body.video ?? null;
   },
 
+  // ─── HTML source (ADR-0013) ────────────────────────────────────────────────
+
+  // Uploads an HTML file and binds it to the tree of chatId. 409 → the tree
+  // already has a source (TreeHasSourceError, same prompt as PDF and video).
+  async uploadHtmlSource(chatId: string, file: File): Promise<HtmlSource> {
+    const fd = new FormData();
+    fd.append('chat_id', chatId);
+    fd.append('html', file, file.name);
+    const res = await fetch(`${BASE}/html-sources`, { method: 'POST', body: fd });
+    if (res.status === 409) {
+      const body = await res.json().catch(() => ({}));
+      throw new TreeHasSourceError(body.root_chat_id ?? null);
+    }
+    if (res.status === 415) throw new Error('Only HTML files are accepted');
+    if (!res.ok) throw new Error('Failed to upload HTML');
+    return normalizeHtmlSource(await res.json());
+  },
+
+  // Imports a web page by URL. 422 no-readable-text → HtmlNoReadableTextError.
+  async importHtmlFromUrl(chatId: string, url: string): Promise<HtmlSource> {
+    const res = await fetch(`${BASE}/html-sources/from-url`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId, url }),
+    });
+    if (res.status === 409) {
+      const body = await res.json().catch(() => ({}));
+      throw new TreeHasSourceError(body.root_chat_id ?? null);
+    }
+    if (res.status === 422) {
+      const body = await res.json().catch(() => ({}));
+      if (body.error === 'no-readable-text') throw new HtmlNoReadableTextError();
+    }
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.message || body.error || 'Failed to load the page');
+    }
+    return normalizeHtmlSource(await res.json());
+  },
+
+  async getHtmlSource(id: string): Promise<HtmlSource> {
+    const res = await fetch(`${BASE}/html-sources/${id}`);
+    if (!res.ok) throw new Error('Failed to fetch HTML source');
+    return normalizeHtmlSource(await res.json());
+  },
+
+  // "Try again" on the warning card: re-attempts only the missing resources.
+  async retryHtmlFreeze(id: string): Promise<HtmlSource> {
+    const res = await fetch(`${BASE}/html-sources/${id}/freeze`, { method: 'POST' });
+    if (!res.ok) throw new Error('Failed to retry freezing');
+    return normalizeHtmlSource(await res.json());
+  },
+
+  async getHtmlEmbed(id: string): Promise<HtmlEmbed> {
+    const res = await fetch(`${BASE}/html-sources/${id}/embed`);
+    if (!res.ok) throw new Error('Failed to fetch HTML embed');
+    return res.json();
+  },
+
+  async listHtmlHighlights(htmlSourceId: string): Promise<HtmlHighlight[]> {
+    const res = await fetch(`${BASE}/html-highlights?html_source_id=${encodeURIComponent(htmlSourceId)}`);
+    if (!res.ok) throw new Error('Failed to fetch HTML highlights');
+    const list = await res.json();
+    return Array.isArray(list) ? list.map(normalizeHtmlHighlight) : [];
+  },
+
+  async createHtmlHighlight(
+    htmlSourceId: string,
+    payload: { color: HighlightColor; anchor: HtmlAnchor; section?: string | null; chatId?: string | null },
+  ): Promise<HtmlHighlight> {
+    const res = await fetch(`${BASE}/html-highlights`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ htmlSourceId, ...payload }),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error || 'Failed to create highlight');
+    }
+    return normalizeHtmlHighlight(await res.json());
+  },
+
+  async updateHtmlHighlight(
+    id: string,
+    patch: { color?: HighlightColor; chatId?: string | null },
+  ): Promise<HtmlHighlight | null> {
+    const res = await fetch(`${BASE}/html-highlights/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    });
+    if (!res.ok) return null;
+    return normalizeHtmlHighlight(await res.json());
+  },
+
+  async deleteHtmlHighlight(id: string): Promise<void> {
+    await fetch(`${BASE}/html-highlights/${id}`, { method: 'DELETE' });
+  },
+
   // ─── Highlights + Labels (Syflo-Port, Slices 04–06) ───────────────────────
 
   async listHighlights(paperId: string): Promise<Highlight[]> {
@@ -1016,6 +1149,83 @@ export const api = {
       return { reachable: true, models: Array.isArray(data.models) ? data.models : [] };
     } catch {
       return { reachable: false, models: [] };
+    }
+  },
+
+  // The local library (grill 2026-10-27): the machine's facts and the model
+  // that fits them — independent of whether Ollama is up.
+  async getRecommendation(): Promise<Recommendation> {
+    const res = await fetch(`${BASE}/system/recommendation`);
+    if (!res.ok) throw new Error('Failed to fetch the model recommendation');
+    return res.json();
+  },
+
+  // Downloads a model through the backend's Ollama proxy. The body is an
+  // NDJSON stream: Ollama's progress lines, then the backend's own final line
+  // `{status:'ready', contextLength}` once the 32k window is baked in. Every
+  // progress line goes to `onProgress`; the promise resolves with the result
+  // and never rejects for a daemon-side failure — the words come back in
+  // `error` so the card can show them.
+  async pullOllamaModel(name: string, onProgress: (p: PullProgress) => void): Promise<PullResult> {
+    let res: Response;
+    try {
+      res = await fetch(`${BASE}/settings/ollama-pull`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: name }),
+      });
+    } catch {
+      return { ready: false, contextLength: null, error: 'Could not reach the backend.' };
+    }
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      return { ready: false, contextLength: null, error: body.error || `Download failed (${res.status})` };
+    }
+    const reader = res.body!.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let result: PullResult = { ready: false, contextLength: null, error: 'The download ended without a result.' };
+    const handle = (line: string) => {
+      if (!line.trim()) return;
+      let data: { status?: string; error?: string; contextLength?: number | null; total?: number; completed?: number; digest?: string };
+      try { data = JSON.parse(line); } catch { return; }
+      if (data.error) {
+        result = { ready: false, contextLength: null, error: data.error };
+      } else if (data.status === 'ready') {
+        result = { ready: true, contextLength: data.contextLength ?? null };
+      } else if (data.status) {
+        onProgress({ status: data.status, digest: data.digest, total: data.total, completed: data.completed });
+      }
+    };
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+      for (const line of lines) handle(line);
+    }
+    if (buffer) handle(buffer);
+    return result;
+  },
+
+  // Bakes the 32k window into an installed model (the library's "Set 32k
+  // window" door for models pulled outside Syflo).
+  async setOllamaContextLength(name: string): Promise<{ model: string; contextLength: number }> {
+    const res = await fetch(`${BASE}/settings/ollama-models/${encodeURIComponent(name)}/context`, { method: 'POST' });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error || 'Failed to set the context window');
+    }
+    return res.json();
+  },
+
+  // Removes a pulled model from the daemon (the library's Remove door).
+  async deleteOllamaModel(name: string): Promise<void> {
+    const res = await fetch(`${BASE}/settings/ollama-models/${encodeURIComponent(name)}`, { method: 'DELETE' });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error || 'Failed to remove the model');
     }
   },
 

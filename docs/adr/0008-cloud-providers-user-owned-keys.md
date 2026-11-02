@@ -79,3 +79,68 @@ Kept: the Ollama provider itself, warm-up/keep-alive/KV-cache path (encapsulated
 dictation, the web search (SearXNG then; Tavily under the user's own key since
 ADR-0012), and local embeddings (bge-m3). New UI must use
 standard theme tokens so all five themes work unchanged.
+
+## Amendment 2026-10-27: local is equal again where a GPU is detected
+
+The frozen-fallback verdict of 2026-07-25 rested on one number: ~108 s per
+answer on a 24 GB M4 Pro, prefill at ~300 tok/s. On a consumer GPU (RTX 5080,
+16 GB) the same 9B model prefills at thousands of tokens per second and sits
+entirely in VRAM, so the reason for freezing — speed — is gone on that class of
+machine. Grill 2026-10-27 revives the recommendation, keyed on what a model
+can OCCUPY rather than on RAM:
+
+- **One number per machine** (`backend/hardware.js`): dedicated VRAM on
+  NVIDIA/AMD (`nvidia-smi` / `rocm-smi`), ~70 % of unified memory on Apple
+  Silicon, 0 without a GPU. The old RAM ladder stepped Linux/Windows down one
+  rung blindly; this one measures.
+- **The models live in `registry.json`** under the Ollama provider, each with
+  `downloadGb`, `fitsGb` (weights + KV cache at 32k + buffer), `minMemoryGb`
+  (its rung) and `measured`. Remote-refreshed like the cloud lists — a new
+  model is a commit on `main`, not a release.
+- **Only models that fit completely** are recommended (no partial offload,
+  MoE included); the smallest model is the CPU fallback, labeled slower.
+- **The 32k window is baked into every model Syflo pulls** (`/api/create`
+  with `num_ctx`, no second download) and the window the daemon really loaded
+  is read back from `/api/ps` and stored as `ollama_context_length:<model>`.
+  Reason: the npm install on Linux/Windows never starts Ollama, so
+  `OLLAMA_CONTEXT_LENGTH` is unset, Ollama's own default is 4096 on cards under
+  24 GB, and `/v1` ignores `num_ctx` — a paper prompt was silently cut off at
+  the front. `getModelInfo` now budgets from the stored value, then the env,
+  then the old 16384 guess.
+- **Settings are the library again**: hardware line, recommendation card with
+  an in-app download and progress, "fits too" rows, installed models with
+  Remove (`design/mockup-local-library.html`, built against `docs/STYLE.md` for
+  all five themes). Without Ollama the card stays and the door reads "Install
+  Ollama" with the platform's one-liner.
+- **Never switched automatically**: after a download the card offers "Answer
+  locally now" once; otherwise the composer pill switches, as since 2026-07-21,
+  or — since 2026-10-31 — the library's radio list plus the tab's Activate
+  button, exactly like a cloud model in step 2. Every model appears once in
+  that list: the recommended one as a badged row once installed (no second
+  card), the one in use with the provider card's green marker.
+  The picker only shows a quiet "Recommended: … — download in Settings" row.
+- Ollama stays the only local runtime (its pull stream, `/api/show`
+  capabilities and keep-alive are what the library is built on). A
+  llama-server sidecar (ADR-0007) is reconsidered only if Gemma 4 wins the
+  16 GB bench and KV snapshots become a real need.
+
+- **Models pulled outside Syflo** keep the daemon's default window until
+  their first load measures it; the library then shows "4k window" on the row
+  and offers "Set 32k window" — the same bake. Found the same day: a
+  terminal-pulled `gemma4:12b` measured 4096, the budget went negative and the
+  paper silently vanished from the prompt — honest, but useless without the
+  door.
+
+Still true from the 2026-07-25 amendment: no GPU-residency warning, no prefill
+ETA, no `model_source` automation.
+
+**Bench 2026-10-27, RTX 5080 Laptop 16 GB, `scripts/bench-local-models.js`
+on "Attention Is All You Need" (13k tokens), thinking off, no search key (tool
+probe skipped):** `qwen3.5:9b` — cold prefill 5.1 s, warm TTFT 0.44 s, decode
+~52 tok/s, figure labels right and in order, Table 2 numbers right.
+`gemma4:12b` — cold prefill 12.2 s, warm TTFT 0.44 s, decode ~108 tok/s, Table
+2 right, figure labels right but out of order. By the grill's rule (quality
+first) `qwen3.5:9b` stays the 16 GB rung, marked `measured`; Gemma's faster
+decode and classic attention keep it the alternative. One probe each — a
+sample, not a verdict.
+

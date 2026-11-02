@@ -176,6 +176,25 @@ describe('ModelPicker (grouped)', () => {
     expect(screen.getByTestId('local-hint-row')).toHaveTextContent('Install a vision-capable model');
   });
 
+  // Grill 2026-10-27, decision 9 (mockup-local-library §06 A): the picker
+  // never downloads — it only says which model would fit and where to get it.
+  it('names the recommended-but-missing local model and sends the reader to Settings', () => {
+    render(<ModelPicker {...defaultProps} recommendedMissing="gemma4:12b" />);
+    openMenu();
+    const row = screen.getByTestId('recommended-hint-row');
+    // §06 B (2026-10-31): the fact, not a verdict — "<model> fits your machine".
+    expect(row).toHaveTextContent('gemma4:12b fits your machine');
+    expect(row).not.toHaveTextContent(/recommended/i);
+    fireEvent.click(row);
+    expect(defaultProps.onOpenSettings).toHaveBeenCalled();
+  });
+
+  it('shows no recommendation row while Ollama is down — the start hint already covers it', () => {
+    render(<ModelPicker {...defaultProps} ollamaReachable={false} recommendedMissing="gemma4:12b" />);
+    openMenu();
+    expect(screen.queryByTestId('recommended-hint-row')).not.toBeInTheDocument();
+  });
+
   it('pill shows the amber clock while the ACTIVE model cools down', async () => {
     cooldownsSpy.mockResolvedValue([
       { provider: 'gemini', model: 'gemini-flash-latest', until: new Date(Date.now() + 8 * 3600_000).toISOString(), kind: 'daily' },

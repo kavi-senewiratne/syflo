@@ -46,7 +46,14 @@ function getRegistry(db) {
 function getModelInfo(db, provider, modelName) {
   const reg = getRegistry(db);
   if (provider === 'ollama') {
-    const windowTokens = parseInt(process.env.OLLAMA_CONTEXT_LENGTH, 10) || 16384;
+    // The window of a local model, most trustworthy source first: the value
+    // Syflo baked in or measured on the daemon (settings, grill 2026-10-27
+    // decision 7), then the env start.command exports, then the old guess.
+    const known = db && db.prepare('SELECT value FROM settings WHERE key = ?').get(`ollama_context_length:${modelName}`);
+    const windowTokens =
+      (known && parseInt(known.value, 10)) ||
+      parseInt(process.env.OLLAMA_CONTEXT_LENGTH, 10) ||
+      16384;
     return {
       name: modelName,
       vision: true,

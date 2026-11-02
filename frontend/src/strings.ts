@@ -137,12 +137,59 @@ const en = {
       rowInstalled: 'Installed',
       rowCanThink: ' · can think',
       ollamaUnreachable: "Ollama isn't reachable at localhost:11434 — start it to manage your local models.",
-      // Frozen fallback (ADR-0008 amendment): downloads happen in the
-      // terminal, the app only lists the installed vision models.
-      pullHint: 'Install models with `ollama pull <name>` in the terminal.',
       // No data-fate sentence here — that lives in dataNotes.ollama.
-      libraryNote: 'The active model is switched from the chat composer.',
-      installOllama: 'Install Ollama',
+      // The link under the Linux one-liner: it opens the download page, so
+      // the label says that — "Install" next to a copyable command read as
+      // two ways to do the same thing (user feedback 2026-10-31).
+      installOllama: 'Open ollama.com',
+      // The local library (grill 2026-10-27; design/mockup-local-library.html
+      // §01 A, §02 A, §03 A, §04 A, §05 A, §06 B, §07 C — chosen 2026-10-27
+      // and 2026-10-31): the machine's facts, the model that fits them with
+      // a download IN the app, and ONE list in which every model appears
+      // once — installed ones as radio rows (saved by Activate at the
+      // bottom, like the cloud list), fitting ones as download rows.
+      library: {
+        // §08 C (chosen 2026-11-02): icon, label, then one chip for the
+        // machine and one for its memory — a long GPU name moves the memory
+        // chip to the next line instead of breaking "16 GB / graphics memory".
+        hardwareLabel: 'Your machine',
+        hardwareUnified: 'Apple Silicon',
+        hardwareNoGpu: 'no GPU detected',
+        hardwareVram: (gb: number) => `${gb} GB graphics memory`,
+        hardwareUnifiedGb: (gb: number) => `${gb} GB usable for models`,
+        hardwareRam: (gb: number) => `${gb} GB RAM`,
+        recommendedTitle: 'Recommended for this machine',
+        downloadSize: (gb: number) => `${gb} GB download`,
+        fitsWindow: 'fits with a 32k window',
+        needsGb: (gb: number) => `needs ${gb} GB`,
+        fitsNote: 'Runs entirely on the graphics card — nothing leaves this device.',
+        cpuNote: 'The smallest model. It runs on the processor and answers noticeably slower than the cloud.',
+        download: 'Download',
+        downloadAnyway: 'Download anyway',
+        progress: (done: string, total: string) => `${done} of ${total}`,
+        readyWindow: (k: number) => `ready · ${k}k window`,
+        readyNoWindow: 'ready · window not set',
+        readyNote: 'Downloaded and set up. Answers keep coming from the cloud until you switch.',
+        switchNow: 'Answer locally now',
+        installed: 'installed',
+        alsoFits: 'fits too',
+        recommendedBadge: 'Recommended',
+        needsOllama: 'You need Ollama for this.',
+        linuxOneLiner: 'On Linux, one line in the terminal is enough:',
+        copy: 'Copy command',
+        copied: 'Copied',
+        afterInstall: 'Once Ollama is running, this becomes the download button.',
+        remove: (name: string) => `Remove ${name}`,
+        downloadFailed: (why: string) => `Download failed: ${why}`,
+        removeFailed: (why: string) => `Could not remove the model: ${why}`,
+        // The window of an installed model, and the door for models pulled
+        // outside Syflo that still sit at Ollama's small default.
+        windowBadge: (k: number) => `${k}k window`,
+        windowUnknown: 'window not measured yet',
+        setWindow: 'Set 32k window',
+        setWindowNote: 'A paper needs a 32k window. Below that, Ollama cuts the document off silently.',
+        setWindowFailed: (why: string) => `Could not set the window: ${why}`,
+      },
     },
     // W3 (design/mockup-onboarding-flow.html §06): the search as a provider
     // row. W1 asks at the point of need, but a reader who has not opened a PDF
@@ -244,10 +291,14 @@ const en = {
     traceBackTo: 'Branched off in ',
     attach: 'Attach',
     menuMedia: 'Media',
-    menuPdf: 'PDF',
+    // One upload entry for both file kinds (ADR-0013 decision 8): the pill
+    // names what it takes, the kind is detected from the file.
+    menuFile: 'Upload file',
+    menuFileKinds: 'PDF, HTML',
     menuResearchPaper: 'Research paper',
     menuYouTubeTranscript: 'YouTube Transcript',
-    uploadingPdf: 'Uploading PDF…',
+    menuWebpage: 'Web page',
+    uploadingPdf: 'Uploading file…',
     warmingUpLocalModel: 'Warming up the local model…',
     placeholderAsk: 'Ask anything',
     placeholderAskQuote: 'Ask about this…',
@@ -598,6 +649,57 @@ const en = {
       'The channel has disabled embedding. The transcript is attached all the same — the overview and every question work exactly as usual; only the picture has to open on YouTube.',
     jumpTo: (mark: string) => `Jump to ${mark}`,
   },
+  // The HTML source pane in the middle column (ADR-0013,
+  // design/mockup-html-app.html variant B).
+  htmlPane: {
+    kind: 'HTML',
+    subtitle: (sections: number, frozen: boolean) =>
+      `HTML · ${sections} ${sections === 1 ? 'section' : 'sections'}${frozen ? ' · fully frozen' : ''}`,
+    outline: 'Outline',
+    outlineEmpty: 'This page has no headings',
+    unfrozenBadge: (n: number) => `${n} open`,
+    unfrozenTitle: 'Not frozen',
+    retry: 'Try again',
+    loading: 'Opening page …',
+    loadFailed: 'The page could not be opened',
+    frameTitle: (title: string) => `HTML source: ${title}`,
+    // The exact reason per resource, as the backend names it. Anything the
+    // backend adds later prints verbatim rather than as a guess.
+    reason: (reason: string) => {
+      switch (reason) {
+        case 'no-internet': return 'no internet';
+        case 'timeout': return 'timed out';
+        case 'too-large': return 'too large';
+        case 'blocked-local-address': return 'blocked local address';
+        default: return /^http-(\d+)$/.test(reason) ? `HTTP ${reason.slice(5)}` : reason;
+      }
+    },
+    resourceLine: (url: string, reason: string) => `${url}: ${reason}`,
+    // Warning card under the first answer (variant B).
+    cardTitle: (n: number) => `${n} ${n === 1 ? 'resource' : 'resources'} not frozen`,
+    // Web page dialog (mockup §03).
+    close: 'Close',
+    webTitle: 'Load a web page',
+    // One explanatory line, like the YouTube dialog — no footer.
+    webSubtitle: 'The page becomes this tree\'s source; Syflo keeps a copy that reads offline.',
+    webUrlLabel: 'Web address',
+    webUrlPlaceholder: 'https://example.org/article',
+    webLoad: 'Load',
+    webNoText: 'No readable text found: the page is empty or needs a sign-in.',
+    // Backend reason codes of POST /html-sources/from-url → one readable sentence.
+    webError: (code: string): string => {
+      const status = /^http-(\d{3})$/.exec(code);
+      if (status) return `The page answered with an error (HTTP ${status[1]}).`;
+      switch (code) {
+        case 'blocked-local-address': return 'This address is on your own network and is never loaded.';
+        case 'no-internet': return 'No internet connection.';
+        case 'timeout': return 'The page took too long to answer.';
+        case 'too-large': return 'The page is too large to save.';
+        default: return code;
+      }
+    },
+    webUploadInstead: 'Upload HTML file',
+  },
   paperSearch: {
     title: 'Add a research paper',
     close: 'Close',
@@ -663,6 +765,7 @@ const en = {
     transcriptSource: (mark: string) => `Transcript · ${mark}`,
     chapterSource: (mark: string) => `Chapter · ${mark}`,
     chatSource: (title: string) => `Chat · ${title}`,
+    htmlSource: (section: string | null) => (section ? `HTML · ${section}` : 'HTML'),
     // Locale der Datumsformatierung — folgt der App language.
     dateLocale: 'en-US',
   },
@@ -715,6 +818,9 @@ const en = {
       n === 1 ? '1 cloud provider set up' : `${n} cloud providers set up`,
     startOllamaHint: 'Start Ollama to answer locally',
     installVisionModelHint: 'Install a vision-capable model',
+    // Grill 2026-10-27 (mockup-local-library §06 A): the picker only points.
+    // §06 B (2026-10-31): the fact, not a verdict — the row is a door to Settings.
+    recommendedHint: (name: string) => `${name} fits your machine`,
     pillCoolingTip: (model: string, when: string) =>
       `${model} is at its limit (${when}). Answers fail over to free models automatically.`,
     // Cost-tier groups (mockup-model-cost-tiers W2b, chosen 2026-07-30).
@@ -864,6 +970,7 @@ const en = {
     // caller when there is one.
     newTreeKindPdf: 'PDF',
     newTreeKindVideo: 'YouTube',
+    newTreeKindHtml: 'HTML',
     newTreeUntitledPdf: 'Untitled PDF',
     cancel: 'Cancel',
     startNewTree: 'Start new tree',
@@ -989,9 +1096,44 @@ const de: Strings = {
       rowInstalled: 'Installiert',
       rowCanThink: ' · kann denken',
       ollamaUnreachable: 'Ollama ist unter localhost:11434 nicht erreichbar — starte es, um deine lokalen Modelle zu verwalten.',
-      pullHint: 'Installiere Modelle mit `ollama pull <name>` im Terminal.',
-      libraryNote: 'Das aktive Modell wird im Chat-Eingabefeld gewechselt.',
-      installOllama: 'Ollama installieren',
+      installOllama: 'ollama.com öffnen',
+      library: {
+        hardwareLabel: 'Dein Rechner',
+        hardwareUnified: 'Apple Silicon',
+        hardwareNoGpu: 'keine GPU erkannt',
+        hardwareVram: (gb: number) => `${gb} GB Grafikspeicher`,
+        hardwareUnifiedGb: (gb: number) => `${gb} GB für Modelle nutzbar`,
+        hardwareRam: (gb: number) => `${gb} GB RAM`,
+        recommendedTitle: 'Empfohlen für diesen Rechner',
+        downloadSize: (gb: number) => `${gb} GB Download`,
+        fitsWindow: 'passt mit 32k-Fenster',
+        needsGb: (gb: number) => `braucht ${gb} GB`,
+        fitsNote: 'Läuft komplett auf der Grafikkarte — nichts verlässt das Gerät.',
+        cpuNote: 'Das kleinste Modell. Es läuft auf dem Prozessor und antwortet deutlich langsamer als die Cloud.',
+        download: 'Herunterladen',
+        downloadAnyway: 'Trotzdem herunterladen',
+        progress: (done: string, total: string) => `${done} von ${total}`,
+        readyWindow: (k: number) => `bereit · ${k}k-Fenster`,
+        readyNoWindow: 'bereit · Fenster nicht gesetzt',
+        readyNote: 'Heruntergeladen und eingerichtet. Deine Antworten kommen weiter aus der Cloud, bis du umschaltest.',
+        switchNow: 'Jetzt lokal antworten',
+        installed: 'installiert',
+        alsoFits: 'passt ebenfalls',
+        recommendedBadge: 'Empfohlen',
+        needsOllama: 'Dafür brauchst du Ollama.',
+        linuxOneLiner: 'Auf Linux reicht eine Zeile im Terminal:',
+        copy: 'Befehl kopieren',
+        copied: 'Kopiert',
+        afterInstall: 'Sobald Ollama läuft, wird daraus der Download-Knopf.',
+        remove: (name: string) => `${name} entfernen`,
+        downloadFailed: (why: string) => `Download fehlgeschlagen: ${why}`,
+        removeFailed: (why: string) => `Modell konnte nicht entfernt werden: ${why}`,
+        windowBadge: (k: number) => `${k}k-Fenster`,
+        windowUnknown: 'Fenster noch nicht gemessen',
+        setWindow: '32k-Fenster setzen',
+        setWindowNote: 'Ein Paper braucht ein 32k-Fenster. Darunter schneidet Ollama das Dokument stillschweigend ab.',
+        setWindowFailed: (why: string) => `Fenster konnte nicht gesetzt werden: ${why}`,
+      },
     },
     search: {
       label: 'Websuche',
@@ -1059,10 +1201,12 @@ const de: Strings = {
     traceBackTo: 'Abgezweigt in ',
     attach: 'Anhängen',
     menuMedia: 'Medien',
-    menuPdf: 'PDF',
+    menuFile: 'Datei hochladen',
+    menuFileKinds: 'PDF, HTML',
     menuResearchPaper: 'Research paper',
     menuYouTubeTranscript: 'YouTube Transcript',
-    uploadingPdf: 'PDF wird hochgeladen …',
+    menuWebpage: 'Webseite',
+    uploadingPdf: 'Datei wird hochgeladen …',
     warmingUpLocalModel: 'Lokales Modell wird aufgewärmt …',
     placeholderAsk: 'Frag irgendetwas',
     placeholderAskQuote: 'Frag etwas dazu…',
@@ -1312,6 +1456,49 @@ const de: Strings = {
       'Der Kanal hat das Einbetten deaktiviert. Das Transcript hängt trotzdem am Baum — Übersicht und alle Fragen funktionieren wie gewohnt; nur das Bild muss auf YouTube aufgehen.',
     jumpTo: (mark: string) => `Zu ${mark} springen`,
   },
+  htmlPane: {
+    kind: 'HTML',
+    subtitle: (sections: number, frozen: boolean) =>
+      `HTML · ${sections} ${sections === 1 ? 'Abschnitt' : 'Abschnitte'}${frozen ? ' · vollständig eingefroren' : ''}`,
+    outline: 'Gliederung',
+    outlineEmpty: 'Diese Seite hat keine Überschriften',
+    unfrozenBadge: (n: number) => `${n} offen`,
+    unfrozenTitle: 'Nicht eingefroren',
+    retry: 'Erneut versuchen',
+    loading: 'Seite wird geöffnet …',
+    loadFailed: 'Die Seite konnte nicht geöffnet werden',
+    frameTitle: (title: string) => `HTML-Quelle: ${title}`,
+    reason: (reason: string) => {
+      switch (reason) {
+        case 'no-internet': return 'kein Internet';
+        case 'timeout': return 'Zeitüberschreitung';
+        case 'too-large': return 'zu groß';
+        case 'blocked-local-address': return 'lokale Adresse gesperrt';
+        default: return /^http-(\d+)$/.test(reason) ? `HTTP ${reason.slice(5)}` : reason;
+      }
+    },
+    resourceLine: (url: string, reason: string) => `${url}: ${reason}`,
+    cardTitle: (n: number) => `${n} ${n === 1 ? 'Ressource' : 'Ressourcen'} nicht eingefroren`,
+    close: 'Schließen',
+    webTitle: 'Webseite laden',
+    webSubtitle: 'Die Seite wird zur Quelle dieses Baums; Syflo behält eine Kopie, die auch offline lesbar ist.',
+    webUrlLabel: 'Adresse der Webseite',
+    webUrlPlaceholder: 'https://example.org/artikel',
+    webLoad: 'Laden',
+    webNoText: 'Kein lesbarer Text gefunden: Die Seite ist leer oder verlangt eine Anmeldung.',
+    webError: (code: string): string => {
+      const status = /^http-(\d{3})$/.exec(code);
+      if (status) return `Die Seite antwortet mit einem Fehler (HTTP ${status[1]}).`;
+      switch (code) {
+        case 'blocked-local-address': return 'Diese Adresse liegt in deinem eigenen Netzwerk und wird nie geladen.';
+        case 'no-internet': return 'Keine Internetverbindung.';
+        case 'timeout': return 'Die Seite antwortet zu langsam.';
+        case 'too-large': return 'Die Seite ist zu groß zum Speichern.';
+        default: return code;
+      }
+    },
+    webUploadInstead: 'HTML-Datei hochladen',
+  },
   paperSearch: {
     title: 'Research paper hinzufügen',
     close: 'Schließen',
@@ -1365,6 +1552,7 @@ const de: Strings = {
     transcriptSource: (mark: string) => `Transcript · ${mark}`,
     chapterSource: (mark: string) => `Kapitel · ${mark}`,
     chatSource: (title: string) => `Chat · ${title}`,
+    htmlSource: (section: string | null) => (section ? `HTML · ${section}` : 'HTML'),
     dateLocale: 'de-DE',
   },
   modelPicker: {
@@ -1401,6 +1589,7 @@ const de: Strings = {
       n === 1 ? '1 Cloud-Anbieter eingerichtet' : `${n} Cloud-Anbieter eingerichtet`,
     startOllamaHint: 'Ollama starten, um lokal zu antworten',
     installVisionModelHint: 'Bild-fähiges Modell installieren',
+    recommendedHint: (name: string) => `${name} passt zu deinem Rechner`,
     pillCoolingTip: (model: string, when: string) =>
       `${model} ist am Limit (${when}). Antworten weichen automatisch auf freie Modelle aus.`,
     freeGroup: 'Kostenlos',
@@ -1499,6 +1688,7 @@ const de: Strings = {
     newTreeNext: 'Im neuen Baum',
     newTreeKindPdf: 'PDF',
     newTreeKindVideo: 'YouTube',
+    newTreeKindHtml: 'HTML',
     newTreeUntitledPdf: 'PDF ohne Titel',
     cancel: 'Abbrechen',
     startNewTree: 'Neuen Baum starten',

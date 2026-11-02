@@ -101,3 +101,21 @@ describe('attachment upload targets', () => {
     expect(fs.existsSync(STRAY_DIR)).toBe(false);
   });
 });
+
+describe('source origins (src-<id>.localhost)', () => {
+  const ID = '123e4567-e89b-12d3-a456-426614174000';
+
+  it('never lets a source host reach the API or uploads', async () => {
+    for (const p of ['/api/chats', '/api/settings', '/uploads/anything.txt']) {
+      const res = await request(app).get(p).set('Host', `src-${ID}.localhost:3001`);
+      expect(res.status).toBe(404);
+    }
+  });
+
+  it('still rejects look-alike hosts', async () => {
+    for (const host of [`src-${ID}.localhost.evil.example`, `src-${ID}.evil.example:3001`, 'src-nope.localhost:3001']) {
+      const res = await request(app).get('/api/chats').set('Host', host);
+      expect(res.status).toBe(403);
+    }
+  });
+});

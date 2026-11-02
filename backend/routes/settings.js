@@ -16,6 +16,28 @@ const { getRegistry, refreshRegistry } = require('../registry');
 
 const ALLOWED_PROVIDERS = new Set(['ollama', ...CLOUD_PROVIDERS]);
 
+const OLLAMA_URL = 'http://localhost:11434';
+
+// The context window Syflo bakes into every model it pulls (grill
+// 2026-10-27, decision 7). Ollama's OpenAI-compatible /v1 ignores num_ctx and
+// the daemon's own default is 4096 on cards under 24 GB — a paper prompt
+// would be cut off at the front without a word. Baking the window into the
+// model makes it hold for every client and every platform; the backend's
+// budget then derives from this stored value (registry.getModelInfo).
+const BAKED_CONTEXT_LENGTH = 32768;
+
+// The settings key under which the known window of a local model is kept:
+// written here after baking, and by the /api/ps measurement after a load.
+function contextLengthKey(model) {
+  return `ollama_context_length:${model}`;
+}
+
+function knownContextLengthIn(db, model) {
+  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(contextLengthKey(model));
+  const n = row && parseInt(row.value, 10);
+  return n > 0 ? n : null;
+}
+
 // Cap for the custom instructions: they eat into the RESERVED_TOKENS buffer
 // (ancestor-context.js) — ~570 tokens at 2000 characters leave enough room
 // for tool definitions, history and the answer itself. Since the instruction
@@ -57,6 +79,10 @@ function buildResponse(db) {
 
 module.exports = (db, options = {}) => {
   const router = express.Router();
+  // The daemon is injected for tests; resolved per call so a test that mocks
+  // the global fetch keeps working too.
+  const ollamaFetch = (...args) => (options.ollamaFetch || fetch)(...args);
+  const knownContextLength = (model) => knownContextLengthIn(db, model);
 
   // GET /api/settings — current settings (never the plaintext API keys)
   router.get('/', (_req, res) => {
@@ -78,7 +104,7 @@ module.exports = (db, options = {}) => {
   // toggle. Capabilities come from POST /api/show per model.
   router.get('/ollama-models', async (_req, res) => {
     try {
-      const r = await fetch('http://localhost:11434/api/tags');
+      const r = await ollamaFetch(`${OLLAMA_URL}/api/tags`);
       if (!r.ok) {
         return res.status(502).json({ error: `Ollama responded with status ${r.status}` });
       }
@@ -87,7 +113,7 @@ module.exports = (db, options = {}) => {
         (data.models || []).map(async (m) => {
           let capabilities = [];
           try {
-            const s = await fetch('http://localhost:11434/api/show', {
+            const s = await ollamaFetch(`${OLLAMA_URL}/api/show`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ model: m.name }),
@@ -106,11 +132,129 @@ module.exports = (db, options = {}) => {
           size: m.size,
           parameter_size: m.details?.parameter_size,
           canThink: capabilities.includes('thinking'),
+          // The window Syflo baked or measured for this model (decision 7);
+          // null until the model has been loaded once. A model pulled in the
+          // terminal sits at the daemon's default (4096 on cards under
+          // 24 GB) — the library shows that and offers the 32k door.
+          contextLength: knownContextLength(m.name),
         }));
       res.json({ models });
     } catch (err) {
       // Most common case: Ollama isn't running. Surface that distinctly so the
       // frontend can fall back to a free-text input.
+      res.status(503).json({ error: 'Could not reach Ollama at localhost:11434. Is it running?' });
+    }
+  });
+
+  // POST /api/settings/ollama-pull — downloads a model through the local
+  // daemon and streams its progress lines (NDJSON) through 1:1, so the
+  // library can draw a bar. After a successful pull the 32k window is baked
+  // into the model (decision 7); the final line `{status:'ready', model,
+  // contextLength}` tells the library the model is usable — contextLength is
+  // null when baking failed, never a guess.
+  router.post('/ollama-pull', async (req, res) => {
+    const { model } = req.body;
+    if (!model || typeof model !== 'string') {
+      return res.status(400).json({ error: 'model is required' });
+    }
+    let r;
+    try {
+      r = await ollamaFetch(`${OLLAMA_URL}/api/pull`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model, stream: true }),
+      });
+    } catch {
+      return res.status(503).json({ error: 'Could not reach Ollama at localhost:11434. Is it running?' });
+    }
+    if (!r.ok) {
+      return res.status(502).json({ error: `Ollama responded with status ${r.status}` });
+    }
+    res.setHeader('Content-Type', 'application/x-ndjson');
+    let succeeded = false;
+    let failed = false;
+    let buffer = '';
+    // fetch's body yields Uint8Array chunks — `chunk.toString()` on those is
+    // a comma-separated byte list, not text (seen live 2026-10-27: no line
+    // ever parsed, so nothing was baked). Decode properly, across chunks.
+    const decoder = new TextDecoder();
+    const handleLine = (line) => {
+      if (!line.trim()) return;
+      res.write(line + '\n');
+      try {
+        const parsed = JSON.parse(line);
+        if (parsed.error) failed = true;
+        else if (parsed.status === 'success') succeeded = true;
+      } catch { /* a non-JSON line is forwarded but not interpreted */ }
+    };
+    try {
+      for await (const chunk of r.body) {
+        buffer += decoder.decode(chunk, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (const line of lines) handleLine(line);
+      }
+      if (buffer) handleLine(buffer);
+    } catch {
+      res.write(JSON.stringify({ error: 'The download was interrupted.' }) + '\n');
+      return res.end();
+    }
+    if (succeeded && !failed) {
+      const contextLength = await bakeContextLength(model);
+      res.write(JSON.stringify({ status: 'ready', model, contextLength }) + '\n');
+    }
+    res.end();
+  });
+
+  // Writes num_ctx into the pulled model via Ollama's create API (from = the
+  // model itself, no second download). Returns the window on success, null
+  // when the daemon refused — the caller reports that rather than a number
+  // nobody verified.
+  async function bakeContextLength(model) {
+    try {
+      const c = await ollamaFetch(`${OLLAMA_URL}/api/create`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model, from: model, parameters: { num_ctx: BAKED_CONTEXT_LENGTH }, stream: false }),
+      });
+      if (!c.ok) return null;
+      setSetting(db, contextLengthKey(model), String(BAKED_CONTEXT_LENGTH));
+      return BAKED_CONTEXT_LENGTH;
+    } catch {
+      return null;
+    }
+  }
+
+  // POST /api/settings/ollama-models/:name/context — bakes the 32k window
+  // into a model that is already installed (pulled in the terminal, or
+  // before this feature existed). Same call the download path makes.
+  router.post('/ollama-models/:name/context', async (req, res) => {
+    const model = req.params.name;
+    const contextLength = await bakeContextLength(model);
+    if (!contextLength) {
+      return res.status(502).json({ error: 'Ollama could not set the context window on this model.' });
+    }
+    res.json({ model, contextLength });
+  });
+
+  // DELETE /api/settings/ollama-models/:name — removes a model from the
+  // daemon (the library's Remove door).
+  router.delete('/ollama-models/:name', async (req, res) => {
+    const model = req.params.name;
+    try {
+      const r = await ollamaFetch(`${OLLAMA_URL}/api/delete`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model }),
+      });
+      if (!r.ok) {
+        return res.status(502).json({ error: `Ollama responded with status ${r.status}` });
+      }
+      // The stored window belonged to the blob that is gone — a later pull
+      // of the same name starts from zero knowledge, not from a stale 32k.
+      db.prepare('DELETE FROM settings WHERE key = ?').run(contextLengthKey(model));
+      res.json({ removed: model });
+    } catch {
       res.status(503).json({ error: 'Could not reach Ollama at localhost:11434. Is it running?' });
     }
   });
@@ -191,3 +335,6 @@ module.exports = (db, options = {}) => {
 
   return router;
 };
+
+module.exports.BAKED_CONTEXT_LENGTH = BAKED_CONTEXT_LENGTH;
+module.exports.contextLengthKey = contextLengthKey;

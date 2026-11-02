@@ -25,6 +25,10 @@ function createApp(db, options = {}) {
   // browsers must NOT be granted cross-origin access to chats and settings.
   app.use(express.json());
 
+  // Per-source origins (src-<id>.localhost) are answered here and never fall
+  // through to the guard below or to any API/app route (ADR-0013 decision 4).
+  app.use(require('./source-origin').sourceOrigin(db));
+
   // DNS-rebinding guard: a malicious site can point its own hostname at
   // 127.0.0.1 and bypass same-origin checks — the Host header is the tell.
   const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
@@ -99,6 +103,19 @@ function createApp(db, options = {}) {
   }));
   // options.papers: e.g. { extractPdfTextFn, embedTextsFn } — injectable for tests.
   app.use('/api/papers', require('./routes/papers')(db, UPLOADS_DIR, options.papers));
+  // URL import must come first: /from-url is not an :id of the router below.
+  // The render channel file is how a backend started BEFORE Electron finds the
+  // renderer (ignored under Jest so tests never reach a running app).
+  app.use('/api/html-sources', require('./routes/html-sources-url')(db, UPLOADS_DIR, {
+    ...options.htmlSources,
+    urlImport: {
+      channelFile: process.env.NODE_ENV === 'test' ? null : path.join(resolveDataDir(), 'render-channel.json'),
+      ...(options.htmlSources && options.htmlSources.urlImport),
+    },
+  }));
+  app.use('/api/html-sources', require('./routes/html-sources')(db, UPLOADS_DIR, options.htmlSources));
+  app.use('/api/html-highlights', require('./routes/html-highlights')(db));
+  app.use('/api/html-sources', require('./routes/html-sources-embed')(db));
   // options.youtube: { searchVideosFn, fetchTranscriptFn } — injectable for tests.
   app.use('/api/youtube', require('./routes/youtube')(db, options.youtube));
   // Highlights + labels: paths like /api/papers/:id/highlights and
@@ -117,11 +134,14 @@ function createApp(db, options = {}) {
     // Provider switches release waiting local questions whose provider is
     // now cloud (mockup-model-flow §07).
     onLLMSettingsChanged: () => messagesRouter.reevaluateQueue(),
+    ollamaFetch: options.ollamaFetch,
   }));
   // options.transcribe: { manager } — injectable for tests (fake whisper).
   app.use('/api/transcribe', require('./routes/transcribe')(options.transcribe));
   app.use('/api/search', require('./routes/search')(db));
-  // options.system: { totalmem, platform } — injectable for tests.
+  // options.system: { platform, arch, totalmem, exec } and options.ollamaFetch
+  // — the hardware probes and the Ollama daemon, injectable for tests.
+  app.use('/api/system', require('./routes/system')(db, { system: options.system, ollamaFetch: options.ollamaFetch }));
   app.use('/api/usage', require('./routes/usage')(db));
   // Hands the frontend the Web3Forms access key + diagnostics — the actual
   // POST to Web3Forms happens client-side (their free plan blocks server calls).

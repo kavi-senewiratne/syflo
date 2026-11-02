@@ -288,7 +288,7 @@ module.exports = (db, uploadsDir, options = {}) => {
     }
     // ADR-0005 generalizes ADR-0002: a tree has at most ONE source —
     // PDF or YouTube transcript.
-    if (root.paper_id || root.video_id) {
+    if (root.paper_id || root.video_id || root.html_source_id) {
       discardUpload();
       return res.status(409).json({ error: 'tree-has-source', root_chat_id: root.id });
     }
@@ -374,7 +374,7 @@ module.exports = (db, uploadsDir, options = {}) => {
     }
     const root = resolveRoot(chatId);
     if (!root) return res.status(404).json({ error: 'Chat not found' });
-    if (root.paper_id || root.video_id) {
+    if (root.paper_id || root.video_id || root.html_source_id) {
       return res.status(409).json({ error: 'tree-has-source', root_chat_id: root.id });
     }
 

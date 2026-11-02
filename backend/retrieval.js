@@ -21,7 +21,18 @@ const CHUNK_MAX_CHARS = 4000;
 const HEADING_KEYWORDS =
   /^(abstract|introduction|background|related work|methods?|methodology|model(s)? architecture|experiments?|evaluation|results?|discussion|limitations|conclusions?|acknowledg(e)?ments?|references|appendix)\b/i;
 
+// HTML sources arrive pre-sectioned as `## heading` lines (html-source.js);
+// those are headings whatever their length.
+const MARKDOWN_HEADING = /^#{1,6}\s+(\S.*)$/;
+
+// The heading text a chunk carries: markdown markers stripped.
+function headingLabel(paragraph) {
+  const m = MARKDOWN_HEADING.exec(paragraph);
+  return m ? m[1] : paragraph;
+}
+
 function isHeading(paragraph) {
+  if (!paragraph.includes('\n') && MARKDOWN_HEADING.test(paragraph)) return true;
   if (paragraph.includes('\n') || paragraph.length > 80) return false;
   if (/^\d+(\.\d+)*\.?\s+\S/.test(paragraph)) return true;
   return HEADING_KEYWORDS.test(paragraph);
@@ -86,15 +97,15 @@ function chunkText(text, opts = {}) {
       for (const piece of splitOversizedParagraph(para, targetChars)) {
         chunks.push({ index: chunks.length, heading: currentHeading, text: piece });
       }
-      if (isHeading(para)) currentHeading = para;
+      if (isHeading(para)) currentHeading = headingLabel(para);
       continue;
     }
 
     if (buffer.length > 0 && bufferLen + 2 + para.length > targetChars) flush();
-    if (buffer.length === 0) chunkHeading = isHeading(para) ? para : currentHeading;
+    if (buffer.length === 0) chunkHeading = isHeading(para) ? headingLabel(para) : currentHeading;
     buffer.push(para);
     bufferLen += (buffer.length > 1 ? 2 : 0) + para.length;
-    if (isHeading(para)) currentHeading = para;
+    if (isHeading(para)) currentHeading = headingLabel(para);
   }
   flush();
 
@@ -294,7 +305,7 @@ function buildSkeleton(text, opts = {}) {
       : '';
 
   const parts = [`[Beginning of the document]\n${head}`];
-  if (outline.length > 0) parts.push(`[Section outline]\n${outline.map((h) => `- ${h}`).join('\n')}`);
+  if (outline.length > 0) parts.push(`[Section outline]\n${outline.map((h) => `- ${headingLabel(h)}`).join('\n')}`);
   if (tail) parts.push(`[End of the document]\n${tail}`);
   return parts.join('\n\n');
 }

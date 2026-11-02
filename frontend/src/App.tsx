@@ -15,7 +15,7 @@
  */
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { FileText, TvMinimalPlay, ArrowDown } from 'lucide-react';
+import { FileText, TvMinimalPlay, ArrowDown, Code } from 'lucide-react';
 import { Sidebar } from './components/Sidebar';
 import { useKeyboardNavigation } from './hooks/useKeyboardNavigation';
 import { usePaneResize } from './hooks/usePaneResize';
@@ -39,6 +39,10 @@ import { structurePrompt } from './components/YouTubeSearch/autoPrompt';
 import { getAppLanguage } from './appLanguage';
 import { useStrings } from './strings';
 import { VideoPane, type VideoPaneHandle } from './components/VideoPane';
+import { HtmlPane, type HtmlPaneHandle, type HtmlPaneSelection } from './components/HtmlPane';
+import { HtmlWebDialog } from './components/HtmlWebDialog';
+import { useHtmlHighlights } from './hooks/useHtmlHighlights';
+import { isAbandonedChat } from './chat/abandoned';
 import { pickOverviewMessage, overviewStopsShort } from './markdown/chapters';
 import { formatDuration } from './video/format';
 import { FloatingPopup } from './components/FloatingPopup';
@@ -58,7 +62,7 @@ import { useChatHighlights } from './hooks/useChatHighlights';
 import { invalidateTreeHighlights } from './hooks/useTreeHighlights';
 import { contextAroundSelection } from './pdf/selection';
 import { CLOUD_PROVIDERS, FAILED_MARKER, INTERRUPTED_MARKER } from './types';
-import type { Aside, Category, Chat, ChatDetail, ChatSelection, ComposerQuote, FailoverInfo, Highlight, HighlightColor, LLMProvider, LocalAttachment, Message, MessageHighlight, OllamaModelInfo, Paper, PaperReference, Registry, SearchResult, Settings, ToolEvent, TranscriptHighlight, TreeHighlight, Video, VideoSearchResult, WordPopup } from './types';
+import type { Aside, Category, Chat, ChatDetail, ChatSelection, ComposerQuote, FailoverInfo, Highlight, HighlightColor, HtmlHighlight, HtmlSource, LLMProvider, LocalAttachment, Message, MessageHighlight, OllamaModelInfo, Paper, PaperReference, Registry, SearchResult, Settings, ToolEvent, TranscriptHighlight, TreeHighlight, Video, VideoSearchResult, WordPopup } from './types';
 
 /**
  * Every chat id in a node's subtree, the node itself included. Deleting a chat
@@ -134,6 +138,11 @@ export default function App() {
   const S = STR.app;
   // chats: the full tree shown in the sidebar
   const [chats, setChats] = useState<Chat[]>([]);
+  // The tree as last fetched, readable synchronously: handleSelectChat runs
+  // right after refreshTree() in the same tick, when the `chats` state of this
+  // render is still the old one — and the HTML source of a freshly imported
+  // tree is only in the new one.
+  const chatsRef = useRef<Chat[]>([]);
   // Sidebar categories — the user's own grouping of root chats, one nesting
   // level deep (design/mockup-sidebar-categories-v2.html). Kept flat here
   // exactly as the backend stores it; the sidebar nests them for display.
@@ -169,6 +178,9 @@ export default function App() {
   // Honest local state (mockup-model-flow §02): running-with-zero-vision-
   // models is a different situation from "not reachable".
   const [ollamaReachable, setOllamaReachable] = useState(true);
+  // The local model this machine could run but has not pulled (grill
+  // 2026-10-27): the picker shows it as a quiet row that leads to Settings.
+  const [recommendedMissing, setRecommendedMissing] = useState<string | null>(null);
   // Bumped after stream errors: the picker refreshes cooldown badges and
   // the pill dot from it (refresh moments, §03 — no polling).
   const [modelSystemSignal, setModelSystemSignal] = useState(0);
@@ -327,8 +339,20 @@ export default function App() {
     | { kind: 'file'; file: File }
     | { kind: 'url'; url: string; title: string; fallbacks: string[] }
     | { kind: 'video'; youtubeId: string; title: string }
+    | { kind: 'webpage'; url: string }
     | null
   >(null);
+
+  // treeHtml: the HTML source of the active tree (ADR-0013: one source per
+  // tree, bound to the root — a branch shows the same page). Non-null puts the
+  // page in the middle column, like the PDF and the video.
+  const [treeHtml, setTreeHtml] = useState<HtmlSource | null>(null);
+  const htmlHl = useHtmlHighlights(treeHtml?.id ?? null);
+  const htmlPaneRef = useRef<HtmlPaneHandle>(null);
+  // "Try again" on the freeze card / badge is running.
+  const [htmlFreezeRetrying, setHtmlFreezeRetrying] = useState(false);
+  // Web-page dialog, opened from the plus menu ("Web page").
+  const [htmlWebOpen, setHtmlWebOpen] = useState(false);
 
   // Paper-Such-Modal (Slice 07), geöffnet über "Research paper" im Plus-Menü.
   const [paperSearchOpen, setPaperSearchOpen] = useState(false);
@@ -481,7 +505,7 @@ export default function App() {
   // that lands "in the parent pane" has to ask this, not merely whether
   // parentContext exists: aiming at the invisible pane looks to the user like
   // a dead link (report 2026-08-19, the way back out of a transcript branch).
-  const parentPaneVisible = !treePaper && !treeVideo && parentContext !== null;
+  const parentPaneVisible = !treePaper && !treeVideo && !treeHtml && parentContext !== null;
 
   // Message-anchored highlights, one hook instance per visible chat pane.
   const activeChatHl = useChatHighlights(activeChatId);
@@ -759,6 +783,7 @@ export default function App() {
   // Re-fetch the sidebar tree whenever a chat is created, renamed, or deleted.
   const refreshTree = useCallback(async () => {
     const tree = await api.getTree();
+    chatsRef.current = tree;
     setChats(tree);
     // The chat header reads activeChat.title, a separate state object: mirror
     // the fresh tree title into it, or the header keeps showing the stale
@@ -786,15 +811,19 @@ export default function App() {
   // pill simply renders nothing. The hardware-recommendation automation was
   // removed with the ADR-0008 amendment (frozen fallback).
   const refreshModelSystem = useCallback(async () => {
-    const [s, ollama, reg] = await Promise.all([
+    const [s, ollama, reg, rec] = await Promise.all([
       api.getSettings().catch(() => null),
       api.getOllamaStatus().catch(() => ({ reachable: false, models: [] as OllamaModelInfo[] })),
       api.getRegistry().catch(() => null),
+      Promise.resolve().then(() => api.getRecommendation()).catch(() => null),
     ]);
     if (s) setSettings(s);
     setOllamaModels(ollama.models);
     setOllamaReachable(ollama.reachable);
     if (reg) setRegistry(reg);
+    setRecommendedMissing(
+      rec && rec.ollamaReachable && rec.recommended && !rec.recommended.installed ? rec.recommended.name : null,
+    );
   }, []);
 
   useEffect(() => { refreshModelSystem(); }, [refreshModelSystem]);
@@ -862,15 +891,18 @@ export default function App() {
   // leeren Wurzel-Chat genau den Chat, unter den es eben verzweigt hat.
   const cleanupAbandonedChat = (nextId: string, keepId?: string) => {
     const prev = activeChat;
+    // Identical to backend/cleanup.js: a source is a PDF, a video OR an HTML
+    // source (chat/abandoned.ts).
     if (
       prev &&
       prev.id !== nextId &&
       prev.id !== keepId &&
-      !prev.parent_id &&
-      prev.messages.length === 0 &&
-      prev.children.length === 0 &&
-      treePaper === null &&
-      streamsForChat(prev.id).length === 0
+      isAbandonedChat(prev, {
+        paper: treePaper,
+        video: treeVideo,
+        html: treeHtml,
+        streaming: streamsForChat(prev.id).length > 0,
+      })
     ) {
       api.deleteChat(prev.id).then(() => refreshTree()).catch(() => {});
     }
@@ -885,10 +917,14 @@ export default function App() {
     activeChatIdRef.current = id;
     setLoadingChat(true);
     try {
-      const [chat, paper, video] = await Promise.all([
+      // The HTML source hangs on the tree's ROOT; the chat list already says
+      // which root has one, so no extra "for chat" lookup is needed.
+      const htmlSourceId = findRoot(chatsRef.current, id)?.html_source_id ?? null;
+      const [chat, paper, video, html] = await Promise.all([
         api.getChat(id),
         api.getTreePaper(id).catch(() => null),
         api.getTreeVideo(id).catch(() => null),
+        htmlSourceId ? api.getHtmlSource(htmlSourceId).catch(() => null) : Promise.resolve(null),
       ]);
       // Laufen in diesem Chat noch Hintergrund-Streams, deren Teilstand
       // wieder anhängen. Gestartete Jobs: die User-Frage ist serverseitig
@@ -914,6 +950,7 @@ export default function App() {
       );
       setTreePaper(paper);
       setTreeVideo(video);
+      setTreeHtml(html);
       // Prefix-Warm-up (fire-and-forget): das lokale Modell liest Paper +
       // Historie schon jetzt ein — die erste Frage trifft auf warmen Cache.
       // Nicht während ein Stream in diesem Chat läuft (der Prefix ist dann
@@ -1049,11 +1086,96 @@ export default function App() {
     setActiveChat(null);
     setTreePaper(null);
     setTreeVideo(null);
+    setTreeHtml(null);
+  };
+
+  // "Upload file" from the plus menu takes PDF and HTML alike (ADR-0013
+  // decision 8): the kind is detected from the file, there is no second button.
+  // The MIME type first, the extension when the browser gives none.
+  const isHtmlFile = (file: File) => file.type === 'text/html' || /\.html?$/i.test(file.name);
+
+  // Binds an HTML source to the tree of `chatId`. Progress lives where the
+  // action started — the attach button spins for a file, the dialog's Load
+  // button for a web page — and the outcome is the page itself with its
+  // "n open" badge; there is no separate note (user decision 2026-09-30: every
+  // source loads the same way). A 409 (TreeHasSourceError) is the CALLER's
+  // business — it decides between the new-tree prompt and its own dialog.
+  const attachHtmlSource = async (
+    chatId: string,
+    run: () => Promise<HtmlSource>,
+    // The web-page dialog shows its own failures (a page with nothing to read
+    // is a hint, not an error), so it takes them back.
+    rethrow = false,
+  ): Promise<HtmlSource | null> => {
+    try {
+      const html = await run();
+      if (activeChatIdRef.current === chatId) setTreeHtml(html);
+      await refreshTree(); // the root row now shows its HTML tag
+      // A new source means a new prefix — warm it in the background, as for a PDF.
+      if (activeChatIdRef.current === chatId) api.warmupChat(chatId).catch(() => {});
+      return html;
+    } catch (err) {
+      if (rethrow || err instanceof TreeHasSourceError) throw err;
+      // Same as a failed PDF upload: logged, the attach button simply stops spinning.
+      console.error('Failed to attach the HTML source:', err);
+      return null;
+    }
+  };
+
+  const handleUploadHtml = async (file: File) => {
+    if (!activeChatId) return;
+    try {
+      await attachHtmlSource(activeChatId, () => api.uploadHtmlSource(activeChatId, file));
+    } catch (err) {
+      if (err instanceof TreeHasSourceError) setPendingAttach({ kind: 'file', file });
+    }
+  };
+
+  // The web-page dialog's import. Failures go back to the dialog, which knows
+  // the two kinds (a page with nothing to read is a hint, the rest an error);
+  // only "the tree has a source" leaves it for the new-tree prompt.
+  const handleImportWebpage = async (url: string) => {
+    if (!activeChatId) return;
+    try {
+      await attachHtmlSource(activeChatId, () => api.importHtmlFromUrl(activeChatId, url), true);
+      setHtmlWebOpen(false);
+    } catch (err) {
+      if (err instanceof TreeHasSourceError) {
+        setHtmlWebOpen(false);
+        setPendingAttach({ kind: 'webpage', url });
+        return;
+      }
+      throw err;
+    }
+  };
+
+  // Retry of the frozen-resources card or badge: only the missing ones are
+  // asked for again; whatever is still missing stays listed with its reason.
+  const handleRetryHtmlFreeze = async () => {
+    if (!treeHtml || htmlFreezeRetrying) return;
+    const id = treeHtml.id;
+    setHtmlFreezeRetrying(true);
+    try {
+      const updated = await api.retryHtmlFreeze(id);
+      setTreeHtml((prev) => (prev && prev.id === updated.id ? { ...prev, ...updated } : prev));
+    } catch (err) {
+      console.error('Failed to retry freezing:', err);
+    } finally {
+      setHtmlFreezeRetrying(false);
+    }
   };
 
   // "Upload file" from the plus menu: bind the PDF to the active chat's tree.
   // A 409 from the backend means the tree already has one (ADR-0002) — hold
   // the file and show the new-tree prompt instead.
+  const handleUploadFile = async (file: File) => {
+    if (isHtmlFile(file)) {
+      await handleUploadHtml(file);
+      return;
+    }
+    await handleUploadPdf(file);
+  };
+
   const handleUploadPdf = async (file: File) => {
     if (!activeChatId) return;
     try {
@@ -1213,15 +1335,24 @@ export default function App() {
     try {
       const chat = await api.createChat(S.newChatTitle);
       let importedVideo: Video | null = null;
+      let importedHtml: HtmlSource | null = null;
       if (pending.kind === 'file') {
-        await api.uploadPaper(chat.id, pending.file);
+        if (isHtmlFile(pending.file)) {
+          importedHtml = await api.uploadHtmlSource(chat.id, pending.file);
+        } else {
+          await api.uploadPaper(chat.id, pending.file);
+        }
       } else if (pending.kind === 'url') {
         await api.importPaperFromUrl(chat.id, pending.url, pending.title, pending.fallbacks);
+      } else if (pending.kind === 'webpage') {
+        importedHtml = await api.importHtmlFromUrl(chat.id, pending.url);
       } else {
         importedVideo = await api.importYouTubeVideo(chat.id, pending.youtubeId);
       }
       await refreshTree();
       await handleSelectChat(chat.id);
+      // The chat list may not carry the new source yet; the import answer does.
+      if (importedHtml) setTreeHtml(importedHtml);
       // Auto-Prompt in den frischen Baum — explizite Chat-ID, weil der
       // activeChatId-State in diesem Tick noch den alten Chat trägt.
       if (importedVideo) {
@@ -2197,6 +2328,7 @@ export default function App() {
   const handleWordRightClick = async (wordPopup: WordPopup) => {
     // Word-at-point right-clicks have no selection behind them — reset both
     // selection states so no color row leaks into the definition popup.
+    clearHtmlSelection();
     pendingPdfSelectionRef.current = null;
     savedHighlightIdRef.current = null;
     setPopupHasPdfSelection(false);
@@ -2236,6 +2368,7 @@ export default function App() {
     text: string; seconds: number | null; startOffset: number; endOffset: number;
     x: number; y: number; markSource?: 'transcript' | 'chapter';
   }) => {
+    clearHtmlSelection();
     pendingPdfSelectionRef.current = null;
     savedHighlightIdRef.current = null;
     setPopupHasPdfSelection(false);
@@ -2277,7 +2410,58 @@ export default function App() {
     });
   };
 
+  // A passage selected in the HTML source, reported by the bridge (ADR-0013).
+  // Its own pending ref, like the PDF, chat and transcript have: the popup's
+  // actions must know which SOURCE the passage came from — that decides where a
+  // branch hangs (the tree root, where the source is bound) and how the mark
+  // is stored (a quote anchor, never offsets).
+  const pendingHtmlSelectionRef = useRef<HtmlPaneSelection | null>(null);
+  const [popupHasHtmlSelection, setPopupHasHtmlSelection] = useState(false);
+  const savedHtmlHighlightIdRef = useRef<string | null>(null);
+  const htmlHighlightCreatePromiseRef = useRef<Promise<HtmlHighlight> | null>(null);
+  const [htmlHighlightMenu, setHtmlHighlightMenu] = useState<{
+    highlight: HtmlHighlight;
+    x: number;
+    y: number;
+  } | null>(null);
+
+  // Forget the captured HTML passage and drop the page's native selection, so
+  // the blue selection does not outlive the popup that acted on it.
+  const clearHtmlSelection = () => {
+    if (pendingHtmlSelectionRef.current) htmlPaneRef.current?.clearSelection();
+    pendingHtmlSelectionRef.current = null;
+    savedHtmlHighlightIdRef.current = null;
+    setPopupHasHtmlSelection(false);
+  };
+
+  const handleHtmlSelection = (sel: HtmlPaneSelection) => {
+    pendingPdfSelectionRef.current = null;
+    savedHighlightIdRef.current = null;
+    setPopupHasPdfSelection(false);
+    pendingChatSelectionRef.current = null;
+    savedChatHighlightIdRef.current = null;
+    setPopupHasChatSelection(false);
+    setPendingChatSelection(null);
+    setHoldPdfSelection(false);
+    pendingTranscriptSelectionRef.current = null;
+    setPopupHasTranscriptSelection(false);
+    setPopupHasTranscriptMark(false);
+    pendingHtmlSelectionRef.current = sel;
+    savedHtmlHighlightIdRef.current = null;
+    setPopupHasHtmlSelection(true);
+    void openPopupWithExplanation({
+      word: sel.text,
+      // The bridge hands over the text around the passage — the HTML twin of
+      // the PDF's "surrounding lines", and what makes a formula or a pronoun
+      // interpretable for the model.
+      context: `${sel.anchor.prefix}${sel.anchor.exact}${sel.anchor.suffix}`,
+      x: sel.x,
+      y: sel.y,
+    });
+  };
+
   const handleChatSelection = (sel: ChatSelection, context: string, x: number, y: number) => {
+    clearHtmlSelection();
     pendingPdfSelectionRef.current = null;
     savedHighlightIdRef.current = null;
     setPopupHasPdfSelection(false);
@@ -2301,7 +2485,8 @@ export default function App() {
     // (user requirement 2026-08-02, chat/passageTitle.ts).
     // Only for real selections; a right-clicked single word is its own title.
     const isPassage = Boolean(
-      pendingPdfSelectionRef.current || pendingChatSelectionRef.current || pendingTranscriptSelectionRef.current,
+      pendingPdfSelectionRef.current || pendingChatSelectionRef.current || pendingTranscriptSelectionRef.current
+        || pendingHtmlSelectionRef.current,
     );
     pendingTitleRef.current = isPassage ? startPassageTitle(wordPopup.word) : null;
     try {
@@ -2329,6 +2514,7 @@ export default function App() {
   const handlePdfSelectionFinalized = (point: { clientX: number; clientY: number }) => {
     const sel = pendingPdfSelectionRef.current;
     if (!sel) return; // no live selection — nothing to define or highlight
+    clearHtmlSelection();
     savedHighlightIdRef.current = null;
     setPopupHasPdfSelection(true);
     setPendingChatSelection(null);
@@ -2352,6 +2538,27 @@ export default function App() {
     // Pending-Overlay würde nur doppelt darüberliegen.
     setPendingChatSelection(null);
     setHoldPdfSelection(false);
+    // HTML source: the FIRST pick persists the quote anchor, further picks
+    // recolor that same mark — the contract of every other surface.
+    const htmlSel = pendingHtmlSelectionRef.current;
+    if (htmlSel && treeHtml) {
+      const saved = savedHtmlHighlightIdRef.current;
+      if (saved) {
+        await htmlHl.recolor(saved, color);
+        return;
+      }
+      const createPromise = htmlHl.create({ color, anchor: htmlSel.anchor, section: htmlSel.section });
+      htmlHighlightCreatePromiseRef.current = createPromise;
+      try {
+        const created = await createPromise;
+        savedHtmlHighlightIdRef.current = created.id;
+      } catch (err) {
+        console.error('Failed to save the HTML highlight:', err);
+      } finally {
+        htmlHighlightCreatePromiseRef.current = null;
+      }
+      return;
+    }
     const transcriptSel = pendingTranscriptSelectionRef.current;
     // startOffset < 0 means "no anchor in the transcript" — a chapter passage.
     if (transcriptSel && transcriptSel.startOffset >= 0 && treeVideo) {
@@ -2458,6 +2665,12 @@ export default function App() {
       await chatHighlightCreatePromiseRef.current.catch(() => null);
     }
     const savedChatHl = savedChatHighlightIdRef.current;
+    // HTML passage: same race, same wait for an in-flight swatch create.
+    const htmlSel = pendingHtmlSelectionRef.current;
+    if (htmlHighlightCreatePromiseRef.current) {
+      await htmlHighlightCreatePromiseRef.current.catch(() => null);
+    }
+    const savedHtmlHl = savedHtmlHighlightIdRef.current;
     // The parent follows the ORIGIN of the selection, not whichever chat
     // happens to be active (user report 2026-08-06: selecting PDF text while a
     // grandchild chat was open hung the branch under that grandchild). A chat
@@ -2467,6 +2680,9 @@ export default function App() {
     const transcriptSel = pendingTranscriptSelectionRef.current;
     const parentId = popupHasChatSelection && chatSel
       ? chatSel.chatId
+      // An HTML passage belongs to the tree ROOT too: the source is bound there.
+      : htmlSel && treeHtml
+        ? findRoot(chats, activeChatId)?.id ?? activeChatId
       // A transcript passage belongs to the tree ROOT for the same reason a
       // PDF passage does: that is where the source is bound (ADR-0005).
       : fromPdf || transcriptSel
@@ -2499,7 +2715,7 @@ export default function App() {
       pendingTitleRef.current = null;
       child = await api.createChat(
         S.aboutChatTitle(title), parentId, word,
-        fromPdf && context ? context : undefined,
+        (fromPdf || htmlSel) && context ? context : undefined,
         quote ?? undefined,
       );
     } catch (err) {
@@ -2525,8 +2741,27 @@ export default function App() {
     setPopupHasChatSelection(false);
     setPendingChatSelection(null);
     setHoldPdfSelection(false);
+    clearHtmlSelection();
     if (!fromPdf && chatSel) {
       setParentScrollTarget({ chatId: chatSel.chatId, messageId: chatSel.messageId });
+    }
+    // An HTML branch leaves its mark behind too: the one the color pick already
+    // saved, or a fresh one in the active color, linked to the new chat.
+    if (htmlSel && treeHtml) {
+      try {
+        if (savedHtmlHl) {
+          await htmlHl.linkChat(savedHtmlHl, child.id);
+        } else {
+          await htmlHl.create({
+            color: activeColor,
+            anchor: htmlSel.anchor,
+            section: htmlSel.section,
+            chatId: child.id,
+          });
+        }
+      } catch (err) {
+        console.error('Failed to link the HTML highlight:', err);
+      }
     }
     // A transcript branch leaves its mark behind, exactly like a PDF branch:
     // either the one the color pick already saved, or a fresh one in the
@@ -2630,7 +2865,18 @@ export default function App() {
         endOffset: chatSel.endOffset,
       });
     }
-    const quoteColor = savedPdfHl || savedChatHl || chatSel ? activeColor : null;
+    // An HTML passage is always marked, like a chat passage: the quote must be
+    // able to jump back, and the jump needs a stored anchor. A swatch click may
+    // still be creating it — wait for that one instead of making a second.
+    const htmlSel = pendingHtmlSelectionRef.current;
+    const savedHtmlHl = savedHtmlHighlightIdRef.current;
+    let pendingHtmlCreate: Promise<HtmlHighlight> | null = null;
+    if (htmlSel && treeHtml && !savedHtmlHl) {
+      pendingHtmlCreate = htmlHighlightCreatePromiseRef.current
+        ?? htmlHl.create({ color: activeColor, anchor: htmlSel.anchor, section: htmlSel.section });
+    }
+    const quoteColor = savedPdfHl || savedChatHl || chatSel || htmlSel ? activeColor : null;
+    clearHtmlSelection();
     pendingPdfSelectionRef.current = null;
     savedHighlightIdRef.current = null;
     pendingChatSelectionRef.current = null;
@@ -2643,7 +2889,9 @@ export default function App() {
     setPendingChatSelection(null);
     setHoldPdfSelection(false);
 
-    const sourceLabel = transcriptSel
+    const sourceLabel = htmlSel
+      ? treeHtml?.title ?? STR.htmlPane.kind
+      : transcriptSel
       // The transcript quote names its MOMENT (mockup-transcript-selection
       // §02): "Transcript · 8:58". The chat title would say nothing the
       // reader cannot already see, while the time is the way back.
@@ -2660,8 +2908,19 @@ export default function App() {
       // A PDF selection without a color pick saves no highlight at all
       // (decision 2026-07-21) — that quote stays unanchored and renders as
       // plain text, exactly as before.
-      highlightId: savedPdfHl ?? savedChatHl ?? savedTranscriptHighlightIdRef.current ?? null,
+      highlightId: savedPdfHl ?? savedChatHl ?? savedHtmlHl ?? savedTranscriptHighlightIdRef.current ?? null,
     });
+
+    if (pendingHtmlCreate) {
+      const created = await pendingHtmlCreate.catch(() => null);
+      if (created) {
+        setComposerQuote((prev) =>
+          prev && prev.chatId === quoteChatId && prev.text === word
+            ? { ...prev, highlightId: created.id }
+            : prev,
+        );
+      }
+    }
 
     if (pendingCreate) {
       const created = await pendingCreate.catch(() => null);
@@ -2679,6 +2938,7 @@ export default function App() {
   // via a swatch click stays — picking a color IS the save (Issue 04).
   const handleClosePopup = () => {
     setPopup(null);
+    clearHtmlSelection();
     pendingPdfSelectionRef.current = null;
     savedHighlightIdRef.current = null;
     setPopupHasPdfSelection(false);
@@ -2761,6 +3021,27 @@ export default function App() {
     if (menu?.highlight.childChatId) await handleSelectChat(menu.highlight.childChatId);
   };
 
+  // Recolor/delete/open-chat for an existing HTML mark — the same menu and the
+  // same stays-open recolor semantics as the other three surfaces.
+  const handleHtmlMenuChangeColor = async (color: HighlightColor) => {
+    const menu = htmlHighlightMenu;
+    if (!menu) return;
+    setHtmlHighlightMenu({ ...menu, highlight: { ...menu.highlight, color } });
+    await htmlHl.recolor(menu.highlight.id, color);
+  };
+
+  const handleHtmlMenuDelete = async () => {
+    const menu = htmlHighlightMenu;
+    setHtmlHighlightMenu(null);
+    if (menu) await htmlHl.remove(menu.highlight.id);
+  };
+
+  const handleHtmlMenuOpenChat = async () => {
+    const menu = htmlHighlightMenu;
+    setHtmlHighlightMenu(null);
+    if (menu?.highlight.chatId) await handleSelectChat(menu.highlight.chatId);
+  };
+
   // ─── Highlights-Drawer (mockup-highlights-overview.html, Variante A) ──────
 
   // Rechtsklick auf eine Drawer-Karte → dasselbe HighlightActionsMenu wie im
@@ -2773,6 +3054,9 @@ export default function App() {
     } else if (item.kind === 'chat') {
       const { kind: _kind, chatTitle: _title, ...highlight } = item;
       setChatHighlightMenu({ highlight, x, y });
+    } else if (item.kind === 'html') {
+      const { kind: _kind, text: _text, ...highlight } = item;
+      setHtmlHighlightMenu({ highlight, x, y });
     } else {
       // Video marks (transcript/chapter): the TreeHighlight row carries every
       // field of a TranscriptHighlight plus `kind` — which doubles as the
@@ -2790,6 +3074,13 @@ export default function App() {
   const handleDrawerJump = (item: TreeHighlight) => {
     if (item.kind === 'pdf') {
       pdfViewRef.current?.scrollToHighlight(item.id);
+      return;
+    }
+    // An HTML mark lives in the page: the bridge scrolls to its quote anchor
+    // and lets it glow (the drawer row carries the anchor, so this works even
+    // before the pane's own list has loaded).
+    if (item.kind === 'html') {
+      htmlPaneRef.current?.scrollToAnchor(item.anchor);
       return;
     }
     // A video mark lives in the pane, not in a chat: the pane opens the right
@@ -2814,7 +3105,7 @@ export default function App() {
     // offen (Nutzerkorrektur 2026-07-22). Nur bei Chat-Wechseln schließen:
     // das Ziel kann ein Branch sein, dessen 3-Spalten-Layout den Drawer als
     // Overlay ÜBER den Chat legen würde.
-    const panelMode = !treePaper && !parentContext;
+    const panelMode = !treePaper && !treeHtml && !parentContext;
     if (!panelMode || item.chatId !== activeChatId) setHighlightsOpen(false);
     const range = { startOffset: item.startOffset, endOffset: item.endOffset, color: item.color };
     if (item.chatId === activeChatId) {
@@ -2842,6 +3133,11 @@ export default function App() {
     // or the PDF — it glows there instead (user request 2026-08-16).
     if (transcriptHighlights.some((h) => h.id === anchorId)) {
       videoPaneRef.current?.showHighlight(anchorId);
+      return;
+    }
+    // An HTML mark is scrolled to inside the page — the bridge finds the quote.
+    if (htmlHl.highlights.some((h) => h.id === anchorId)) {
+      htmlPaneRef.current?.scrollToHighlight(anchorId);
       return;
     }
     let items: TreeHighlight[] = [];
@@ -2906,6 +3202,11 @@ export default function App() {
     // chat does not make it glow"): the mark that opened this branch lives in
     // the transcript or in a chapter, so the pane shows it — right view, right
     // second, and the glow.
+    const linkedHtmlMark = htmlHl.highlights.find((h) => h.chatId === chat.id);
+    if (linkedHtmlMark && treeHtml) {
+      htmlPaneRef.current?.scrollToHighlight(linkedHtmlMark.id);
+      return;
+    }
     const linkedTranscriptMark = transcriptHighlights.find((h) => h.childChatId === chat.id);
     if (linkedTranscriptMark && treeVideo) {
       videoPaneRef.current?.showHighlight(linkedTranscriptMark.id);
@@ -3131,6 +3432,14 @@ export default function App() {
     }
   };
 
+  // What the new-tree prompt names as the incoming source.
+  const pendingAttachIsHtml =
+    pendingAttach?.kind === 'webpage' || (pendingAttach?.kind === 'file' && isHtmlFile(pendingAttach.file));
+  const pendingAttachTitle =
+    pendingAttach?.kind === 'file' ? pendingAttach.file.name
+    : pendingAttach?.kind === 'webpage' ? pendingAttach.url
+    : pendingAttach?.title;
+
   return (
     <div className="flex h-screen overflow-hidden bg-white relative isolate">
       <MatrixRain />
@@ -3277,6 +3586,20 @@ export default function App() {
               onRequestTranscript={() => void ensureTranscript()}
             />
           )}
+          {/* HTML tree: the page runs live in the middle column
+              (ADR-0013, mockup-html-app.html variant B). A tree has exactly
+              one source, so this never competes with the PDF or the video. */}
+          {treeHtml && activeChatId && (
+            <HtmlPane
+              ref={htmlPaneRef}
+              source={treeHtml}
+              highlights={htmlHl.highlights}
+              onSelection={handleHtmlSelection}
+              onHighlightClick={(h, x, y) => setHtmlHighlightMenu({ highlight: h, x, y })}
+              onRetryFreeze={() => void handleRetryHtmlFreeze()}
+              retryingFreeze={htmlFreezeRetrying}
+            />
+          )}
           {/* No-PDF branch layout (mockup-chat-highlights-ask-in-chat.html,
               section 03): the parent chat takes the center pane as read-only
               context while the branch lives in the right pane. */}
@@ -3302,7 +3625,7 @@ export default function App() {
           {/* Divider between center pane (PDF or parent context) and chat —
               drag to resize the chat column sideways (min 300px, max 800px).
               Only present in the three-column layout. */}
-          {(treePaper || treeVideo || parentContext) && activeChatId && (
+          {(treePaper || treeVideo || treeHtml || parentContext) && activeChatId && (
             <div
               role="separator"
               aria-orientation="vertical"
@@ -3318,19 +3641,19 @@ export default function App() {
               usable once not even that fits. */}
           <div
             className={
-              (treePaper || treeVideo || parentContext) && activeChatId
+              (treePaper || treeVideo || treeHtml || parentContext) && activeChatId
                 ? 'shrink-0 flex overflow-hidden border-l border-gray-200'
                 : 'flex-1 flex overflow-hidden'
             }
             style={
-              (treePaper || treeVideo || parentContext) && activeChatId
+              (treePaper || treeVideo || treeHtml || parentContext) && activeChatId
                 ? {
                     width: chatPaneWidth,
                     maxWidth: `max(${CHAT_PANE_MIN}px, calc(100% - ${CENTER_PANE_MIN}px))`,
                   }
                 : undefined
             }
-            data-testid={(treePaper || treeVideo || parentContext) && activeChatId ? 'chat-pane-right' : undefined}
+            data-testid={(treePaper || treeVideo || treeHtml || parentContext) && activeChatId ? 'chat-pane-right' : undefined}
           >
             <ChatArea
               ref={chatAreaRef}
@@ -3430,9 +3753,16 @@ export default function App() {
               onBranchedFromClick={handleBranchedFromClick}
               parentTitle={activeParentTitle}
               onQuoteClick={handleQuoteJump}
-              onUploadPdf={handleUploadPdf}
+              onUploadPdf={handleUploadFile}
               onOpenPaperSearch={() => setPaperSearchOpen(true)}
               onOpenYouTubeSearch={() => setYoutubeSearchOpen(true)}
+              onOpenWebpage={() => setHtmlWebOpen(true)}
+              htmlFreeze={
+                // Only the root chat has a "first answer" to carry the card.
+                treeHtml && activeChat && !activeChat.parent_id
+                  ? { unfrozen: treeHtml.unfrozen, retrying: htmlFreezeRetrying, onRetry: () => void handleRetryHtmlFreeze() }
+                  : undefined
+              }
               chatHighlights={activeChatHl.highlights}
               onChatSelection={handleChatSelection}
               onHighlightContextMenu={(h, x, y) => setChatHighlightMenu({ highlight: h, x, y })}
@@ -3482,6 +3812,7 @@ export default function App() {
                     // G3 (§07): a "to set up" row is not a model choice — it
                     // opens that provider's key form.
                     onSetupProvider={(provider) => openSettings('model', provider)}
+                    recommendedMissing={recommendedMissing ?? undefined}
                     disabled={streamingChatIds.has(activeChatId)}
                     openSignal={pickerOpenSignal}
                     refreshSignal={modelSystemSignal}
@@ -3492,7 +3823,7 @@ export default function App() {
               highlightsDrawer={
                 // Nur im 3-Spalten-Layout als Overlay über der Chat-Spalte —
                 // ohne PDF/Parent-Kontext rendert die rechte Panel-Spalte unten.
-                highlightsOpen && activeChatId && (treePaper || treeVideo || parentContext) ? (
+                highlightsOpen && activeChatId && (treePaper || treeVideo || treeHtml || parentContext) ? (
                   <HighlightsDrawer
                     chatId={activeChatId}
                     onClose={() => setHighlightsOpen(false)}
@@ -3509,7 +3840,7 @@ export default function App() {
               als Overlay über der ganzen Seite (Nutzerentscheidung
               2026-07-22) — Highlights und Chat bleiben gleichzeitig
               sichtbar. */}
-          {!treePaper && !parentContext && activeChatId && highlightsOpen && (
+          {!treePaper && !treeHtml && !parentContext && activeChatId && highlightsOpen && (
             <div className="w-96 shrink-0 overflow-hidden" data-testid="highlights-panel-right">
               <HighlightsDrawer
                 variant="panel"
@@ -3554,14 +3885,14 @@ export default function App() {
 
             {/* Die Quelle, die schon im Baum hängt. Gedämpft, weil sie hier
                 nur der Bezugspunkt ist — gehandelt wird mit der neuen. */}
-            {(treeVideo || treePaper) && (
+            {(treeVideo || treePaper || treeHtml) && (
               <>
                 <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-gray-400 mb-1.5">
                   {S.newTreeCurrent}
                 </p>
                 <div className="flex items-start gap-2.5 rounded-[10px] border border-gray-200 bg-gray-50 px-2.5 py-2">
                   <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-gray-100 text-gray-500">
-                    {treeVideo ? <TvMinimalPlay size={13} /> : <FileText size={13} />}
+                    {treeVideo ? <TvMinimalPlay size={13} /> : treeHtml ? <Code size={13} /> : <FileText size={13} />}
                   </span>
                   <span className="min-w-0">
                     {/* line-clamp-2 + title: ein sehr langer Name darf den
@@ -3569,16 +3900,20 @@ export default function App() {
                         erreichbar bleiben. */}
                     <span
                       className="line-clamp-2 text-[13px] font-medium leading-snug text-gray-600"
-                      title={treeVideo ? treeVideo.title : (treePaper?.title ?? undefined)}
+                      title={treeVideo ? treeVideo.title : treeHtml ? treeHtml.title : (treePaper?.title ?? undefined)}
                     >
                       {treeVideo
                         ? <MathText text={treeVideo.title} />
-                        : <MathText text={treePaper?.title ?? S.newTreeUntitledPdf} />}
+                        : treeHtml
+                          ? <MathText text={treeHtml.title} />
+                          : <MathText text={treePaper?.title ?? S.newTreeUntitledPdf} />}
                     </span>
                     <span className="mt-0.5 block text-[11.5px] text-gray-500">
                       {treeVideo
                         ? `${S.newTreeKindVideo}${treeVideo.channel ? ` · ${treeVideo.channel}` : ''}`
-                        : `${S.newTreeKindPdf}${treePaper?.authors?.[0] ? ` · ${treePaper.authors[0]}` : ''}`}
+                        : treeHtml
+                          ? S.newTreeKindHtml
+                          : `${S.newTreeKindPdf}${treePaper?.authors?.[0] ? ` · ${treePaper.authors[0]}` : ''}`}
                     </span>
                   </span>
                 </div>
@@ -3596,19 +3931,23 @@ export default function App() {
               data-testid="new-tree-next-source"
             >
               <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-blue-50 text-blue-700">
-                {pendingAttach.kind === 'video' ? <TvMinimalPlay size={13} /> : <FileText size={13} />}
+                {pendingAttach.kind === 'video'
+                  ? <TvMinimalPlay size={13} />
+                  : pendingAttachIsHtml ? <Code size={13} /> : <FileText size={13} />}
               </span>
               <span className="min-w-0">
                 <span
                   className="line-clamp-2 text-[13px] font-semibold leading-snug text-gray-900"
-                  title={pendingAttach.kind === 'file' ? pendingAttach.file.name : pendingAttach.title}
+                  title={pendingAttachTitle}
                 >
-                  {pendingAttach.kind === 'file'
-                    ? pendingAttach.file.name
+                  {pendingAttach.kind === 'file' || pendingAttach.kind === 'webpage'
+                    ? pendingAttachTitle
                     : <MathText text={pendingAttach.title} />}
                 </span>
                 <span className="mt-0.5 block text-[11.5px] text-gray-500">
-                  {pendingAttach.kind === 'video' ? S.newTreeKindVideo : S.newTreeKindPdf}
+                  {pendingAttach.kind === 'video'
+                    ? S.newTreeKindVideo
+                    : pendingAttachIsHtml ? S.newTreeKindHtml : S.newTreeKindPdf}
                 </span>
               </span>
             </div>
@@ -3714,13 +4053,13 @@ export default function App() {
         onClose={handleClosePopup}
         onOpenChildChat={handleOpenChildChat}
         onPickColor={
-          popupHasPdfSelection || popupHasChatSelection || popupHasTranscriptMark
+          popupHasPdfSelection || popupHasChatSelection || popupHasTranscriptMark || popupHasHtmlSelection
             ? handlePickColor
             : undefined
         }
         activeColor={activeColor}
         onAskInChat={
-          popupHasPdfSelection || popupHasChatSelection || popupHasTranscriptSelection
+          popupHasPdfSelection || popupHasChatSelection || popupHasTranscriptSelection || popupHasHtmlSelection
             ? handleAskInChat
             : undefined
         }
@@ -3733,6 +4072,18 @@ export default function App() {
         <PaperSearchModal
           onClose={() => setPaperSearchOpen(false)}
           onImport={handleImportPaper}
+        />
+      )}
+
+      {/* Web-page dialog (ADR-0013): a URL becomes an ordinary HTML source. */}
+      {htmlWebOpen && activeChatId && (
+        <HtmlWebDialog
+          onClose={() => setHtmlWebOpen(false)}
+          onImport={handleImportWebpage}
+          onUploadFile={(file) => {
+            setHtmlWebOpen(false);
+            void handleUploadFile(file);
+          }}
         />
       )}
 
@@ -3775,6 +4126,23 @@ export default function App() {
           onChangeColor={handleChatMenuChangeColor}
           onDelete={handleChatMenuDelete}
           onOpenChat={handleChatMenuOpenChat}
+        />
+      )}
+
+      {/* Actions menu for an existing HTML mark: recolor / delete / open the
+          linked chat — the same gesture on the fourth surface. */}
+      {htmlHighlightMenu && (
+        <HighlightActionsMenu
+          highlight={{
+            color: htmlHighlightMenu.highlight.color,
+            chatId: htmlHighlightMenu.highlight.chatId,
+          }}
+          x={htmlHighlightMenu.x}
+          y={htmlHighlightMenu.y}
+          onClose={() => setHtmlHighlightMenu(null)}
+          onChangeColor={handleHtmlMenuChangeColor}
+          onDelete={handleHtmlMenuDelete}
+          onOpenChat={handleHtmlMenuOpenChat}
         />
       )}
 

@@ -12,6 +12,10 @@ vi.mock('../api', () => ({
     getSettings: vi.fn(),
     updateSettings: vi.fn(),
     getOllamaModels: vi.fn(),
+    getRecommendation: vi.fn(),
+    pullOllamaModel: vi.fn(),
+    deleteOllamaModel: vi.fn(),
+    setOllamaContextLength: vi.fn(),
     getRegistry: vi.fn(),
     getUsageSummary: vi.fn(),
     getQuotaCooldowns: vi.fn(),
@@ -20,7 +24,7 @@ vi.mock('../api', () => ({
 
 import { api } from '../api';
 import { SettingsModal } from '../components/SettingsModal';
-import type { Registry, Settings, UsageSummary } from '../types';
+import type { Recommendation, Registry, Settings, UsageSummary } from '../types';
 
 const ollamaSettings: Settings = {
   llm_provider: 'ollama',
@@ -114,11 +118,29 @@ const usageSummary: UsageSummary = {
   modelsToday: { 'gemini/gemini-2.5-flash': 5 }, kindsToday: {},
 };
 
+// What GET /api/system/recommendation says on an RTX 5080 with nothing pulled.
+const recommendedModel = {
+  name: 'qwen3.5:9b', label: 'Qwen 3.5 9B', vision: true, canThink: true,
+  contextWindowTokens: 32768, budgetCapTokens: 32768, free: true, pricing: null,
+  downloadGb: 6.6, fitsGb: 10.1, minMemoryGb: 8, measured: false, fits: true, installed: false,
+};
+const alsoFitsModel = { ...recommendedModel, name: 'gemma4:12b', label: 'Gemma 4 12B', downloadGb: 8, fitsGb: 11.5, alternative: true };
+const rtx5080: Recommendation = {
+  hardware: {
+    platform: 'linux', totalMemGb: 62, basis: 'vram', usableGb: 15.9,
+    gpu: { vendor: 'nvidia', name: 'NVIDIA GeForce RTX 5080 Laptop GPU', vramGb: 15.9 },
+  },
+  ollamaReachable: true,
+  recommended: recommendedModel,
+  alsoFits: [alsoFitsModel],
+};
+
 beforeEach(() => {
   vi.clearAllMocks();
   localStorage.clear();
   vi.mocked(api.getSettings).mockResolvedValue(ollamaSettings);
   vi.mocked(api.getOllamaModels).mockResolvedValue([]);
+  vi.mocked(api.getRecommendation).mockResolvedValue(rtx5080);
   vi.mocked(api.getRegistry).mockResolvedValue(registry);
   vi.mocked(api.getUsageSummary).mockResolvedValue(usageSummary);
   vi.mocked(api.getQuotaCooldowns).mockResolvedValue([]);
@@ -451,47 +473,187 @@ describe('SettingsModal – web search tab (W3)', () => {
   });
 });
 
-describe('SettingsModal – Ollama model list (frozen fallback)', () => {
-  it('lists installed models with an Active badge and no download/remove UI', async () => {
+// ── Local library (grill 2026-10-27, decisions 2–10; design/mockup-local-
+// library.html §01 A, §02 A, §03 A, §04 A, §05 A) ────────────────────────────
+// The settings are the library: the machine's facts, the model that fits
+// them with a download IN the app, and the installed models with Remove.
+describe('SettingsModal – local library', () => {
+  async function openLibrary() {
+    render(<SettingsModal open onClose={vi.fn()} initialTab="model" />);
+    return screen.findByTestId('recommended-card');
+  }
+
+  it('names the machine and the model that fits it, with a download door', async () => {
+    const card = await openLibrary();
+
+    // §08 C: label, then a chip for the machine (vendor prefix dropped, full
+    // name in the tooltip) and a chip for its memory.
+    expect(screen.getByTestId('hardware-line')).toHaveTextContent('Your machine');
+    expect(screen.getByTestId('hardware-machine')).toHaveTextContent('RTX 5080 Laptop GPU');
+    expect(screen.getByTestId('hardware-machine')).toHaveAttribute('data-tip', 'NVIDIA GeForce RTX 5080 Laptop GPU');
+    expect(screen.getByTestId('hardware-memory')).toHaveTextContent('16 GB graphics memory');
+    expect(card).toHaveTextContent('qwen3.5:9b');
+    expect(card).toHaveTextContent('6.6 GB download');
+    expect(screen.getByTestId('download-recommended')).toHaveTextContent('Download');
+    // The models that would also fit get their own door below the card.
+    expect(screen.getByTestId('download-gemma4:12b')).toBeInTheDocument();
+    // No more "do it in the terminal".
+    expect(screen.queryByTestId('pull-hint')).not.toBeInTheDocument();
+  });
+
+  it('downloads in the app, shows progress, and then offers the switch — never switches by itself (decision 8)', async () => {
+    vi.mocked(api.pullOllamaModel).mockImplementation(async (_name, onProgress) => {
+      onProgress({ status: 'pulling abc', total: 1000, completed: 400 });
+      return { ready: true, contextLength: 32768 };
+    });
+    vi.mocked(api.updateSettings).mockResolvedValue({ ...geminiSettings, llm_provider: 'ollama', ollama_model: 'qwen3.5:9b' });
+    const onSaved = vi.fn();
+    render(<SettingsModal open onClose={vi.fn()} onSaved={onSaved} initialTab="model" />);
+    await screen.findByTestId('recommended-card');
+
+    fireEvent.click(screen.getByTestId('download-recommended'));
+
+    // Ready: the card says so, names the baked window, and offers the switch.
+    const ready = await screen.findByTestId('switch-local');
+    expect(screen.getByTestId('recommended-card')).toHaveTextContent('32k');
+    expect(api.updateSettings).not.toHaveBeenCalled();
+
+    fireEvent.click(ready);
+    await waitFor(() => expect(api.updateSettings).toHaveBeenCalledWith({ llm_provider: 'ollama', ollama_model: 'qwen3.5:9b' }));
+    expect(onSaved).toHaveBeenCalled();
+  });
+
+  it('reports a failed download in words, with the door still open', async () => {
+    vi.mocked(api.pullOllamaModel).mockResolvedValue({ ready: false, contextLength: null, error: 'pull model manifest: file does not exist' });
+    await openLibrary();
+
+    fireEvent.click(screen.getByTestId('download-recommended'));
+
+    expect(await screen.findByText(/file does not exist/)).toBeInTheDocument();
+    expect(screen.getByTestId('download-recommended')).toBeInTheDocument();
+  });
+
+  it('keeps the recommendation visible without Ollama and turns the door into "Install Ollama" (decision 10)', async () => {
+    vi.mocked(api.getRecommendation).mockResolvedValue({ ...rtx5080, ollamaReachable: false });
+    const card = await openLibrary();
+
+    expect(card).toHaveTextContent('qwen3.5:9b');
+    expect(screen.queryByTestId('download-recommended')).not.toBeInTheDocument();
+    expect(screen.getByTestId('install-ollama')).toHaveAttribute('href', 'https://ollama.com/download');
+    // Linux: the one-line installer, ready to copy.
+    expect(screen.getByTestId('install-command')).toHaveTextContent('curl -fsSL https://ollama.com/install.sh | sh');
+  });
+
+  it('offers the smallest model as a slower CPU fallback when no GPU memory is usable', async () => {
+    vi.mocked(api.getRecommendation).mockResolvedValue({
+      hardware: { platform: 'darwin', totalMemGb: 16, basis: 'cpu', usableGb: 0, gpu: null },
+      ollamaReachable: true,
+      recommended: { ...recommendedModel, name: 'qwen3.5:4b', label: 'Qwen 3.5 4B', downloadGb: 3.3, fitsGb: 6.8, minMemoryGb: 0, fits: false },
+      alsoFits: [],
+    });
+    const card = await openLibrary();
+
+    expect(screen.getByTestId('hardware-machine')).toHaveTextContent('no GPU detected');
+    expect(screen.getByTestId('hardware-machine')).not.toHaveAttribute('data-tip');
+    expect(screen.getByTestId('hardware-memory')).toHaveTextContent('16 GB RAM');
+    expect(card).toHaveTextContent('qwen3.5:4b');
+    expect(card).toHaveTextContent(/slower/i);
+  });
+
+  // §07 C (user feedback 2026-10-31): every model appears exactly once. Once
+  // the recommended model is installed, the card goes and its row carries
+  // the badge; the model in use carries the same green marker as the
+  // provider card in step 1 — a marker, not something that looks like a
+  // button.
+  it('shows each model once: the installed recommended model is a badged row, not a second card', async () => {
+    vi.mocked(api.getRecommendation).mockResolvedValue({ ...rtx5080, recommended: { ...recommendedModel, installed: true } });
     vi.mocked(api.getOllamaModels).mockResolvedValue([
       { name: 'llama3.2-vision:11b', parameter_size: '10.7B', canThink: false },
       { name: 'qwen3.5:9b', parameter_size: '9.7B', canThink: true },
     ]);
+    vi.mocked(api.deleteOllamaModel).mockResolvedValue(undefined);
     render(<SettingsModal open onClose={vi.fn()} initialTab="model" />);
-    await screen.findByTestId('library-row-llama3.2-vision:11b');
+    const row = await screen.findByTestId('library-row-qwen3.5:9b');
 
-    // Installed + active: passive "Active" badge, no switcher here.
+    // The badge arrives with the recommendation, a beat after the rows.
+    await waitFor(() => expect(row).toHaveTextContent(/recommended/i));
+    expect(screen.queryByTestId('recommended-card')).not.toBeInTheDocument();
+    expect(row).toHaveTextContent('can think');
     expect(screen.getByTestId('library-row-llama3.2-vision:11b')).toHaveTextContent('Active');
-    expect(screen.getByTestId('library-row-qwen3.5:9b')).toHaveTextContent('can think');
-    // The download/remove machinery is gone (frozen fallback).
-    expect(screen.queryByTestId('hardware-banner')).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /download/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /remove/i })).not.toBeInTheDocument();
+    expect(row).not.toHaveTextContent('Active');
+    // The recommended model sits first.
+    const names = screen.getAllByRole('radio').map(r => r.getAttribute('data-testid'));
+    expect(names).toEqual(['library-row-qwen3.5:9b', 'library-row-llama3.2-vision:11b']);
+
+    fireEvent.click(screen.getByRole('button', { name: /remove qwen3.5:9b/i }));
+    await waitFor(() => expect(api.deleteOllamaModel).toHaveBeenCalledWith('qwen3.5:9b'));
   });
 
-  it('shows the terminal pull hint instead of a download UI', async () => {
+  // §07 C: the local list selects like the cloud list in step 2 — a radio
+  // row arms the Activate button at the bottom, which saves provider + model.
+  it('selects a local model like the cloud list: a radio row, saved by Activate at the bottom', async () => {
     vi.mocked(api.getOllamaModels).mockResolvedValue([
-      { name: 'qwen3.5:9b', canThink: true },
+      { name: 'llama3.2-vision:11b', parameter_size: '10.7B', canThink: false },
+      { name: 'qwen3.5:9b', parameter_size: '9.7B', canThink: true },
     ]);
+    vi.mocked(api.updateSettings).mockResolvedValue({ ...ollamaSettings, ollama_model: 'qwen3.5:9b' });
     render(<SettingsModal open onClose={vi.fn()} initialTab="model" />);
-    await screen.findByTestId('pull-hint');
+    const row = await screen.findByTestId('library-row-qwen3.5:9b');
+    const activate = screen.getByRole('button', { name: /^activate$/i });
 
-    expect(screen.getByTestId('pull-hint')).toHaveTextContent(
-      'Install models with `ollama pull <name>` in the terminal.',
-    );
+    expect(screen.getByTestId('library-row-llama3.2-vision:11b')).toHaveAttribute('aria-checked', 'true');
+    expect(row).toHaveAttribute('aria-checked', 'false');
+    expect(activate).toBeDisabled();
+
+    fireEvent.click(row);
+    expect(row).toHaveAttribute('aria-checked', 'true');
+    expect(activate).toBeEnabled();
+
+    fireEvent.click(activate);
+    await waitFor(() => expect(api.updateSettings).toHaveBeenCalledWith({ llm_provider: 'ollama', ollama_model: 'qwen3.5:9b' }));
+    await waitFor(() => expect(screen.getByTestId('library-row-qwen3.5:9b')).toHaveTextContent('Active'));
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
+    expect(screen.queryByText(/switched from the chat composer/i)).not.toBeInTheDocument();
   });
 
-  it('never offers an Ollama model dropdown — switching lives in the composer', async () => {
-    vi.mocked(api.getOllamaModels).mockResolvedValue([
-      { name: 'qwen3.5:9b', canThink: true },
-      { name: 'qwen3.5:4b', canThink: true },
-    ]);
+  it('lists the models that would also fit as download rows in the same list, without a radio', async () => {
+    vi.mocked(api.getOllamaModels).mockResolvedValue([{ name: 'qwen3.5:9b', parameter_size: '9.7B', canThink: true }]);
+    vi.mocked(api.getRecommendation).mockResolvedValue({ ...rtx5080, recommended: { ...recommendedModel, installed: true } });
     render(<SettingsModal open onClose={vi.fn()} initialTab="model" />);
     await screen.findByTestId('library-row-qwen3.5:9b');
 
-    expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
-    expect(screen.getByText(/switched from the chat composer/i)).toBeInTheDocument();
+    const gemma = await screen.findByTestId('library-row-gemma4:12b');
+    expect(gemma).not.toHaveAttribute('role', 'radio');
+    expect(gemma).toHaveTextContent(/fits too/i);
+    expect(screen.getByTestId('download-gemma4:12b')).toBeInTheDocument();
+    expect(screen.getAllByRole('radio')).toHaveLength(1);
   });
+
+  // A model pulled in the terminal sits at Ollama's default window (4096 on
+  // cards under 24 GB, measured after its first load) — a paper would not
+  // fit. The row says so and offers the same bake the download path does.
+  it('flags an installed model with a small window and offers the 32k door', async () => {
+    vi.mocked(api.getOllamaModels).mockResolvedValue([
+      { name: 'gemma4:12b', parameter_size: '12B', canThink: true, contextLength: 4096 },
+      { name: 'qwen3.5:9b', parameter_size: '9.7B', canThink: true, contextLength: 32768 },
+      { name: 'llama3.2-vision:11b', canThink: false, contextLength: null },
+    ]);
+    vi.mocked(api.setOllamaContextLength).mockResolvedValue({ model: 'gemma4:12b', contextLength: 32768 });
+    render(<SettingsModal open onClose={vi.fn()} initialTab="model" />);
+    await screen.findByTestId('library-row-gemma4:12b');
+
+    expect(screen.getByTestId('window-gemma4:12b')).toHaveTextContent('4k window');
+    expect(screen.getByTestId('window-qwen3.5:9b')).toHaveTextContent('32k window');
+    expect(screen.getByTestId('window-llama3.2-vision:11b')).toHaveTextContent('not measured');
+    expect(screen.queryByTestId('set-window-qwen3.5:9b')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('set-window-gemma4:12b'));
+
+    await waitFor(() => expect(api.setOllamaContextLength).toHaveBeenCalledWith('gemma4:12b'));
+    await waitFor(() => expect(screen.getByTestId('window-gemma4:12b')).toHaveTextContent('32k window'));
+    expect(screen.queryByTestId('set-window-gemma4:12b')).not.toBeInTheDocument();
+  });
+
 });
 
 // ─── Custom instructions (Grill 2026-07-23, Mockup Variante A · State 4) ─────

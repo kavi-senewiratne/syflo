@@ -21,7 +21,7 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
-const { getLLMClient, getLLMClientFor, getSetting, noThinkExtras, extendOllamaKeepAlive } = require('../llm');
+const { getLLMClient, getLLMClientFor, getSetting, noThinkExtras, extendOllamaKeepAlive, recordOllamaContextLength } = require('../llm');
 const { getModelInfo, getRegistry } = require('../registry');
 const { streamWithTools, availableTools, toolsField, isTruncatedFinish } = require('../tools');
 const { joinContinuation, continuationInstruction, condenseWrittenAnswer, detectLanguage, seamSuspect, LANGUAGE_NAMES } = require('../continuation');
@@ -31,6 +31,7 @@ const {
   outcomeInstruction, parseOutcomeReply,
 } = require('../title');
 const { getTreePaperContext } = require('../pdf-text');
+const { getTreeHtmlContext } = require('../html-source');
 const { getTreeVideoContext, transcriptTruncationNote, transcriptCutSeconds } = require('../youtube');
 const {
   trimTrailingClosing,
@@ -283,6 +284,9 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
     // (paperText) in applyContextBudget.
     let videoContext = getTreeVideoContext(db, chat.id);
 
+    // HTML source of the tree (ADR-0013) — third source type, same slot.
+    const htmlContext = getTreeHtmlContext(db, chat.id);
+
     // Continuing an overview: send only the transcript it has NOT worked
     // through yet. Writing on from 16:16 does not need the first sixteen
     // minutes, and re-sending them is what made a round cost ~19 000 prompt
@@ -318,7 +322,9 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
       ? { type: 'paper', id: paperContext.paperId, text: paperContext.text }
       : videoContext
         ? { type: 'video', id: videoContext.videoId, text: videoContext.text }
-        : null;
+        : htmlContext
+          ? { type: 'html', id: htmlContext.htmlSourceId, text: htmlContext.text }
+          : null;
 
     // If-then rule (ADR-0006): If the source fits into the room left after
     // the ancestor context, everything stays on the full-text prefix
@@ -378,7 +384,7 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
           ...(embedTextsFn ? { embedFn: embedTextsFn } : {}),
         });
         retrieval = { sourceType: source.type, sourceId: source.id };
-        sourceTextForPrompt = buildSkeleton(source.text);
+        sourceTextForPrompt = source.type === 'html' ? htmlContext.skeleton : buildSkeleton(source.text);
       } catch (err) {
         console.warn(
           `[retrieval] Chunking/embedding for ${source.type} ${source.id} failed ` +
@@ -418,6 +424,27 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
         '--- PAPER TEXT START ---\n' +
         fitted.paperText +
         '\n--- PAPER TEXT END ---';
+    } else if (htmlContext && fitted.paperText && retrieval) {
+      systemBase +=
+        `\n\nAn HTML document is attached to this conversation as its source: "${htmlContext.title}". ` +
+        'It is too long for the context window, so below is its SKELETON: the section outline, ' +
+        'the first section and the last section. The passages most relevant to the user\'s ' +
+        'current question are provided separately, later in the conversation, in a message ' +
+        'marked RELEVANT DOCUMENT EXCERPTS, each labelled with its section. Base every answer ' +
+        'about the document on this material; if something is not covered by it, say so ' +
+        'instead of guessing.\n' +
+        '--- DOCUMENT SKELETON START ---\n' +
+        fitted.paperText +
+        '\n--- DOCUMENT SKELETON END ---';
+    } else if (htmlContext && fitted.paperText) {
+      systemBase +=
+        `\n\nAn HTML document is attached to this conversation as its source: "${htmlContext.title}". ` +
+        'Its visible text is included below, section by section (formulas as TeX). Base every ' +
+        'answer about the document on this text; if something is not covered by it, say so ' +
+        'instead of guessing.\n' +
+        '--- DOCUMENT TEXT START ---\n' +
+        fitted.paperText +
+        '\n--- DOCUMENT TEXT END ---';
     } else if (videoContext && fitted.paperText && retrieval) {
       systemBase +=
         `\n\nA YouTube video is attached to this conversation as its source: ` +
@@ -548,6 +575,22 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
             'previous answer, which is in the conversation above. Do not restate it.]'
           : '') +
         '\n--- VIDEO TRANSCRIPT END ---';
+    }
+
+    // Every source block above says "base every answer on this text; if
+    // something is not covered by it, say so". A 12B local model reads that
+    // as the stronger instruction (user report 2026-11-02: gemma4:12b, asked
+    // what the document's author is doing TODAY, answered "the text contains
+    // no information about that" and never called web_search — rule (4) is
+    // one sentence, the document six thousand tokens). So the rule is
+    // restated right after the source, with the one case the source can
+    // never cover named explicitly.
+    if (paperContext || htmlContext || videoContext) {
+      systemBase +=
+        '\n\nThe attached source does not change rule (4): when the user asks about current or ' +
+        'real-time information — what someone is doing today, recent news, prices, events ' +
+        'after the source was written — the source cannot contain the answer, so call the ' +
+        'web_search tool FIRST instead of replying that the source does not cover it.';
     }
 
     if (ancestor) {
@@ -693,13 +736,14 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
   // Section headers stay attached so the model knows WHERE in the document
   // an excerpt comes from.
   function renderExcerpts(hits, sourceType) {
-    const label = sourceType === 'video' ? 'TRANSCRIPT' : 'PAPER';
+    const label = { video: 'TRANSCRIPT', html: 'DOCUMENT' }[sourceType] || 'PAPER';
+    const noun = { video: 'video transcript', html: 'HTML document' }[sourceType] || 'paper';
     const body = hits
       .map((h) => (h.heading ? `[Section: ${h.heading}]\n${h.text}` : h.text))
       .join('\n\n---\n\n');
     return (
       `RELEVANT ${label} EXCERPTS — the passages of the attached ` +
-      `${sourceType === 'video' ? 'video transcript' : 'paper'} most relevant to the ` +
+      `${noun} most relevant to the ` +
       'user\'s current question, in document order:\n\n' +
       body
     );
@@ -768,6 +812,9 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
         }, { signal: warmupAbort.signal });
       }
       await extendOllamaKeepAlive(model);
+      // The model is in memory now — read the window it was loaded with
+      // (decision 7), so the next prompt is budgeted against the truth.
+      recordOllamaContextLength(db, model).catch(() => {});
       res.json({ warmed: true });
     } catch (err) {
       res.json({ warmed: false, reason: err.message });
@@ -1487,6 +1534,22 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
           `query: "${job.searchNudge}" and answer from its results. Do not repeat the ` +
           `earlier answer that said searching was unavailable.]`;
       }
+      // A source in the context pulls a small local model toward "the text
+      // does not say", even for a question the source can never answer
+      // (user report 2026-11-02: "what is he doing today" on a 2024 blog
+      // post). The system prompt restates rule (4) right after the source,
+      // and that alone is not enough: measured on the app's real request,
+      // five samples each with thinking off, gemma4:12b went 0/5 → 4/5 and
+      // qwen3.5:9b 0/5 → 1/5. This line at the end of the user turn — the
+      // last thing the model reads — took both to 5/5. Prompt scaffolding
+      // only: the stored message keeps the raw question. Not on a
+      // continuation round (no question there) and not on the save-&-retry
+      // nudge, which already names the tool and the query.
+      if (meta.mode !== 'none' && !job.continueOf && !job.searchNudge) {
+        askedText +=
+          '\n\n[If this question is about the present, or about anything after the attached ' +
+          'source was written, call web_search first — the source cannot answer it.]';
+      }
       if (job.continueOf) {
         // One instruction, two shapes — and in both the model is told NOT to
         // write the closing sections the user's custom instructions ask for:
@@ -2032,7 +2095,10 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
 
       // After every answer, pull the model TTL back up to 1 h — otherwise
       // it falls back to Ollama's 5-minute default and the paper cache dies.
-      if (provider === 'ollama') extendOllamaKeepAlive(model);
+      if (provider === 'ollama') {
+        extendOllamaKeepAlive(model);
+        recordOllamaContextLength(db, model).catch(() => {});
+      }
 
       // Stop button (user decision 2026-07-22): the half-generated answer
       // is NOT saved — in its place stands only the marker, which the
@@ -2138,7 +2204,7 @@ module.exports = (db, UPLOADS_DIR, options = {}) => {
       // Trees with a bound source are named after it (papers since
       // slice 03, videos ADR-0005) — the root keeps this name instead of
       // letting title generation overwrite it.
-      const hasSourceName = Boolean(chat.paper_id || chat.video_id);
+      const hasSourceName = Boolean(chat.paper_id || chat.video_id || chat.html_source_id);
       // A TOPIC BRANCH (`/branch <topic>`, design/mockup-branch-command.html)
       // is a branch without a parent_word: the user typed its subject, and
       // routes/chats.js/passage-title already titled it from exactly that.

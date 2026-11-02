@@ -6,8 +6,9 @@
  */
 
 import { Fragment, useState, useRef, useEffect, useImperativeHandle, useMemo } from 'react';
-import { AlertCircle, Cpu, Eye, EyeOff, Loader2, Mic, MicOff, MessageCircleQuestionMark, Plus, ArrowUp, Check, ChevronDown, ChevronRight, CornerDownRight, KeyRound, GitBranch, Highlighter, Image as ImageIcon, ImagePlus, FileText, BookOpen, MessageSquareQuote, MessageSquarePlus, RotateCcw, Square, TvMinimalPlay, X, Zap } from 'lucide-react';
+import { AlertCircle, Cpu, Eye, EyeOff, Loader2, Mic, MicOff, MessageCircleQuestionMark, Plus, ArrowUp, Check, ChevronDown, ChevronRight, CornerDownRight, KeyRound, GitBranch, Highlighter, Image as ImageIcon, ImagePlus, FileText, Globe, BookOpen, MessageSquareQuote, MessageSquarePlus, RotateCcw, Square, TvMinimalPlay, X, Zap } from 'lucide-react';
 import { MessageBubble } from './MessageBubble';
+import type { HtmlFreezeInfo } from './HtmlFreezeCard';
 import { CARD_ACTION_BTN } from './cardActionButton';
 import { BranchTrace } from './BranchTrace';
 import { InlineMarkdown } from './InlineMarkdown';
@@ -58,6 +59,13 @@ interface Props {
   // "YouTube Transcript" im Plus-Menü: öffnet das Video-Such-Modal
   // (ADR-0005). Ohne Handler wird der Menüeintrag nicht angeboten.
   onOpenYouTubeSearch?: () => void;
+  // "Web page" im Plus-Menü: öffnet den Webseiten-Dialog (ADR-0013). Ohne
+  // Handler wird der Menüeintrag nicht angeboten.
+  onOpenWebpage?: () => void;
+  // Unfrozen resources of the tree's HTML source (ADR-0013 decision 7). Set by
+  // the app only while the ROOT chat is open; ChatArea hangs the card under the
+  // first answer.
+  htmlFreeze?: HtmlFreezeInfo;
   // Chat-Text-Highlights dieses Chats — MessageBubble malt die zur jeweiligen
   // Nachricht gehörenden (mockup-chat-highlights-ask-in-chat.html).
   chatHighlights?: MessageHighlight[];
@@ -288,7 +296,7 @@ function renderComposerHighlight(text: string): React.ReactNode {
   );
 }
 
-export function ChatArea({ chat, videoYoutubeId, onTimeMarkClick, loading, streaming, onSendMessage, onWordRightClick, onSelectChat, onUploadPdf, onOpenPaperSearch, onOpenYouTubeSearch, chatHighlights, onChatSelection, onHighlightContextMenu, pendingSelection, onBranchedFromClick, parentTitle, onQuoteClick, composerQuote, onClearComposerQuote, onOpenFeedback, onAskAside, onOpenTopicBranch, branchTargets, aside, onDismissAside, onKeepAside, onBranchAside, onToggleHighlights, highlightsOpen, highlightsDrawer, modelPicker, onStopStreaming, streamingMessageIds, onRetryMessage, onContinueMessage, firstRun = false, onOpenSetup, modelLabels, onRetryLocalModel, hasLocalModel, billingUrl, billingUrls, onOpenModelPicker, settingsChangedAt, onOpenSettings, providerLabels, localModelName, cloudFallback, onRetryCloudModel, freeFallback, onRetryFreeModel, onResendUnanswered, freeProviderOffer, onAddFreeProvider, visionGate, onSwitchVisionModel, onOpenSettingsForProvider, voiceRecorderFactory, onSaveSearchKey, searchKeyStored, ref }: Props) {
+export function ChatArea({ chat, videoYoutubeId, onTimeMarkClick, loading, streaming, onSendMessage, onWordRightClick, onSelectChat, onUploadPdf, onOpenPaperSearch, onOpenYouTubeSearch, onOpenWebpage, htmlFreeze, chatHighlights, onChatSelection, onHighlightContextMenu, pendingSelection, onBranchedFromClick, parentTitle, onQuoteClick, composerQuote, onClearComposerQuote, onOpenFeedback, onAskAside, onOpenTopicBranch, branchTargets, aside, onDismissAside, onKeepAside, onBranchAside, onToggleHighlights, highlightsOpen, highlightsDrawer, modelPicker, onStopStreaming, streamingMessageIds, onRetryMessage, onContinueMessage, firstRun = false, onOpenSetup, modelLabels, onRetryLocalModel, hasLocalModel, billingUrl, billingUrls, onOpenModelPicker, settingsChangedAt, onOpenSettings, providerLabels, localModelName, cloudFallback, onRetryCloudModel, freeFallback, onRetryFreeModel, onResendUnanswered, freeProviderOffer, onAddFreeProvider, visionGate, onSwitchVisionModel, onOpenSettingsForProvider, voiceRecorderFactory, onSaveSearchKey, searchKeyStored, ref }: Props) {
   // UI-Texte in der App language — re-rendert beim Sprachwechsel mit.
   const S = useStrings().chatArea;
   const [input, setInput] = useState('');
@@ -1708,6 +1716,7 @@ export function ChatArea({ chat, videoYoutubeId, onTimeMarkClick, loading, strea
 
             {orderMessages(chat.messages).map((msg, i, ordered) => {
               const isLastAssistant = msg.role === 'assistant' && i === ordered.length - 1;
+              const firstAnswerId = ordered.find((m) => m.role === 'assistant')?.id;
               const branchWords = chat.children
                 .filter(c => c.parent_word)
                 .map(c => ({ word: c.parent_word!, chatId: c.id }));
@@ -1753,6 +1762,9 @@ export function ChatArea({ chat, videoYoutubeId, onTimeMarkClick, loading, strea
                     onRetryMessage={onRetryMessage}
                     onSaveSearchKey={onSaveSearchKey}
                     searchKeyStored={searchKeyStored}
+                    // The HTML source's frozen-resources card hangs under the
+                    // FIRST answer only (mockup-html-app variant B).
+                    htmlFreeze={htmlFreeze && msg.id === firstAnswerId ? htmlFreeze : undefined}
                     // The save-&-retry receipt on an OLD bubble needs to know
                     // whether the re-asked answer is still being written.
                     chatStreaming={sending || streaming}
@@ -2240,7 +2252,7 @@ export function ChatArea({ chat, videoYoutubeId, onTimeMarkClick, loading, strea
                 type="file"
                 onChange={handlePdfSelected}
                 className="hidden"
-                accept="application/pdf,.pdf"
+                accept="application/pdf,.pdf,text/html,.html,.htm"
                 data-testid="pdf-file-input"
               />
               <div className="relative shrink-0">
@@ -2288,7 +2300,10 @@ export function ChatArea({ chat, videoYoutubeId, onTimeMarkClick, loading, strea
                         data-testid="attach-menu-upload-pdf"
                       >
                         <FileText size={16} className="text-gray-500 shrink-0" />
-                        <span>{S.menuPdf}</span>
+                        <span>{S.menuFile}</span>
+                        <span className="ml-auto rounded-full bg-blue-50 px-1.5 text-[10px] font-semibold text-blue-700">
+                          {S.menuFileKinds}
+                        </span>
                       </button>
                     )}
                     {onOpenPaperSearch && (
@@ -2311,6 +2326,17 @@ export function ChatArea({ chat, videoYoutubeId, onTimeMarkClick, loading, strea
                       >
                         <TvMinimalPlay size={16} className="text-gray-500 shrink-0" />
                         <span>{S.menuYouTubeTranscript}</span>
+                      </button>
+                    )}
+                    {onOpenWebpage && (
+                      <button
+                        role="menuitem"
+                        onClick={() => { setPickerMenuOpen(false); onOpenWebpage(); }}
+                        className="w-full flex items-center gap-3 px-3 py-2 hover:bg-gray-50 transition-colors text-left text-sm text-gray-800"
+                        data-testid="attach-menu-webpage"
+                      >
+                        <Globe size={16} className="text-gray-500 shrink-0" />
+                        <span>{S.menuWebpage}</span>
                       </button>
                     )}
                   </div>

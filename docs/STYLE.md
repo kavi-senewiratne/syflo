@@ -57,6 +57,9 @@ status.
   (the variants live in an exhaustive `Record<ThemeId, …>`).
 - **PDF highlight tints**: the PDF page is white paper in every theme, so its marks are
   theme-independent pastels.
+- **The HTML source frame** (`HtmlPane`): the page inside runs its own design and assumes a
+  white canvas, so the iframe is literal `#fff` in every theme — `bg-white` turns dark in
+  Matrix and a page without a background of its own would show black text on it.
 
 ### Shadows and radii
 
@@ -170,7 +173,11 @@ filled button inside the shell was tried and looked like another app's control.
   is exactly what the themes remap. Order alone communicates priority, same rule
   as the popup shell.
 - Card copy: honest and minimal — one line naming the culprit, exits that actually lead
-  out, at most one footnote. **Never two sentences in one paragraph**: the second is
+  out, at most one footnote. A resource is named by **file and host** —
+  `tex-mml-chtml.js (cdnjs.cloudflare.com): no internet` via `html/resourceLabel.ts` —
+  never by its full address: a 90-character URL wraps three times in the chat column
+  and cuts the reason mid-word. Long tokens wrap with `[overflow-wrap:anywhere]`, not
+  `break-all`, so a break lands between words whenever one fits. **Never two sentences in one paragraph**: the second is
   always a different kind of claim, so it gets its own line and the darker gray.
 
 ### Kurzinfo (data-tip)
@@ -210,11 +217,36 @@ filled button inside the shell was tried and looked like another app's control.
   font-semibold` title and the standard icon close button.
 - **Escape closes — like every other transient surface in the app.** No exceptions;
   a dialog without an Escape path dead-ends the keyboard journey.
+- **Source dialogs share one anatomy** (research paper, YouTube transcript, web page —
+  user decision 2026-09-30: every source loads the same way): icon + `text-[15px]`
+  title in a `px-5 pt-4` header, ONE explanatory `12.5px` gray line, then an input row
+  (`rounded-xl` bordered field with a leading icon, the filled `bg-blue-500 rounded-xl`
+  button inline at its right), results/hints/errors below. No footer bar, no pill-sized
+  primary. Progress stays on the button that started it (`aria-busy` + spinner); there
+  is no floating progress note anywhere in the app — a file upload spins the attach
+  button, the outcome is the source pane itself.
 - **Fixed body height** for tabbed dialogs (content scrolls internally) so the modal
   doesn't jump between tabs. The tab rail auto-sizes (`min-w-40 max-w-56`) because
   fixed widths overflow in the wide theme fonts; it declares `data-keyboard-rail` so
   ↑/↓ walk the tabs and → crosses into the page. The focus ring enters a dialog on the
   active tab — the same "here you are" convention as the sidebar's open chat row.
+
+### Selection lists (step 2 of the model tab)
+
+- **One recipe for choosing a model, cloud or local**: a `role="radiogroup"` box
+  (`rounded-lg border border-gray-200 overflow-hidden`) of `role="radio"` rows
+  (`px-3 py-2 border-b border-gray-50`, selected `bg-blue-50`), each with the radio
+  dot `w-3.5 h-3.5 rounded-full border` (selected `border-blue-600 border-[4.5px]
+  bg-white`). The choice is a form value saved by the tab's Activate button — never
+  a per-row "Activate" door. `ModelTierList` (cloud) and `LocalLibrary` (Ollama)
+  share it (user feedback 2026-10-31: the library must select like the rest of the
+  tab).
+- **"In use" is a marker, not a pill**: the provider card's green dot plus 9px
+  uppercase `Active` (`text-green-700`). A blue pill reading "Active" was mistaken
+  for a button.
+- **Every item appears once**: a model is a row OR a card, never both. The
+  recommendation card exists only while its model is not installed; afterwards the
+  row carries a `Recommended` badge (blue outline badge, see below).
 
 ### Chips and badges
 
@@ -231,6 +263,11 @@ filled button inside the shell was tried and looked like another app's control.
   be used right now — membership and badge come from the same source so they can't
   disagree; group headlines stay neutral (a colored headline would double the alarm).
   A badge never repeats what its label already says (no check icon next to "saved").
+- Facts about the machine (local library's hardware line, mockup-local-library §08 C):
+  icon + label + **one content chip per fact** (`RTX 5080 Laptop GPU` · `16 GB graphics
+  memory`), never one sentence — a 34-character GPU name wraps a sentence mid-phrase
+  ("16 GB / graphics memory") in the 366px settings column, while chips move whole.
+  Vendor prefixes (`NVIDIA GeForce`) are dropped from the chip and kept in its tooltip.
 - Key fingerprints: a stored API key shows as a chip (`font-mono`, `tvly-…seCS`) whose
   only exit is Remove — an editable "replace" field next to a stored key reads as "no
   key here".

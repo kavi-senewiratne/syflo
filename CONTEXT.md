@@ -162,9 +162,36 @@ _Avoid_: lens switch, colour-by (that switch was dropped)
 
 **Source**:
 The one external document a chat tree is about, bound to the tree's root — today either
-a paper (PDF) or a YouTube transcript. A tree has at most one source (ADR-0002,
-generalized); adding a second one prompts starting a new tree.
+a paper (PDF), a YouTube transcript or an **HTML source**. A tree has at most one source
+(ADR-0002, generalized); adding a second one prompts starting a new tree.
 _Avoid_: attachment (that's message-level), document (unqualified)
+
+**HTML source**:
+A source that is a single HTML file (a Claude-made lecture, an architecture page, a saved
+web page), stored as a snapshot copy and shown live in a sandboxed iframe on its own
+origin (ADR-0013). The chat sees its visible text only, cut into sections by heading.
+_Avoid_: web page (unqualified — a page is only one way in), HTML document, embed
+
+**Bridge**:
+The script the backend injects into an HTML source when serving it. It carries
+selections, highlight painting, scroll-to-quote and the current section across the
+iframe boundary by `postMessage`, checked by origin and a per-source token. It also
+blocks every link out of the page and hands the address to Syflo, which opens it in
+the system browser — the source frame never navigates away.
+_Avoid_: shim, plugin, overlay
+
+**Quote anchor**:
+How an HTML highlight is remembered: the exact selected text plus context before and
+after, re-found on open. Formulas are atomic tokens carrying their TeX. Not character
+offsets — an HTML source's DOM shifts after typesetting.
+_Avoid_: offset, range, selector
+
+**Frozen resource**:
+A network resource an HTML source needs to render (script, stylesheet, image, font)
+downloaded and embedded into the stored copy at upload. One that could not be fetched
+is reported on a warning card with its exact reason and can be retried; links are never
+frozen.
+_Avoid_: cached asset, vendored file
 
 **Retrieval mode**:
 The prompt strategy for a source that exceeds the context window (ADR-0006): the
@@ -292,8 +319,29 @@ current choice cannot answer (quota, retirement, outage) — one implementation
 sit in a **cooldown** whose kind says why it is skipped: `daily` (until the provider's
 reset), `minute`, `retired` (24 h), `unknown`. The ladder never steps onto a paid rung
 on its own (decision 2026-07-30).
-_Avoid_: model ladder (the removed hardware-recommendation feature — ADR-0008
-amendment 2026-07-25 froze local to a plain `ollama pull` fallback), fallback chain
+_Avoid_: model ladder (that was the name of the hardware recommendation, see
+**Recommended model**), fallback chain
+
+**Recommended model**:
+The registry's local (Ollama) model that fits this machine completely — weights
+plus KV cache at a 32k window inside the memory a model may occupy (`usableGb`:
+dedicated VRAM, ~70 % of unified memory on Apple Silicon, 0 without a GPU). One
+number per machine, one registry list (`fitsGb`, `minMemoryGb`); the highest rung
+that fits wins, the smallest model is the CPU fallback and says so. Shown in
+Settings → Model → Ollama (the **library**: hardware line, recommendation card
+with in-app download, installed models with Remove) and as a quiet row in the
+picker. Never activated by itself: after a download the card offers the switch
+once (ADR-0008 amendment 2026-10-27).
+_Avoid_: model ladder, hardware tier, auto-select
+
+**Baked window**:
+The 32k context window Syflo writes into every local model it pulls (Ollama
+`/api/create` with `num_ctx`), and the window it reads back from `/api/ps` once
+the model is loaded (`ollama_context_length:<model>` in settings). The budget a
+prompt is sized against comes from that stored value — never from an environment
+variable alone, because the npm install does not start Ollama and the daemon's
+default cuts a paper off silently.
+_Avoid_: env window, OLLAMA_CONTEXT_LENGTH as the source of truth
 
 **Retired model**:
 A model its provider has shut off. `RETIRED_MODELS` (`backend/database.js`) is the

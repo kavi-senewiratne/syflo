@@ -13,7 +13,7 @@
  */
 
 import { useState, useEffect, useRef, createContext, useContext } from 'react';
-import { ChevronRight, ChevronDown, Clock, FileText, TvMinimalPlay } from 'lucide-react';
+import { ChevronRight, ChevronDown, Clock, FileText, TvMinimalPlay, Code } from 'lucide-react';
 import { useStrings } from '../../strings';
 import { MathText, hasMath, plainMathText } from '../MathText';
 import { overflowTip } from '../../overflowTip';
@@ -241,6 +241,16 @@ function TreeNode({ chat, activeChatId, renamingId, onSelect, onContextMenu, onR
           >
             <TvMinimalPlay size={9} />
             YT
+          </span>
+        )}
+        {/* HTML tag on trees with an HTML source (ADR-0013). */}
+        {!isRenaming && chat.html_source_id && (
+          <span
+            className="ml-auto shrink-0 inline-flex items-center gap-[3px] text-[10px] leading-[14px] font-semibold tracking-wide text-gray-500 bg-gray-50 border border-gray-200 rounded-[5px] px-1.5 py-px"
+            data-testid="tree-html-tag"
+          >
+            <Code size={9} />
+            HTML
           </span>
         )}
       </div>

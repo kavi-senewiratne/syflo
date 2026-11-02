@@ -78,6 +78,30 @@ function videoRowToItem(row) {
   };
 }
 
+// A mark in the tree's HTML source. `text` is the quoted passage, `section`
+// the heading it sits in (the drawer's location text). The anchor travels
+// along because the in-page bridge, not the backend, resolves it for the jump.
+function htmlRowToItem(row) {
+  let anchor = null;
+  try {
+    anchor = JSON.parse(row.anchor_json);
+  } catch (_err) {
+    anchor = null;
+  }
+  return {
+    kind: 'html',
+    id: row.id,
+    color: row.color,
+    text: anchor?.exact || '',
+    htmlSourceId: row.html_source_id,
+    anchor,
+    section: row.section,
+    chatId: row.chat_id,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
 module.exports = (db) => {
   const router = express.Router();
 
@@ -91,13 +115,13 @@ module.exports = (db) => {
     // easier to read and each is bounded by the tree size.
     const root = db
       .prepare(
-        `WITH RECURSIVE up(id, parent_id, paper_id, video_id) AS (
-           SELECT id, parent_id, paper_id, video_id FROM chats WHERE id = ?
+        `WITH RECURSIVE up(id, parent_id, paper_id, video_id, html_source_id) AS (
+           SELECT id, parent_id, paper_id, video_id, html_source_id FROM chats WHERE id = ?
            UNION ALL
-           SELECT c.id, c.parent_id, c.paper_id, c.video_id
+           SELECT c.id, c.parent_id, c.paper_id, c.video_id, c.html_source_id
              FROM chats c JOIN up ON c.id = up.parent_id
          )
-         SELECT id, paper_id, video_id FROM up WHERE parent_id IS NULL`,
+         SELECT id, paper_id, video_id, html_source_id FROM up WHERE parent_id IS NULL`,
       )
       .get(chatId);
 
@@ -152,7 +176,22 @@ module.exports = (db) => {
           .map(videoRowToItem)
       : [];
 
-    res.json([...pdfItems, ...videoItems, ...chatItems]);
+    // The HTML source's marks, in the order they were made (their position in
+    // the page is only known to the in-page bridge).
+    const htmlItems = root.html_source_id
+      ? db
+          .prepare(
+            `SELECT id, html_source_id, chat_id, color, anchor_json, section,
+                    created_at, updated_at
+               FROM html_highlights
+              WHERE html_source_id = ?
+              ORDER BY created_at ASC, rowid ASC`,
+          )
+          .all(root.html_source_id)
+          .map(htmlRowToItem)
+      : [];
+
+    res.json([...pdfItems, ...videoItems, ...htmlItems, ...chatItems]);
   });
 
   return router;

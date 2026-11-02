@@ -23,7 +23,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Check, ChevronDown, ChevronRight, CircleHelp, Clock, Info, Lightbulb, Lock, Plus, Zap } from 'lucide-react';
+import { Check, ChevronDown, ChevronRight, CircleHelp, Clock, Download, Info, Lightbulb, Lock, Plus, Zap } from 'lucide-react';
 import { api } from '../../api';
 import { Popover } from '../Popover';
 import { splitByAvailability } from '../../chat/pickerGroups';
@@ -112,6 +112,10 @@ export interface ModelPickerProps {
   // the key form of THAT provider. Without the handler the row falls back to
   // the generic Settings path, so the door is never a dead end.
   onSetupProvider?: (provider: LLMProvider) => void;
+  // Grill 2026-10-27 (mockup-local-library §06 A): the local model the
+  // machine could run but has not pulled — a quiet row that leads to the
+  // Settings library. The picker never downloads.
+  recommendedMissing?: string;
   disabled?: boolean;
   // External open request (quota card v3, "Modell wechseln"): every
   // increment opens the drop-up — a counter instead of a boolean so
@@ -128,7 +132,7 @@ export interface ModelPickerProps {
   onMenuOpenChange?: (open: boolean) => void;
 }
 
-export function ModelPicker({ activeProvider, activeModel, groups, ollamaReachable, cloudCount, onSelectModel, think, onToggleThink, onOpenSettings, onSetupProvider, disabled, openSignal, refreshSignal, onMenuOpenChange }: ModelPickerProps) {
+export function ModelPicker({ activeProvider, activeModel, groups, ollamaReachable, cloudCount, onSelectModel, think, onToggleThink, onOpenSettings, onSetupProvider, recommendedMissing, disabled, openSignal, refreshSignal, onMenuOpenChange }: ModelPickerProps) {
   // UI copy in the app language — re-renders on language switch.
   const S = useStrings().modelPicker;
   const [open, setOpen] = useState(false);
@@ -465,6 +469,21 @@ export function ModelPicker({ activeProvider, activeModel, groups, ollamaReachab
                 >
                   <Info size={13} className="shrink-0 text-gray-400" />
                   {localDown ? S.startOllamaHint : S.installVisionModelHint}
+                  <ChevronRight size={13} className="ml-auto text-gray-400" />
+                </button>
+              )}
+              {/* The recommended-but-missing model (grill 2026-10-27): only
+                  while Ollama answers — down, the start hint above already
+                  says what to do first. */}
+              {g.local && !localDown && recommendedMissing && (
+                <button
+                  role="menuitem"
+                  onClick={() => { setOpen(false); if (onSetupProvider) onSetupProvider('ollama'); else onOpenSettings(); }}
+                  data-testid="recommended-hint-row"
+                  className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-left text-[12px] text-gray-500 bg-gray-50 hover:bg-gray-100 transition-colors"
+                >
+                  <Download size={13} className="shrink-0 text-gray-400" />
+                  {S.recommendedHint(recommendedMissing)}
                   <ChevronRight size={13} className="ml-auto text-gray-400" />
                 </button>
               )}

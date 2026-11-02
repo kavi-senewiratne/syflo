@@ -23,7 +23,7 @@
  */
 
 import { useEffect, useMemo, useState } from 'react';
-import { FileText, Highlighter, MessageSquare, TvMinimalPlay, X } from 'lucide-react';
+import { Code, FileText, Highlighter, MessageSquare, TvMinimalPlay, X } from 'lucide-react';
 import { useTreeHighlights } from '../../hooks/useTreeHighlights';
 import { useLabels } from '../../hooks/useLabels';
 import { useStrings } from '../../strings';
@@ -237,11 +237,15 @@ export function HighlightsDrawer({
                     <FileText size={10} className="shrink-0" />
                   ) : item.kind === 'transcript' || item.kind === 'chapter' ? (
                     <TvMinimalPlay size={10} className="shrink-0" />
+                  ) : item.kind === 'html' ? (
+                    <Code size={10} className="shrink-0" />
                   ) : (
                     <MessageSquare size={10} className="shrink-0" />
                   )}
                   {item.kind === 'pdf' ? (
                     <span className="truncate">{S.pdfSource(item.pageNumber)}</span>
+                  ) : item.kind === 'html' ? (
+                    <span className="truncate">{S.htmlSource(item.section)}</span>
                   ) : item.kind !== 'chat' ? (
                     // Asked as "not a chat mark": a two-value discriminant
                     // ('transcript' | 'chapter') leaves the video form in the

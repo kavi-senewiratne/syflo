@@ -856,7 +856,10 @@ describe('prompt prefix stability between warm-up and real message', () => {
     // only appends the new user message at the end.
     expect(realCall.tools).toEqual(warmupCall.tools);
     expect(realCall.messages.slice(0, -1)).toEqual(warmupCall.messages);
-    expect(realCall.messages.at(-1)).toEqual({ role: 'user', content: 'Second question' });
+    // The user turn carries the question plus the web-search reminder a
+    // source chat appends (2026-11-02) — scaffolding after the cached prefix.
+    expect(realCall.messages.at(-1).role).toBe('user');
+    expect(realCall.messages.at(-1).content).toMatch(/^Second question\n\n\[If this question is about the present/);
     expect(warmupCall.messages[0].content).toContain('FULL PAPER TEXT');
   });
 });
@@ -1434,10 +1437,8 @@ describe('POST /api/chats/:chatId/messages – retrieval mode for long papers', 
     expect(excerpts.role).toBe('user');
     expect(excerpts.content).toContain('EXCERPTS');
     expect(excerpts.content).toContain(FACT_PARA);
-    expect(call.messages.at(-1)).toMatchObject({
-      role: 'user',
-      content: 'Explain rotary positional encodings',
-    });
+    expect(call.messages.at(-1).role).toBe('user');
+    expect(call.messages.at(-1).content).toMatch(/^Explain rotary positional encodings\n\n\[If this question is about the present/);
     // Chunks live persistently in source_chunks (embedded once).
     const n = db.prepare("SELECT COUNT(*) AS n FROM source_chunks WHERE source_id = 'paper-long'").get().n;
     expect(n).toBeGreaterThan(5);

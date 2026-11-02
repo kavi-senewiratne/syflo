@@ -43,6 +43,8 @@
     "frontend/dist/",
     "electron/main.js",
     "electron/preload.js",
+    "electron/page-renderer.js",
+    "electron/render-server.js",
     "electron/assets/",
     "docs/adr/",
     "scripts/download-embedding-model.js"
@@ -56,22 +58,29 @@
     "multer": "^2.1.1",
     "node-llama-cpp": "^3.20.0",
     "openai": "^6.33.0",
+    "parse5": "^8.0.1",
     "pdfjs-dist": "^6.1.200",
     "uuid": "^13.0.0",
     "youtubei.js": "^17.2.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.58.2",
     "jest": "^30.3.0"
   },
   "scripts": {
     "postinstall": "node scripts/download-embedding-model.js",
     "test": "jest",
-    "prepack": "npm --prefix frontend run build"
+    "prepack": "npm --prefix frontend run build",
+    "test:e2e": "playwright test"
   },
   "jest": {
     "testEnvironment": "node",
     "roots": [
       "<rootDir>/tests"
+    ],
+    "testPathIgnorePatterns": [
+      "/node_modules/",
+      "<rootDir>/tests/e2e/"
     ]
   }
 }

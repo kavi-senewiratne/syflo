@@ -8,7 +8,7 @@
 //
 // Only unambiguously worthless chats are deleted, mirroring the frontend's
 // criteria: root chats with no messages, no branches, no bound source
-// (PDF/video), no attachments, and not pinned. The grace period protects the
+// (PDF/video/HTML), no attachments, and not pinned. The grace period protects the
 // one live case: in dev the backend restarts while the frontend keeps
 // running — a just-created empty chat may still be open on screen.
 
@@ -23,6 +23,7 @@ function sweepAbandonedChats(db, { olderThanMs = GRACE_MS, now = Date.now() } = 
     WHERE parent_id IS NULL
       AND paper_id IS NULL
       AND video_id IS NULL
+      AND html_source_id IS NULL
       AND pinned_at IS NULL
       AND created_at < ?
       AND id NOT IN (SELECT chat_id FROM messages)
