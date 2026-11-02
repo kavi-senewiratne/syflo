@@ -2,6 +2,13 @@
 
 **Turn one long chat into a tree of branches.**
 
+```bash
+npm install -g syflo
+syflo
+```
+
+Node 20+, nothing else. Details in [Install](#install).
+
 An AI chat app gives you one long scroll. Learning something doesn't work like
 that. You need what you're reading to stay in view the whole time, and you need
 somewhere to put the five questions it raised along the way.
@@ -18,10 +25,12 @@ Syflo does those two things.
   tree exists — because it belongs to the conversation, not to a message. You
   can see it, and so can the model: it never scrolls out of memory.
 
-MIT licensed, runs entirely on your own machine, and one command away:
-`npm install -g syflo` ([details](#install)).
+MIT licensed, and it runs entirely on your own machine.
 
-![Selecting a passage in an answer and branching from it](article/gifs/01-branching.gif)
+![Selecting a passage in an answer and branching from it](https://kavi-senewiratne.github.io/sidequests/syflo/gifs/01-branching.gif)
+
+This README keeps to one GIF. The [full write-up](https://kavi-senewiratne.github.io/sidequests/syflo/) on my site has one
+for every feature below, and [kavi-senewiratne.github.io](https://kavi-senewiratne.github.io) has the rest of what I do.
 
 ## Install
 
@@ -130,8 +139,6 @@ history on every single message.
 
 A panel in the child chat shows you exactly what it received.
 
-![A plain chat with no document, branched twice](article/gifs/02-plain-chat.gif)
-
 ## 2. The source stays visible
 
 A source is optional — plenty of trees are plain conversations. But when there
@@ -149,8 +156,6 @@ passages your question is about
 ([ADR-0006](docs/adr/0006-retrieval-mode-for-long-sources.md)). That search runs
 locally even when the answer comes from a cloud model.
 
-![Searching for a paper, importing it, asking it a question](article/gifs/03-paper.gif)
-
 **Papers.** Read the PDF the way you'd read it on paper: select a passage,
 highlight it in one of five colours, ask about it in the chat you're already in.
 When the model quotes the paper, the quote is clickable — it scrolls the PDF to
@@ -164,16 +169,12 @@ like the paper: select a sentence, ask what it means, branch off it. A two-hour
 video becomes something you can interrogate instead of something you have to sit
 through.
 
-![Importing a video, then the timestamped overview writing itself](article/gifs/04-youtube.gif)
-
 ## Five themes
 
 The default is Mushroom Kingdom — sky, clouds, question blocks. There is also a
 Matrix terminal, Hyrule, and a quiet ink-on-paper theme for when you need to
 look like an adult. They change more than the colours — the thinking indicator,
 the app icon and the logo all follow the theme.
-
-![Cycling through the themes](article/gifs/05-themes.gif)
 
 ---
 
@@ -183,64 +184,45 @@ the app icon and the logo all follow the theme.
 one-line definition appears where you are looking — no new chat, no message in
 the transcript.
 
-![Selecting a word and reading its definition](article/gifs/15-definition.gif)
-
 **Highlights** in five labelled colours work in the PDF, in the transcript and
 in the chat. A drawer lists every mark in the tree; click one to jump back to
 it, wherever it lives.
-
-![Highlighting in the PDF and in a chat, then the drawer](article/gifs/06-highlights.gif)
 
 **Branch links.** Words you have branched on turn into coloured links inside the
 original answer, so you can always get back to a side chat from the sentence
 that started it.
 
-![Coloured branch links inside an answer](article/gifs/07-branch-links.gif)
-
 **Selection → question.** Select any passage in the PDF and either ask about it
 in the chat you're in — it arrives as a quote above your question — or open it
 as its own branch.
-
-![Selecting a passage and asking about it](article/gifs/14-pdf-select.gif)
 
 **Mind map.** The whole tree drawn top-down, root on top, with the trunk in
 reserved lanes so the lines never cross. Every node is a chat: click one and you
 land in it, with the conversation right below the map.
 
-![The mind map of a nine-node tree](article/gifs/08-mindmap.gif)
-
 **Keyboard navigation.** Tree, highlights and composer are all reachable without
 a mouse, and there is no modal "navigation mode" to enter or forget
 ([ADR-0011](docs/adr/0011-keyboard-navigation-without-a-mode.md)).
-
-![Keyboard-only navigation](article/gifs/09-keyboard.gif)
 
 **`/btw` and `/branch`.** `/btw` asks a throwaway side question without
 cluttering the chat; `/branch <topic>` starts a branch on something the model
 never said.
 
-![/btw and /branch](article/gifs/10-btw-branch.gif)
-
 **`@aliases`.** Rename an attached screenshot to `@results` and mention it
 mid-sentence, with autocomplete.
-
-![Two attachments renamed and mentioned](article/gifs/11-mentions.gif)
 
 **Model picker.** Switch provider and model mid-conversation. A privacy guard
 tells you whether the next message is about to leave the machine, and the picker
 shows cost tiers and what is left of today's free allowance.
 
-![The model picker](article/gifs/12-model-picker.gif)
-
 **Fully offline.** Point Syflo at Ollama and every part of the app that touches
 a model runs on your machine: the answers, the search over long papers, the
 titles and summaries, the dictation — and a local failure never falls back to
-the cloud on its own. Syflo reads your RAM and VRAM and recommends one of three
-vision models, downloadable from Settings without touching a terminal. Honest
+the cloud on its own. Syflo reads your GPU memory and recommends the vision
+model that fits it completely, downloadable from Settings without touching a
+terminal — with a 32k context window baked in, so a paper is never cut off. Honest
 limitation: a small local model is noticeably weaker than a frontier model on a
 dense paper — local is for when a document should not leave the machine.
-
-![Switching to the local provider](article/gifs/13-local-model.gif)
 
 **Also in there:** streaming answers, continue-a-truncated-answer and
 retry-a-failed-one without losing the thread, on-device dictation in German and
@@ -330,9 +312,13 @@ running app — before a change counts as done.
   `backend/registry.json`; the app periodically refreshes it from the repo copy
   — no user data is involved. API keys are stored in the local SQLite settings
   and are never returned to the frontend.
-- **Model**: switch provider and key in Settings → Model; switch the model
-  itself from the pill in the chat composer. Local Ollama models are installed
-  with `ollama pull` (vision models appear in the picker).
+- **Model**: switch provider, model and key in Settings → Model, or switch
+  the model from the pill in the chat composer. Local Ollama models are
+  downloaded from Settings → Model → Ollama: Syflo reads your GPU memory (or
+  Apple Silicon's unified memory) and recommends the model that fits it
+  completely, bakes a 32k context window into every model it pulls, and lists
+  what is installed in one list — pick a row and Activate, exactly like a
+  cloud model (vision models appear in the picker).
 - **Web search**: Tavily under your own key.
 
 ## Where the decisions live
@@ -341,7 +327,7 @@ running app — before a change counts as done.
 - [`docs/adr/`](docs/adr/) — the architecture decision records.
 - [`docs/STYLE.md`](docs/STYLE.md) — the visual style guide: themes, tokens, and
   the recurring UI recipes.
-- `article/` — the long-form write-up these sections are drawn from.
+- [The write-up](https://kavi-senewiratne.github.io/sidequests/syflo/) these sections are drawn from, with a GIF per feature.
 
 ## License
 
