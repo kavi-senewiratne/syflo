@@ -537,7 +537,7 @@ describe('App — anchored retry of a middle *Failed* marker', () => {
 
     await openRootChat();
     // Two markers, two retry buttons — click the FIRST (F1, middle of chat).
-    fireEvent.click(screen.getAllByTestId('retry-button')[0]);
+    fireEvent.click((await screen.findAllByTestId('retry-button'))[0]);
 
     // The clicked marker's id travels to the endpoint (anchored retry).
     await waitFor(() => expect(api.regenerateMessage).toHaveBeenCalled());
@@ -575,7 +575,7 @@ describe('App — anchored retry of a middle *Failed* marker', () => {
     );
 
     await openRootChat();
-    fireEvent.click(screen.getAllByTestId('retry-button')[0]);
+    fireEvent.click((await screen.findAllByTestId('retry-button'))[0]);
 
     // The fresh marker (anchor timestamp) replaces the old one in place.
     await waitFor(() => expect(rowIds()[1]).toBe('message-row-f1-new'));
@@ -628,7 +628,7 @@ describe('App — retry after aborting a previous regenerate', () => {
     );
 
     await openRootChat();
-    fireEvent.click(screen.getAllByTestId('retry-button')[0]);
+    fireEvent.click((await screen.findAllByTestId('retry-button'))[0]);
     await waitFor(() => expect(api.regenerateMessage).toHaveBeenCalledTimes(1));
 
     // Streaming: the stop button replaces the send arrow — click it.
@@ -641,7 +641,7 @@ describe('App — retry after aborting a previous regenerate', () => {
     expect(rowIds()[1]).toMatch(/^message-row-temp-assistant-/); // interrupted placeholder in F1's slot
 
     // Second retry on F2 must start a NEW regenerate…
-    fireEvent.click(screen.getByTestId('retry-button'));
+    fireEvent.click(await screen.findByTestId('retry-button'));
     await waitFor(() => expect(api.regenerateMessage).toHaveBeenCalledTimes(2));
     expect(vi.mocked(api.regenerateMessage).mock.calls[1][1]).toBe('f2');
 
@@ -662,7 +662,7 @@ describe('App — retry after aborting a previous regenerate', () => {
     );
 
     await openRootChat();
-    fireEvent.click(screen.getAllByTestId('retry-button')[0]);
+    fireEvent.click((await screen.findAllByTestId('retry-button'))[0]);
     await waitFor(() => expect(api.regenerateMessage).toHaveBeenCalledTimes(1));
     fireEvent.click(await screen.findByTestId('stop-button'));
 
@@ -672,7 +672,7 @@ describe('App — retry after aborting a previous regenerate', () => {
     expect(rowIds()[1]).toBe('message-row-f1');
 
     // …and the next retry sends the real id again, not a temp one.
-    fireEvent.click(screen.getAllByTestId('retry-button')[0]);
+    fireEvent.click((await screen.findAllByTestId('retry-button'))[0]);
     await waitFor(() => expect(api.regenerateMessage).toHaveBeenCalledTimes(2));
     expect(vi.mocked(api.regenerateMessage).mock.calls[1][1]).toBe('f1');
   });
@@ -703,7 +703,7 @@ describe('App — anchored retry of the LAST *Failed* marker keeps the question'
     );
 
     await openRootChat();
-    fireEvent.click(screen.getByTestId('retry-button'));
+    fireEvent.click(await screen.findByTestId('retry-button'));
 
     // Question stays, placeholder takes the marker's slot.
     await waitFor(() => expect(api.regenerateMessage).toHaveBeenCalled());
@@ -737,7 +737,7 @@ describe('App — anchored retry of the LAST *Failed* marker keeps the question'
     );
 
     await openRootChat();
-    fireEvent.click(screen.getByTestId('retry-button'));
+    fireEvent.click(await screen.findByTestId('retry-button'));
 
     await waitFor(() => expect(rowIds()).toContain('message-row-f1-new'));
     // The question MUST survive the re-fail.
@@ -759,7 +759,7 @@ describe('App — anchored retry of the LAST *Failed* marker keeps the question'
       }, true));
 
     await openRootChat();
-    fireEvent.click(screen.getByTestId('retry-button'));
+    fireEvent.click(await screen.findByTestId('retry-button'));
 
     // The persisted marker carries the transient flag → announcement + button.
     const localButton = await screen.findByTestId('retry-local-button');
@@ -779,7 +779,7 @@ describe('App — anchored retry of the LAST *Failed* marker keeps the question'
     vi.mocked(api.regenerateMessage).mockImplementation(() => new Promise(() => {}));
 
     await openRootChat();
-    fireEvent.click(screen.getByTestId('retry-button'));
+    fireEvent.click(await screen.findByTestId('retry-button'));
     await waitFor(() => expect(api.regenerateMessage).toHaveBeenCalled());
 
     // Re-select the chat mid-stream: the marker is already deleted

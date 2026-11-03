@@ -18,6 +18,11 @@ module.exports = {
   // budget, not a target: nothing here polls, so green stays as fast as the
   // machine allows.
   testTimeout: 30000,
+  // On GitHub Actions each failed test also becomes a check-run annotation.
+  // Annotations are readable on a public repository without signing in,
+  // while the step logs are not — the v0.1.2/v0.1.3 Windows failures could
+  // only be seen as "Process completed with exit code 1" from outside.
+  ...(process.env.GITHUB_ACTIONS ? { reporters: ['default', 'github-actions'] } : {}),
   transformIgnorePatterns: [
     'node_modules/(?!(openai)/)',
   ],
