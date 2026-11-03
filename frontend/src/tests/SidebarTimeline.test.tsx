@@ -13,7 +13,15 @@ import type { Category, Chat } from '../types';
  */
 
 const now = new Date().toISOString();
-const yesterday = new Date(Date.now() - 30 * 60 * 60 * 1000).toISOString();
+// Yesterday at noon LOCAL time, built the way groupChatsByDate draws its
+// boundaries. A fixed "now minus 30 h" lands two days back between midnight
+// and 06:00, in a section that starts folded — CI red every night (2026-11-02).
+const yesterday = (() => {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  d.setHours(12, 0, 0, 0);
+  return d.toISOString();
+})();
 
 const chat = (id: string, title: string, extra: Partial<Chat> = {}): Chat => ({
   id, title, parent_id: null, parent_word: null, created_at: now, children: [], ...extra,
