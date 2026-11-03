@@ -34,7 +34,10 @@ beforeEach(async () => {
   db.prepare('UPDATE chats SET html_source_id = ? WHERE id = ?').run(sourceId, rootChatId);
 });
 
-afterAll(() => {
+// Close before unlinking: Windows refuses to delete an open SQLite file
+// (EBUSY on every test after the first — the v0.1.2/v0.1.3 release runs).
+afterEach(() => {
+  db.close();
   for (const f of [TEST_DB_PATH, `${TEST_DB_PATH}-wal`, `${TEST_DB_PATH}-shm`]) {
     if (fs.existsSync(f)) fs.unlinkSync(f);
   }
