@@ -828,7 +828,7 @@ describe('App — smooth reveal of streamed text', () => {
     );
 
     await openRootChat();
-    const textarea = screen.getByTestId('chat-textarea');
+    const textarea = await screen.findByTestId('chat-textarea');
     textarea.focus();
     fireEvent.change(textarea, { target: { value: 'Question' } });
     fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false });
@@ -888,7 +888,7 @@ describe('App — provider failover note (ADR-0008)', () => {
     );
 
     await openRootChat();
-    const textarea = screen.getByTestId('chat-textarea');
+    const textarea = await screen.findByTestId('chat-textarea');
     // Focus first: the global Enter-to-send listener defers to focused
     // inputs — without focus, jsdom would trigger both send paths.
     textarea.focus();
@@ -934,7 +934,7 @@ describe('App — provider failover note (ADR-0008)', () => {
     );
 
     await openRootChat();
-    const textarea = screen.getByTestId('chat-textarea');
+    const textarea = await screen.findByTestId('chat-textarea');
     textarea.focus();
     fireEvent.change(textarea, { target: { value: 'Weather in Austin?' } });
     fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false });
@@ -985,7 +985,7 @@ describe('App — provider failover note (ADR-0008)', () => {
     );
 
     await openRootChat();
-    const textarea = screen.getByTestId('chat-textarea');
+    const textarea = await screen.findByTestId('chat-textarea');
     textarea.focus();
     fireEvent.change(textarea, { target: { value: 'Weather in Austin?' } });
     fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false });
