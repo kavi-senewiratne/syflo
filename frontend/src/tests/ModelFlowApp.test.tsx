@@ -136,6 +136,9 @@ async function openRootChat() {
   await waitFor(() => expect(screen.getByText('Lease review')).toBeInTheDocument());
   fireEvent.click(screen.getByText('Lease review'));
   await waitFor(() => expect(api.getChat).toHaveBeenCalledWith('c1'));
+  // The request resolving is not the chat being on screen — the slow CI
+  // runners render it a tick later (release runs 2026-11-02/03).
+  await screen.findByTestId('chat-textarea');
 }
 
 async function typeAndSend(text: string) {

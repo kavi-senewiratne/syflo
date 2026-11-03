@@ -593,6 +593,9 @@ describe('App — the way back from a branch lets the mark glow', () => {
     await openVideoChat();
     fireEvent.click(await screen.findByText('Über Features'));
     await waitFor(() => expect(api.getChat).toHaveBeenCalledWith('c2'));
+    // The request resolving is not the chat being on screen — the slow CI
+    // runners render it a tick later (release runs 2026-11-02/03).
+    await screen.findByTestId('chat-textarea');
 
     // Zurück über die Branch-Kopfzeile.
     const backLink = (await screen.findByTestId('branched-from-quote')).querySelector('[role="link"]')!;
@@ -646,6 +649,9 @@ describe('App — the way back from a branch lets the mark glow', () => {
       await openVideoChat();
       fireEvent.click(await screen.findByText('Wie funktionieren Aktivierungen?'));
       await waitFor(() => expect(api.getChat).toHaveBeenCalledWith('c2'));
+      // The request resolving is not the chat being on screen — the slow CI
+      // runners render it a tick later (release runs 2026-11-02/03).
+      await screen.findByTestId('chat-textarea');
 
       const backLink = (await screen.findByTestId('branched-from-quote')).querySelector('[role="link"]')!;
       fireEvent.click(backLink);
@@ -690,6 +696,9 @@ describe('App — the way back from a branch lets the mark glow', () => {
     await screen.findByTestId('video-chapters');
     fireEvent.click(await screen.findByText('Wie funktionieren Aktivierungen?'));
     await waitFor(() => expect(api.getChat).toHaveBeenCalledWith('c2'));
+    // The request resolving is not the chat being on screen — the slow CI
+    // runners render it a tick later (release runs 2026-11-02/03).
+    await screen.findByTestId('chat-textarea');
     await screen.findByTestId('video-chapters');
 
     releaseParent = () => {};

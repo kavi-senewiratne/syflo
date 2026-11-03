@@ -460,6 +460,9 @@ describe('App — Highlight-Flows (Slices 04–06)', () => {
       vi.mocked(api.getChat).mockResolvedValue(linkedDetail);
       fireEvent.click(screen.getByText(/open linked chat/i));
       await waitFor(() => expect(api.getChat).toHaveBeenCalledWith('c9'));
+      // The request resolving is not the chat being on screen — the slow CI
+      // runners render it a tick later (release runs 2026-11-02/03).
+      await screen.findByTestId('chat-textarea');
     });
 
     it('versteckt "Open linked chat" bei unverknüpften Highlights', async () => {
@@ -572,6 +575,9 @@ describe('App — Highlights-Drawer (mockup-highlights-overview.html, Variante A
     // (data-flash-range), nicht mehr die ganze Bubble (Nutzerkorrektur
     // 2026-07-22).
     await waitFor(() => expect(api.getChat).toHaveBeenCalledWith('c2'));
+    // The request resolving is not the chat being on screen — the slow CI
+    // runners render it a tick later (release runs 2026-11-02/03).
+    await screen.findByTestId('chat-textarea');
     await waitFor(() => expect(screen.getByTestId('message-row-mb1')).toBeInTheDocument());
     expect(screen.queryByTestId('highlights-drawer')).not.toBeInTheDocument();
     await waitFor(() =>

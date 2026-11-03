@@ -397,6 +397,9 @@ async function openRootChat() {
   await waitFor(() => expect(screen.getByText('Lease review')).toBeInTheDocument());
   fireEvent.click(screen.getByText('Lease review'));
   await waitFor(() => expect(api.getChat).toHaveBeenCalledWith('c1'));
+  // The request resolving is not the chat being on screen — the slow CI
+  // runners render it a tick later (release runs 2026-11-02/03).
+  await screen.findByTestId('chat-textarea');
 }
 
 async function typeAndSend(text: string) {
@@ -431,6 +434,9 @@ describe('App — queued event patches model chip + ahead-link (§07)', () => {
     );
     fireEvent.click(link);
     await waitFor(() => expect(api.getChat).toHaveBeenCalledWith('c2'));
+    // The request resolving is not the chat being on screen — the slow CI
+    // runners render it a tick later (release runs 2026-11-02/03).
+    await screen.findByTestId('chat-textarea');
   });
 
   it('renders plain text when the current question is in the SAME chat', async () => {

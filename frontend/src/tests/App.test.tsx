@@ -138,6 +138,9 @@ async function openRootChat() {
   await waitFor(() => expect(screen.getByText('Lease review')).toBeInTheDocument());
   fireEvent.click(screen.getByText('Lease review'));
   await waitFor(() => expect(api.getChat).toHaveBeenCalledWith('c1'));
+  // The request resolving is not the chat being on screen — the slow CI
+  // runners render it a tick later (release runs 2026-11-02/03).
+  await screen.findByTestId('chat-textarea');
 }
 
 /** Pick a PDF through the plus menu's "Upload file" entry. */
@@ -197,6 +200,9 @@ describe('App — PDF upload end-to-end (slice 03)', () => {
     await waitFor(() => expect(api.uploadPaper).toHaveBeenCalledWith('c2', second));
     expect(screen.queryByTestId('new-tree-prompt')).not.toBeInTheDocument();
     await waitFor(() => expect(api.getChat).toHaveBeenCalledWith('c2'));
+    // The request resolving is not the chat being on screen — the slow CI
+    // runners render it a tick later (release runs 2026-11-02/03).
+    await screen.findByTestId('chat-textarea');
   });
 
   it('schließt den Dialog bei Cancel, ohne etwas hochzuladen', async () => {
@@ -317,6 +323,9 @@ describe('App — verlassene leere Chats aufräumen (Nutzerkorrektur 2026-07-22)
     // Neuen Chat anlegen, nichts senden, zurück zum bestehenden Chat.
     fireEvent.click(screen.getByLabelText('New Chat'));
     await waitFor(() => expect(api.getChat).toHaveBeenCalledWith('c2'));
+    // The request resolving is not the chat being on screen — the slow CI
+    // runners render it a tick later (release runs 2026-11-02/03).
+    await screen.findByTestId('chat-textarea');
     fireEvent.click(screen.getByText('Lease review'));
 
     await waitFor(() => expect(api.deleteChat).toHaveBeenCalledWith('c2'));
@@ -338,9 +347,15 @@ describe('App — verlassene leere Chats aufräumen (Nutzerkorrektur 2026-07-22)
     // erst über "All chats" zurück zur Liste, dann den anderen Chat öffnen.)
     fireEvent.click(screen.getByText('Lease review'));
     await waitFor(() => expect(api.getChat).toHaveBeenCalledWith('c1'));
+    // The request resolving is not the chat being on screen — the slow CI
+    // runners render it a tick later (release runs 2026-11-02/03).
+    await screen.findByTestId('chat-textarea');
     fireEvent.click(screen.getByText('All chats'));
     fireEvent.click(screen.getByText('New Chat'));
     await waitFor(() => expect(api.getChat).toHaveBeenCalledWith('c2'));
+    // The request resolving is not the chat being on screen — the slow CI
+    // runners render it a tick later (release runs 2026-11-02/03).
+    await screen.findByTestId('chat-textarea');
 
     expect(api.deleteChat).not.toHaveBeenCalled();
   });
@@ -788,6 +803,9 @@ describe('App — anchored retry of the LAST *Failed* marker keeps the question'
     vi.mocked(api.getChat).mockResolvedValue({ ...rootChat, children: [], messages: [q1] });
     fireEvent.click(screen.getAllByText('Lease review')[0]);
     await waitFor(() => expect(api.getChat).toHaveBeenCalledTimes(2));
+    // The request resolving is not the chat being on screen — the slow CI
+    // runners render it a tick later (release runs 2026-11-02/03).
+    await screen.findByTestId('chat-textarea');
 
     await waitFor(() => expect(screen.getByText('Only question')).toBeInTheDocument());
     expect(rowIds()[0]).toBe('message-row-q1');
@@ -1076,6 +1094,9 @@ describe('App — delete a branch from the mind map view', () => {
     await waitFor(() => expect(sidebar().getByText('Rent clause')).toBeInTheDocument());
     fireEvent.click(sidebar().getByText('Rent clause'));
     await waitFor(() => expect(api.getChat).toHaveBeenCalledWith('c2'));
+    // The request resolving is not the chat being on screen — the slow CI
+    // runners render it a tick later (release runs 2026-11-02/03).
+    await screen.findByTestId('chat-textarea');
     fireEvent.click(screen.getByLabelText('Switch to Mind Map'));
     await waitFor(() => expect(screen.getByTestId('mindmap-pane-resizer')).toBeInTheDocument());
   }

@@ -115,6 +115,9 @@ async function openChat(title: string, id: string) {
   await waitFor(() => expect(screen.getByText(title)).toBeInTheDocument());
   fireEvent.click(screen.getByText(title));
   await waitFor(() => expect(api.getChat).toHaveBeenCalledWith(id));
+  // The request resolving is not the chat being on screen — the slow CI
+  // runners render it a tick later (release runs 2026-11-02/03).
+  await screen.findByTestId('chat-textarea');
 }
 
 function typeBranchCommand(topic: string) {

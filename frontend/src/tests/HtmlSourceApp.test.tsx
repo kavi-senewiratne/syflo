@@ -240,6 +240,9 @@ describe('App — adding an HTML source', () => {
     await waitFor(() => expect(screen.getAllByText('Underactuated Lernpfad').length).toBeGreaterThan(0));
     fireEvent.click(screen.getAllByText('Underactuated Lernpfad')[0]);
     await waitFor(() => expect(api.getChat).toHaveBeenCalledWith('c1'));
+    // The request resolving is not the chat being on screen — the slow CI
+    // runners render it a tick later (release runs 2026-11-02/03).
+    await screen.findByTestId('chat-textarea');
   }
 
   const pickFile = (file: File) => {
@@ -309,6 +312,9 @@ describe('App — loading a web page', () => {
     await waitFor(() => expect(screen.getAllByText('Underactuated Lernpfad').length).toBeGreaterThan(0));
     fireEvent.click(screen.getAllByText('Underactuated Lernpfad')[0]);
     await waitFor(() => expect(api.getChat).toHaveBeenCalledWith('c1'));
+    // The request resolving is not the chat being on screen — the slow CI
+    // runners render it a tick later (release runs 2026-11-02/03).
+    await screen.findByTestId('chat-textarea');
   }
 
   const openDialog = () => {
@@ -486,6 +492,9 @@ describe('App — selections and marks through the bridge', () => {
     fromPage(frame, { type: 'highlight-click', id: 'k1', rect: { left: 10, top: 20, width: 40, height: 14 } });
     fireEvent.click(await screen.findByText('Open linked chat'));
     await waitFor(() => expect(api.getChat).toHaveBeenCalledWith('c2'));
+    // The request resolving is not the chat being on screen — the slow CI
+    // runners render it a tick later (release runs 2026-11-02/03).
+    await screen.findByTestId('chat-textarea');
   });
 
   it('a click on a quote in a sent message scrolls the page to the passage', async () => {
