@@ -1,6 +1,6 @@
 {
   "name": "syflo",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Branching research chats over papers, PDFs and videos — local-first, bring your own model keys",
   "license": "MIT",
   "author": "Kavi Senewiratne",
